@@ -71,6 +71,6 @@ def calc_gradb(Theta:np.ndarray, Salt:np.ndarray,
 
     # Normalize by b?
     if norm_by_b:
-        b /= np.mean(b)
+        b /= np.median(b)
 
     return po_utils.calc_grad2(b, dx)
