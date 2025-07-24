@@ -1,0 +1,37 @@
+{
+    "field_size": 64,
+    "fields": [
+        "SST",
+        "SSS",
+        "Divb2"
+    ],
+    "pdicts": {
+        "Divb2": {
+            "dx": 2.25,
+            "field_size": 64,
+            "fixed_km": 144.0
+        },
+        "SSS": {
+            "de_mean": false,
+            "downscale": false,
+            "field_size": 64,
+            "fixed_km": 144.0,
+            "inpaint": false,
+            "median": false,
+            "nrepeat": 1,
+            "only_inpaint": false,
+            "quality_thresh": 2,
+            "smooth_km": 40.0
+        },
+        "SST": {
+            "downscale": false,
+            "field_size": 64,
+            "fixed_km": 144.0,
+            "inpaint": false,
+            "median": false,
+            "nrepeat": 1,
+            "only_inpaint": false,
+            "quality_thresh": 2
+        }
+    }
+}

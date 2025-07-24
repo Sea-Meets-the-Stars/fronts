@@ -1,0 +1,43 @@
+{
+    "balance": {
+        "metric": "logDivb290",
+        "nbins": 20
+    },
+    "dataset": "LLC4320",
+    "field_size": 64,
+    "format": "unet3d",
+    "inputs": {
+        "DivSST2": {
+            "dx": 2.25,
+            "field_size": 64,
+            "fixed_km": 144.0,
+            "de_mean": false,
+            "div2": 2.25
+        },
+        "SSS": {
+            "de_mean": false,
+            "downscale": false,
+            "field_size": 64,
+            "fixed_km": 144.0,
+            "smooth_km": 40.0
+        },
+        "SSTK": {
+            "de_mean": false,
+            "downscale": false,
+            "field_size": 64,
+            "fixed_km": 144.0
+        }
+    },
+    "name": "C",
+    "ntest": 100,
+    "ntrain": 1000,
+    "nvalid": 200,
+    "targets": {
+        "Divb2": {
+            "dx": 2.25,
+            "field_size": 64,
+            "norm_by_b": true,
+            "fixed_km": 144.0
+        }
+    }
+}

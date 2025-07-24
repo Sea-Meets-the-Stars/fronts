@@ -6,7 +6,7 @@ from setuptools import setup, find_packages
 
 # Begin setup
 setup_keywords = dict()
-setup_keywords['name'] = 'fonts'
+setup_keywords['name'] = 'fronts'
 setup_keywords['description'] = 'Fronts in the Ocean'
 setup_keywords['author'] = 'J. Xavier Prochaska, P. Cornillon'
 setup_keywords['author_email'] = 'jxp@ucsc.edu'

@@ -1,0 +1,73 @@
+# AA
+#  Inputs = Div SST, SST, SSS
+#  Targets = Divb2 > 1e-14 + >=90%
+#  Vanila U-Net
+model:
+  name: UNet2D
+  in_channels: 3
+  out_channels: 1
+  layer_order: cr
+  f_maps: [32, 64, 128]
+  final_sigmoid: true
+  is_segmentation: true
+trainer:
+  checkpoint_dir: /home/xavier/Projects/Oceanography/python/fronts/fronts/runs/prototypes/sst_ssh_unet/check_points
+  resume: null
+  pre_trained: null
+  validate_after_iters: 250
+  log_after_iters: 250
+  max_num_epochs: 10000
+  max_num_iterations: 150000
+  eval_score_higher_is_better: True
+optimizer:
+  learning_rate: 0.0002
+  weight_decay: 0.00001
+loss:
+  name: DiceLoss
+  skip_last_target: false
+eval_metric:
+  name: DiceCoefficient
+  use_last_target: true
+lr_scheduler:
+  name: ReduceLROnPlateau
+  mode: max
+  factor: 0.2
+  patience: 30
+loaders:
+  dataset: XHDF5Dataset
+  batch_size: 16
+  num_workers: 8
+  raw_internal_path: inputs
+  label_internal_path: targets
+  train:
+    file_paths:
+      - /home/xavier/Projects/Oceanography/data/OGCM/LLC/Fronts/Training_Sets/LLC4320_SST144_SSS40_trainA.h5
+
+    slice_builder:
+      name: SliceBuilder
+      patch_shape: [1, 64, 64]
+      stride_shape: [1, 64, 64]
+      skip_shape_check: true
+    transformer:
+      raw:
+        - name: ToTensor
+          expand_dims: true
+      label:
+        - name: ToTensor
+          expand_dims: true
+  val:
+    file_paths:
+      - /home/xavier/Projects/Oceanography/data/OGCM/LLC/Fronts/LLC4320_SST144_SSS40_valid.h5
+
+    slice_builder:
+      name: SliceBuilder
+      patch_shape: [1, 64, 64]
+      stride_shape: [1, 64, 64]
+      skip_shape_check: true
+    transformer:
+      raw:
+        - name: ToTensor
+          expand_dims: true
+      label:
+        - name: ToTensor
+          expand_dims: true

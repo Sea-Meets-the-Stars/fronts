@@ -3,8 +3,15 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Figures
+*.png
+
 # C extensions
 *.so
+
+# Tortch
+*.pytorch
+events.out.*
 
 # Distribution / packaging
 .Python
