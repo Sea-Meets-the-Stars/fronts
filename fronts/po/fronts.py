@@ -23,7 +23,7 @@ def anly_cutout(item:tuple, fixed_km:float=None, field_size:int=None,
         item (tuple): Items for analysis
         field_size (int, optional): Field size. Defaults to None.
         dx (float, optional): Grid spacing in km
-        norm_by_b (bool, optional): Normalize by buoyancy. Defaults to False.
+        norm_by_b (bool, optional): Normalize by median buoyancy in the image. Defaults to False.
 
     Returns:
         tuple: int, dict if extract_kin is False
