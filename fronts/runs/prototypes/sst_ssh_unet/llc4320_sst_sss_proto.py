@@ -382,10 +382,10 @@ def main(flg:str):
         #   Targets = Divb2 > 1e-14 + >=90%
         #json_file = 'llc4320_sst144_sss40_tvfileA.json'
         # B: 
-        #   Inputs = Div SST, SST, SSS 
+        #   Inputs = Div SST^2, SSS, SST 
         #   Targets = Divb2 
         # C:
-        #   Inputs = Div SST, SST, SSS 
+        #   Inputs = Div SST^2, SSS, SST 
         #   Targets = Divb2 normalized by <b>
         json_file = 'llc4320_sst144_sss40_tvfileC.json'
         gen_trainvalid(json_file, 'LLC4320_SST144_SSS40', debug=True)
