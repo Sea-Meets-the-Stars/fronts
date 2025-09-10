@@ -12,7 +12,7 @@ except ImportError:
     print("gsw not imported;  cannot do density calculations")
 
 
-def anly_cutout(item:tuple, fixed_km:float=None, field_size:int=None, 
+def gradb2_cutout(item:tuple, fixed_km:float=None, field_size:int=None, 
                 dx:float=None, norm_by_b:bool=False, **kwargs):
     """Simple function to measure front related stats
     for a cutout
@@ -47,6 +47,40 @@ def anly_cutout(item:tuple, fixed_km:float=None, field_size:int=None,
 
     # Return
     return gradb, idx, meta_dict
+
+
+def b_cutout(item:tuple, fixed_km:float=None, field_size:int=None, 
+             ref_rho:float=1025., g=0.0098, **kwargs):
+    """Simple function to grab a density cutout
+    
+    Enables multi-processing
+
+    Args:
+        item (tuple): Items for analysis
+        field_size (int, optional): Field size. Defaults to None.
+
+    Returns:
+        tuple: int, dict if extract_kin is False
+            Otherwise, int, dict, np.ndarray, np.ndarray (F_s, gradb)
+    """
+    # Unpack
+    Theta_cutout, Salt_cutout, idx = item
+    if Theta_cutout is None or Salt_cutout is None:
+        return None, idx, None
+
+    # Calculate
+    rho = density.rho(Salt_cutout, Theta_cutout, np.zeros_like(Salt_cutout))
+    b = g*rho/ref_rho
+
+    # Resize
+    if fixed_km is not None:
+        b = resize_local_mean(b, (field_size, field_size))
+
+    # Meta
+    meta_dict = front_stats.meta_stats(b)
+
+    # Return
+    return b, idx, meta_dict
 
 
 def calc_gradb(Theta:np.ndarray, Salt:np.ndarray,

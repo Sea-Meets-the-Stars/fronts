@@ -3,12 +3,15 @@
 import numpy as np
 
 import pandas
+import xarray
 
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 
-from fronts.llc import io as llc_io
+from wrangler.ogcm import llc as llc_io
+
+#from fronts.llc import io as llc_io
 from fronts.preproc import process
 from fronts.tables import catalog
 from fronts.po import fronts as po_fronts
@@ -42,7 +45,6 @@ def preproc_field(llc_table:pandas.DataFrame,
                   field_size=(64,64), 
                   fixed_km=None,
                   n_cores=10,
-                  dlocal:bool=True,
                   override_RAM=False,
                   test_failures:bool=False,
                   test_process:bool=False,
@@ -66,6 +68,9 @@ def preproc_field(llc_table:pandas.DataFrame,
 
     Returns:
         pandas.DataFrame: Modified in place table
+        success (np.ndarray): Bool array of successful extractions
+        pp_fields (np.ndarray): Pre-processed fields
+        final_meta (pandas.DataFrame): Meta data for each cutout
 
     """
     # Load coords?
@@ -79,7 +84,9 @@ def preproc_field(llc_table:pandas.DataFrame,
     if field in ['SST','SSS','DivSST2','SSTK']:
         map_fn = partial(process.preproc_image, pdict=pdict)
     elif field in ['Divb2']:
-        map_fn = partial(po_fronts.anly_cutout, **pdict)
+        map_fn = partial(po_fronts.gradb2_cutout, **pdict)
+    elif field in ['b']:
+        map_fn = partial(po_fronts.b_cutout, **pdict)
     else:
         raise IOError(f"Not ready for this field {field}")
 
@@ -95,10 +102,10 @@ def preproc_field(llc_table:pandas.DataFrame,
 
     for udate in uni_date:
         # Parse filename
-        filename = llc_io.grab_llc_datafile(udate, local=dlocal)
+        filename = llc_io.grab_llc_datafile(udate)
 
         # 
-        ds = llc_io.load_llc_ds(filename, local=dlocal)
+        ds = xarray.open_dataset(filename)
 
         # Field
         if field in ['SST', 'DivSST2', 'SSTK']:
@@ -107,7 +114,7 @@ def preproc_field(llc_table:pandas.DataFrame,
                 data += 273.15 # Kelvin
         elif field == 'SSS':
             data = ds.Salt.values
-        elif field == 'Divb2':
+        elif field in ['Divb2', 'b']:
             data = ds.Theta.values
             data2 = ds.Salt.values
         else:
@@ -151,7 +158,7 @@ def preproc_field(llc_table:pandas.DataFrame,
             else:
                 fields.append(data[use_r:use_r+dr, use_c:use_c+dc])
             # More?
-            if field == 'Divb2':
+            if field in ['Divb2', 'b']:
                 fields2.append(data2[use_r:use_r+dr, use_c:use_c+dc])
         print("Cutouts loaded for {}".format(filename))
 

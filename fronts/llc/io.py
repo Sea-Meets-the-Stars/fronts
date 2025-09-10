@@ -8,9 +8,6 @@ import xarray as xr
 import pandas
 
 
-from ulmo import io as ulmo_io
-from ulmo.utils import image_utils
-
 from IPython import embed
 
 if os.getenv('LLC_DATA') is not None:
