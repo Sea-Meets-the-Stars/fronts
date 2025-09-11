@@ -387,7 +387,10 @@ def main(flg:str):
         # C:
         #   Inputs = Div SST^2, SSS, SST 
         #   Targets = Divb2 normalized by <b>
-        json_file = 'llc4320_sst144_sss40_tvfileC.json'
+        # D:
+        #   Inputs = Div SST, SSS, SST 
+        #   Targets = Divb, front locations 
+        json_file = 'llc4320_sst144_sss40_tvfileD.json'
         gen_trainvalid(json_file, 'LLC4320_SST144_SSS40', debug=True)
 
     # Examine a set of images
