@@ -672,7 +672,23 @@ class pyBOA:
         return array_copy
 
 
-def front_thresh(array, wndw=64, prcnt=90):    # Alternative more efficient approach using scipy's generic_filter
+def front_thresh(array, wndw=64, prcnt=90):
+    """
+    Identifies regions in the input array that exceed a local percentile threshold.
+    This function computes a local percentile threshold for each element in the input
+    array using a sliding window of specified size. It then compares the array values
+    to the computed threshold to identify regions of interest.
+    Parameters:
+        array (numpy.ndarray): The input 2D array containing the data to be processed.
+        wndw (int, optional): The size of the sliding window used to compute the local
+                              percentile threshold. Default is 64.
+        prcnt (float, optional): The percentile value (0-100) used to compute the threshold.
+                                 Default is 90.
+    Returns:
+        numpy.ndarray: A boolean array of the same shape as the input array, where `True`
+                       indicates that the corresponding element in the input array exceeds
+                       the local percentile threshold, and `False` otherwise.
+    """
 
     def percentile_filter(values):
         valid_values = values[~np.isnan(values)]
@@ -723,6 +739,24 @@ def thinning(in_array, iteration=2, f_dilate=True, min_size=7):
     return array
 
 def cropping(array, min_size=7):
+    """
+    Process a binary array to remove spurs, small objects, and small holes.
+
+    This function performs the following operations on the input binary array:
+    1. Limits all values greater than 1 to 1.
+    2. Removes spurs (small extrusions) from the binary structure.
+    3. Removes connected components smaller than a specified size.
+    4. Fills small holes in the binary structure.
+
+    Args:
+        array (numpy.ndarray): Input binary array to be processed.
+        min_size (int, optional): Minimum size (in pixels) of connected components 
+            to retain. Smaller components will be removed. Defaults to 7.
+
+    Returns:
+        numpy.ndarray: Processed binary array with spurs, small objects, and small 
+        holes removed.
+    """
     frnt = array.copy()
     # spur removal
     frnt[frnt > 1] = 1
@@ -734,3 +768,10 @@ def cropping(array, min_size=7):
     frnt = morphology.remove_small_holes(frnt)
     # 
     return frnt
+
+def fronts_in_divb2(Divb2, wndw:int=40):
+    res_frnt_np = front_thresh(Divb2, wndw=wndw)
+    res_frnt_crop = cropping(res_frnt_np)
+
+    return res_frnt_crop
+
