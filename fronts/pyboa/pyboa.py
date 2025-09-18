@@ -11,7 +11,7 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 from math import pi, floor, ceil
-from scipy.ndimage import sobel, correlate
+from scipy.ndimage import sobel, correlate, generic_filter
 from skimage import morphology
 from scipy.stats import norm
 
@@ -671,90 +671,107 @@ class pyBOA:
 
         return array_copy
 
-# %% __main__
-if __name__ == "__main__":
-    import os
-    from cartopy import crs as ccrs, feature as cfeature
-    from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
-    from matplotlib import pyplot as plt, ticker as mticker
-    from matplotlib.colors import LogNorm
-    from warnings import simplefilter
-    from numpy import array
 
-    simplefilter("ignore", category=RuntimeWarning) # avoid RuntimeWarning: invalid value encountered in log and all NaN slices
-    print(f"\nRunning {os.path.basename(__file__)} ...")
-    PATH_ROOT = os.path.dirname(os.path.abspath(__file__))
-    # Downloading fresh file from Copernicus ############################################################
-    minimum_latitude, maximum_latitude, minimum_longitude, maximum_longitude = -37.24822666266156, -35.664520, 174.4191057667842, 176.18599269342826
-    projection = ccrs.PlateCarree(central_longitude=180)
-    nc_file = os.path.join(PATH_ROOT, "chl_l3_rep_300m_2022_03_15.nc")
+def front_thresh(array, wndw=64, prcnt=90):
+    """
+    Identifies regions in the input array that exceed a local percentile threshold.
+    This function computes a local percentile threshold for each element in the input
+    array using a sliding window of specified size. It then compares the array values
+    to the computed threshold to identify regions of interest.
+    Parameters:
+        array (numpy.ndarray): The input 2D array containing the data to be processed.
+        wndw (int, optional): The size of the sliding window used to compute the local
+                              percentile threshold. Default is 64.
+        prcnt (float, optional): The percentile value (0-100) used to compute the threshold.
+                                 Default is 90.
+    Returns:
+        numpy.ndarray: A boolean array of the same shape as the input array, where `True`
+                       indicates that the corresponding element in the input array exceeds
+                       the local percentile threshold, and `False` otherwise.
+    """
+
+    def percentile_filter(values):
+        valid_values = values[~np.isnan(values)]
+        if len(valid_values) > 0:
+            return np.percentile(valid_values, prcnt)
+        return np.nan
     
-    # pyBOA ############################################################
-    ds = xr.open_dataset(nc_file)
-    boa = ds["CHL"].pyBOA.auto_detection()
-    print("Test passed on dataarray.")
-    # boa2 = ds.pyBOA.auto_detection()
-    # print("Test passed on dataset.")
-    
-    # Visuals ############################################################
-    # Base
-    [minimum_longitude, minimum_latitude, _], [maximum_longitude, maximum_latitude, _] = projection.transform_points(
-        ccrs.PlateCarree(), 
-        array([minimum_longitude, maximum_longitude]), 
-        array([minimum_latitude, maximum_latitude])
-        )
-    fig, mppng = plt.subplots(subplot_kw=dict(projection=projection))
-    mppng.set_extent([minimum_longitude, maximum_longitude, minimum_latitude, maximum_latitude], crs=projection)
-    mppng.add_feature(
-            cfeature.GSHHSFeature(scale="auto"),
-            facecolor="lightgray",
-            edgecolor="black",
-            linewidth=0.5,
-            zorder=10,
-        )
-    grd = mppng.gridlines(
-            crs=ccrs.PlateCarree(),
-            draw_labels=True,
-            linewidth=1,
-            color="black",
-            alpha=0.5,
-            linestyle="dotted",
-            zorder=20,
-        )
-    grd.top_labels = False
-    grd.right_labels = False
-    grd.xformatter = LONGITUDE_FORMATTER
-    grd.yformatter = LATITUDE_FORMATTER
-    grd.xlocator = mticker.MultipleLocator(0.5)
-    grd.ylocator = mticker.MultipleLocator(0.5)
-    
-    raster_1 = mppng.pcolormesh(boa.longitude,
-                              boa.latitude,
-                              boa.squeeze(),
-                              cmap="viridis",
-                              norm=LogNorm(vmin=np.exp(-1), vmax=np.exp(1)),
-                              transform=ccrs.PlateCarree(),
-                              )
-    clrbr = fig.colorbar(
-        raster_1, ax=mppng, aspect=30, pad=0.02, shrink=0.6
-    )  # pad=distance to figure
-    clrbr.set_label("Chlorophyll concentration [mg.m-3]", fontsize=9)
-    clrbr.set_ticks([0.4, 0.6, 1, 2])
-    clrbr.set_ticklabels([0.4, 0.6, 1, 2])
-    mppng.pcolormesh(
-        boa.longitude,
-        boa.latitude,
-        boa["CHL_fronts"].squeeze(),
-        cmap="Reds",
-        vmin=0,
-        vmax=1.3,
-        transform=ccrs.PlateCarree(),
+    # Use scipy's generic_filter for better performance
+    window_qt = generic_filter(
+        array, 
+        percentile_filter, 
+        size=wndw, 
+        mode='constant', 
+        cval=np.nan
     )
-    fig.savefig(
-        os.path.join(PATH_ROOT, "pyBOA_results.png"),
-        dpi=300,
-        bbox_inches="tight",
-        pad_inches=0.1,
-    )
-    # END ############################################################
-    print(f"\nEnd of the program {os.path.basename(__file__)}", "\a")
+    
+    # Apply threshold
+    frnt = array > window_qt
+    
+    return frnt
+
+
+def thinning(in_array, iteration=2, f_dilate=True, min_size=7):
+    array = in_array.copy()
+    for t in range(len(array.time)):
+        frnt = array[t, :, :].squeeze()  # make it work with .sel(time=t)
+        if f_dilate:
+            # dilate
+            frnt = morphology.dilation(frnt)
+        for it in range(iteration):
+            # morphological thining
+            frnt = morphology.thin(frnt)
+            # spur removal
+            frnt[frnt > 1] = 1
+            frnt = spur(frnt, n_iter=1)
+            # clean small object
+            frnt = morphology.remove_small_objects(
+                frnt.astype(bool), min_size=min_size, connectivity=2
+            )
+            # remove small holes
+            frnt = morphology.remove_small_holes(frnt)
+            if it < iteration - 1:
+                # dilate
+                frnt = morphology.dilation(frnt)
+        frnt = morphology.thin(frnt)
+        array[t, :, :] = frnt  # .sel(time=t)
+    # 
+    return array
+
+def cropping(array, min_size=7):
+    """
+    Process a binary array to remove spurs, small objects, and small holes.
+
+    This function performs the following operations on the input binary array:
+    1. Limits all values greater than 1 to 1.
+    2. Removes spurs (small extrusions) from the binary structure.
+    3. Removes connected components smaller than a specified size.
+    4. Fills small holes in the binary structure.
+
+    Args:
+        array (numpy.ndarray): Input binary array to be processed.
+        min_size (int, optional): Minimum size (in pixels) of connected components 
+            to retain. Smaller components will be removed. Defaults to 7.
+
+    Returns:
+        numpy.ndarray: Processed binary array with spurs, small objects, and small 
+        holes removed.
+    """
+    frnt = array.copy()
+    # spur removal
+    frnt[frnt > 1] = 1
+    frnt = spur(frnt, n_iter=1)
+    # clean small object
+    frnt = morphology.remove_small_objects(
+        frnt.astype(bool), min_size=min_size, connectivity=2)
+            # remove small holes
+    frnt = morphology.remove_small_holes(frnt)
+    # 
+    return frnt
+
+def fronts_in_divb2(Divb2, wndw:int=40):
+    res_frnt_np = front_thresh(Divb2, wndw=wndw)
+    res_frnt_crop = cropping(res_frnt_np)
+
+    return res_frnt_crop
+
