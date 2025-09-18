@@ -1,0 +1,15 @@
+#!/usr/bin/env python
+#
+# See top-level LICENSE file for Copyright information
+#
+# -*- coding: utf-8 -*-
+
+"""
+This script grabs LLC data from the internet with xmitgcm
+"""
+
+from fronts.scripts import slurp_llc 
+
+if __name__ == '__main__':
+    args = slurp_llc.parser()
+    slurp_llc.main(args)
