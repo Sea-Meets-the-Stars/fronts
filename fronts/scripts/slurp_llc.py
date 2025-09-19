@@ -201,3 +201,4 @@ def main(pargs):
 
 # ulmo_grab_llc 12 --var Theta,U,V,W,Salt --istart 480
 # fronts_slurpllc 12 --var Theta,U,V,W,Salt,Eta 
+#   Failures = 45 (LLC4320_2011-10-05T12_00_00.nc)
