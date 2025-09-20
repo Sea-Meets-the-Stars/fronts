@@ -10,7 +10,6 @@ from wrangler.ogcm import llc as wr_llc
 from wrangler.tables import utils as tbl_utils
 from wrangler.tables import io as tbl_io
 
-from fronts.llc import table
 from fronts.llc import extract
 from fronts.preproc import process
 from fronts import io as fronts_io
