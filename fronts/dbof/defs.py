@@ -12,3 +12,7 @@ tbl_dmodel = wr_defs.tbl_dmodel.copy()
 tbl_dmodel['required'] = ('lat', 'lon', 'datetime', 'row', 'col', 'UID')
 
 # Add more!
+tbl_dmodel.update({
+    'SSTK': dict(dtype=np.bool,
+                help='Was SSTK successfully extracted?'),
+})

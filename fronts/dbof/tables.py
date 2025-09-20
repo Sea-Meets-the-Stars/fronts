@@ -9,35 +9,9 @@ from wrangler.tables import io as tbl_io
 
 from fronts import io as fronts_io
 from fronts.dbof import defs as dbof_defs
+from fronts.dbof import io as dbof_io
 
 from IPython import embed
-
-def tbl_path(dbof_dict:dict, generate_dir:bool=True):
-    """
-    Constructs the file path for a Parquet table based on the provided dictionary
-    and optionally creates the directory if it does not exist.
-
-    Args:
-        dbof_dict (dict): A dictionary containing table metadata. It must include
-                            the key 'name', which specifies the name of the table.
-        generate_dir (bool, optional): If True, ensures that the directory for the
-                                        table file exists by creating it if necessary.
-                                        Defaults to True.
-
-    Returns:
-        str: The full file path to the Parquet table.
-
-    Raises:
-        KeyError: If the 'name' key is missing from the `dbof_dict`.
-    """
-    tbl_file = os.path.join(
-        dbof_defs.dbof_path,
-        dbof_dict['name'],
-        dbof_dict['name']+'.parquet')
-    #
-    if generate_dir and not os.path.exists(os.path.dirname(tbl_file)):
-        os.makedirs(os.path.dirname(tbl_file))
-    return tbl_file
 
 def generate_table(json_file:str, clobber:bool=False):
     """ Get the show started by sampling uniformly
@@ -56,7 +30,7 @@ def generate_table(json_file:str, clobber:bool=False):
     dbof_dict = fronts_io.loadjson(json_file)
 
     # Outfile
-    tbl_file = tbl_path(dbof_dict, generate_dir=True)
+    tbl_file = dbof_io.tbl_path(dbof_dict, generate_dir=True)
 
     # Clobber?
     if os.path.exists(tbl_file) and not clobber:
@@ -82,25 +56,3 @@ def generate_table(json_file:str, clobber:bool=False):
 
     print(f"Wrote: {tbl_file} with {len(llc_table)} unique cutouts.")
     print("All done with init")
-
-def load_table(json_dict:(str|dict)):
-    """ Load the table from disk
-
-    Args:
-        json_dict (str): Path to JSON file with the parameters or the dict itself
-
-    Returns:
-        pandas.DataFrame: The table
-    """
-
-    # Read the JSON
-    if isinstance(json_dict, str):
-        dbof_dict = fronts_io.loadjson(json_dict)
-    else:
-        dbof_dict = json_dict
-
-    # Load
-    tbl_file = tbl_path(dbof_dict, generate_dir=False)
-    llc_table = tbl_io.load_main_table(tbl_file)
-
-    return llc_table

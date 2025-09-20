@@ -1,6 +1,7 @@
 
 from fronts.dbof import tables
 from fronts.dbof import fields
+from fronts.dbof import io as dbof_io
 
 # DBOF parameter file
 dbof_dev_json_file = 'llc4320_dbof_dev.json'
@@ -8,8 +9,9 @@ dbof_dev_json_file = 'llc4320_dbof_dev.json'
 def build_table(clobber:bool=False):
     tables.generate_table(dbof_dev_json_file, clobber=clobber)
 
-def preproc_sst():
-    fields.preproc_field(dbof_dev_json_file, 'SSTK')
+def preproc_sst(debug:bool=False, clobber:bool=False):
+    fields.preproc_field(dbof_dev_json_file, 'SSTK', debug=debug,
+                         clobber=clobber)
 
 # #######################################################33
 def main(flg:str):
@@ -19,13 +21,13 @@ def main(flg:str):
     if flg == 1:
         build_table(clobber=True)
         # Test read
-        llc_table = tables.load_table(dbof_dev_json_file)
+        llc_table = dbof_io.load_main_table(dbof_dev_json_file)
         print("Successfully read table with {} entries".format(len(llc_table)))
         
 
     # Generate SST
     if flg == 2:
-        preproc_sst()
+        preproc_sst(debug=True, clobber=True)
 
     # Generate the Training, Validation, Test files
     if flg == 3:
