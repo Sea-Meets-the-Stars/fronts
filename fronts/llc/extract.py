@@ -73,6 +73,7 @@ def preproc_field(llc_table:pandas.DataFrame,
         final_meta (pandas.DataFrame): Meta data for each cutout
 
     """
+    raise DeprecationWarning("Use wrangler.extract.ogcm.preproc_datetime() instead")
     # Load coords?
     if fixed_km is not None:
         coords_ds = llc_io.load_coords()
@@ -99,13 +100,23 @@ def preproc_field(llc_table:pandas.DataFrame,
     pp_fields, meta, img_UID, all_UID = [], [], [], []
 
     # Loop
-
     for udate in uni_date:
         # Parse filename
         filename = llc_io.grab_llc_datafile(udate)
 
-        # 
-        ds = xarray.open_dataset(filename)
+        # Data format
+        if zarr_path is not None:
+            ts = pandas.Timestamp(udate)
+            # Convert date into time index
+            dt = ts - t0
+            time = int(dt / pandas.Timedelta(hours=1))
+            # 
+            variable = ds_zarr[aios_ds.variable].isel(time=time,face=face).values
+        else:
+            # Parse filename
+            filename = wr_llc.grab_llc_datafile(udate)
+            ds = xarray.open_dataset(filename)
+            variable = ds[aios_ds.variable].values
 
         # Field
         if field in ['SST', 'DivSST2', 'SSTK']:

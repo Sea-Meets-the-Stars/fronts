@@ -1,17 +1,12 @@
+""" Routines to manage the tables for the DBOF project """
+
 import os
 import numpy as np
-
-import pandas
-import json
-import h5py
-
 
 from wrangler.ogcm import llc as wr_llc
 from wrangler.tables import utils as tbl_utils
 from wrangler.tables import io as tbl_io
 
-from fronts.llc import extract
-from fronts.preproc import process
 from fronts import io as fronts_io
 from fronts.dbof import defs as dbof_defs
 
@@ -74,8 +69,8 @@ def generate_table(json_file:str, clobber:bool=False):
         nperiods=dbof_dict['temporal']['nperiods'],
         resol=dbof_dict['spatial']['resol'],
         minmax_lat=dbof_dict['spatial']['minmax_lat'],
-        field_size=(dbof_dict['spatial']['field_size'], 
-                    dbof_dict['spatial']['field_size']))
+        cutout_size=(dbof_dict['spatial']['cutout_size'], 
+                    dbof_dict['spatial']['cutout_size']))
 
     # Vet
     #embed(header='dbof.tables.generate_table 81')

@@ -1,11 +1,19 @@
 
+import numpy as np
 
+from wrangler.extract import ogcm as wr_ex_ogcm
+from wrangler.ogcm import llc as wr_llc
 
-def preproc(extract_file: str, debug: bool = False):
+from fronts import io as fronts_io
+from fronts.dbof import tables
+
+from IPython import embed
+
+def preproc_field(json_file:str, field:str):
     """
     Preprocesses super-resolution data for SST, SSS, and Divb2 fields.
 
-    This function processes a table of data, extracts specified fields, applies preprocessing
+    This function processes , extracts specified fields, applies preprocessing
     steps, and writes the results to an HDF5 file. It also updates the table with metadata
     and handles preprocessing failures.
 
@@ -30,21 +38,50 @@ def preproc(extract_file: str, debug: bool = False):
         - An updated table with metadata and preprocessing status.
     """
 
-    outfile = super_preproc_file 
+    # Read the JSON
+    dbof_dict = fronts_io.loadjson(json_file)
+    if field not in dbof_dict['fields'].keys():
+        raise IOError(f"Field {field} not in {json_file}")
 
-    # Load the table
-    llc_table = pandas.read_parquet(super_tbl_file)
+    # Load the full table
+    llc_table = tables.load_table(dbof_dict)
 
-    # Debug?
-    if debug:
-        llc_table = llc_table.iloc[:100].copy()
-        outfile = os.path.join(local_out_path, 'LLC4320_SST144_SSS40_super_test.h5')
+    # Setup for dates
+    uni_dates = np.unique(llc_table.datetime)
+
+    # Load up coords
+    coords_ds = wr_llc.load_coords()
+
+    # Modify the pdicts to include cutout_size
+    dbof_dict['fields'][field]['pdict']['cutout_size'] = dbof_dict['spatial']['cutout_size']
+    
+
+    # Loop over unique dates
+    for udate in uni_dates:
+        # Cut down the table
+        date_table = llc_table[llc_table.datetime == udate].copy()
+        print(f"Processing {udate} with {len(date_table)} cutouts")
+
+        # Do it
+        success, pp_fields, final_meta, filename = wr_ex_ogcm.preproc_datetime(
+            date_table, field, udate, dbof_dict['fields'][field]['pdict'],
+            #field_size=(dbof_dict['spatial']['cutout_size'], dbof_dict['spatial']['cutout_size']),
+            fixed_km=dbof_dict['spatial']['fixed_km'],
+            n_cores=10,
+            coords_ds=coords_ds,
+            test_failures=False,
+            test_process=False,
+            debug=False)
+
+        embed(header='73 of fronts.dbof.fields.py')
+    
 
     # Extract dict
     # Load JSON
     #with open(preproc_file, 'r') as infile:
     #    preproc_dict = json.load(infile)
 
+def old_stuff():
 
     #extract_dict = {'fields': ['SSS'],
     #extract_dict = {'fields': ['Divb2'],

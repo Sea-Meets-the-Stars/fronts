@@ -2,20 +2,29 @@
     "name": "DBOF_dev",
     "model": "LLC4320",
     "spatial": {
-        "field_size": 64,
+        "cutout_size": 64,
         "resol": 0.5,
         "fixed_km": 144.0,
         "minmax_lat": [-90.0, 57.0]
     },
     "temporal": {
         "init_date": "2011-09-13",
-        "freq": "2M",
+        "freq": "2ME",
         "nperiods": 6
     },
     "fields": {
         "SSTK": {
-            "type": "SST",
-            "de_mean": false
+            "desc": "SST in Kelvin at full resolution, modulo resizing",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "median": false,
+                "de_mean": false
+            },
+            "meta": {
+                "stats": true
+            }
         }
     }
 }
