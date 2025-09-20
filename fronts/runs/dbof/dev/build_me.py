@@ -14,6 +14,10 @@ def main(flg:str):
     # Generate the LLC Table
     if flg == 1:
         build_table()
+        # Test read
+        llc_table = tables.load_table(dbof_dev_json_file)
+        print("Successfully read table with {} entries".format(len(llc_table)))
+        
 
     # Generate the Super Preproc File
     if flg == 2:
@@ -47,6 +51,7 @@ if __name__ == '__main__':
     import sys
 
     if len(sys.argv) == 1:
+        flg = 0
 
         #flg = 1 # Generate super table
         #flg = 2 # Preproc super table
