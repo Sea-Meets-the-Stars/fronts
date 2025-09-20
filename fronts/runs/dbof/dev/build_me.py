@@ -1,0 +1,56 @@
+
+def build_table():
+    pass
+
+# #######################################################33
+def main(flg:str):
+    flg= int(flg)
+    dbof_dev_json_file = 'llc4320_dbof_dev.json'
+
+    # Generate the LLC Table
+    if flg == 1:
+        build_table(dbof_dev_json_file)
+
+    # Generate the Super Preproc File
+    if flg == 2:
+        #preproc_super('dummy_file.json', debug=True)
+        preproc_super(json_file)
+
+    # Generate the Training, Validation, Test files
+    if flg == 3:
+        # A: 
+        #   Inputs = Div SST, SST, SSS 
+        #   Targets = Divb2 > 1e-14 + >=90%
+        #json_file = 'llc4320_sst144_sss40_tvfileA.json'
+        # B: 
+        #   Inputs = Div SST^2, SSS, SST 
+        #   Targets = Divb2 
+        # C:
+        #   Inputs = Div SST^2, SSS, SST 
+        #   Targets = Divb2 normalized by <b>
+        # D:
+        #   Inputs = Div SST, SSS, SST, SSH 
+        #   Targets = Divb, front locations 
+        json_file = 'llc4320_sst144_sss40_tvfileD.json'
+        gen_trainvalid(json_file, 'LLC4320_SST144_SSS40_SSH15', debug=True)
+
+    # Examine a set of images
+    if flg == 10:
+        gallery()
+
+# Command line execution
+if __name__ == '__main__':
+    import sys
+
+    if len(sys.argv) == 1:
+
+        flg = 1 # Generate super table
+        flg = 2 # Preproc super table
+
+        #flg += 2 ** 1  # 2 -- Extract
+        #flg += 2 ** 2  # 4 -- Evaluate (with noise)
+        #flg += 2 ** 3  # 8 -- Evaluate (without noise)
+    else:
+        flg = sys.argv[1]
+
+    main(flg)

@@ -26,6 +26,13 @@
             "downscale": false,
             "field_size": 64,
             "fixed_km": 144.0
+        },
+        "SSH": {
+            "de_mean": false,
+            "downscale": false,
+            "field_size": 64,
+            "fixed_km": 144.0,
+            "smooth_km": 15.0
         }
     },
     "name": "D",

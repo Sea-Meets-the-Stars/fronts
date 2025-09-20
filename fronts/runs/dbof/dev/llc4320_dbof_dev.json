@@ -1,0 +1,21 @@
+{
+    "name": "DBOF_dev",
+    "model": "LLC4320",
+    "spatial": {
+        "field_size": 64,
+        "resol": 0.5,
+        "fixed_km": 144.0,
+        "minmax_lat": [-90.0, 57.0]
+    },
+    "temporal": {
+        "init_date": "2011-09-13",
+        "freq": "2M",
+        "nperiod": 6
+    },
+    "fields": {
+        "SSTK": {
+            "type": "SST",
+            "de_mean": false
+        }
+    }
+}

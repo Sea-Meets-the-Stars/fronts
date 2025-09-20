@@ -44,7 +44,8 @@ def find_em(h5_file:str, outfile:str, targ_idx:int=0,
         f2.create_dataset('fronts', data=all_fronts, compression='gzip')
     print(f'Wrote {outfile}')
 
-def gen_fits(div_file:str, front_file:str, fig_root:str,
+
+def gen_figs(div_file:str, front_file:str, fig_root:str,
              nsample:int=99, sst_idx:int=2,
              targ_idx:int=0):
 
@@ -114,4 +115,4 @@ if __name__ == "__main__":
         find_em(b_file, b_out, targ_idx=0, clobber=False)#, debug=True)
 
         # Make figures
-        gen_fits(b_file, b_out, 'fronts_B', nsample=99)
+        gen_figs(b_file, b_out, 'fronts_B', nsample=99)

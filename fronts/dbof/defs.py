@@ -1,0 +1,13 @@
+""" Define data model for DBOF tables, building on wrangler.tbl_dmodel"""
+
+import os
+import numpy as np
+import pandas
+
+dbof_path = os.getenv('DBOF_PATH')
+
+from wrangler import defs as wr_defs
+
+tbl_dmodel = wr_defs.tbl_dmodel.copy()
+
+# Add more!
