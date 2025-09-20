@@ -53,6 +53,7 @@ if __name__ == '__main__':
         #flg += 2 ** 1  # 2 -- Extract
         #flg += 2 ** 2  # 4 -- Evaluate (with noise)
         #flg += 2 ** 3  # 8 -- Evaluate (without noise)
+        pass
     else:
         flg = sys.argv[1]
 
