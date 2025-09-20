@@ -1,15 +1,18 @@
 
+from fronts.dbof import tables
+
+dbof_dev_json_file = 'llc4320_dbof_dev.json'
+
 def build_table():
-    pass
+    tables.generate_table(dbof_dev_json_file) 
 
 # #######################################################33
 def main(flg:str):
     flg= int(flg)
-    dbof_dev_json_file = 'llc4320_dbof_dev.json'
 
     # Generate the LLC Table
     if flg == 1:
-        build_table(dbof_dev_json_file)
+        build_table()
 
     # Generate the Super Preproc File
     if flg == 2:
@@ -44,8 +47,8 @@ if __name__ == '__main__':
 
     if len(sys.argv) == 1:
 
-        flg = 1 # Generate super table
-        flg = 2 # Preproc super table
+        #flg = 1 # Generate super table
+        #flg = 2 # Preproc super table
 
         #flg += 2 ** 1  # 2 -- Extract
         #flg += 2 ** 2  # 4 -- Evaluate (with noise)

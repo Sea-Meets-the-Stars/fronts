@@ -24,7 +24,7 @@ def tbl_path(dbof_dict:dict):
         dbof_dict['name'],
         dbof_dict['name']+'.parquet')
 
-def generate_table(json_file:str, debug=False, plot=False):
+def generate_table(json_file:str):
     """ Get the show started by sampling uniformly
     in space and and time
 
@@ -32,8 +32,6 @@ def generate_table(json_file:str, debug=False, plot=False):
 
     Args:
         json_file (str): Path to JSON file with the parameters
-        debug (bool, optional): _description_. Defaults to True.
-        plot (bool, optional): Plot the spatial distribution?
     """
 
     # Read the JSON
