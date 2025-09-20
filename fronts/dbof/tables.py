@@ -46,6 +46,7 @@ def generate_table(json_file:str):
                     dbof_dict['spatial']['field_size']))
 
     # Vet
+    embed(header='dbof.tables.generate_table 94')
     assert tbl_utils.vet_main_table(llc_table,
                                     data_model=dbof_defs.tbl_dmodel)
     tbl_file = tbl_path(dbof_dict)
