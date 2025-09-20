@@ -27,18 +27,29 @@ def tbl_path(dbof_dict:dict, generate_dir:bool=True):
         os.makedirs(os.path.dirname(tbl_file))
     return tbl_file
 
-def generate_table(json_file:str):
+def generate_table(json_file:str, clobber:bool=False):
     """ Get the show started by sampling uniformly
     in space and and time
 
     This is primariliy a wrapper for wr_llc.build_table
 
+    The table is written to disk at completion
+
     Args:
         json_file (str): Path to JSON file with the parameters
+        clobber (bool, optional):
     """
 
     # Read the JSON
     dbof_dict = fronts_io.loadjson(json_file)
+
+    # Outfile
+    tbl_file = tbl_path(dbof_dict, generate_dir=True)
+
+    # Clobber?
+    if os.path.exists(tbl_file) and not clobber:
+        print(f"{tbl_file} exists.  Use clobber=True to overwrite")
+        return
 
     # Do it
     llc_table = wr_llc.build_table(dbof_dict['temporal']['freq'],

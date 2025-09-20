@@ -1,6 +1,7 @@
 
 from fronts.dbof import tables
 
+# DBOF parameter file
 dbof_dev_json_file = 'llc4320_dbof_dev.json'
 
 def build_table():
