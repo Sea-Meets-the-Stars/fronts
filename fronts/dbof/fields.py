@@ -123,7 +123,9 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         
     f.close()
 
-    embed(header='125 of fronts.dbof.fields.py')
+    if debug:
+        embed(header='127 of fronts.dbof.fields.py')
+
     # Write table
     assert tbl_utils.vet_main_table(llc_table,
                                   data_model=dbof_defs.tbl_dmodel)

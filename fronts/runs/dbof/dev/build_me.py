@@ -19,7 +19,7 @@ def main(flg:str):
 
     # Generate the LLC Table
     if flg == 1:
-        build_table(clobber=True)
+        build_table()#clobber=True)
         # Test read
         llc_table = dbof_io.load_main_table(dbof_dev_json_file)
         print("Successfully read table with {} entries".format(len(llc_table)))
@@ -27,7 +27,7 @@ def main(flg:str):
 
     # Generate SST
     if flg == 2:
-        preproc_sst(debug=True, clobber=True)
+        preproc_sst()#debug=True, clobber=True)
 
     # Generate the Training, Validation, Test files
     if flg == 3:
