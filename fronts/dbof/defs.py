@@ -9,5 +9,6 @@ dbof_path = os.getenv('DBOF_PATH')
 from wrangler import defs as wr_defs
 
 tbl_dmodel = wr_defs.tbl_dmodel.copy()
+tbl_dmodel['required'] = ('lat', 'lon', 'datetime', 'row', 'col', 'UID')
 
 # Add more!

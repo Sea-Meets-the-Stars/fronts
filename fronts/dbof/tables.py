@@ -17,11 +17,15 @@ from fronts.dbof import defs as dbof_defs
 
 from IPython import embed
 
-def tbl_path(dbof_dict:dict):
-    return os.path.join(
+def tbl_path(dbof_dict:dict, generate_dir:bool=True):
+    tbl_file = os.path.join(
         dbof_defs.dbof_path,
         dbof_dict['name'],
         dbof_dict['name']+'.parquet')
+    #
+    if generate_dir and not os.path.exists(os.path.dirname(tbl_file)):
+        os.makedirs(os.path.dirname(tbl_file))
+    return tbl_file
 
 def generate_table(json_file:str):
     """ Get the show started by sampling uniformly
@@ -49,7 +53,9 @@ def generate_table(json_file:str):
     embed(header='dbof.tables.generate_table 94')
     assert tbl_utils.vet_main_table(llc_table,
                                     data_model=dbof_defs.tbl_dmodel)
-    tbl_file = tbl_path(dbof_dict)
+
+    # Write
+    tbl_file = tbl_path(dbof_dict, generate_dir=True)
     tbl_io.write_main_table(llc_table, tbl_file)
 
     print(f"Wrote: {tbl_file} with {len(llc_table)} unique cutouts.")
