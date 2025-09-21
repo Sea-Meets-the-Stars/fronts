@@ -26,6 +26,20 @@
                 "stats": true
             }
         },
+        "Divb2": {
+            "desc": "|Div b|^2 in 1/s^2, native resolution",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "median": false,
+                "de_mean": false,
+                "dx": 2.25
+            },
+            "meta": {
+                "stats": true
+            }
+        },
         "SSSs": {
             "desc": "SSS in psu, smoothed to sattelite resolution",
             "pdict": {
