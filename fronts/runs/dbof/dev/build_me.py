@@ -18,6 +18,7 @@ def preproc_all(debug:bool=False, clobber:bool=False):
 
     dbof_dict = fronts_io.loadjson(dbof_dev_json_file)
     for field in dbof_dict['fields']:
+        print("Preprocessing field: {}".format(field))
         fields.preproc_field(dbof_dev_json_file, field, debug=debug,
                          clobber=clobber)
 
