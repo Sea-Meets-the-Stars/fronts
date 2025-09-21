@@ -25,6 +25,20 @@
             "meta": {
                 "stats": true
             }
+        },
+        "SSSs": {
+            "desc": "SSS in psu, smoothed to sattelite resolution",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "smooth_km": 40.0, 
+                "median": false,
+                "de_mean": false
+            },
+            "meta": {
+                "stats": true
+            }
         }
     }
 }
