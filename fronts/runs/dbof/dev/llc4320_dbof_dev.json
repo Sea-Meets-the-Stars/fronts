@@ -40,6 +40,19 @@
                 "stats": true
             }
         },
+        "SSS": {
+            "desc": "SSS in psu, nativ resolution",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "median": false,
+                "de_mean": false
+            },
+            "meta": {
+                "stats": true
+            }
+        },
         "SSSs": {
             "desc": "SSS in psu, smoothed to sattelite resolution",
             "pdict": {
