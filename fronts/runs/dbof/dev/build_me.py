@@ -2,6 +2,7 @@
 from fronts.dbof import tables
 from fronts.dbof import fields
 from fronts.dbof import io as dbof_io
+from fronts import io as fronts_io
 
 # DBOF parameter file
 dbof_dev_json_file = 'llc4320_dbof_dev.json'
@@ -12,6 +13,14 @@ def build_table(clobber:bool=False):
 def preproc_sst(debug:bool=False, clobber:bool=False):
     fields.preproc_field(dbof_dev_json_file, 'SSTK', debug=debug,
                          clobber=clobber)
+
+def preproc_all(debug:bool=False, clobber:bool=False):
+
+    dbof_dict = fronts_io.loadjson(dbof_dev_json_file)
+    for field in dbof_dict['fields']:
+        fields.preproc_field(dbof_dev_json_file, field, debug=debug,
+                         clobber=clobber)
+
 
 # #######################################################33
 def main(flg:str):
@@ -29,23 +38,9 @@ def main(flg:str):
     if flg == 2:
         preproc_sst()#debug=True, clobber=True)
 
-    # Generate the Training, Validation, Test files
+    # Generate all fields
     if flg == 3:
-        # A: 
-        #   Inputs = Div SST, SST, SSS 
-        #   Targets = Divb2 > 1e-14 + >=90%
-        #json_file = 'llc4320_sst144_sss40_tvfileA.json'
-        # B: 
-        #   Inputs = Div SST^2, SSS, SST 
-        #   Targets = Divb2 
-        # C:
-        #   Inputs = Div SST^2, SSS, SST 
-        #   Targets = Divb2 normalized by <b>
-        # D:
-        #   Inputs = Div SST, SSS, SST, SSH 
-        #   Targets = Divb, front locations 
-        json_file = 'llc4320_sst144_sss40_tvfileD.json'
-        gen_trainvalid(json_file, 'LLC4320_SST144_SSS40_SSH15', debug=True)
+        preproc_all()#debug=True, clobber=True)
 
     # Examine a set of images
     if flg == 10:

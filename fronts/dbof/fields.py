@@ -11,7 +11,6 @@ from wrangler.tables import io as tbl_io
 from wrangler.tables import utils as tbl_utils
 
 from fronts import io as fronts_io
-from fronts.dbof import tables
 from fronts.dbof import io as dbof_io
 from fronts.dbof import defs as dbof_defs
 
