@@ -13,8 +13,12 @@ tbl_dmodel['required'] = ('lat', 'lon', 'datetime', 'row', 'col', 'UID')
 
 # Add more!
 tbl_dmodel.update({
-    'SSSs': dict(dtype=np.bool,
+    'Divb2': dict(dtype=np.bool,
+                help='Was Divb2 (div of buoyancy, squared) successfully extracted?'),
+    'SSS': dict(dtype=np.bool,
                 help='Was SSSs successfully extracted?'),
+    'SSSs': dict(dtype=np.bool,
+                help='Was SSS (smoothed SSS) successfully extracted?'),
     'SSTK': dict(dtype=np.bool,
                 help='Was SSTK successfully extracted?'),
 })
