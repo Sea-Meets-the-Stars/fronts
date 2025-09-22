@@ -39,6 +39,7 @@ def generate_table(json_file:str, clobber:bool=False):
 
     # Do it
     llc_table = wr_llc.build_table(dbof_dict['temporal']['freq'],
+        sampling=dbof_dict['spatial']['sampling'],
         init_date=dbof_dict['temporal']['init_date'],
         nperiods=dbof_dict['temporal']['nperiods'],
         resol=dbof_dict['spatial']['resol'],

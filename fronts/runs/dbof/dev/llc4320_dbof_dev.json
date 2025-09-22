@@ -2,6 +2,7 @@
     "name": "DBOF_dev",
     "model": "LLC4320",
     "spatial": {
+        "sampling": "uniform",
         "cutout_size": 64,
         "resol": 0.5,
         "fixed_km": 144.0,
