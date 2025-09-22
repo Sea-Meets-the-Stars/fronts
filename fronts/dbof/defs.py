@@ -15,8 +15,10 @@ tbl_dmodel['required'] = ('lat', 'lon', 'datetime', 'row', 'col', 'UID')
 tbl_dmodel.update({
     'Divb2': dict(dtype=np.bool,
                 help='Was Divb2 (div of buoyancy, squared) successfully extracted?'),
+    'SSH': dict(dtype=np.bool,
+                help='Was SSH successfully extracted?'),
     'SSS': dict(dtype=np.bool,
-                help='Was SSSs successfully extracted?'),
+                help='Was SSS successfully extracted?'),
     'SSSs': dict(dtype=np.bool,
                 help='Was SSS (smoothed SSS) successfully extracted?'),
     'SSTK': dict(dtype=np.bool,

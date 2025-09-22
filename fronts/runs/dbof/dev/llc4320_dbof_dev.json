@@ -40,8 +40,21 @@
                 "stats": true
             }
         },
+        "SSH": {
+            "desc": "SSH in ??, native resolution",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "median": false,
+                "de_mean": false
+            },
+            "meta": {
+                "stats": true
+            }
+        },
         "SSS": {
-            "desc": "SSS in psu, nativ resolution",
+            "desc": "SSS in psu, native resolution",
             "pdict": {
                 "resize": true,
                 "downscale": false,
