@@ -72,24 +72,41 @@ def tbl_path(dbof_dict:dict, generate_dir:bool=True):
         os.makedirs(os.path.dirname(tbl_file))
     return tbl_file
 
-def load_main_table(json_dict:(str|dict)):
+def load_main_table(dbof_json_dict:(str|dict)):
     """ Load the table from disk
 
     Args:
-        json_dict (str): Path to JSON file with the parameters or the dict itself
+        dbof_json_dict (str): Path to JSON file with the parameters or the dict itself
 
     Returns:
         pandas.DataFrame: The table
     """
 
     # Read the JSON
-    if isinstance(json_dict, str):
-        dbof_dict = fronts_io.loadjson(json_dict)
-    else:
-        dbof_dict = json_dict
+    dbof_dict = fronts_io.loadjson(dbof_json_dict) if isinstance(dbof_json_dict, str) else dbof_json_dict
 
     # Load
     tbl_file = tbl_path(dbof_dict, generate_dir=False)
     llc_table = tbl_io.load_main_table(tbl_file)
 
     return llc_table
+
+def load_meta_table(dbof_json_dict:(str|dict), field:str):
+    """ Load the meta table from disk
+
+    Args:
+        json_dict (str): Path to JSON file with the parameters or the dict itself
+        field (str): Field name
+
+    Returns:
+        pandas.DataFrame: The table
+    """
+
+    # Read the JSON
+    dbof_dict = fronts_io.loadjson(dbof_json_dict) if isinstance(dbof_json_dict, str) else dbof_json_dict
+
+    # Load
+    meta_tbl_file = field_path(field, dbof_dict, meta=True)
+    meta_table = tbl_io.load_main_table(meta_tbl_file)
+
+    return meta_table

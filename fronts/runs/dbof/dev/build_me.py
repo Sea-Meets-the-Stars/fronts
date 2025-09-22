@@ -3,6 +3,7 @@ from fronts.dbof import tables
 from fronts.dbof import fields
 from fronts.dbof import io as dbof_io
 from fronts import io as fronts_io
+from fronts.train import tables as ttables
 
 # DBOF parameter file
 dbof_dev_json_file = 'llc4320_dbof_dev.json'
@@ -22,6 +23,10 @@ def preproc_all(debug:bool=False, clobber:bool=False):
         fields.preproc_field(dbof_dev_json_file, field, debug=debug,
                          clobber=clobber)
 
+def test_for_jake(debug:bool=False):
+    ttables.dbof_gen_tvt(dbof_dev_json_file,
+                         'DBOF_train_config_jake_test.json')
+    
 
 # #######################################################33
 def main(flg:str):
@@ -43,9 +48,9 @@ def main(flg:str):
     if flg == 3:
         preproc_all()#debug=True, clobber=True)
 
-    # Examine a set of images
-    if flg == 10:
-        gallery()
+    # Test set for Jake
+    if flg == 4:
+        test_for_jake()
 
 # Command line execution
 if __name__ == '__main__':
