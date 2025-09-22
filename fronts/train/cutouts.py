@@ -4,24 +4,20 @@ import pandas
 import numpy as np
 import h5py
 
+from wrangler import utils as wr_utils
+
 from fronts import io as fronts_io
 from fronts.dbof import io as dbof_io
 
-def create_train_set(dbof_json_file:str, config_file:str, 
-                     train_tbl:pandas.DataFrame,
-                     outfile:str,
-                     valid_tbl:pandas.DataFrame=None,
-                     test_tbl:pandas.DataFrame=None,
-                     clobber:bool=False):
+def create_hdf5_cutouts(dbof_json_file:str, config_file:str, 
+                     tbl:pandas.DataFrame, outfile:str, clobber:bool=False):
     """ Create the train, valid, test sets
 
     Args:
         dbof_json_file (str): Path to JSON file with the parameters
         config_file (str): Path to JSON file with the configuration parameters
-        train_tbl (pandas.DataFrame): The training table
+        tbl (pandas.DataFrame): The training table
         outfile (str): Path to output file
-        valid_tbl (pandas.DataFrame): The validation table
-        test_tbl (pandas.DataFrame): The test table
 
     Returns:
         None
@@ -36,19 +32,9 @@ def create_train_set(dbof_json_file:str, config_file:str,
     if os.path.exists(outfile) and not clobber:
         print(f"{outfile} exists.  Use clobber=True to overwrite")
         return
+
     f = h5py.File(outfile, 'w')
-
-    # Train partition
-    print("Working on the train partition")
     
-    f.close()
-    print(f"Wrote: {outfile}")
-
-    # Create a meta table too
-
-def create_hdf5_dataset(f:h5py.File, tbl:pandas.DataFrame, partition:str,
-                        dbof_dict:dict, config:dict):
-
     # Inputs
     input_fields = list(config['inputs'].keys())
 
@@ -64,8 +50,29 @@ def create_hdf5_dataset(f:h5py.File, tbl:pandas.DataFrame, partition:str,
         print(f"Working on input field: {field}")
         field_file = dbof_io.field_path(field, dbof_dict, generate_dir=False)
 
-        # Load up the cutouts
-        with h5py.File(field_file, 'r') as gf:
-            for ss, uid in enumerate(tbl.UID.values):
-                input_cutouts[ss, ii, :, :] = gf[uid][:]
+        # Index me
+        idx_of_meta = wr_utils.match_ids(tbl.UID.values, meta_tbl.UID.values, require_in_match=True)
 
+
+        # Load up the cutouts
+        fc = h5py.File(field_file, 'r')
+
+        # Loop on date (groups)
+        ugroup = np.unique(meta_tbl.group.values[idx_of_meta])
+        for group in ugroup:
+            print(f"  Working on group: {group}")
+            gf = fc[group]
+            gidx = (meta_tbl.group.values[idx_of_meta] == group)
+            tbl_idx = idx_of_meta[gidx]
+            # Grab em
+            cutouts = gf['cutouts'][meta_tbl.tidx.values[idx_of_meta[gidx]], ...]
+
+    # Dataset
+    dset = f.create_dataset('input', data=input_cutouts)
+
+
+    # Write inputs
+
+    # Finish
+    f.close()
+    print(f"Wrote: {outfile} with {len(tbl)} cutouts")
