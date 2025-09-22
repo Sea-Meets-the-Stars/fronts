@@ -39,10 +39,12 @@ def create_train_set(dbof_json_file:str, config_file:str,
     f = h5py.File(outfile, 'w')
 
     # Train partition
-    print("Working on the train partition") 
+    print("Working on the train partition")
     
     f.close()
     print(f"Wrote: {outfile}")
+
+    # Create a meta table too
 
 def create_hdf5_dataset(f:h5py.File, tbl:pandas.DataFrame, partition:str,
                         dbof_dict:dict, config:dict):

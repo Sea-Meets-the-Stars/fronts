@@ -3,6 +3,8 @@ import numpy as np
 
 import pandas
 
+from wrangler import utils as wr_utils
+
 from fronts import io as fronts_io
 from fronts.dbof import io as dbof_io
 
@@ -72,6 +74,12 @@ def dbof_gen_tvt(dbof_json_file:str, config_file:str):
         if 'log_metric' in config['sampling'] and config['sampling']['log_metric']:
             vals = np.log10(vals)
 
+        # Add vals to super_tbl
+        idx = wr_utils.match_ids(super_tbl.index.values, meta_tbl.tidx.values, require_in_match=True)
+        key = f'{config['sampling']['field']}_{metric}'
+        super_tbl[key] = vals[idx]
+
+
         # Histogram
         nbins = config['sampling']['nbins']
         bins = np.linspace(vals.min(), vals.max(), nbins+1)
@@ -117,6 +125,7 @@ def dbof_gen_tvt(dbof_json_file:str, config_file:str):
         final_train = super_tbl.index.values[super_tbl.UID.isin(meta_tbl.UID.values[final_train])].copy()
         final_valid = super_tbl.index.values[super_tbl.UID.isin(meta_tbl.UID.values[final_valid])].copy()
         final_test = super_tbl.index.values[super_tbl.UID.isin(meta_tbl.UID.values[final_test])].copy()
+
     elif config['sampling']['type'] == 'random': 
         ridx = np.random.choice(super_tbl.index.values, ntot, replace=False)
         final_train = ridx[:config['ntrain']]
