@@ -109,6 +109,8 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         imeta['tidx'] = date_table.index.values
         # And UID
         imeta['UID'] = date_table.UID.values
+        # And sdate
+        imeta['group'] = sdate
         
         # Write meta too
         all_meta.append(imeta.iloc[success])
