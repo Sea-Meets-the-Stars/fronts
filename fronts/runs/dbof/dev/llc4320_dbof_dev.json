@@ -13,6 +13,32 @@
         "nperiods": 6
     },
     "fields": {
+        "U": {
+            "desc": "U in m/s at full resolution, modulo resizing",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "median": false,
+                "de_mean": false
+            },
+            "meta": {
+                "stats": true
+            }
+        },
+        "V": {
+            "desc": "V in m/s at full resolution, modulo resizing",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "median": false,
+                "de_mean": false
+            },
+            "meta": {
+                "stats": true
+            }
+        },
         "SSTK": {
             "desc": "SST in Kelvin at full resolution, modulo resizing",
             "pdict": {
