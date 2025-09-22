@@ -26,20 +26,6 @@
                 "stats": true
             }
         },
-        "Divb2": {
-            "desc": "|Div b|^2 in 1/s^2, native resolution",
-            "pdict": {
-                "resize": true,
-                "downscale": false,
-                "inpaint": false,
-                "median": false,
-                "de_mean": false,
-                "dx": 2.25
-            },
-            "meta": {
-                "stats": true
-            }
-        },
         "SSH": {
             "desc": "SSH in ??, native resolution",
             "pdict": {
@@ -75,6 +61,34 @@
                 "smooth_km": 40.0, 
                 "median": false,
                 "de_mean": false
+            },
+            "meta": {
+                "stats": true
+            }
+        },
+        "Fs": {
+            "desc": "Frontogenesis tendency in 1/s^2, native resolution",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "median": false,
+                "de_mean": false,
+                "dx": 2.25
+            },
+            "meta": {
+                "stats": true
+            }
+        },
+        "Divb2": {
+            "desc": "|Div b|^2 in 1/s^2, native resolution",
+            "pdict": {
+                "resize": true,
+                "downscale": false,
+                "inpaint": false,
+                "median": false,
+                "de_mean": false,
+                "dx": 2.25
             },
             "meta": {
                 "stats": true
