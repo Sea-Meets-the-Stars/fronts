@@ -1,6 +1,7 @@
 {
     "name": "DBOF_dev",
     "model": "LLC4320",
+    "version": "0.2",
     "spatial": {
         "sampling": "uniform",
         "cutout_size": 64,

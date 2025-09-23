@@ -31,7 +31,6 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
     dbof_dict = fronts_io.loadjson(dbof_json_file)
     config = fronts_io.loadjson(config_file)
 
-
     # Open the file
     if os.path.exists(outfile) and not clobber:
         print(f"{outfile} exists.  Use clobber=True to overwrite")
@@ -82,8 +81,12 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
         # Dataset
         #embed(header='Creating dataset 81 ')
         dset = f.create_dataset(partition, data=cutouts)
+        # Attributes
         for field in fields:
             dset.attrs[field] = f"field: {field}, units: {dbof_defs.fields_dmodel[field]['units']}"
+        dset.attrs['json_file'] = dbof_json_file
+        dset.attrs['config_file'] = config_file
+        dset.attrs['version'] = dbof_dict['version']
 
     # Finish
     f.close()
