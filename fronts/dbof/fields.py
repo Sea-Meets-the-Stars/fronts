@@ -62,7 +62,8 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
     coords_ds = wr_llc.load_coords()
 
     # Modify the pdicts to include cutout_size
-    dbof_dict['fields'][field]['pdict']['cutout_size'] = dbof_dict['spatial']['cutout_size']
+    pdict = dbof_defs.fields_dmodel[field]['pdict']
+    pdict['cutout_size'] = dbof_dict['spatial']['cutout_size']
 
     # Setup the output HDF5 file
     field_file = dbof_io.field_path(field, dbof_dict, generate_dir=True)
@@ -84,7 +85,7 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
 
         # Do it
         success, pp_fields, imeta, filename = wr_ex_ogcm.preproc_datetime(
-            date_table, field, udate, dbof_dict['fields'][field]['pdict'],
+            date_table, field, udate, pdict,
             #field_size=(dbof_dict['spatial']['cutout_size'], dbof_dict['spatial']['cutout_size']),
             fixed_km=dbof_dict['spatial']['fixed_km'],
             n_cores=10,
