@@ -53,5 +53,8 @@ def generate_from_dbof(dbof_json_file:str, config_file:str,
     outfile = os.path.join(
             path_outdir,
             f"{config['name']}_meta.parquet")
+    if os.path.exists(outfile) and not clobber:
+        print(f"{outfile} exists.  Use clobber=True to overwrite")
+        return
     meta_tbl.to_parquet(outfile)
     print(f"Wrote {outfile}")
