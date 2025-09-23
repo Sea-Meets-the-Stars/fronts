@@ -110,6 +110,10 @@ def load_meta_table(dbof_json_dict:(str|dict), field:str):
 
     # Load
     meta_tbl_file = field_path(field, dbof_dict, meta=True)
+
+    if not os.path.exists(meta_tbl_file):
+        print(f"{meta_tbl_file} does not exist")
+        return None
     meta_table = tbl_io.load_main_table(meta_tbl_file)
 
     return meta_table
