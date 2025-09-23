@@ -88,12 +88,11 @@ def update_fields(json_file:str):
         mt = dbof_tbl.UID.isin(meta_tbl.UID.values)
         dbof_tbl.loc[mt.values, field] = True
 
-    # Write
-    #embed(header='dbof.tables.generate_table 81')
+    # Vet
     assert tbl_utils.vet_main_table(dbof_tbl,
                                     data_model=dbof_defs.tbl_dmodel)
     # Write
-    embed(header='dbof.tables.update_fields 96')
+    #embed(header='dbof.tables.update_fields 96')
     tbl_io.write_main_table(dbof_tbl, tbl_file)
 
     print(f"Wrote: {tbl_file} with {len(dbof_tbl)} unique cutouts.")
