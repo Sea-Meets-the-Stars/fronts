@@ -8,6 +8,7 @@ from wrangler import utils as wr_utils
 
 from fronts import io as fronts_io
 from fronts.dbof import io as dbof_io
+from fronts.dbof import defs as dbof_defs
 
 from IPython import embed
 
@@ -42,6 +43,8 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
     for partition in ['inputs', 'targets']:
         # Inputs
         fields = config[partition]
+        if len(fields) == 0:
+            continue
 
         cutouts = np.zeros((len(tbl), len(fields),
                               dbof_dict['spatial']['cutout_size'],
@@ -66,13 +69,19 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
             fc = h5py.File(field_file, 'r')
 
             # Loop on date (groups)
-            ugroup = np.unique(meta_tbl.group.values)
+            ugroup = np.unique(cutout_tbl.group.values)
             for group in ugroup:
                 # Grab all the cutouts; memory intensive but probably fastest
                 all_cutouts = fc[group][:]
+                # Fill in
+                tidx = wr_utils.match_ids(tbl.UID.values, cutout_tbl.UID.values)
+                cutouts[tidx, ii] = all_cutouts[cutout_tbl.gidx.values]
+            fc.close()
 
         # Dataset
-        dset = f.create_dataset('input', data=input_cutouts)
+        dset = f.create_dataset(partition, data=cutouts)
+        for field in fields:
+            dset.attrs[field] = f"field: {field}, units: {dbof_defs.fields_dmodel[field]['units']}"
 
 
     # Write inputs

@@ -32,3 +32,98 @@ tbl_dmodel.update({
     'SSTK': dict(dtype=np.bool,
                 help='Was SSTK successfully extracted?'),
 })
+
+fields_dmodel = {
+       "U": {
+            "desc": "U in m/s at full resolution, modulo resizing",
+            "units": "m/s",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False
+            },
+        },
+        "V": {
+            "desc": "V in m/s at full resolution, modulo resizing",
+            "units": "m/s",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False
+            },
+        },
+        "SSTK": {
+            "desc": "SST in Kelvin at full resolution, modulo resizing",
+            "units": "K",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False
+            },
+        },
+        "SSH": {
+            "desc": "SSH in ??, native resolution",
+            "units": "??",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False
+            },
+        },
+        "SSS": {
+            "desc": "SSS in psu, native resolution",
+            "units": "psu",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False
+            },
+        },
+        "SSSs": {
+            "desc": "SSS in psu, smoothed to sattelite resolution",
+            "units": "psu",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "smooth_km": 40.0, 
+                "median": False,
+                "de_mean": False
+            },
+        },
+        "Fs": {
+            "desc": "Frontogenesis tendency in 1/s^2, native resolution",
+            "units": "1/s^2 (maybe)",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25
+            },
+        },
+        "Divb2": {
+            "desc": "|Div b|^2 in 1/s^2, native resolution",
+            "units": "1/s^2 (maybe)",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25
+            }
+        }
+    }
+        

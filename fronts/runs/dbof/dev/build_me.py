@@ -1,9 +1,12 @@
 
+import os
+
 from fronts.dbof import tables
 from fronts.dbof import fields
 from fronts.dbof import io as dbof_io
 from fronts import io as fronts_io
 from fronts.train import tables as ttables
+from fronts.train import datasets
 
 # DBOF parameter file
 dbof_dev_json_file = 'llc4320_dbof_dev.json'
@@ -24,8 +27,12 @@ def preproc_all(debug:bool=False, clobber:bool=False):
                          clobber=clobber)
 
 def test_for_jake(debug:bool=False):
-    ttables.dbof_gen_tvt(dbof_dev_json_file,
-                         'DBOF_train_config_jake_test.json')
+    datasets.generate_from_dbof(
+            dbof_dev_json_file, 
+            'DBOF_train_config_jake_test.json',
+            path_outdir=os.path.join(os.getenv('DBOF_PATH'), 
+                                     'DBOF_dev', 'Train'),
+            skip_test=True, skip_valid=True)
     
 
 # #######################################################33
@@ -50,7 +57,6 @@ def main(flg:str):
 
     # Test set for Jake
     if flg == 4:
-        test_for_jake()
 
 # Command line execution
 if __name__ == '__main__':
