@@ -48,7 +48,7 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
 
     # Read the JSON
     dbof_dict = fronts_io.loadjson(json_file)
-    if field not in dbof_dict['fields'].keys():
+    if field not in dbof_dict['fields']:
         raise IOError(f"Field {field} not in {json_file}")
 
     # Load the full table
