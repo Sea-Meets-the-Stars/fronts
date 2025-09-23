@@ -74,11 +74,14 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
                 all_cutouts = fc[group][:]
                 # Fill in
                 tidx = wr_utils.match_ids(tbl.UID.values, cutout_tbl.UID.values)
-                cutouts[tidx, ii] = all_cutouts[cutout_tbl.gidx.values]
+                try:
+                    cutouts[tidx, ii] = all_cutouts[cutout_tbl.gidx.values]
+                except:
+                    embed(header='Error in cutouts; 80')
             fc.close()
 
         # Dataset
-        embed(header='Creating dataset 81 ')
+        #embed(header='Creating dataset 81 ')
         dset = f.create_dataset(partition, data=cutouts)
         for field in fields:
             dset.attrs[field] = f"field: {field}, units: {dbof_defs.fields_dmodel[field]['units']}"
