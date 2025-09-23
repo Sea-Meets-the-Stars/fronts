@@ -31,7 +31,7 @@ def test_for_jake(debug:bool=False):
             dbof_dev_json_file, 
             'DBOF_train_config_jake_test.json',
             path_outdir=os.path.join(os.getenv('DBOF_PATH'), 
-                                     'DBOF_dev', 'Train'),
+                                     'DBOF_dev', 'Training'),
             skip_test=True, skip_valid=True)
     
 
