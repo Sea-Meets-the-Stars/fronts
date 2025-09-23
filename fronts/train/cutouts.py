@@ -56,7 +56,6 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
             meta_tbl = dbof_io.load_meta_table(dbof_dict, field)
 
             # Match tbl to meta on UID
-            embed(header='54 of cutouts.create_hdf5_cutouts')
             meta_idx = wr_utils.match_ids(tbl.UID.values, meta_tbl.UID.values, 
                                           require_in_match=True)
             # Cut down to those in tbl ordered 
@@ -82,9 +81,6 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
         dset = f.create_dataset(partition, data=cutouts)
         for field in fields:
             dset.attrs[field] = f"field: {field}, units: {dbof_defs.fields_dmodel[field]['units']}"
-
-
-    # Write inputs
 
     # Finish
     f.close()
