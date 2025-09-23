@@ -76,14 +76,14 @@ def update_fields(json_file:str):
     dbof_tbl = tbl_io.load_main_table(tbl_file)
 
     # Search for fields
-    for fields in dbof_defs.fields_dmodel.keys():
+    for field in dbof_defs.fields_dmodel.keys():
         # Load up the field meta if not there
-        meta_tbl = dbof_io.load_meta_table(dbof_dict, fields)
+        meta_tbl = dbof_io.load_meta_table(dbof_dict, field)
         if meta_tbl is None:
             continue
 
-        embed(header='dbof.tables.update_fields 86')
+        #embed(header='dbof.tables.update_fields 86')
         # Match on UID
-        meta_idx = wr_utils.match_ids(dbof_tbl.UID.values, 
-                                      meta_tbl.UID.values, 
-                                      require_in_match=False)
+        dbof_tbl[field] = False
+        mt = dbof_tbl.UID.isin(meta_tbl.UID.values)
+        dbof_tbl.loc[mt.values, field] = True
