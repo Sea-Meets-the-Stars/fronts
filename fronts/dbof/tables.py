@@ -58,6 +58,7 @@ def generate_table(json_file:str, clobber:bool=False):
         dbof_table.attrs[key] = dbof_dict[key]
 
     # Write
+    embed(header='dbof.tables.generate_table 91')
     tbl_io.write_main_table(dbof_table, tbl_file)
 
     print(f"Wrote: {tbl_file} with {len(dbof_table)} unique cutouts.")
