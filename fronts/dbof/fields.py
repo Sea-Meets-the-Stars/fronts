@@ -52,11 +52,11 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         raise IOError(f"Field {field} not in {json_file}")
 
     # Load the full table
-    llc_table = dbof_io.load_main_table(dbof_dict)
-    llc_table[field] = False
+    dbof_table = dbof_io.load_main_table(dbof_dict)
+    dbof_table[field] = False
 
     # Setup for dates
-    uni_dates = np.unique(llc_table.datetime)
+    uni_dates = np.unique(dbof_table.datetime)
 
     # Load up coords
     coords_ds = wr_llc.load_coords()
@@ -78,8 +78,8 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         if debug and ss > 1:
             break
         # Cut down the table
-        this_date = llc_table.datetime == udate
-        date_table = llc_table[this_date]
+        this_date = dbof_table.datetime == udate
+        date_table = dbof_table[this_date]
         print(f"Processing {udate} with {len(date_table)} cutouts")
 
         # Do it
@@ -105,6 +105,8 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         # Add attriutes of row, col, lon, lat, UID
         dset.attrs['json_file'] = json_file
 
+        # Meta data
+
         # Add index to meta
         imeta['tidx'] = date_table.index.values
         # And UID
@@ -112,14 +114,17 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         # And sdate
         imeta['group'] = sdate
         
-        # Write meta too
         all_meta.append(imeta.iloc[success])
         wr_meta = pandas.concat(all_meta, ignore_index=True)
+        # Vet
+        # Write meta too
+        assert tbl_utils.vet_main_table(wr_meta,
+                                    data_model=dbof_defs.tbl_dmodel)
         wr_meta.to_parquet(meta_file)
 
-        # Update llc_table
+        # Update dbof_table
         if np.any(success):
-            llc_table.loc[date_table.index.values[success], field] = True
+            dbof_table.loc[date_table.index.values[success], field] = True
         # Write it out??
         
     f.close()
@@ -128,11 +133,11 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         embed(header='127 of fronts.dbof.fields.py')
 
     # Write table
-    assert tbl_utils.vet_main_table(llc_table,
+    assert tbl_utils.vet_main_table(dbof_table,
                                   data_model=dbof_defs.tbl_dmodel)
     if not debug:
         tbl_file = dbof_io.tbl_path(dbof_dict) 
-        tbl_io.write_main_table(llc_table, tbl_file)
+        tbl_io.write_main_table(dbof_table, tbl_file)
 
 
 def old_stuff():

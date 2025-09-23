@@ -6,10 +6,12 @@ import numpy as np
 import pandas
 
 from wrangler import defs as wr_defs
+from wrangler.tables import utils as tbl_utils
 
 from fronts import io as fronts_io
 from fronts.train import tables as t_tables
 from fronts.train import cutouts as t_cutouts
+from fronts.dbof import defs as dbof_defs
 
 def generate_from_dbof(dbof_json_file:str, config_file:str, 
     path_outdir:str,
@@ -48,8 +50,12 @@ def generate_from_dbof(dbof_json_file:str, config_file:str,
         tbl['pp_type'] = pp_type
         all_tables.append(tbl)
 
-    # Write meta
+    # Vet
     meta_tbl = pandas.concat(all_tables, ignore_index=True)
+    assert tbl_utils.vet_main_table(meta_table,
+                                    data_model=dbof_defs.tbl_dmodel)
+    
+    # Write meta
     outfile = os.path.join(
             path_outdir,
             f"{config['name']}_meta.parquet")

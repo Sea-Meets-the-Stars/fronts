@@ -38,7 +38,7 @@ def generate_table(json_file:str, clobber:bool=False):
         return
 
     # Do it
-    llc_table = wr_llc.build_table(dbof_dict['temporal']['freq'],
+    dbof_table = wr_llc.build_table(dbof_dict['temporal']['freq'],
         sampling=dbof_dict['spatial']['sampling'],
         init_date=dbof_dict['temporal']['init_date'],
         nperiods=dbof_dict['temporal']['nperiods'],
@@ -49,11 +49,11 @@ def generate_table(json_file:str, clobber:bool=False):
 
     # Vet
     #embed(header='dbof.tables.generate_table 81')
-    assert tbl_utils.vet_main_table(llc_table,
+    assert tbl_utils.vet_main_table(dbof_table,
                                     data_model=dbof_defs.tbl_dmodel)
 
     # Write
-    tbl_io.write_main_table(llc_table, tbl_file)
+    tbl_io.write_main_table(dbof_table, tbl_file)
 
-    print(f"Wrote: {tbl_file} with {len(llc_table)} unique cutouts.")
+    print(f"Wrote: {tbl_file} with {len(dbof_table)} unique cutouts.")
     print("All done with init")
