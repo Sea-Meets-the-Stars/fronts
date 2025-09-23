@@ -57,6 +57,7 @@ def main(flg:str):
 
     # Test set for Jake
     if flg == 4:
+        test_for_jake()
 
 # Command line execution
 if __name__ == '__main__':
