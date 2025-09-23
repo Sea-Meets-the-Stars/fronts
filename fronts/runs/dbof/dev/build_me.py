@@ -43,9 +43,8 @@ def main(flg:str):
     if flg == 1:
         build_table()#clobber=True)
         # Test read
-        llc_table = dbof_io.load_main_table(dbof_dev_json_file)
-        print("Successfully read table with {} entries".format(len(llc_table)))
-        
+        dbof_table = dbof_io.load_main_table(dbof_dev_json_file)
+        print("Successfully read table with {} entries".format(len(dbof_table)))
 
     # Generate SST
     if flg == 2:

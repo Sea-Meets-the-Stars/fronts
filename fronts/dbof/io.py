@@ -77,19 +77,22 @@ def load_main_table(dbof_json_dict:(str|dict)):
 
     Args:
         dbof_json_dict (str): Path to JSON file with the parameters or the dict itself
+            or the table filename itself
 
     Returns:
         pandas.DataFrame: The table
     """
-
-    # Read the JSON
-    dbof_dict = fronts_io.loadjson(dbof_json_dict) if isinstance(dbof_json_dict, str) else dbof_json_dict
-
+    # Parquet
+    if isinstance(dbof_json_dict, str) and dbof_json_dict.endswith('.parquet'):
+        tbl_file = dbof_json_dict
+    else:
+        # Read the JSON
+        dbof_dict = fronts_io.loadjson(dbof_json_dict) if isinstance(dbof_json_dict, str) else dbof_json_dict
+        tbl_file = tbl_path(dbof_dict, generate_dir=False)
     # Load
-    tbl_file = tbl_path(dbof_dict, generate_dir=False)
-    llc_table = tbl_io.load_main_table(tbl_file)
+    dbof_table = tbl_io.load_main_table(tbl_file)
 
-    return llc_table
+    return dbof_table
 
 def load_meta_table(dbof_json_dict:(str|dict), field:str):
     """ Load the meta table from disk

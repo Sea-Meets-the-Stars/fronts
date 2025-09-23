@@ -52,6 +52,11 @@ def generate_table(json_file:str, clobber:bool=False):
     assert tbl_utils.vet_main_table(dbof_table,
                                     data_model=dbof_defs.tbl_dmodel)
 
+    # Add attributes
+    for key in ['name', 'description', 'fields', 'version',
+                'model']:
+        dbof_table.attrs[key] = dbof_dict[key]
+
     # Write
     tbl_io.write_main_table(dbof_table, tbl_file)
 

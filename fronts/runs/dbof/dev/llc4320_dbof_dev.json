@@ -2,6 +2,7 @@
     "name": "DBOF_dev",
     "model": "LLC4320",
     "version": "0.2",
+    "descripton": "A development set for training and testing the DBOF architecture",
     "spatial": {
         "sampling": "uniform",
         "cutout_size": 64,
