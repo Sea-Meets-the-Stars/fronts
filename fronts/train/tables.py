@@ -50,7 +50,8 @@ def dbof_gen_tvt(dbof_json_file:str, config_file:str):
     dbof_table = dbof_io.load_main_table(dbof_dict)
 
     # Parse on Input and Targets
-    fields = list(config['inputs'].keys()) + list(config['targets'].keys())
+    fields = config['inputs'] + config['targets']
+
     # Find all true in main table
     super_tbl = dbof_table.copy()
     for field in fields:
