@@ -2,46 +2,10 @@
     "name": "Jake_test_set",
     "description": "A small test set for Jake to try out the DBOF model training",
     "DBOF": "DBOF_dev",
-    "sampling": {
-        "type": "balance", 
-        "field": "Divb2",
-        "log_metric": true,
-        "metric": "p90",
-        "nbins": 10
-    },
     "dataset": "LLC4320",
-    "field_size": 64,
-    "inputs": {
-        "SSSs": {
-            "de_mean": false,
-            "downscale": false,
-            "field_size": 64,
-            "fixed_km": 144.0,
-            "smooth_km": 40.0
-        },
-        "SSTK": {
-            "de_mean": false,
-            "downscale": false,
-            "field_size": 64,
-            "fixed_km": 144.0
-        },
-        "SSH": {
-            "de_mean": false,
-            "downscale": false,
-            "field_size": 64,
-            "fixed_km": 144.0,
-            "smooth_km": 15.0
-        }
-    },
+    "inputs": ["U","SSS", "SSSs", "SSTK", "SSH"],
     "ntest": 100,
     "ntrain": 100000,
     "nvalid": 200,
-    "targets": {
-        "Divb2": {
-            "dx": 2.25,
-            "field_size": 64,
-            "norm_by_b": false,
-            "fixed_km": 144.0
-        }
-    }
+    "targets": ["Divb2"]
 }

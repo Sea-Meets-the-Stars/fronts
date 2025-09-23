@@ -9,8 +9,11 @@ from wrangler import utils as wr_utils
 from fronts import io as fronts_io
 from fronts.dbof import io as dbof_io
 
+from IPython import embed
+
 def create_hdf5_cutouts(dbof_json_file:str, config_file:str, 
-                     tbl:pandas.DataFrame, outfile:str, clobber:bool=False):
+                     tbl:pandas.DataFrame, outfile:str, 
+                     clobber:bool=False):
     """ Create the train, valid, test sets
 
     Args:
@@ -35,40 +38,41 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
 
     f = h5py.File(outfile, 'w')
     
-    # Inputs
-    input_fields = list(config['inputs'].keys())
+    # Loop on inputs and targets
+    for partition in ['inputs', 'targets']:
+        # Inputs
+        fields = config[partition]
 
-    input_cutouts = np.zeros((len(tbl), len(input_fields),
+        cutouts = np.zeros((len(tbl), len(fields),
                               dbof_dict['spatial']['cutout_size'],
                               dbof_dict['spatial']['cutout_size']), dtype='float32')
 
-    # Loop on fields
-    for ii, field in enumerate(input_fields):
-        # Load meta table
-        meta_tbl = dbof_io.load_meta_table(dbof_dict, field)
+        # Loop on input fields
+        for ii, field in enumerate(fields):
+            # Load meta table
+            meta_tbl = dbof_io.load_meta_table(dbof_dict, field)
 
-        print(f"Working on input field: {field}")
-        field_file = dbof_io.field_path(field, dbof_dict, generate_dir=False)
+            # Match tbl to meta on UID
+            embed(header='54 of cutouts.create_hdf5_cutouts')
+            meta_idx = wr_utils.match_ids(tbl.UID.values, meta_tbl.UID.values, 
+                                          require_in_match=True)
+            # Cut down to those in tbl ordered 
+            cutout_tbl = meta_tbl.iloc[meta_idx]
 
-        # Index me
-        idx_of_meta = wr_utils.match_ids(tbl.UID.values, meta_tbl.UID.values, require_in_match=True)
+            print(f"Working on input field: {field}")
+            field_file = dbof_io.field_path(field, dbof_dict, generate_dir=False)
 
+            # Load up the cutouts
+            fc = h5py.File(field_file, 'r')
 
-        # Load up the cutouts
-        fc = h5py.File(field_file, 'r')
+            # Loop on date (groups)
+            ugroup = np.unique(meta_tbl.group.values)
+            for group in ugroup:
+                # Grab all the cutouts; memory intensive but probably fastest
+                all_cutouts = fc[group][:]
 
-        # Loop on date (groups)
-        ugroup = np.unique(meta_tbl.group.values[idx_of_meta])
-        for group in ugroup:
-            print(f"  Working on group: {group}")
-            gf = fc[group]
-            gidx = (meta_tbl.group.values[idx_of_meta] == group)
-            tbl_idx = idx_of_meta[gidx]
-            # Grab em
-            cutouts = gf['cutouts'][meta_tbl.tidx.values[idx_of_meta[gidx]], ...]
-
-    # Dataset
-    dset = f.create_dataset('input', data=input_cutouts)
+        # Dataset
+        dset = f.create_dataset('input', data=input_cutouts)
 
 
     # Write inputs
