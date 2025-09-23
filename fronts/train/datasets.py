@@ -39,6 +39,7 @@ def generate_from_dbof(dbof_json_file:str, config_file:str,
         outfile = os.path.join(
             path_outdir,
             f"{config['name']}_{dtype}.h5")
+        print(f"Generating {dtype} set with {len(tbl)} entries to {outfile}")
         t_cutouts.create_hdf5_cutouts(
             dbof_json_file, config_file, tbl, outfile, clobber=clobber)
 
