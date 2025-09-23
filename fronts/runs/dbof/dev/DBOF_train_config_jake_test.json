@@ -12,7 +12,7 @@
     },
     "inputs": ["SSS", "SSSs", "SSTK", "SSH"],
     "ntest": 100,
-    "ntrain": 1000,
+    "ntrain": 100000,
     "nvalid": 200,
     "targets": ["Divb2"]
 }

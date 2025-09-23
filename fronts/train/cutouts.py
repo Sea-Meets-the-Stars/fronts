@@ -61,7 +61,7 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
             # Cut down to those in tbl ordered 
             cutout_tbl = meta_tbl.iloc[meta_idx]
 
-            print(f"Working on input field: {field}")
+            print(f"Working on {partition} field: {field}")
             field_file = dbof_io.field_path(field, dbof_dict, generate_dir=False)
 
             # Load up the cutouts
