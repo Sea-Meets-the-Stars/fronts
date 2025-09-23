@@ -114,6 +114,7 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         
         # Write meta too
         all_meta.append(imeta.iloc[success])
+        embed(header='117 of fronts.dbof.fields.py; check imeta.gidx are all not -1')
         wr_meta = pandas.concat(all_meta, ignore_index=True)
         wr_meta.to_parquet(meta_file)
 
