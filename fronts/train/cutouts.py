@@ -72,12 +72,11 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
             for group in ugroup:
                 # Grab all the cutouts; memory intensive but probably fastest
                 all_cutouts = fc[group][:]
+
                 # Fill in
-                tidx = wr_utils.match_ids(tbl.UID.values, cutout_tbl.UID.values)
-                try:
-                    cutouts[tidx, ii] = all_cutouts[cutout_tbl.gidx.values]
-                except:
-                    embed(header='Error in cutouts; 80')
+                group_tbl = cutout_tbl[group == cutout_tbl.group]
+                tidx = wr_utils.match_ids(group_tbl.UID.values, tbl.UID.values, require_in_match=True)
+                cutouts[tidx, ii] = all_cutouts[group_tbl.gidx.values]
             fc.close()
 
         # Dataset
