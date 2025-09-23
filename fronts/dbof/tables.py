@@ -54,7 +54,7 @@ def generate_table(json_file:str, clobber:bool=False):
                                     data_model=dbof_defs.tbl_dmodel)
 
     # Add attributes
-    embed(header='dbof.tables.generate_table 91')
+    embed(header='dbof.tables.generate_table 57')
     for key in ['name', 'description', 'fields', 'version',
                 'model']:
         dbof_table.attrs[key] = dbof_dict[key]
