@@ -8,11 +8,16 @@ from fronts import io as fronts_io
 from fronts.train import tables as ttables
 from fronts.train import datasets
 
+from IPython import embed
+
 # DBOF parameter file
 dbof_dev_json_file = 'llc4320_dbof_dev.json'
 
 def build_table(clobber:bool=False):
     tables.generate_table(dbof_dev_json_file, clobber=clobber)
+
+def update_table(clobber:bool=False):
+    tables.update_fields(dbof_dev_json_file)
 
 def preproc_sst(debug:bool=False, clobber:bool=False):
     fields.preproc_field(dbof_dev_json_file, 'SSTK', debug=debug,
@@ -41,10 +46,15 @@ def main(flg:str):
 
     # Generate the LLC Table
     if flg == 1:
-        build_table()#clobber=True)
+        #build_table()#clobber=True)
+
+        # Update
+        update_table()
+
         # Test read
         dbof_table = dbof_io.load_main_table(dbof_dev_json_file)
         print("Successfully read table with {} entries".format(len(dbof_table)))
+        embed(header='55 of build_me.py')
 
     # Generate SST
     if flg == 2:

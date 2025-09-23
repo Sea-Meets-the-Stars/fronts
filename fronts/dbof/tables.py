@@ -48,17 +48,16 @@ def generate_table(json_file:str, clobber:bool=False):
         cutout_size=(dbof_dict['spatial']['cutout_size'], 
                     dbof_dict['spatial']['cutout_size']))
 
-    # Vet
-    #embed(header='dbof.tables.generate_table 81')
-    assert tbl_utils.vet_main_table(dbof_table,
-                                    data_model=dbof_defs.tbl_dmodel)
 
     # Add attributes
-    embed(header='dbof.tables.generate_table 57')
     for key in ['name', 'description', 'fields', 'version',
                 'model']:
         dbof_table.attrs[key] = dbof_dict[key]
 
+    # Vet
+    #embed(header='dbof.tables.generate_table 81')
+    assert tbl_utils.vet_main_table(dbof_table,
+                                    data_model=dbof_defs.tbl_dmodel)
     # Write
     tbl_io.write_main_table(dbof_table, tbl_file)
 
