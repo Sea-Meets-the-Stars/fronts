@@ -768,10 +768,3 @@ def cropping(array, min_size=7):
     frnt = morphology.remove_small_holes(frnt)
     # 
     return frnt
-
-def fronts_in_divb2(Divb2, wndw:int=40):
-    res_frnt_np = front_thresh(Divb2, wndw=wndw)
-    res_frnt_crop = cropping(res_frnt_np)
-
-    return res_frnt_crop
-

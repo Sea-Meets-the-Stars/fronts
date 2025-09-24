@@ -4,14 +4,10 @@ import numpy as np
 
 import h5py
 
-from matplotlib import pyplot as plt
-import matplotlib as mpl
-from matplotlib.ticker import MultipleLocator
-import matplotlib.gridspec as gridspec
 
-from wrangler.plotting import cutout
 
-from fronts.pyboa import pyboa
+from fronts.finding import dev
+from fronts.finding import algorithms
 
 from IPython import embed
 
@@ -32,7 +28,7 @@ def find_em(h5_file:str, outfile:str, targ_idx:int=0,
     all_fronts = []
     for ii in range(all_divb2.shape[0]):
         print(f'Finding fronts for image {ii} of {all_divb2.shape[0]}')
-        fronts = pyboa.fronts_in_divb2(all_divb2[ii], wndw=wndw)
+        fronts = algorithms.fronts_from_divb2(all_divb2[ii], wndw=wndw)
         all_fronts.append(fronts)
 
         if debug and ii > 5:
@@ -43,7 +39,6 @@ def find_em(h5_file:str, outfile:str, targ_idx:int=0,
     with h5py.File(outfile, 'w') as f2:
         f2.create_dataset('fronts', data=all_fronts, compression='gzip')
     print(f'Wrote {outfile}')
-
 
 def gen_figs(div_file:str, front_file:str, fig_root:str,
              nsample:int=99, sst_idx:int=2,
@@ -76,30 +71,6 @@ def gen_figs(div_file:str, front_file:str, fig_root:str,
         # Figure out file
         outfile = f'{fig_root}_{sample_idx[iidx]}_{sample_idx[iidx+1]}_{sample_idx[iidx+2]}.png'
 
-        fig = plt.figure(figsize=(12,6))
-        plt.clf()
-        gs = gridspec.GridSpec(2,3)
-
-        # First pair
-        #col = 0
-        for col in range(3):
-            sidx = iidx + col
-            #mx_div = sample_divb2[sidx].max()
-            #mn_div = mx_div / 8.
-            #
-            ax_img = plt.subplot(gs[0, col])
-            cutout.show_image(sample_sst[sidx], clbl='SST (deg C)', ax=ax_img)
-            #cutout.show_image(sv_divb2[col], cbar=True, #clbl=r'$\nabla b^2$', 
-            #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
-            ax_fronts = plt.subplot(gs[1, col])
-            cutout.show_image(sample_divb2[sidx], cbar=True, #clbl=r'$\nabla b^2$', 
-                                cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
-            pcol,prow = np.where(np.flipud(sample_fronts[sidx]))
-            ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
-        
-        plt.tight_layout()#pad=0.0, h_pad=0.0, w_pad=0.3)
-        plt.savefig(outfile, dpi=300)
-        print(f"Saved: {outfile}")
 
 
     
