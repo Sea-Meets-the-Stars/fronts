@@ -49,9 +49,18 @@ def run_a_test(algorithm:str, tst_idx:tuple=None):
     all_fronts, all_divb2, all_sst = [], [], []
     for idx in tst_idx:
 
+        # Images
+        div_sst, sst, sss, Divb2 = parse_idx(cutouts, idx)
+
+        # Find fronts
         if algorithm == 'vanilla':
-            div_sst, sst, sss, Divb2 = parse_idx(cutouts, idx)
             fronts = algorithms.fronts_from_divb2(Divb2, wndw=40)
+        elif algorithm == 'rm_weak':
+            fronts = algorithms.fronts_from_divb2(Divb2, wndw=40, rm_weak=1e-15)
+        elif algorithm == 'thin':
+            fronts = algorithms.fronts_from_divb2(Divb2, wndw=40, thin=True)
+        elif algorithm == 'rm_weak-thin-dilate':
+            fronts = algorithms.fronts_from_divb2(Divb2, wndw=40, thin=True, rm_weak=1e-15, dilate=True)
         else:
             raise ValueError(f'Algorithm {algorithm} not recognized')
 
