@@ -117,10 +117,11 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         
         all_meta.append(imeta.iloc[success])
         wr_meta = pandas.concat(all_meta, ignore_index=True)
+
         # Vet
-        # Write meta too
         assert tbl_utils.vet_main_table(wr_meta,
-                                    data_model=dbof_defs.tbl_dmodel)
+                                    data_model=dbof_defs.meta_dmodel)
+        # Write meta too
         wr_meta.to_parquet(meta_file)
 
         # Update dbof_table
