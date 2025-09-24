@@ -1,0 +1,18 @@
+{
+    "name": "Jake_test_set",
+    "description": "A small test set for Jake to try out the DBOF model training",
+    "DBOF": "DBOF_dev",
+    "dataset": "LLC4320",
+    "sampling": {
+        "type": "balance", 
+        "field": "Divb2",
+        "log_metric": true,
+        "metric": "p90",
+        "nbins": 10
+    },
+    "inputs": ["SSS", "SSSs", "SSTK", "SSH"],
+    "ntest": 100,
+    "ntrain": 100000,
+    "nvalid": 200,
+    "targets": ["Divb2"]
+}

@@ -68,6 +68,8 @@ def preproc_image(item:tuple, pdict:dict, use_mask=False,
     pp_field, idx, meta : np.ndarray, int, dict
 
     """
+    raise DeprecationWarning("Use wrangler.preproc.field.multi_process()")
+
     # Unpack
     mask = None
     smooth_pix = None
@@ -107,7 +109,7 @@ def preproc_field(field, mask, inpaint=False, median=False, med_size=(3,1),
                   div2:float=None,
                   min_mean=None, de_mean=True,
                   field_size:int=None,
-                  fixed_km=None,
+                  resize:bool=False,
                   smooth_pix:int=None,
                   noise=None,
                   log_scale=False, **kwargs):
@@ -171,6 +173,7 @@ def preproc_field(field, mask, inpaint=False, median=False, med_size=(3,1),
         Pre-processed field, mean temperature
 
     """
+    raise DeprecationWarning("Use wrangler.preproc.field.main()")
 
     # Inpaint?
     if inpaint:
@@ -191,7 +194,7 @@ def preproc_field(field, mask, inpaint=False, median=False, med_size=(3,1),
         field = field[2*smooth_pix:-2*smooth_pix, 2*smooth_pix:-2*smooth_pix]
 
     # Resize?
-    if fixed_km is not None:
+    if resize is not None:
         field = resize_local_mean(field, (field_size, field_size))
 
     # Capture metadata

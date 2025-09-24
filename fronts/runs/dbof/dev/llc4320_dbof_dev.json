@@ -1,0 +1,20 @@
+{
+    "name": "DBOF_dev",
+    "model": "LLC4320",
+    "version": "0.2",
+    "description": "A development set for training and testing the DBOF architecture",
+    "spatial": {
+        "sampling": "uniform",
+        "cutout_size": 64,
+        "resol": 0.5,
+        "fixed_km": 144.0,
+        "minmax_lat": [-90.0, 57.0]
+    },
+    "temporal": {
+        "init_date": "2011-09-13",
+        "freq": "2ME",
+        "nperiods": 6
+    },
+    "fields": ["U", "V", "SSTK", "SSH", "SSS", "SSSs", "Fs", "Divb2"],
+    "meta": "stats"
+}
