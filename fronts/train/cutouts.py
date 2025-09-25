@@ -82,8 +82,8 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
         #embed(header='Creating dataset 81 ')
         dset = f.create_dataset(partition, data=cutouts)
         # Attributes
-        for field in fields:
-            dset.attrs[field] = f"field: {field}, units: {dbof_defs.fields_dmodel[field]['units']}"
+        for ss, field in enumerate(fields):
+            dset.attrs[str(ss)] = f"field: {field}, units: {dbof_defs.fields_dmodel[field]['units']}"
         dset.attrs['json_file'] = dbof_json_file
         dset.attrs['config_file'] = config_file
         dset.attrs['version'] = dbof_dict['version']
