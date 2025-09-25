@@ -33,5 +33,6 @@ def test_find_entry():
     #print("Found index: {}".format(idx))
     #embed(header="@dbof_utils.find_entry")                        
 
-tidx = 0
+tidx = 1000
 field_data = dbof_utils.grab_fields(dbof_dev_file, tidx, 'all')
+embed(header='38 of tests')
