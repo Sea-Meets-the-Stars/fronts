@@ -75,14 +75,12 @@ def find_entry(dbof_json_dict:(str|dict), sdict:dict, debug:bool=False):
     else:
         return dbof_table[match].index.values[0]
     
-def grab_fields(dbof_json_dict:(str|dict), tidx:int, fields:(list|str)):
+def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
 
     # Load the json dict 
     dbof_dict = fronts_io.loadjson(dbof_json_dict)
 
     # Load up main table
-    dbof_table = dbof_io.load_main_table(dbof_dict)
-    UID = dbof_table.UID[tidx]
     print(f"Grabbing fields for UID: {UID}")
 
     # Fields
