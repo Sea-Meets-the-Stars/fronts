@@ -15,6 +15,8 @@ tbl_dmodel['required'] = ('lat', 'lon', 'datetime', 'row', 'col', 'UID')
 tbl_dmodel.update({
     'Divb2': dict(dtype=np.bool,
                 help='Was Divb2 (div of buoyancy, squared) successfully extracted?'),
+    'b': dict(dtype=np.bool,
+                help='Was b (buoyancy) successfully extracted?'),
     'Fs': dict(dtype=np.bool,
                 help='Was Fs (frontogenesis tendency) successfully extracted?'),
     'OW': dict(dtype=np.bool,
@@ -143,6 +145,17 @@ fields_dmodel = {
                 "median": False,
                 "de_mean": False,
                 "dx": 2.25
+            },
+        },
+        "b": {
+            "desc": "buoyancy, native resolution",
+            "units": "unitless?",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False
             },
         },
         "Divb2": {

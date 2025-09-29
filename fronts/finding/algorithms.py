@@ -22,6 +22,8 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
         If provided, removes weak segments where Divb2 values are below this threshold.
     dilate : bool, optional, default=False
         If True, applies dilation to the cropped fronts.
+    min_size : int, optional, default=7
+        Minimum size for cropping the detected fronts.
 
     Returns:
     --------
@@ -41,7 +43,7 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
         res_frnt_np = morphology.thin(res_frnt_np)
     
     # Crop
-    res_frnt_crop = pyboa.cropping(res_frnt_np)
+    res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size)
 
     # Dilate?
     if dilate:

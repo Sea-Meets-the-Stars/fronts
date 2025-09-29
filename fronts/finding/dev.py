@@ -77,7 +77,7 @@ def run_a_test(algorithm:str, tst_idx:tuple=None):
               title=f'Algorithm: {algorithm}')
 
 
-def front_fig(outfile:str, all_fronts, all_divb2, all_sst, 
+def front_fig2(outfile:str, all_fronts, all_divb2, all_sst, 
               title:str=None):
 
     fig = plt.figure(figsize=(12,6))
@@ -96,6 +96,37 @@ def front_fig(outfile:str, all_fronts, all_divb2, all_sst,
         cutout.show_image(all_divb2[col], cbar=True, #clbl=r'$\nabla b^2$', 
                             cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
         pcol,prow = np.where(np.flipud(all_fronts[col]))
+        ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+
+    # Add title?
+    if title is not None:
+        plt.suptitle(title)
+    
+    plt.tight_layout()#pad=0.0, h_pad=0.0, w_pad=0.3)
+    plt.savefig(outfile, dpi=300)
+    print(f"Saved: {outfile}")
+
+def front_fig3(outfile:str, all_fronts, all_divb2, all_sst, all_b,
+              title:str=None):
+
+    fig = plt.figure(figsize=(12,6))
+    plt.clf()
+    gs = gridspec.GridSpec(2,3)
+
+    # First pair
+    #col = 0
+    for row in range(2):
+        # SST
+        ax_img = plt.subplot(gs[row, 0])
+        cutout.show_image(all_sst[row], clbl='SST (deg C)', ax=ax_img)
+        # b
+        ax_b = plt.subplot(gs[row, 1])
+        cutout.show_image(all_b[row], clbl='buoyancy', ax=ax_b, cm='viridis')
+        #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
+        ax_fronts = plt.subplot(gs[row, 2])
+        cutout.show_image(all_divb2[row], cbar=True, #clbl=r'$\nabla b^2$', 
+                            cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
+        pcol,prow = np.where(np.flipud(all_fronts[row]))
         ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
 
     # Add title?

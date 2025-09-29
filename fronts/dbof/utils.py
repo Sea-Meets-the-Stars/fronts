@@ -76,6 +76,35 @@ def find_entry(dbof_json_dict:(str|dict), sdict:dict, debug:bool=False):
         return dbof_table[match].index.values[0]
     
 def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
+    """
+    Extracts specified fields from a DBOF (Dynamic Bayesian Ocean Fronts) dataset 
+    for a given unique identifier (UID).
+
+    Args:
+        dbof_json_dict (str | dict): The path to a JSON file or a dictionary 
+            containing the DBOF dataset metadata.
+        fields (list | str): A list of field names to extract, or the string 'all' 
+            to extract all available fields.
+        UID (int): The unique identifier for which the fields are to be extracted.
+
+    Returns:
+        dict: A dictionary where the keys are field names and the values are the 
+        corresponding data cutouts.
+
+    Notes:
+        - If a field is not found in the metadata or the field file does not exist, 
+            a warning message is printed, and the field is skipped.
+        - The function assumes the presence of specific helper functions 
+            (`fronts_io.loadjson`, `dbof_io.load_meta_table`, `dbof_io.field_path`) 
+            and external libraries (`numpy`, `h5py`, `os`).
+
+    Raises:
+        None: The function handles missing fields and files gracefully by skipping 
+        them and printing warnings.
+
+    Example:
+        field_data = grab_fields("dbof_metadata.json", ["temperature", "salinity"], 12345)
+    """
 
     # Load the json dict 
     dbof_dict = fronts_io.loadjson(dbof_json_dict)

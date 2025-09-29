@@ -1,8 +1,12 @@
 
+import os
 import numpy as np
 
 from fronts.finding import dev as finding_dev
 from fronts.dbof import io as dbof_io
+from fronts.dbof import utils as dbof_utils
+
+from IPython import embed
 
 def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
                  outdir:str='plots/'):
@@ -21,11 +25,42 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
     dbof_tbl = dbof_io.load_main_table(dbof_dev_file)
     dbof_divb2_tbl = dbof_io.load_meta_table(dbof_dev_file, 'Divb2')
 
+    # Set the seed
+    np.random.seed(42)
     # Draw random examples from divb2 range
     divb2_rand = np.random.uniform(divb2_rng[0], divb2_rng[1], 
                                    nexamples)
     
     # Generate fronts
+    for tt in range(0,nexamples,2):
+        # Loop on 2
+        all_b, all_sst, all_divb2, all_fronts = [], [], [], []
+        UIDs = []
+        for kk in range(2):
+            ss = tt + kk
+            # Find closest Divb2
+            idx = np.argmin(np.abs(10**divb2_rand[ss] - dbof_divb2_tbl.p90.values))
+            UID = dbof_divb2_tbl.UID.values[idx]
+            # Grab fields
+            field_data = dbof_utils.grab_fields(dbof_dev_file, 'all', UID)
+            # Save em
+
+            all_divb2.append(field_data['Divb2'])
+            all_sst.append(field_data['SSTK'])
+            all_b.append(field_data['b'])
+            UIDs.append(UID)
+
+            # Calculate fronts
+            fronts = finding_dev.algorithms.fronts_from_divb2(
+                        field_data['Divb2'], **thin_weak_params)
+            all_fronts.append(fronts)
+
+        # Generate figure
+        outfile = os.path.join(outdir, 
+                               f'fronts_thinwk_{UIDs[0]}_{UIDs[1]}.png')
+        finding_dev.front_fig3(outfile, all_fronts, all_divb2, all_sst, all_b,
+                               title=f'UIDs: {UIDs[0]}, {UIDs[1]}')
+
 
 def test_algorithms():
 

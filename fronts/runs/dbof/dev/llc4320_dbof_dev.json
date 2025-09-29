@@ -15,6 +15,6 @@
         "freq": "2ME",
         "nperiods": 6
     },
-    "fields": ["U", "V", "SSTK", "SSH", "SSS", "SSSs", "Fs", "Divb2", "OW", "SSHs"],
+    "fields": ["U", "V", "SSTK", "SSH", "SSS", "SSSs", "Fs", "Divb2", "OW", "SSHs", "b"],
     "meta": "stats"
 }
