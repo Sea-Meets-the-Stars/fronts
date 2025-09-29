@@ -4,8 +4,30 @@ from fronts.finding import pyboa
 from skimage import morphology
 
 
-def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False, rm_weak:float=None,
-                      dilate:bool=False):
+def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False, 
+                      rm_weak:float=None, dilate:bool=False,
+                      min_size:int=7):
+    """
+    Identifies and processes fronts from a divergence field (Divb2).
+
+    Parameters:
+    -----------
+    Divb2 : ndarray
+        The input divergence field from which fronts are to be identified.
+    wndw : int, optional, default=40
+        The window size used for thresholding in the front detection algorithm.
+    thin : bool, optional, default=False
+        If True, thins the detected fronts to single-pixel width.
+    rm_weak : float, optional, default=None
+        If provided, removes weak segments where Divb2 values are below this threshold.
+    dilate : bool, optional, default=False
+        If True, applies dilation to the cropped fronts.
+
+    Returns:
+    --------
+    ndarray
+        The processed front field after applying the specified operations.
+    """
 
     # Threshold
     res_frnt_np = pyboa.front_thresh(Divb2, wndw=wndw)

@@ -11,6 +11,8 @@ import matplotlib as mpl
 from matplotlib.ticker import MultipleLocator
 import matplotlib.gridspec as gridspec
 
+from wrangler.plotting import cutout
+
 from fronts.finding import algorithms
 
 def parse_idx(b_train, idx):
@@ -77,7 +79,6 @@ def run_a_test(algorithm:str, tst_idx:tuple=None):
 
 def front_fig(outfile:str, all_fronts, all_divb2, all_sst, 
               title:str=None):
-    from wrangler.plotting import cutout
 
     fig = plt.figure(figsize=(12,6))
     plt.clf()
