@@ -5,5 +5,6 @@ thin_weak_params = {
         'rm_weak': 1e-15,
         'dilate': False,
         'thin': True,
+        'connectivity': 2,
         'min_size': 5
     }

@@ -3,9 +3,10 @@ import os
 import numpy as np
 
 from fronts.finding import dev as finding_dev
+from fronts.finding import run as finding_run
+from fronts.finding import params as finding_params
 from fronts.dbof import io as dbof_io
 from fronts.dbof import utils as dbof_utils
-from fronts.dbof import params as dbof_params
 
 from IPython import embed
 
@@ -103,6 +104,22 @@ def test_fig4():
                            all_sst, all_b, all_divsst,
                            title=f'Figure 4 Example')
 
+def test_multi():
+
+    # Load up
+    cutouts, tbl = finding_dev.load_test_data()
+    Divb2 = cutouts['targets'][:, 0, 0, ...]
+
+    # Convert to list 
+    Divb2 = [item for item in Divb2]
+
+    # Do it
+    front_params = finding_params.thin_weak_params
+    flabels = finding_run.many_cutouts(Divb2, front_params)
+
+    embed(header='121 of test_multi')
+    flabels = np.stack(flabels)
+
 if __name__ == "__main__":
 
     #test_algorithms()
@@ -110,3 +127,5 @@ if __name__ == "__main__":
     #explore_thin(nexamples=2)
 
     #test_fig4()
+
+    test_multi()

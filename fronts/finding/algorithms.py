@@ -6,6 +6,7 @@ from skimage import morphology
 
 def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False, 
                       rm_weak:float=None, dilate:bool=False,
+                      connectivity:int=2,
                       min_size:int=7):
     """
     Identifies and processes fronts from a divergence field (Divb2).
@@ -43,7 +44,8 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
         res_frnt_np = morphology.thin(res_frnt_np)
     
     # Crop
-    res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size)
+    res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size,
+                                   connectivity=connectivity)
 
     # Dilate?
     if dilate:

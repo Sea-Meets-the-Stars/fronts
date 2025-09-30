@@ -738,7 +738,7 @@ def thinning(in_array, iteration=2, f_dilate=True, min_size=7):
     # 
     return array
 
-def cropping(array, min_size=7):
+def cropping(array, min_size:int=7, connectivity:int=2):
     """
     Process a binary array to remove spurs, small objects, and small holes.
 
@@ -763,7 +763,7 @@ def cropping(array, min_size=7):
     frnt = spur(frnt, n_iter=1)
     # clean small object
     frnt = morphology.remove_small_objects(
-        frnt.astype(bool), min_size=min_size, connectivity=2)
+        frnt.astype(bool), min_size=min_size, connectivity=connectivity)
             # remove small holes
     frnt = morphology.remove_small_holes(frnt)
     # 
