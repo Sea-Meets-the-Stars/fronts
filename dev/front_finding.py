@@ -5,6 +5,7 @@ import numpy as np
 from fronts.finding import dev as finding_dev
 from fronts.dbof import io as dbof_io
 from fronts.dbof import utils as dbof_utils
+from fronts.dbof import params as dbof_params
 
 from IPython import embed
 
@@ -13,13 +14,7 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
     dbof_dev_file = '../fronts/runs/dbof/dev/llc4320_dbof_dev.json'
 
     # Thin/weak params
-    thin_weak_params = {
-        'wndw': 40,
-        'rm_weak': 1e-15,
-        'dilate': False,
-        'thin': True,
-        'min_size': 5
-    }
+    front_params = dbof_params.thin_weak_params
 
     # Load
     dbof_tbl = dbof_io.load_main_table(dbof_dev_file)
@@ -52,7 +47,7 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
 
             # Calculate fronts
             fronts = finding_dev.algorithms.fronts_from_divb2(
-                        field_data['Divb2'], **thin_weak_params)
+                        field_data['Divb2'], **front_params)
             all_fronts.append(fronts)
 
         # Generate figure
@@ -76,8 +71,42 @@ def test_algorithms():
     # Dilate
     finding_dev.run_a_test('rm_weak-thin-dilate')#, tst_idx=(0,500,700))
 
+def test_fig4():
+
+    # Load up
+    cutouts, tbl = finding_dev.load_test_data()
+
+    # Indices
+    tst_idx = (0, 500)#, 700)
+
+    all_b, all_sst, all_divb2, all_fronts = [], [], [], []
+    all_divsst = []
+    for idx in tst_idx:
+
+        # Images
+        div_sst, sst, sss, Divb2 = finding_dev.parse_idx(cutouts, idx)
+
+        all_divb2.append(Divb2)
+        all_sst.append(sst)
+        all_b.append(sss)
+        all_divsst.append(div_sst)
+
+        # Find fronts
+        fronts = finding_dev.algorithms.fronts_from_divb2(
+            Divb2, wndw=40, thin=True, rm_weak=1e-15, dilate=True)
+
+        all_fronts.append(fronts)
+
+    # Plot
+    outfile = f'fronts_fig4.png'
+    finding_dev.front_fig4(outfile, all_fronts, all_divb2, 
+                           all_sst, all_b, all_divsst,
+                           title=f'Figure 4 Example')
+
 if __name__ == "__main__":
 
     #test_algorithms()
 
-    explore_thin(nexamples=2)
+    #explore_thin(nexamples=2)
+
+    #test_fig4()

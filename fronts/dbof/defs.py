@@ -21,6 +21,10 @@ tbl_dmodel.update({
                 help='Was Fs (frontogenesis tendency) successfully extracted?'),
     'OW': dict(dtype=np.bool,
                 help='Was OW (Okubo-Weiss) successfully extracted?'),
+    'strain_rate': dict(dtype=np.bool,
+                help='Was strain_rate successfully extracted?'),
+    'divergence': dict(dtype=np.bool,
+                help='Was divergence successfully extracted?'),
     'U': dict(dtype=np.bool,
                 help='Was U successfully extracted?'),
     'V': dict(dtype=np.bool,
@@ -135,6 +139,30 @@ fields_dmodel = {
                 "smooth_km": 40.0, 
                 "median": False,
                 "de_mean": False
+            },
+        },
+        "divergence": {
+            "desc": "Divergence, native resolution.",
+            "units": "1/s^2",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
+        },
+        "strain_rate": {
+            "desc": "Strain rate, native resolution.",
+            "units": "1/s^2",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
             },
         },
         "OW": {
