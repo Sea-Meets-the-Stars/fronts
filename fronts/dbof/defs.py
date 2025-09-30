@@ -35,6 +35,8 @@ tbl_dmodel.update({
                 help='Was SSS successfully extracted?'),
     'SSSs': dict(dtype=np.bool,
                 help='Was SSS (smoothed SSS) successfully extracted?'),
+    'DivSST2': dict(dtype=np.bool,
+                help='Was DivSST2 (gradient of SST) successfully extracted?'),
     'SSTK': dict(dtype=np.bool,
                 help='Was SSTK successfully extracted?'),
 })
@@ -75,6 +77,18 @@ fields_dmodel = {
                 "inpaint": False,
                 "median": False,
                 "de_mean": False
+            },
+        },
+        "DivSST2": {
+            "desc": "Gradient of SST in Kelvin at full resolution, modulo resizing",
+            "units": "(K/km)^2",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
             },
         },
         "SSH": {
