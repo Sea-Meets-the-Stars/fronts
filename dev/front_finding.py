@@ -2,6 +2,8 @@
 import os
 import numpy as np
 
+import h5py
+
 from fronts.finding import dev as finding_dev
 from fronts.finding import run as finding_run
 from fronts.finding import params as finding_params
@@ -117,8 +119,14 @@ def test_multi():
     front_params = finding_params.thin_weak_params
     flabels = finding_run.many_cutouts(Divb2, front_params)
 
-    embed(header='121 of test_multi')
     flabels = np.stack(flabels)
+
+    # Write
+    b_front_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'Training_Sets', 
+                     'LLC4320_SST144_SSS40_fronts.h5')
+
+    with h5py.File(b_front_file, 'w') as f:
+        f.create_dataset('fronts', data=flabels.astype(int))
 
 if __name__ == "__main__":
 
