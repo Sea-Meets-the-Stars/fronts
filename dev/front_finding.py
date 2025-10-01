@@ -4,13 +4,19 @@ import numpy as np
 
 import h5py
 
+from wrangler.ogcm import utils as wr_ogcm_utils
+
 from fronts.finding import dev as finding_dev
 from fronts.finding import run as finding_run
 from fronts.finding import params as finding_params
 from fronts.dbof import io as dbof_io
 from fronts.dbof import utils as dbof_utils
+from fronts.properties import measure as fprop_measure
 
 from IPython import embed
+    
+b_front_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'Training_Sets', 
+                     'LLC4320_SST144_SSS40_fronts.h5')
 
 def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
                  outdir:str='plots/'):
@@ -106,7 +112,7 @@ def test_fig4():
                            all_sst, all_b, all_divsst,
                            title=f'Figure 4 Example')
 
-def test_multi():
+def test_many_cutouts():
 
     # Load up
     cutouts, tbl = finding_dev.load_test_data()
@@ -122,11 +128,33 @@ def test_multi():
     flabels = np.stack(flabels)
 
     # Write
-    b_front_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'Training_Sets', 
-                     'LLC4320_SST144_SSS40_fronts.h5')
-
     with h5py.File(b_front_file, 'w') as f:
         f.create_dataset('fronts', data=flabels.astype(int))
+
+def test_fprop_cutout(idx:int=500):
+
+    # Load up
+    cutouts, tbl = finding_dev.load_test_data()
+    Divb2 = cutouts['targets'][:, 0, 0, ...]
+    with h5py.File(b_front_file, 'r') as f:
+        fronts = f['fronts'][:]
+
+    ncutouts = Divb2.shape[0]
+
+    # Fake lat, lon
+    latlons = np.random.uniform(size=(2,ncutouts))
+
+    # Generate lat, lon images
+    lat_cutouts, lon_cutouts = wr_ogcm_utils.latlons_for_cutouts(
+        latlons, Divb2.shape[1], 2.25)
+
+    # Front properties for one
+    fprop_dict = fprop_measure.fprops_in_fields(
+        fronts[idx], ['avg_lat', 'avg_lon', 'avg_Divb2'],
+        [lat_cutouts[idx], lon_cutouts[idx], Divb2[idx]])
+
+    embed(header='157 of test_fprop cutout')
+
 
 if __name__ == "__main__":
 
@@ -136,4 +164,8 @@ if __name__ == "__main__":
 
     #test_fig4()
 
-    test_multi()
+    # Test measuring fronts in many cutouts
+    #test_many_cutouts()
+
+    # Test measuring front properties for a series of cutouts
+    test_fprop_cutout()
