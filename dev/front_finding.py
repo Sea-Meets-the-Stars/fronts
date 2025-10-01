@@ -162,10 +162,10 @@ if __name__ == "__main__":
 
     #explore_thin(nexamples=2)
 
-    #test_fig4()
+    test_fig4()
 
     # Test measuring fronts in many cutouts
     #test_many_cutouts()
 
     # Test measuring front properties for a series of cutouts
-    test_fprop_cutout()
+    #test_fprop_cutout()

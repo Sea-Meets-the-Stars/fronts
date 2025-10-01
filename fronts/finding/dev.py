@@ -161,7 +161,8 @@ def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
 
         # Div SST
         ax_dsst = plt.subplot(gs[row, 1])
-        cutout.show_image(all_divsst[row], clbl='Div SST (K/km)^2', ax=ax_dsst)
+        cutout.show_image(all_divsst[row], clbl='|Div SST|^2 (K/km)^2', 
+                          ax=ax_dsst, cm='Greys')
         
         # b
         ax_b = plt.subplot(gs[row, 2])
@@ -172,6 +173,9 @@ def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
                             cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
         pcol,prow = np.where(np.flipud(all_fronts[row]))
         ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+        ax_dsst.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+        ax_img.scatter(prow, pcol, s=0.3, color='k', alpha=0.5)
+        ax_b.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
 
         # Add a grid
         for ax in [ax_img, ax_dsst, ax_b, ax_fronts]:
