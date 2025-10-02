@@ -15,6 +15,6 @@
         "freq": "2ME",
         "nperiods": 6
     },
-    "fields": ["U", "V", "SSTK", "SSH", "SSS", "SSSs", "Fs", "Divb2", "OW", "SSHs", "b", "DivSST2", "strain_rate", "divergence"],
+    "fields": ["U", "V", "SSTK", "SSH", "SSS", "SSSs", "Fs", "Divb2", "OW", "SSHs", "b", "DivSST2", "DivSSS2", "strain_rate", "divergence"],
     "meta": "stats"
 }

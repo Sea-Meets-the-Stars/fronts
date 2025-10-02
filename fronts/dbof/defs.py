@@ -39,6 +39,8 @@ tbl_dmodel.update({
                 help='Was SSS successfully extracted?'),
     'SSSs': dict(dtype=np.bool,
                 help='Was SSS (smoothed SSS) successfully extracted?'),
+    'DivSSS2': dict(dtype=np.bool,
+                help='Was DivSSS2 (gradient of SSS) successfully extracted?'),
     'DivSST2': dict(dtype=np.bool,
                 help='Was DivSST2 (gradient of SST) successfully extracted?'),
     'SSTK': dict(dtype=np.bool,
@@ -129,6 +131,17 @@ fields_dmodel = {
                 "de_mean": False
             },
         },
+        "DivSSS2": {
+            "desc": "Gradient of SSS in psu at full resolution, modulo resizing",
+            "units": "(psu/km)^2",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
         "SSSs": {
             "desc": "SSS in psu, smoothed to sattelite resolution",
             "units": "psu",

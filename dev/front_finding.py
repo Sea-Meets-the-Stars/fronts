@@ -23,7 +23,7 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
     dbof_dev_file = '../fronts/runs/dbof/dev/llc4320_dbof_dev.json'
 
     # Thin/weak params
-    front_params = dbof_params.thin_weak_params
+    front_params = finding_params.thin_weak_params
 
     # Load
     dbof_tbl = dbof_io.load_main_table(dbof_dev_file)
@@ -39,6 +39,7 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
     for tt in range(0,nexamples,2):
         # Loop on 2
         all_b, all_sst, all_divb2, all_fronts = [], [], [], []
+        all_divsst = []
         UIDs = []
         for kk in range(2):
             ss = tt + kk
@@ -52,6 +53,7 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
             all_divb2.append(field_data['Divb2'])
             all_sst.append(field_data['SSTK'])
             all_b.append(field_data['b'])
+            all_divsst.append(field_data['DivSST2'])
             UIDs.append(UID)
 
             # Calculate fronts
@@ -62,7 +64,8 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
         # Generate figure
         outfile = os.path.join(outdir, 
                                f'fronts_thinwk_{UIDs[0]}_{UIDs[1]}.png')
-        finding_dev.front_fig3(outfile, all_fronts, all_divb2, all_sst, all_b,
+        finding_dev.front_fig4(outfile, all_fronts, all_divb2, all_sst, 
+                               all_b, all_divsst,
                                title=f'UIDs: {UIDs[0]}, {UIDs[1]}')
 
 
@@ -161,9 +164,10 @@ if __name__ == "__main__":
 
     #test_algorithms()
 
-    #explore_thin(nexamples=2)
+    # Exploring 100 FFF examples
+    explore_thin(nexamples=2)
 
-    test_fig4()
+    #test_fig4()
 
     # Test measuring fronts in many cutouts
     #test_many_cutouts()

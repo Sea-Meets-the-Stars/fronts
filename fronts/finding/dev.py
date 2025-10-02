@@ -166,7 +166,7 @@ def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
         
         # b
         ax_b = plt.subplot(gs[row, 2])
-        cutout.show_image(all_b[row], clbl='buoyancy', ax=ax_b, cm='viridis')
+        cutout.show_image(all_b[row]*100, clbl='100*buoyancy', ax=ax_b, cm='viridis')
         #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
         ax_fronts = plt.subplot(gs[row, 3])
         cutout.show_image(all_divb2[row], cbar=True, #clbl=r'$\nabla b^2$', 
@@ -175,7 +175,53 @@ def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
         ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
         ax_dsst.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
         ax_sst.scatter(prow, pcol, s=0.3, color='k')#, alpha=0.5)
-        ax_b.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+        ax_b.scatter(prow, pcol, s=0.3, color='white')#, alpha=0.5)
+
+        # Add a grid
+        for ax in [ax_sst, ax_dsst, ax_b, ax_fronts]:
+            ax.xaxis.set_major_locator(MultipleLocator(10))
+            ax.yaxis.set_major_locator(MultipleLocator(10))
+            ax.grid(which='major', color='lightgrey', linestyle='--', alpha=0.5)
+
+    # Add title?
+    if title is not None:
+        plt.suptitle(title)
+    
+    plt.tight_layout()#pad=0.0, h_pad=0.0, w_pad=0.3)
+    plt.savefig(outfile, dpi=300)
+    print(f"Saved: {outfile}")
+
+def front_fig6(outfile:str, fronts, divb2, sst, b,
+    divsst, sss, divsss, title:str=None):
+
+    fig = plt.figure(figsize=(14,6))
+    plt.clf()
+    gs = gridspec.GridSpec(2,4)
+
+    # First pair
+    #col = 0
+    for row in range(2):
+        # SST
+        ax_sst = plt.subplot(gs[row, 0])
+        cutout.show_image(all_sst[row], clbl='SST (deg C)', ax=ax_sst)
+
+        # Div SST
+        ax_dsst = plt.subplot(gs[row, 1])
+        cutout.show_image(all_divsst[row], clbl='|Div SST|^2 (K/km)^2', 
+                          ax=ax_dsst, cm='Greys')
+        
+        # b
+        ax_b = plt.subplot(gs[row, 2])
+        cutout.show_image(all_b[row]*100, clbl='100*buoyancy', ax=ax_b, cm='viridis')
+        #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
+        ax_fronts = plt.subplot(gs[row, 3])
+        cutout.show_image(all_divb2[row], cbar=True, #clbl=r'$\nabla b^2$', 
+                            cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
+        pcol,prow = np.where(np.flipud(all_fronts[row]))
+        ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+        ax_dsst.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+        ax_sst.scatter(prow, pcol, s=0.3, color='k')#, alpha=0.5)
+        ax_b.scatter(prow, pcol, s=0.3, color='white')#, alpha=0.5)
 
         # Add a grid
         for ax in [ax_sst, ax_dsst, ax_b, ax_fronts]:

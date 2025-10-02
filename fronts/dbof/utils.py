@@ -143,6 +143,8 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
         gidx = int(meta_tbl.gidx.values[mt[0]])
         cutout = fc[group][gidx]
         fc.close()
+
+        # Add to dict
         field_data[field] = cutout
 
     # Return
