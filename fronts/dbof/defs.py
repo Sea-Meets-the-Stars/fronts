@@ -142,6 +142,7 @@ fields_dmodel = {
                 "de_mean": False,
                 "dx": 2.25  # km
             },
+        },
         "SSSs": {
             "desc": "SSS in psu, smoothed to sattelite resolution",
             "units": "psu",
