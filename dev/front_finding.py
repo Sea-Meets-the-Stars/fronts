@@ -102,7 +102,8 @@ def test_fig4():
 
         # Find fronts
         fronts = finding_dev.algorithms.fronts_from_divb2(
-            Divb2, wndw=40, thin=True, rm_weak=1e-15, dilate=True)
+            Divb2, wndw=40, thin=True, rm_weak=1e-15, 
+            dilate=False)
 
         all_fronts.append(fronts)
 

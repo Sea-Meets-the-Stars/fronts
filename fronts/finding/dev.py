@@ -156,8 +156,8 @@ def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
     #col = 0
     for row in range(2):
         # SST
-        ax_img = plt.subplot(gs[row, 0])
-        cutout.show_image(all_sst[row], clbl='SST (deg C)', ax=ax_img)
+        ax_sst = plt.subplot(gs[row, 0])
+        cutout.show_image(all_sst[row], clbl='SST (deg C)', ax=ax_sst)
 
         # Div SST
         ax_dsst = plt.subplot(gs[row, 1])
@@ -174,11 +174,11 @@ def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
         pcol,prow = np.where(np.flipud(all_fronts[row]))
         ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
         ax_dsst.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
-        ax_img.scatter(prow, pcol, s=0.3, color='k', alpha=0.5)
+        ax_sst.scatter(prow, pcol, s=0.3, color='k')#, alpha=0.5)
         ax_b.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
 
         # Add a grid
-        for ax in [ax_img, ax_dsst, ax_b, ax_fronts]:
+        for ax in [ax_sst, ax_dsst, ax_b, ax_fronts]:
             ax.xaxis.set_major_locator(MultipleLocator(10))
             ax.yaxis.set_major_locator(MultipleLocator(10))
             ax.grid(which='major', color='lightgrey', linestyle='--', alpha=0.5)
