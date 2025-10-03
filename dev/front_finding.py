@@ -3,6 +3,7 @@ import os
 import numpy as np
 
 import h5py
+import pandas
 
 from wrangler.ogcm import utils as wr_ogcm_utils
 
@@ -17,10 +18,11 @@ from IPython import embed
     
 b_front_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'Training_Sets', 
                      'LLC4320_SST144_SSS40_fronts.h5')
+dbof_dev_file = '../fronts/runs/dbof/dev/llc4320_dbof_dev.json'
 
 def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
-                 outdir:str='plots/'):
-    dbof_dev_file = '../fronts/runs/dbof/dev/llc4320_dbof_dev.json'
+                 outdir:str='plots/', tbl_file:str=None,
+                 clobber:bool=False):
 
     # Thin/weak params
     front_params = finding_params.thin_weak_params
@@ -34,12 +36,21 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
     # Draw random examples from divb2 range
     divb2_rand = np.random.uniform(divb2_rng[0], divb2_rng[1], 
                                    nexamples)
-    
+    sv_UIDs = []
+
     # Generate fronts
     for ss in range(0,nexamples):
+
         # Find closest Divb2
         idx = np.argmin(np.abs(10**divb2_rand[ss] - dbof_divb2_tbl.p90.values))
         UID = dbof_divb2_tbl.UID.values[idx]
+        sv_UIDs.append(UID)
+
+        # Outfile
+        outfile = os.path.join(outdir, f'fronts_thinwk_{UID}.png')
+        if (not clobber) and os.path.isfile(outfile):
+            print(f'File {outfile} exists, skipping')
+            continue
 
         # Main table
         imain = np.where(dbof_tbl.UID == UID)[0][0]
@@ -56,12 +67,18 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
         title += f'lat={dbof_tbl.iloc[imain].lat:0.2f}, lon={dbof_tbl.iloc[imain].lon:0.2f}'
 
         # Generate figure
-        outfile = os.path.join(outdir, f'fronts_thinwk_{UID}.png')
         finding_dev.front_fig6(outfile, fronts, field_data['Divb2'],
                                    field_data['SSTK'], field_data['b'], 
                                    field_data['DivSST2'],
                                    field_data['SSS'], field_data['DivSSS2'],
                                title=title)
+
+    # Table?
+    if tbl_file is not None:
+        df = pandas.DataFrame({'UID': sv_UIDs, 
+                               'log10_p90_Divb2': divb2_rand})
+        df.to_csv(tbl_file, index=False)
+        print(f'Wrote {tbl_file}')
 
 def test_algorithms():
 
@@ -129,42 +146,14 @@ def test_many_cutouts():
     with h5py.File(b_front_file, 'w') as f:
         f.create_dataset('fronts', data=flabels.astype(int))
 
-def test_fprop_cutout(idx:int=500):
-
-    # Load up
-    cutouts, tbl = finding_dev.load_test_data()
-    Divb2 = cutouts['targets'][:, 0, 0, ...]
-    with h5py.File(b_front_file, 'r') as f:
-        fronts = f['fronts'][:]
-
-    ncutouts = Divb2.shape[0]
-
-    # Fake lat, lon
-    latlons = np.random.uniform(size=(2,ncutouts))
-
-    # Generate lat, lon images
-    lat_cutouts, lon_cutouts = wr_ogcm_utils.latlons_for_cutouts(
-        latlons, Divb2.shape[1], 2.25)
-
-    # Front properties for one
-    fprop_dict = fprop_measure.fprops_in_fields(
-        fronts[idx], ['avg_lat', 'avg_lon', 'avg_Divb2'],
-        [lat_cutouts[idx], lon_cutouts[idx], Divb2[idx]])
-
-    embed(header='157 of test_fprop cutout')
-
-
 if __name__ == "__main__":
 
     #test_algorithms()
 
     # Exploring 100 FFF examples
-    explore_thin(nexamples=100)
+    explore_thin(nexamples=100, tbl_file='exploring_thin.csv')
 
     #test_fig4()
 
     # Test measuring fronts in many cutouts
     #test_many_cutouts()
-
-    # Test measuring front properties for a series of cutouts
-    #test_fprop_cutout()
