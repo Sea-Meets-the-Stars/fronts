@@ -36,38 +36,32 @@ def explore_thin(nexamples:int=100, divb2_rng=(-15., -13.),
                                    nexamples)
     
     # Generate fronts
-    for tt in range(0,nexamples,2):
-        # Loop on 2
-        all_b, all_sst, all_divb2, all_fronts = [], [], [], []
-        all_divsst = []
-        UIDs = []
-        for kk in range(2):
-            ss = tt + kk
-            # Find closest Divb2
-            idx = np.argmin(np.abs(10**divb2_rand[ss] - dbof_divb2_tbl.p90.values))
-            UID = dbof_divb2_tbl.UID.values[idx]
-            # Grab fields
-            field_data = dbof_utils.grab_fields(dbof_dev_file, 'all', UID)
-            # Save em
+    for ss in range(0,nexamples):
+        # Find closest Divb2
+        idx = np.argmin(np.abs(10**divb2_rand[ss] - dbof_divb2_tbl.p90.values))
+        UID = dbof_divb2_tbl.UID.values[idx]
 
-            all_divb2.append(field_data['Divb2'])
-            all_sst.append(field_data['SSTK'])
-            all_b.append(field_data['b'])
-            all_divsst.append(field_data['DivSST2'])
-            UIDs.append(UID)
+        # Main table
+        imain = np.where(dbof_tbl.UID == UID)[0][0]
 
-            # Calculate fronts
-            fronts = finding_dev.algorithms.fronts_from_divb2(
-                        field_data['Divb2'], **front_params)
-            all_fronts.append(fronts)
+        # Grab fields
+        field_data = dbof_utils.grab_fields(dbof_dev_file, 'all', UID)
+
+        # Calculate fronts
+        fronts = finding_dev.algorithms.fronts_from_divb2(
+                    field_data['Divb2'], **front_params)
+
+        # Title
+        title = f'UID: {UID}, date: {dbof_divb2_tbl.iloc[idx].group[:-3]}, '
+        title += f'lat={dbof_tbl.iloc[imain].lat:0.2f}, lon={dbof_tbl.iloc[imain].lon:0.2f}'
 
         # Generate figure
-        outfile = os.path.join(outdir, 
-                               f'fronts_thinwk_{UIDs[0]}_{UIDs[1]}.png')
-        finding_dev.front_fig4(outfile, all_fronts, all_divb2, all_sst, 
-                               all_b, all_divsst,
-                               title=f'UIDs: {UIDs[0]}, {UIDs[1]}')
-
+        outfile = os.path.join(outdir, f'fronts_thinwk_{UID}.png')
+        finding_dev.front_fig6(outfile, fronts, field_data['Divb2'],
+                                   field_data['SSTK'], field_data['b'], 
+                                   field_data['DivSST2'],
+                                   field_data['SSS'], field_data['DivSSS2'],
+                               title=title)
 
 def test_algorithms():
 
@@ -165,7 +159,7 @@ if __name__ == "__main__":
     #test_algorithms()
 
     # Exploring 100 FFF examples
-    explore_thin(nexamples=2)
+    explore_thin(nexamples=100)
 
     #test_fig4()
 
