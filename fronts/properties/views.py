@@ -13,7 +13,7 @@ from wrangler.plotting import cutout
 from fronts.plotting.images import field_defs
 
 
-def show_fields(field_dict:dict, outfile:str):
+def show_fields(field_dict:dict, outfile:str, grid_sep:float=10.):
 
     # Number of fields
     nfields = len(field_dict)
@@ -27,7 +27,7 @@ def show_fields(field_dict:dict, outfile:str):
         nrows = 2
         ncols = (nfields + 1) // 2
 
-    fig = plt.figure(figsize=(4*ncols, 4*nrows))
+    fig = plt.figure(figsize=(5*ncols, 4*nrows))
     plt.clf()
     gs = gridspec.GridSpec(nrows, ncols)
     fig.subplots_adjust(hspace=0.3, wspace=0.3)
@@ -53,6 +53,8 @@ def show_fields(field_dict:dict, outfile:str):
             vmax = np.nanmax(np.abs(fdata - vcenter))
             vmin = vcenter - vmax
             vmax = vcenter + vmax
+        elif 'vmin' in field_defs[fname]:
+            vmin = field_defs[fname]['vmin']
             #cmap = mpl.cm.get_cmap(cmap)
             #cmap.set_bad('lightgrey')
             #cmap = mpl.colors.TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
@@ -61,8 +63,8 @@ def show_fields(field_dict:dict, outfile:str):
                           vmnx=(vmin, vmax))
 
         #ax.set_title(fname)
-        ax.xaxis.set_major_locator(MultipleLocator(20))
-        ax.yaxis.set_major_locator(MultipleLocator(20))
+        ax.xaxis.set_major_locator(MultipleLocator(grid_sep))
+        ax.yaxis.set_major_locator(MultipleLocator(grid_sep))
         ax.grid()
 
     plt.tight_layout()

@@ -47,10 +47,9 @@ def test_fprop_cutout(idx:int=500):
     embed(header='157 of test_fprop cutout')
 
 def test_views(UID:int=132796874601355073):
-    dbof_tbl = dbof_io.load_main_table(dbof_dev_file)
 
     # Grab em
-    fields = ['Divb2', 'Fs']
+    fields = ['Divb2', 'Fs', 'divergence', 'strain_rate']
     field_data = dbof_utils.grab_fields(dbof_dev_file, fields, UID)
 
     # Show em
