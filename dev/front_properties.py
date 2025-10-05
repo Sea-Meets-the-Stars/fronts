@@ -49,7 +49,7 @@ def test_fprop_cutout(idx:int=500):
 def test_views(UID:int=132796874601355073):
 
     # Grab em
-    fields = ['Divb2', 'Fs', 'divergence', 'strain_rate']
+    fields = ['Divb2', 'Fs', 'afnorm_divergence', 'afnorm_strain_rate']
     field_data = dbof_utils.grab_fields(dbof_dev_file, fields, UID)
 
     # Show em

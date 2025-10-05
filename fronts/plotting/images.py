@@ -24,7 +24,7 @@ field_defs = {
            'vcenter':0.},
     'divergence': {'cmap': 'PiYG', 'label': r'Divergence   $\nabla \cdot \mathbf{u}$ (s$^{-1}$)',
            'vcenter':0.},
-    'strain_rate': {'cmap': 'YlOrRd', 'label': r'Strain rate   $\sqrt{S_n^2 + S_s^2}$ (s$^{-1}$)',
+    'strain_rate': {'cmap': 'YlOrRd', 'label': r'Strain rate   $\alpha = \sqrt{\sigma_n^2 + \sigma_s^2}$ (s$^{-1}$)',
                     'vmin':0.},
     'SSS': {'cmap':'viridis', 'label':'SSS (psu)'},
     'SSH': {'cmap':'viridis', 'label':'SSH (m)'},

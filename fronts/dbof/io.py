@@ -3,6 +3,8 @@ import os
 
 import numpy as np
 
+import pandas
+
 from wrangler.tables import io as tbl_io
 
 from fronts import io as fronts_io
@@ -94,7 +96,7 @@ def load_main_table(dbof_json_dict:(str|dict)):
 
     return dbof_table
 
-def load_meta_table(dbof_json_dict:(str|dict), field:str):
+def load_meta_table(dbof_json_dict:(str|dict|pandas.DataFrame), field:str):
     """ Load the meta table from disk
 
     Args:
@@ -104,6 +106,9 @@ def load_meta_table(dbof_json_dict:(str|dict), field:str):
     Returns:
         pandas.DataFrame: The table
     """
+    # Already a table?
+    if isinstance(dbof_json_dict, pandas.DataFrame):
+        return dbof_json_dict
 
     # Read the JSON
     dbof_dict = fronts_io.loadjson(dbof_json_dict) if isinstance(dbof_json_dict, str) else dbof_json_dict

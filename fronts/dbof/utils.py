@@ -4,28 +4,40 @@ import os
 import numpy as np
 import h5py
 
+import pandas 
 from fronts import io as fronts_io
 from fronts.dbof import io as dbof_io
+from fronts.utils import ocean as futils_ocean
 
 from IPython import embed
 
-def find_entry(dbof_json_dict:(str|dict), sdict:dict, debug:bool=False):
+def series_from_UID(dbof_tbl:pandas.DataFrame, UID:int):
+    mt = np.where(UID == dbof_tbl.UID.values)[0]
+    if len(mt) == 0:
+        raise ValueError("UID not found")
+    series = dbof_tbl.iloc[mt[0]]
+    return series
+
+def find_entry(dbof_json_dict:(str|dict|pandas.DataFrame), sdict:dict, debug:bool=False):
     """
     Find an entry in a DBOF (Database of Oceanographic Fronts) table that matches the specified criteria.
     Parameters:
     -----------
-    dbof_json_dict : str | dict
-        The DBOF table, either as a JSON file path (str) or a dictionary (dict).
+    dbof_json_dict : str | dict | pandas.DataFrame
+        The DBOF table, either as a JSON file path (str) or a dictionary (dict)
+        or a pandas (DataFrame) representing the DBOF table.
     sdict : dict
         A dictionary containing the search criteria. Keys should correspond to column names in the DBOF table,
         and values represent the values to match.
     debug : bool, optional
         If True, prints debug information about the matching process. Default is False.
+
     Returns:
     --------
     int
         The index of the matching entry in the DBOF table.
         Returns -1 if no match is found.
+
     Raises:
     -------
     KeyError
@@ -108,6 +120,9 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
 
     # Load the json dict 
     dbof_dict = fronts_io.loadjson(dbof_json_dict)
+    dbof_table = dbof_io.load_main_table(dbof_json_dict)
+
+    dbof_series = series_from_UID(dbof_table, UID)
 
     # Load up main table
     print(f"Grabbing fields for UID: {UID}")
@@ -118,7 +133,20 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
 
     # Loop on fields
     field_data = {}
-    for field in fields:
+    for ffield in fields:
+
+        # Normalize by Coriolis?
+        fnorm = False
+        fanorm = False
+        if 'fnorm_' in ffield:
+            field = ffield.replace('fnorm_', '')
+            fnorm = True
+        elif 'afnorm_' in ffield:
+            field = ffield.replace('afnorm_', '')
+            fanorm = True
+        else:
+            field = ffield
+
         # Load up the field meta if not there
         meta_tbl = dbof_io.load_meta_table(dbof_dict, field)
         if meta_tbl is None:
@@ -146,6 +174,17 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
 
         # Add to dict
         field_data[field] = cutout
+
+        # Normalize by Coriolis?
+        if fnorm or fanorm:
+            fcor = futils_ocean.coriolis(dbof_series.lat, dbof_series.lon)
+            if fcor == 0.:
+                print(f"Warning: fcor is zero for UID {UID}, cannot normalize {field}")
+            else:
+                if fnorm:
+                    field_data[ffield] = cutout / fcor
+                elif fanorm:
+                    field_data[ffield] = cutout / np.abs(fcor)
 
     # Return
     return field_data

@@ -25,6 +25,8 @@ tbl_dmodel.update({
                 help='Was strain_rate successfully extracted?'),
     'divergence': dict(dtype=np.bool,
                 help='Was divergence successfully extracted?'),
+    'vorticity': dict(dtype=np.bool,
+                help='Was vorticity successfully extracted?'),
     'U': dict(dtype=np.bool,
                 help='Was U successfully extracted?'),
     'V': dict(dtype=np.bool,
@@ -155,9 +157,21 @@ fields_dmodel = {
                 "de_mean": False
             },
         },
+        "vorticity": {
+            "desc": "Vorticity, native resolution.",
+            "units": "1/s",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
+        },
         "divergence": {
             "desc": "Divergence, native resolution.",
-            "units": "1/s^2",
+            "units": "1/s",
             "pdict": {
                 "resize": True,
                 "downscale": False,
@@ -168,8 +182,8 @@ fields_dmodel = {
             },
         },
         "strain_rate": {
-            "desc": "Strain rate, native resolution.",
-            "units": "1/s^2",
+            "desc": "Strain rate (aka alpha), native resolution.",
+            "units": "1/s",
             "pdict": {
                 "resize": True,
                 "downscale": False,
