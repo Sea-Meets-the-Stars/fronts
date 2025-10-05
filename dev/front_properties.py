@@ -50,7 +50,8 @@ def test_views(UID:int=132796874601355073):
 
     # Grab em
     fields = ['Divb2', 'Fs', 'afnorm_divergence', 'afnorm_strain_rate']
-    field_data = dbof_utils.grab_fields(dbof_dev_file, fields, UID)
+    field_data = dbof_utils.grab_fields(dbof_dev_file, fields, UID, 
+                                        required=True)
 
     # Show em
     fprop_views.show_fields(field_data, 'test_views.png')

@@ -87,7 +87,8 @@ def find_entry(dbof_json_dict:(str|dict|pandas.DataFrame), sdict:dict, debug:boo
     else:
         return dbof_table[match].index.values[0]
     
-def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
+def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int,
+                required:bool=False):
     """
     Extracts specified fields from a DBOF (Dynamic Bayesian Ocean Fronts) dataset 
     for a given unique identifier (UID).
@@ -98,6 +99,8 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
         fields (list | str): A list of field names to extract, or the string 'all' 
             to extract all available fields.
         UID (int): The unique identifier for which the fields are to be extracted.
+        required (bool, optional): If True, raises an error if any of the
+            specified fields are not found. Defaults to False.
 
     Returns:
         dict: A dictionary where the keys are field names and the values are the 
@@ -138,10 +141,10 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
         # Normalize by Coriolis?
         fnorm = False
         fanorm = False
-        if 'fnorm_' in ffield:
+        if ffield[:6] == 'fnorm_': 
             field = ffield.replace('fnorm_', '')
             fnorm = True
-        elif 'afnorm_' in ffield:
+        elif ffield[:7] == 'afnorm_': 
             field = ffield.replace('afnorm_', '')
             fanorm = True
         else:
@@ -150,6 +153,9 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
         # Load up the field meta if not there
         meta_tbl = dbof_io.load_meta_table(dbof_dict, field)
         if meta_tbl is None:
+            if required:
+                embed(header="in dbof.utils.grab_fields 128")
+                raise ValueError(f"Field {field} not found and is required")
             print(f"Field {field} not found")
             continue
 
@@ -173,7 +179,7 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
         fc.close()
 
         # Add to dict
-        field_data[field] = cutout
+        field_data[ffield] = cutout
 
         # Normalize by Coriolis?
         if fnorm or fanorm:
@@ -182,9 +188,9 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int):
                 print(f"Warning: fcor is zero for UID {UID}, cannot normalize {field}")
             else:
                 if fnorm:
-                    field_data[ffield] = cutout / fcor
+                    field_data[ffield] /= fcor
                 elif fanorm:
-                    field_data[ffield] = cutout / np.abs(fcor)
+                    field_data[ffield] /= np.abs(fcor)
 
     # Return
     return field_data
