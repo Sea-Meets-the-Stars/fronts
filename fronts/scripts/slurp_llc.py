@@ -115,16 +115,8 @@ def main(pargs):
     tsize = ds.time.size
     print("Model is ready")
 
-
-    '''
-    #define which iterations you want. 
-    start_from = 1180 # 0 is the first record of Eta, ~1180 is the first record for wind
-    length_in_hours = 12
-    time_step_in_hours = 3 # the minimum timestep between files is one hour
-
-
-    end_iter = 10368 + start_from*144 + length_in_hours*144
-    '''
+    # The following is taken + modified from:
+    #  https://github.com/cspencerjones/OSN_LLC4320
 
     all_vars = ['Theta','U','V','W','Salt','Eta']
     drop_vars = [var for var in all_vars if var not in varnames]
