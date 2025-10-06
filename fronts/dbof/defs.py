@@ -21,6 +21,8 @@ tbl_dmodel.update({
                 help='Was Fs (frontogenesis tendency) successfully extracted?'),
     'OW': dict(dtype=np.bool,
                 help='Was OW (Okubo-Weiss) successfully extracted?'),
+    'Cu': dict(dtype=np.bool,
+                help='Was Cu successfully extracted?'),
     'strain_rate': dict(dtype=np.bool,
                 help='Was strain_rate successfully extracted?'),
     'divergence': dict(dtype=np.bool,
@@ -208,6 +210,18 @@ fields_dmodel = {
         "Fs": {
             "desc": "Frontogenesis tendency in 1/s^2, native resolution",
             "units": "1/s^2 (maybe)",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25
+            },
+        },
+        "Cu": {
+            "desc": "Curvature number",
+            "units": "Dimensionless",
             "pdict": {
                 "resize": True,
                 "downscale": False,

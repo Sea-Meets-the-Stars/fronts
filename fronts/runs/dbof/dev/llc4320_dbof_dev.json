@@ -16,6 +16,6 @@
         "nperiods": 6
     },
     "fields": ["U", "V", "SSTK", "SSH", "SSS", "SSSs", "Fs", "Divb2", "OW", "SSHs", "b", 
-    "DivSST2", "DivSSS2", "strain_rate", "divergence", "vorticity"],
+    "DivSST2", "DivSSS2", "strain_rate", "divergence", "vorticity", "Cu"],
     "meta": "stats"
 }

@@ -3,12 +3,11 @@
 
 import numpy as np
 
-def coriolis(lat:float, lon:float):
-    """ Coriolis parameter at lat, lon
+def coriolis(lat:float):
+    """ Coriolis parameter at lat
 
     Args:
         lat (float): Latitude in degrees
-        lon (float): Longitude in degrees
 
     Returns:
         float: Coriolis parameter in 1/s

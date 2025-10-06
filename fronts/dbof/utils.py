@@ -183,7 +183,7 @@ def grab_fields(dbof_json_dict:(str|dict), fields:(list|str), UID:int,
 
         # Normalize by Coriolis?
         if fnorm or fanorm:
-            fcor = futils_ocean.coriolis(dbof_series.lat, dbof_series.lon)
+            fcor = futils_ocean.coriolis(dbof_series.lat)
             if fcor == 0.:
                 print(f"Warning: fcor is zero for UID {UID}, cannot normalize {field}")
             else:
