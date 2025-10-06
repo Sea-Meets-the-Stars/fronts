@@ -231,6 +231,18 @@ fields_dmodel = {
                 "dx": 2.25
             },
         },
+        "L": {
+            "desc": "Angular momentum",
+            "units": "(m/s)^2",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25
+            },
+        },
         "b": {
             "desc": "buoyancy, native resolution",
             "units": "unitless?",
