@@ -5,7 +5,7 @@ import numpy as np
 import pandas
 import h5py
 
-from wrangler.extract import ogcm as wr_ex_ogcm
+from wrangler.extract import ex_ogcm as wr_ex_ogcm
 from wrangler.ogcm import llc as wr_llc
 from wrangler.tables import io as tbl_io
 from wrangler.tables import utils as tbl_utils
@@ -84,7 +84,7 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         print(f"Processing {udate} with {len(date_table)} cutouts")
 
         # Do it
-        success, pp_fields, imeta, filename = wr_ex_ogcm.preproc_datetime(
+        success, pp_fields, imeta, filename = wr_ex_ogcm.llc_datetime(
             date_table, field, udate, pdict,
             #field_size=(dbof_dict['spatial']['cutout_size'], dbof_dict['spatial']['cutout_size']),
             fixed_km=dbof_dict['spatial']['fixed_km'],
