@@ -48,14 +48,19 @@ def test_fprop_cutout(idx:int=500):
 
 def test_views(UID:int=132796874601355073):
 
+    # Series
+    dbof_tbl = dbof_io.load_main_table(dbof_dev_file)
+    idbof = dbof_utils.series_from_UID(dbof_tbl, UID)
+
     # Grab em
     fields = ['b', 'Divb2', 'Fs', 'afnorm_divergence', 'afnorm_strain_rate',
-              'fnorm_vorticity']
+              'fnorm_vorticity','Cu', 'L', 'SSTK']
     field_data = dbof_utils.grab_fields(dbof_dev_file, fields, UID, 
                                         required=True)
 
     # Show em
-    fprop_views.show_fields(field_data, 'test_views.png')
+    title=f'UID={UID}, lat={idbof.lat:.2f}, lon={idbof.lon:.2f}'
+    fprop_views.show_fields(field_data, 'test_views.png',title=title)
 
 if __name__ == "__main__":
 

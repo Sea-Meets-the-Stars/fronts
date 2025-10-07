@@ -18,7 +18,7 @@ import cartopy.crs as ccrs
 # Field color maps and labels
 
 field_defs = {
-    'SSTK': {'cmap':'coolwarm', 'label':r'SST (K)'},
+    'SSTK': {'cmap':None, 'label':r'SST (K)'},
     'Divb2': {'cmap':'Greys', 'label':r'$|\nabla b|^2$'},
     'Fs': {'cmap': 'seismic', 'label':'Frontogenesis Tendency',
            'vcenter':0.},
@@ -34,6 +34,8 @@ field_defs = {
                     'vmin':0.},
     'afnorm_strain_rate': {'cmap': 'YlOrRd', 'label': r'$\alpha/|f_0|$',
                     'vmin':0.},
+    'Cu': {'cmap': 'PuOr', 'label': 'Curvature number', 'vcenter':0.},   
+    'L': {'cmap': None, 'label': 'Angular momentum'},   
     'SSS': {'cmap':'viridis', 'label':'SSS (psu)'},
     'SSH': {'cmap':'viridis', 'label':'SSH (m)'},
     'EKE': {'cmap':'magma', 'label':'EKE (m$^2$/s$^2$)'},

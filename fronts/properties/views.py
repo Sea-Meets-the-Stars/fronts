@@ -13,19 +13,16 @@ from wrangler.plotting import cutout
 from fronts.plotting.images import field_defs
 
 
-def show_fields(field_dict:dict, outfile:str, grid_sep:float=10.):
+def show_fields(field_dict:dict, outfile:str, grid_sep:float=10.,
+                title:str=None):
 
     # Number of fields
     nfields = len(field_dict)
 
     # Set figure size and gridspec from nfields
-    #  One row if nfields <= 3 else two rows
-    if nfields <= 3:
-        nrows = 1
-        ncols = nfields
-    else:
-        nrows = 2
-        ncols = (nfields + 1) // 2
+    #  One row for evrery 3 fields
+    nrows = nfields // 3 + (nfields % 3 > 0)
+    ncols = (nfields + 1) // nrows
 
     fig = plt.figure(figsize=(5*ncols, 4*nrows))
     plt.clf()
@@ -66,6 +63,10 @@ def show_fields(field_dict:dict, outfile:str, grid_sep:float=10.):
         ax.xaxis.set_major_locator(MultipleLocator(grid_sep))
         ax.yaxis.set_major_locator(MultipleLocator(grid_sep))
         ax.grid()
+
+    # Title?
+    if title is not None:
+        plt.suptitle(title, fontsize=16)
 
     plt.tight_layout()
     plt.savefig(outfile, dpi=300)
