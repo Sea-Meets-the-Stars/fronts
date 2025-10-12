@@ -18,6 +18,8 @@ def parser(options=None):
                         help="LLC data variable name.  Allowed options are [Theta, U, V, Salt, W, Eta]")
     parser.add_argument("--istart", type=int, default=0,
                         help="Index of model to start with")
+    parser.add_argument("--insert", default=False, action="store_true",
+                        help="Insert field(s) into existing file?")
     parser.add_argument("--debug", default=False, action="store_true",
                         help="Debug?")
 
@@ -172,7 +174,7 @@ def main(pargs):
         outfile = '{:s}_{:s}.nc'.format(pargs.model,
             str(ds.time.values)[2:21].replace(':','_'))
         # No clobber
-        if os.path.isfile(outfile):
+        if os.path.isfile(outfile) and not pargs.insert:
             print("Not clobbering: {}".format(outfile))
             continue
 
@@ -186,7 +188,7 @@ def main(pargs):
         if pargs.debug:
             embed(header='203 of slurp_llc')
         # Write
-        write_xr(ds_rect, outfile, encode=True)
+        write_xr(ds_rect, outfile, encode=True, insert=pargs.insert)
         print("Wrote: {}".format(outfile))
 
 
