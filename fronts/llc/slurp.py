@@ -87,5 +87,6 @@ def write_xr(xr_d, outfile:str, strip_coord=True, encode=True,
         mode = 'w'
         
     # Do it
+    embed(header='90 of slurp')
     xr_ds.to_netcdf(outfile, encoding=encoding, engine='netcdf4', mode=mode)
 
