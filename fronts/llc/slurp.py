@@ -38,11 +38,13 @@ def write_xr(xr_d, outfile:str, strip_coord=True, encode=True,
         raise IOError("Bad xr data type")
 
     # Insert missing vars?
+    '''
     if insert:
-        original_ds = xr.open_dataset(outfile)
+        original_ds = xr.load_dataset(outfile)
         original_ds['Eta'] = xr_ds['Eta']
         original_ds.close()
         xr_ds = original_ds
+    '''
 
     # Encode?
     if encode:
@@ -64,10 +66,8 @@ def write_xr(xr_d, outfile:str, strip_coord=True, encode=True,
                              '_FillValue': -32768,
                              'missing_value': -32768}
         encoding['Eta'] = {'dtype': 'int16', 'scale_factor': 0.001,  # Adjust based on desired precision 'add_offset': 0.0,
-            'zlib': True,           
-            'complevel': 4,         
-            '_FillValue': -32767    
-        }
+            'zlib': True,  'complevel': 4, '_FillValue': -32768,
+                             'missing_value': -32768}
         encoding['Salt'] = {'dtype': 'int16', 'scale_factor': 1e-3,
                              'add_offset': 30., 'zlib': True,
                              '_FillValue': -32768,
@@ -80,8 +80,12 @@ def write_xr(xr_d, outfile:str, strip_coord=True, encode=True,
     else:
         encoding = None
 
-    embed(header='83 of slurp')
-
     # Write
-    xr_ds.to_netcdf(outfile, encoding=encoding, engine='netcdf4')
+    if insert:
+        mode = 'a'
+    else:
+        mode = 'w'
+        
+    # Do it
+    xr_ds.to_netcdf(outfile, encoding=encoding, engine='netcdf4', mode=mode)
 

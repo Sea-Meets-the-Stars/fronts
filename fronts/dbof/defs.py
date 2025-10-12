@@ -104,8 +104,8 @@ fields_dmodel = {
             },
         },
         "SSH": {
-            "desc": "SSH in ??, native resolution",
-            "units": "??",
+            "desc": "SSH, native resolution",
+            "units": "m",
             "pdict": {
                 "resize": True,
                 "downscale": False,
@@ -116,7 +116,7 @@ fields_dmodel = {
         },
         "SSHs": {
             "desc": "SSHs smoothed by 15km to match MEASUREs data product",
-            "units": "??",
+            "units": "m",
             "pdict": {
                 "resize": True,
                 "downscale": False,
