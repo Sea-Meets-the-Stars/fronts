@@ -16,7 +16,7 @@ def write_xr(xr_d, outfile:str, strip_coord=True, encode=True,
     strip_coord  : bool, optional
         Strip off coordinates?
     encode : bool, optional
-        Encode to int16?
+        Encode/compress
 
     """
 
@@ -37,17 +37,35 @@ def write_xr(xr_d, outfile:str, strip_coord=True, encode=True,
     else:
         raise IOError("Bad xr data type")
 
-    # Insert missing vars?
-    '''
-    if insert:
-        original_ds = xr.load_dataset(outfile)
-        original_ds['Eta'] = xr_ds['Eta']
-        original_ds.close()
-        xr_ds = original_ds
-    '''
-
     # Encode?
     if encode:
+        encoding = {}
+        encoding['Theta'] = {'dtype': 'float32', 
+                             'zlib': True, 'complevel': 4,
+                             '_FillValue': -32768,
+                             'missing_value': -32768}
+        for key in ['U', 'V', 'W', 'Eta', 'Salt']:
+            encoding[key] = encoding['Theta'].copy()
+        # Keep only those in data_vars
+        data_vars = list(xr_ds.data_vars.keys())
+        for key in list(encoding.keys()):
+            if key not in data_vars:
+                del(encoding[key])
+    else:
+        encoding = None
+
+    # Write
+    if insert:
+        mode = 'a'
+    else:
+        mode = 'w'
+        
+    # Do it
+    xr_ds.to_netcdf(outfile, encoding=encoding, engine='netcdf4', mode=mode)
+
+
+'''
+# Original coding
         encoding = {}
         encoding['Theta'] = {'dtype': 'int16', 'scale_factor': 1e-3,
                              'add_offset': 10., 'zlib': True,
@@ -72,21 +90,4 @@ def write_xr(xr_d, outfile:str, strip_coord=True, encode=True,
                              'add_offset': 30., 'zlib': True,
                              '_FillValue': -32768,
                              'missing_value': -32768}
-        # Keep only those in data_vars
-        data_vars = list(xr_ds.data_vars.keys())
-        for key in list(encoding.keys()):
-            if key not in data_vars:
-                del(encoding[key])
-    else:
-        encoding = None
-
-    # Write
-    if insert:
-        mode = 'a'
-    else:
-        mode = 'w'
-        
-    # Do it
-    embed(header='90 of slurp')
-    xr_ds.to_netcdf(outfile, encoding=encoding, engine='netcdf4', mode=mode)
-
+'''
