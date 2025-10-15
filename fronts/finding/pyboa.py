@@ -678,6 +678,7 @@ def front_thresh(array, wndw=64, prcnt=90):
     This function computes a local percentile threshold for each element in the input
     array using a sliding window of specified size. It then compares the array values
     to the computed threshold to identify regions of interest.
+
     Parameters:
         array (numpy.ndarray): The input 2D array containing the data to be processed.
         wndw (int, optional): The size of the sliding window used to compute the local
