@@ -711,6 +711,34 @@ def front_thresh(array, wndw=64, prcnt=90):
     
     return frnt
 
+def global_threshold(array, prcnt):
+    """
+    Apply global percentile threshold across entire image
+    
+    Parameters:
+    -----------
+    array : 2D numpy array
+        Input values (e.g., front intensity)
+    prcnt : float
+        Percentile threshold (0-100)
+    
+    Returns:
+    --------
+    frnt : boolean array
+        True where array exceeds global percentile
+    """
+    # Calculate percentile from all valid pixels
+    valid_values = array[~np.isnan(array)]
+    
+    if len(valid_values) == 0:
+        return np.full_like(array, False, dtype=bool)
+    
+    threshold = np.percentile(valid_values, prcnt)
+    
+    # Apply threshold to all pixels at once
+    frnt = array > threshold
+    
+    return frnt
 
 def thinning(in_array, iteration=2, f_dilate=True, min_size=7):
     array = in_array.copy()
