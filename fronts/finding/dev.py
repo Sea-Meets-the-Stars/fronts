@@ -192,7 +192,7 @@ def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
     print(f"Saved: {outfile}")
 
 def front_fig6(outfile:str, fronts, divb2, sst, b,
-    divsst, sss, divsss, title:str=None):
+    divsst, sss, divsss, title:str=None, show:bool=False):
 
     fig = plt.figure(figsize=(12,6))
     plt.clf()
@@ -246,6 +246,10 @@ def front_fig6(outfile:str, fronts, divb2, sst, b,
         plt.suptitle(title)
     
     plt.tight_layout()#pad=0.0, h_pad=0.0, w_pad=0.3)
-    plt.savefig(outfile, dpi=300)
-    print(f"Saved: {outfile}")
-    plt.close()
+    if outfile is not None:
+        plt.savefig(outfile, dpi=300)
+        print(f"Saved: {outfile}")
+        plt.close()
+    if show:
+        plt.show()
+    return fig
