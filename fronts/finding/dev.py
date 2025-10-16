@@ -192,7 +192,8 @@ def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
     print(f"Saved: {outfile}")
 
 def front_fig6(outfile:str, fronts, divb2, sst, b,
-    divsst, sss, divsss, title:str=None, show:bool=False):
+    divsst, sss, divsss, title:str=None, show:bool=False,
+    scale_by_EoS:bool=True):
 
     fig = plt.figure(figsize=(12,6))
     plt.clf()
@@ -204,18 +205,26 @@ def front_fig6(outfile:str, fronts, divb2, sst, b,
 
     # Div SST
     ax_dsst = plt.subplot(gs[1, 0])
-    cutout.show_image(divsst, clbl='|Div SST|^2 (K/km)^2', 
+    if scale_by_EoS:
+        divsst = divsst * (2e-4)**2 * (0.0098)**2
+        clbl=r'$|g \, \alpha \, \nabla {\rm SST}|^2 \; \rm s^{-4}$' 
+    else:
+        clbl='|Div SST|^2 (K/km)^2', 
+    cutout.show_image(divsst, clbl=clbl,
                         ax=ax_dsst, cm='Greys')
 
     # SSS
     ax_sss = plt.subplot(gs[0, 1])
     cutout.show_image(sss, clbl='SSS (psu)', ax=ax_sss, cm='viridis')
 
-    # Div SST
+    # Div SSS
     ax_dsss = plt.subplot(gs[1, 1])
-    cutout.show_image(divsss, 
-                      clbl='|Div SSS|^2 (K/km)^2', 
-                        ax=ax_dsss, cm='Greys')
+    if scale_by_EoS:
+        divsss = divsss * (7.8e-4)**2 * (0.0098)**2
+        clbl=r'$|g \, \beta \, \nabla {\rm SSS}|^2 \; \rm s^{-4}$' 
+    else:
+        clbl='|Div SSS|^2 (psu/km)^2' 
+    cutout.show_image(divsss, clbl=clbl, ax=ax_dsss, cm='Greys')
     
     # b
     ax_b = plt.subplot(gs[0, 2])
@@ -223,7 +232,7 @@ def front_fig6(outfile:str, fronts, divb2, sst, b,
     #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
     ax_fronts = plt.subplot(gs[1, 2])
     cutout.show_image(divb2, cbar=True, #clbl=r'$\nabla b^2$', 
-                      clbl='|Div b|^2', 
+                      clbl=r'$|\nabla b|^2 \; \rm s^{-4}$', 
                       cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
 
     # Dots
