@@ -10,17 +10,15 @@ from fronts.dbof import io as dbof_io
 
 from IPython import embed
 
-def dbof_gen_tvt(dbof_json_file:str, config_file:str):
+def dbof_gen_tvt(dbof_json_file:str, config_file:(str|dict)):
     """
     Generate train, validation, and test datasets from a given DataFrame based on the provided configuration.
     This function partitions the input DataFrame into training, validation, and test sets. It supports balancing 
     the data based on a specified metric and ensures that the resulting sets are sampled according to the 
     configuration parameters.
     Args:
-        super_tbl (pandas.DataFrame): The input DataFrame containing the data to be split.
-        embed(header='112 of tables')
-        embed(header='112 of tables')
-        config (dict): A dictionary containing configuration parameters for the split. It must include:
+        dbof_json_file (str): Path to the DBoF JSON file containing the input data.
+        config (str|dict): A dictionary containing configuration parameters for the split. It must include:
             - 'ntrain' (int): Number of samples for the training set.
             - 'nvalid' (int): Number of samples for the validation set.
             - 'ntest' (int): Number of samples for the test set.
@@ -131,14 +129,18 @@ def dbof_gen_tvt(dbof_json_file:str, config_file:str):
         ridx = np.random.choice(super_tbl.index.values, ntot, replace=False)
         final_train = ridx[:config['ntrain']]
         final_valid = ridx[config['ntrain']:config['ntrain']+config['nvalid']]
-        final_test = ridx[config['ntrain']+config['nvalid']:]
+        if config['ntest'] > 0:
+            final_test = ridx[config['ntrain']+config['nvalid']:]
     else:
         raise ValueError("Bad sampling type")
 
     # Tables by index
     train_tbl = super_tbl.loc[final_train].copy()
     valid_tbl = super_tbl.loc[final_valid].copy()
-    test_tbl = super_tbl.loc[final_test].copy()
+    if config['ntest'] > 0:
+        test_tbl = super_tbl.loc[final_test].copy()
+    else:
+        test_tbl = pandas.DataFrame(columns=super_tbl.columns)
 
     # Return
     return train_tbl, valid_tbl, test_tbl

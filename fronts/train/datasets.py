@@ -13,10 +13,41 @@ from fronts.train import tables as t_tables
 from fronts.train import cutouts as t_cutouts
 from fronts.dbof import defs as dbof_defs
 
-def generate_from_dbof(dbof_json_file:str, config_file:str, 
-    path_outdir:str,
-    skip_test:bool=False, skip_valid:bool=False,
+def generate_from_dbof(dbof_json_file:str, config_file:(str|dict), 
+    path_outdir:str, skip_test:bool=False, skip_valid:bool=False,
     clobber:bool=False):
+    """
+    Generate training, validation, and test datasets from a DBoF JSON file.
+    This function processes a DBoF (Deep Bag of Features) JSON file and a 
+    configuration file to generate datasets for training, validation, and 
+    testing. The datasets are saved as HDF5 files, and metadata is saved 
+    as a Parquet file.
+    Args:
+        dbof_json_file (str): Path to the DBoF JSON file containing the 
+            input data.
+        config_file (str | dict): Path to the configuration JSON file or 
+            a dictionary containing configuration details.
+        path_outdir (str): Directory where the output files will be saved.
+        skip_test (bool, optional): If True, skip generating the test dataset. 
+            Defaults to False.
+        skip_valid (bool, optional): If True, skip generating the validation 
+            dataset. Defaults to False.
+        clobber (bool, optional): If True, overwrite existing files. 
+            Defaults to False.
+    Raises:
+        AssertionError: If the generated metadata table fails validation 
+            against the data model.
+    Outputs:
+        - HDF5 files for training, validation, and test datasets (if not skipped).
+        - A Parquet file containing metadata for all datasets.
+    Notes:
+        - The function uses `fronts_io` to load JSON files and `t_tables` 
+          to generate tables for training, validation, and testing.
+        - Metadata is validated using `tbl_utils.vet_main_table` against 
+          the data model defined in `dbof_defs.tbl_dmodel`.
+        - If the output files already exist and `clobber` is False, the 
+          function will not overwrite them.
+    """
 
     # Load up json files
     dbof_dict = fronts_io.loadjson(dbof_json_file)
@@ -52,16 +83,16 @@ def generate_from_dbof(dbof_json_file:str, config_file:str,
 
     # Vet
     meta_tbl = pandas.concat(all_tables, ignore_index=True)
-    assert tbl_utils.vet_main_table(meta_table,
+    assert tbl_utils.vet_main_table(meta_tbl,
                                     data_model=dbof_defs.tbl_dmodel)
     
     # Write meta
-    outfile = os.path.join(
-            path_outdir,
-            f"{config['name']}_meta.parquet")
+    outfile = os.path.join(path_outdir, f"{config['name']}_meta.parquet")
     if os.path.exists(outfile) and not clobber:
         print(f"{outfile} exists.  Use clobber=True to overwrite")
         return
 
     meta_tbl.to_parquet(outfile)
     print(f"Wrote {outfile}")
+
+    return meta_tbl

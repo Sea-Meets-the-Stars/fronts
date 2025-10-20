@@ -5,7 +5,6 @@ from fronts.dbof import tables
 from fronts.dbof import fields
 from fronts.dbof import io as dbof_io
 from fronts import io as fronts_io
-from fronts.train import tables as ttables
 from fronts.train import datasets
 
 from IPython import embed

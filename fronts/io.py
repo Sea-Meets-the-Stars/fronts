@@ -68,17 +68,20 @@ def jsonify(obj, debug=False):
     return obj
 
 
-def loadjson(filename):
+def loadjson(filename:(str|dict)):
     """
     Parameters
     ----------
-    filename : str
+    filename : str or dict
 
     Returns
     -------
     obj : dict
 
     """
+    # Already a dict?
+    if isinstance(filename, dict):
+        return filename
     #
     if filename.endswith('.gz'):
         with gzip.open(filename, "rb") as f:
