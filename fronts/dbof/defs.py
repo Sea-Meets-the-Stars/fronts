@@ -39,6 +39,8 @@ tbl_dmodel.update({
                 help='Was W successfully extracted?'),
     'SSH': dict(dtype=np.bool,
                 help='Was SSH successfully extracted?'),
+    'SSHa': dict(dtype=np.bool,
+                help='Was SSHa (demeaned SSH) successfully extracted?'),
     'SSHs': dict(dtype=np.bool,
                 help='Was SSHs (smoothed SSH) successfully extracted?'),
     'SSS': dict(dtype=np.bool,
@@ -112,6 +114,17 @@ fields_dmodel = {
                 "inpaint": False,
                 "median": False,
                 "de_mean": False
+            },
+        },
+        "SSHa": {
+            "desc": "SSHa, native resolution, demenaed",
+            "units": "m",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": True
             },
         },
         "SSHs": {
