@@ -45,7 +45,7 @@ def main(flg:str):
 
     # Generate the LLC Table
     if flg == 1:
-        #build_table()#clobber=True)
+        build_table()#clobber=True)
 
         # Update
         update_table()
@@ -63,6 +63,7 @@ def main(flg:str):
     if flg == 3:
         preproc_all()#debug=True, clobber=True)
 
+    # TODO for flag 4 we should be able to pass in the json config file so we can easily create new datasets w/o writing new code
     # Test set for Jake
     if flg == 4:
         test_for_jake()
@@ -73,6 +74,8 @@ if __name__ == '__main__':
 
     if len(sys.argv) == 1:
         flg = 0
+
+        print(flg)
 
         #flg = 1 # Generate super table
         #flg = 2 # Preproc SST only

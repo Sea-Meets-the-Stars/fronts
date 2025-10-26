@@ -29,7 +29,7 @@ def parser(options=None):
         pargs = parser.parse_args(options)
     return pargs
 
-
+# TODO This is not used. Should we remove this main?
 def xmit_main(pargs):
     """ Run
     """

@@ -1,4 +1,4 @@
-
+# TODO we need to add all these unresolved packages to setup.py
 import os
 import numpy as np
 
@@ -11,7 +11,7 @@ from wrangler.tables import io as tbl_io
 from wrangler.tables import utils as tbl_utils
 
 from fronts import io as fronts_io
-from fronts.dbof import io as dbof_io
+from fronts.dbof import io as dbof_io # different io function from the io.py file referenced in build me. TODO combine these or reference them differently
 from fronts.dbof import defs as dbof_defs
 
 from IPython import embed
@@ -32,6 +32,7 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
 
     Raises:
         AssertionError: If the main table fails the vetting process.
+        IOError : If specified field is not in the config file.
 
     Notes:
         - The function uses a predefined extraction dictionary (`extract_dict`) to specify
@@ -141,7 +142,7 @@ def preproc_field(json_file:str, field:str, clobber:bool=False, debug:bool=False
         tbl_file = dbof_io.tbl_path(dbof_dict) 
         tbl_io.write_main_table(dbof_table, tbl_file)
 
-
+# todo remove or add to documentation?
 def old_stuff():
 
     #extract_dict = {'fields': ['SSS'],
