@@ -1,0 +1,23 @@
+123456789-123456789-123456789-123456789-123456789-123456789*Input Variable
+ParameterName: (Name of variable to be processed) (A60,A30):SST
+ParameterUnits: (Units for ParameterName)         (A60,A30):Kelvin
+AlongScanDimension: (along-scan dimension 1 or 2?)(A60,i1)':2
+LenXin: (x dimension of input fields) '(A60,i4)'           :1440
+LenYin: (y dimension of input fields) '(A60,i4)'           : 720
+LenX: (x dimension of output fields) '(A60,i4)'            :1440
+LenY: (y dimension of output fields) '(A60,i4)'            : 720
+NumClearThresh: (Min # clear pixels/image)      '(A60,I4)' : 100
+LocFileNamePrefix: (Empty if >1 loc file) '(A60,A20)'      :l3_amsre_v7
+GeoNameIn: (Input filename with loc data) '(A60,A150)'     :
+InputScaleFactor: (Factor to multipy input) '(A60,F9.5)'   :0.15
+InputOffset: (add to counts*scale to get SST) '(A60,F9.4)' :270.15
+DegreesK: (Input Units; 0 == DegC; 1== DegK '(A60,i2)'     :1
+OutputScaleFactor: (lowest allowed SST value) '(A60,9.5)'  :0.15
+OutputOffset: (highest value of SST accepted) '(A60,f9.4)' :0
+MaxSSTOut: (SST = scale*Counts+offset) '(A60,f9.4)'        :311.15
+ImageWindow: # of images to merge * 2           '(A60,I2)' : 8
+HourWindow: Images within this time to merge    '(A60,I2)' :48
+HourWindow: Images within this time to merge    '(A60,I2)' :48
+MinStep: Minimum sep. of front pop. means       '(A60,I1)' :5
+MinLength: Minimum length of front segments     '(A60,I2)' : 5
+PlaneRemover: Remove trend before SIED (1 = yes)'(A60,I1)' :1

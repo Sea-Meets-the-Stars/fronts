@@ -1,0 +1,124 @@
+===============================================================================
+EXPLANATION: HOW THE THINNING ALGORITHM WORKS
+===============================================================================
+
+OVERVIEW:
+---------
+This FORTRAN subroutine implements a "thinning" algorithm for oceanographic
+front detection data. The goal is to reduce thick bands of detected fronts
+(typically several pixels wide) down to single-pixel-wide lines that represent
+the strongest temperature gradients.
+
+INPUT DATA:
+-----------
+- MedSST: A 2D array of median-filtered Sea Surface Temperature (SST) values
+- MergedFronts: A 2D array where pixels marked with value "4" indicate
+  detected ocean fronts (temperature discontinuities)
+
+OUTPUT DATA:
+------------
+- ThinnedFronts: A 2D array containing only the strongest front pixels,
+  forming one-pixel-wide lines
+
+ALGORITHM DESCRIPTION:
+----------------------
+
+The thinning process works in TWO PASSES:
+
+PASS 1: Vertical Thinning (J-direction)
+----------------------------------------
+For each column (fixed i, varying j):
+
+1. Scan down the column looking for consecutive front pixels (value = 4)
+
+2. For each group of consecutive front pixels:
+   - Calculate the temperature difference across each pixel:
+     diftemp = |SST(i, j+1) - SST(i, j-1)|
+   
+   - Track which pixel has the MAXIMUM temperature difference
+   
+3. After finding a complete sequence of fronts (when you hit a non-front
+   pixel or scan beyond 2 pixels past the last front):
+   - Keep ONLY the pixel with maximum temperature difference
+   - Mark it with value "4" in ThinnedFronts
+   - Discard all other pixels in that sequence
+
+PASS 2: Horizontal Thinning (I-direction)
+------------------------------------------
+For each row (fixed j, varying i):
+
+The same process is repeated, but now scanning horizontally:
+
+1. Scan across the row looking for consecutive front pixels
+
+2. For each group of consecutive front pixels:
+   - Calculate the temperature difference:
+     diftemp = |SST(i+1, j) - SST(i-1, j)|
+   
+   - Track the pixel with MAXIMUM temperature difference
+
+3. Keep only the strongest pixel in each continuous front segment
+
+KEY VARIABLES:
+--------------
+- maxdif: Stores the maximum temperature difference found in the current
+          front segment (initialized to 2 as a threshold)
+
+- diftemp: The temperature difference calculated for the current pixel
+
+- imax, jmax: Coordinates of the pixel with maximum temperature difference
+
+- count: Counts how many pixels we've moved past the end of a front segment
+         (must be >= 2 before we commit to keeping the max pixel)
+
+- win: Window size for median filtering (set to 5)
+
+QUALITY CONTROL:
+----------------
+The algorithm includes a quality check:
+  "if (min(MedSST(i,j-1), MedSST(i,j+1)) .gt. 8)"
+
+This ensures that temperature differences are only calculated where valid
+SST data exists (values > 8, which likely represents ~8°C or a data quality
+flag).
+
+WHY TWO PASSES?
+---------------
+Ocean fronts can be oriented in any direction. By performing:
+1. Vertical thinning first (finding strongest gradients in the vertical)
+2. Horizontal thinning second (finding strongest gradients in the horizontal)
+
+The algorithm ensures that fronts oriented in ANY direction are properly
+thinned to single-pixel width, keeping only the pixels with the strongest
+temperature gradients.
+
+EXAMPLE:
+--------
+Before thinning (front marked with "4"):
+    0  0  0  0  0
+    0  4  4  4  0
+    0  4  4  4  0
+    0  4  4  4  0
+    0  0  0  0  0
+
+After thinning (only strongest gradient pixel remains):
+    0  0  0  0  0
+    0  0  0  0  0
+    0  0  4  0  0   <- Pixel with maximum |SST(i+1,j) - SST(i-1,j)|
+    0  0  0  0  0
+    0  0  0  0  0
+
+REAL-WORLD APPLICATION:
+-----------------------
+This is particularly useful for:
+- Gulf Stream detection
+- Ocean frontal boundary identification
+- Eddy edge detection
+- Any application where you need precise localization of maximum
+  temperature gradients in satellite SST imagery
+
+The "count >= 2" criterion prevents isolated noise pixels from being
+classified as fronts - there must be at least 2-3 consecutive front pixels
+before the algorithm will retain the strongest one.
+
+===============================================================================
