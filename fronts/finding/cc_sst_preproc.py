@@ -228,15 +228,14 @@ def median_filter_sst(sst_counts: np.ndarray,
     
     return filtered_counts
 
-
 def preprocess_sst(sst_data: np.ndarray,
-                   median_window: int = 5,
+                   median_window: int = 3,
                    input_scale: float = 1.0,
                    input_offset: float = 0.0,
                    output_scale: float = 0.01,
                    output_offset: float = 268.15,
                    max_sst_out: float = 313.15,
-                   sst_range: int = 400,
+                   sst_range: int = 4500,
                    fill_value: float = np.nan,
                    in_kelvin: bool = True,
                    verbose: bool = True) -> Tuple[np.ndarray, dict]:
