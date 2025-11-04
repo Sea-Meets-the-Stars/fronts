@@ -111,9 +111,11 @@ def main(pargs):
     # Get dataset for times
     iter_step = tstep_hr*pargs.tstep
     varnames=pargs.var.split(',')
+    print (varnames)
     ds = model.get_dataset(varnames=varnames,
                                k_levels=[0], type='latlon',
-                               iter_step=iter_step)
+                               iter_step=iter_step) # todo must update source code for this to work
+    print(ds)
     tsize = ds.time.size
     print("Model is ready")
 
