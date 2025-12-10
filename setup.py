@@ -11,7 +11,7 @@ setup_keywords['description'] = 'Fronts in the Ocean'
 setup_keywords['author'] = 'J. Xavier Prochaska, P. Cornillon'
 setup_keywords['author_email'] = 'jxp@ucsc.edu'
 setup_keywords['license'] = 'BSD'
-setup_keywords['url'] = 'https://github.com/AI-for-Ocean-Science/fronts'
+setup_keywords['url'] = 'https://github.com/Sea-Meets-the-Stars/fronts'
 setup_keywords['version'] = '0.0.dev0'
 # Use README.rst as long_description.
 setup_keywords['long_description'] = ''
@@ -19,7 +19,7 @@ if os.path.exists('README.md'):
     with open('README.md') as readme:
         setup_keywords['long_description'] = readme.read()
 setup_keywords['provides'] = [setup_keywords['name']]
-setup_keywords['requires'] = ['Python (>=3.9.0)']
+setup_keywords['requires'] = ['Python (>=3.11.0)']
 setup_keywords['install_requires'] = [
     'torch',  
     'torchvision', 'seaborn', 'smart-open[s3]', 'pyarrow',
