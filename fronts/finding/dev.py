@@ -237,6 +237,8 @@ def front_fig6(outfile:str, fronts, divb2, sst, b,
 
     # Dots
     pcol,prow = np.where(np.flipud(fronts))
+    pcol = pcol + 0.5
+    prow = prow + 0.5
     ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
     ax_dsst.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
     ax_dsss.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
