@@ -488,4 +488,5 @@ def run_all(n_examples: int = 100, dbof_file: str = None):
 
 
 if __name__ == '__main__':
-    run_all(n_examples=100)
+    run_all(n_examples=2)
+    #run_all(n_examples=100)
