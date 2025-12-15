@@ -320,7 +320,8 @@ def plot_comparison_cc(uid: int, field_data: dict,
 
 def run_original_comparison(n_examples: int = 100,
                             percentiles: list = None,
-                            dbof_file: str = None):
+                            dbof_file: str = None,
+                            test:bool=False):
     """
     Generate comparison plots for original morphology.thin() algorithm.
 
@@ -344,7 +345,10 @@ def run_original_comparison(n_examples: int = 100,
     print(f"Output directory: {PLOTS_DIR}")
 
     # Get random UIDs
-    uids = get_random_uids(dbof_file, n_examples)
+    if test:
+        uids = [1322611708493510]
+    else:
+        uids = get_random_uids(dbof_file, n_examples)
 
     success_count = 0
     for i, uid in enumerate(uids):
@@ -380,7 +384,8 @@ def run_cc_comparison(n_examples: int = 100,
                       min_segment_gaps: list = None,
                       median_sizes: list = None,
                       percentile: int = 90,
-                      dbof_file: str = None):
+                      dbof_file: str = None,
+                      test:bool=False):
     """
     Generate comparison plots for thin_cc.thin() algorithm.
 
@@ -413,7 +418,10 @@ def run_cc_comparison(n_examples: int = 100,
     print(f"Output directory: {PLOTS_DIR}")
 
     # Get random UIDs
-    uids = get_random_uids(dbof_file, n_examples)
+    if test:
+        uids = [1322611708493510]
+    else:
+        uids = get_random_uids(dbof_file, n_examples)
 
     success_count = 0
     for i, uid in enumerate(uids):
@@ -449,7 +457,8 @@ def run_cc_comparison(n_examples: int = 100,
     print(f"\nCompleted: {success_count}/{n_examples} examples generated")
 
 
-def run_all(n_examples: int = 100, dbof_file: str = None):
+def run_all(n_examples: int = 100, dbof_file: str = None,
+            test:bool=False):
     """
     Run both original and CC thinning comparisons.
 
@@ -459,7 +468,10 @@ def run_all(n_examples: int = 100, dbof_file: str = None):
         Number of examples to generate for each algorithm
     dbof_file : str
         Path to DBOF JSON file
+    test : bool
     """
+    if test:
+        n_examples = 1
     print("=" * 60)
     print("THINNING ALGORITHM COMPARISON")
     print("=" * 60)
@@ -468,7 +480,8 @@ def run_all(n_examples: int = 100, dbof_file: str = None):
     run_original_comparison(
         n_examples=n_examples,
         percentiles=[70, 80, 85, 90],
-        dbof_file=dbof_file
+        dbof_file=dbof_file,
+        test=test
     )
 
     print("\n" + "=" * 60)
@@ -479,7 +492,8 @@ def run_all(n_examples: int = 100, dbof_file: str = None):
         min_segment_gaps=[2, 3, 4],
         median_sizes=[3, 5],
         percentile=90,
-        dbof_file=dbof_file
+        dbof_file=dbof_file,
+        test=test
     )
 
     print("\n" + "=" * 60)
@@ -488,5 +502,7 @@ def run_all(n_examples: int = 100, dbof_file: str = None):
 
 
 if __name__ == '__main__':
-    run_all(n_examples=2)
+    # Test
+    run_all(test=True)
+
     #run_all(n_examples=100)
