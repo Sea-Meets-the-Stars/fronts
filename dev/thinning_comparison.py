@@ -193,7 +193,7 @@ def plot_comparison_original(uid: int, field_data: dict, percentiles: list,
         fronts_thresh = apply_threshold(divb2, prcnt)
 
         # Thin with original algorithm
-        fronts_thinned = thin_original(fronts_thresh)
+        fronts_thinned = thin_original(fronts_thresh.copy())
 
         # Top row: thresholded
         ax_thresh = plt.subplot(gs[0, i])
@@ -216,7 +216,7 @@ def plot_comparison_original(uid: int, field_data: dict, percentiles: list,
         ax.yaxis.set_major_locator(MultipleLocator(10))
         ax.grid(which='major', color='lightgrey', linestyle='--', alpha=0.3)
 
-    plt.suptitle(f'Original Thinning - UID: {uid}', fontsize=14)
+    plt.suptitle(f'Belkin Thinning - UID: {uid}', fontsize=14)
     plt.tight_layout()
     plt.savefig(outfile, dpi=150)
     plt.close()
