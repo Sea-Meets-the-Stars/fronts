@@ -28,7 +28,8 @@ PLOTS_DIR = os.path.join(SCRIPT_DIR, 'plots')
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
 
-def get_random_uids(dbof_file: str, n_samples: int = 100, seed: int = 42) -> list:
+def get_uids(dbof_file: str, n_samples: int = 100, seed: int = 42,
+             random: bool = False) -> list:
     """
     Get random UIDs from the DBOF table.
 
@@ -40,6 +41,8 @@ def get_random_uids(dbof_file: str, n_samples: int = 100, seed: int = 42) -> lis
         Number of UIDs to sample
     seed : int
         Random seed for reproducibility
+    random : bool, optional
+        If True, generate random uids
 
     Returns
     -------
@@ -52,7 +55,10 @@ def get_random_uids(dbof_file: str, n_samples: int = 100, seed: int = 42) -> lis
     n_available = len(dbof_table)
     n_to_sample = min(n_samples, n_available)
 
-    indices = np.random.choice(n_available, size=n_to_sample, replace=False)
+    if random:
+        indices = np.random.choice(n_available, size=n_to_sample, replace=False)
+    else:
+        indices = np.arange(n_to_sample)
     uids = dbof_table.iloc[indices]['UID'].values.tolist()
 
     return uids
@@ -243,6 +249,8 @@ def plot_comparison_cc(uid: int, field_data: dict,
         List of median_size values to compare
     percentile : int
         Percentile threshold to use
+    random : bool
+        If True, generate random uids
     outfile : str
         Output file path
     """
@@ -321,7 +329,8 @@ def plot_comparison_cc(uid: int, field_data: dict,
 def run_original_comparison(n_examples: int = 100,
                             percentiles: list = None,
                             dbof_file: str = None,
-                            test:bool=False):
+                            test:bool=False,
+                            random:bool=False):
     """
     Generate comparison plots for original morphology.thin() algorithm.
 
@@ -348,7 +357,8 @@ def run_original_comparison(n_examples: int = 100,
     if test:
         uids = [1322611708493510]
     else:
-        uids = get_random_uids(dbof_file, n_examples)
+        #uids = get_random_uids(dbof_file, n_examples)
+        uids = get_uids(dbof_file, n_examples, random=random)
 
     success_count = 0
     for i, uid in enumerate(uids):
@@ -385,6 +395,7 @@ def run_cc_comparison(n_examples: int = 100,
                       median_sizes: list = None,
                       percentile: int = 90,
                       dbof_file: str = None,
+                      random:bool=False,
                       test:bool=False):
     """
     Generate comparison plots for thin_cc.thin() algorithm.
@@ -401,6 +412,8 @@ def run_cc_comparison(n_examples: int = 100,
         Percentile threshold to use
     dbof_file : str
         Path to DBOF JSON file
+    random : bool, optional
+        If True, generate random uids
     """
     if min_segment_gaps is None:
         min_segment_gaps = [2, 3, 4]
@@ -421,7 +434,7 @@ def run_cc_comparison(n_examples: int = 100,
     if test:
         uids = [1322611708493510]
     else:
-        uids = get_random_uids(dbof_file, n_examples)
+        uids = get_uids(dbof_file, n_examples, random=random)
 
     success_count = 0
     for i, uid in enumerate(uids):
@@ -458,7 +471,7 @@ def run_cc_comparison(n_examples: int = 100,
 
 
 def run_all(n_examples: int = 100, dbof_file: str = None,
-            test:bool=False):
+            test:bool=False, random:bool=False):
     """
     Run both original and CC thinning comparisons.
 
@@ -469,6 +482,7 @@ def run_all(n_examples: int = 100, dbof_file: str = None,
     dbof_file : str
         Path to DBOF JSON file
     test : bool
+    random : bool
     """
     if test:
         n_examples = 1
@@ -481,7 +495,7 @@ def run_all(n_examples: int = 100, dbof_file: str = None,
         n_examples=n_examples,
         percentiles=[70, 80, 85, 90],
         dbof_file=dbof_file,
-        test=test
+        test=test, random=random
     )
 
     print("\n" + "=" * 60)
@@ -493,7 +507,7 @@ def run_all(n_examples: int = 100, dbof_file: str = None,
         median_sizes=[3, 5],
         percentile=90,
         dbof_file=dbof_file,
-        test=test
+        test=test, random=random
     )
 
     print("\n" + "=" * 60)
@@ -503,6 +517,7 @@ def run_all(n_examples: int = 100, dbof_file: str = None,
 
 if __name__ == '__main__':
     # Test
-    run_all(test=True)
+    #run_all(test=True)
 
-    #run_all(n_examples=100)
+    # Do em
+    run_all(n_examples=100, random=False)
