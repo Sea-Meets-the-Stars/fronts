@@ -180,3 +180,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+    # First run
+    # python global_divb2.py /home/xavier/Oceanography/data/OGCM/LLC/data/ThetaUVWSaltEta/LLC4320_2012-11-09T12_00_00.nc -o /home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc
