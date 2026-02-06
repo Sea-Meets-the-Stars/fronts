@@ -11,7 +11,7 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 from math import pi, floor, ceil
-from scipy.ndimage import sobel, correlate, generic_filter
+from scipy.ndimage import sobel, correlate, generic_filter, vectorized_filter
 from skimage import morphology
 from scipy.stats import norm
 
@@ -691,6 +691,8 @@ def front_thresh(array, wndw=64, prcnt=90):
                        the local percentile threshold, and `False` otherwise.
     """
 
+    '''
+    # Original generic
     def percentile_filter(values):
         valid_values = values[~np.isnan(values)]
         if len(valid_values) > 0:
@@ -705,6 +707,16 @@ def front_thresh(array, wndw=64, prcnt=90):
         mode='constant', 
         cval=np.nan
     )
+    '''
+
+    # Vectorized
+    window_qt = vectorized_filter(
+        array,
+        lambda x, *, axis: np.nanpercentile(x, prcnt, axis=axis),
+        size=wndw,
+        mode='constant',
+        cval=np.nan,
+)
     
     # Apply threshold
     frnt = array > window_qt
