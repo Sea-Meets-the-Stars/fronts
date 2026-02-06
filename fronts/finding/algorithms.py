@@ -7,7 +7,7 @@ from skimage import morphology
 def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False, 
                       rm_weak:float=None, dilate:bool=False,
                       connectivity:int=2, prcnt:float=90,
-                      min_size:int=7):
+                      min_size:int=7, verbose:bool=False):
     """
     Identifies and processes fronts from a divergence field (Divb2).
 
@@ -27,7 +27,8 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
         Minimum size for cropping the detected fronts.
     prcnt : float, optional, default=90
         Percentile used in the cropping function to determine size threshold.
-
+    verbose : bool, optional, default=False
+        If True, prints verbose output.
     Returns:
     --------
     ndarray
@@ -35,6 +36,8 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
     """
 
     # Threshold
+    if verbose:
+        print(f'Thresholding with window size {wndw} and percentile {prcnt}')
     res_frnt_np = pyboa.front_thresh(Divb2, wndw=wndw, prcnt=prcnt)
 
     # Remove weak segments?
@@ -43,9 +46,13 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
 
     # Thin?
     if thin:
+        if verbose:
+            print('Thinning...')
         res_frnt_np = morphology.thin(res_frnt_np)
     
     # Crop
+    if verbose:
+        print(f'Cropping with minimum size {min_size} and connectivity {connectivity}')
     res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size,
                                    connectivity=connectivity)
 

@@ -10,7 +10,8 @@ def test_one(divb2_file:str, outfile:str):
     divb2 = xarray.open_dataset(divb2_file)['Divb2'].values
 
     # Find fronts
-    fronts = algorithms.fronts_from_divb2(divb2)
+    fronts = algorithms.fronts_from_divb2(divb2, thin=True,
+                                          verbose=True)
 
     # Save
     np.save(outfile, fronts.astype(np.int16))
@@ -19,4 +20,4 @@ def test_one(divb2_file:str, outfile:str):
 
 if __name__ == '__main__':
     test_one('/home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc',
-             '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_fronts.npy')
+             '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy')
