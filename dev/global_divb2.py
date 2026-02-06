@@ -137,7 +137,7 @@ def main():
 
     # Add Divb2 field with the same dimensions as Theta
     out_ds['Divb2'] = xr.DataArray(
-        divb2,
+        divb2.astype(np.float32),
         dims=ds.Theta.dims,
         coords={dim: ds.Theta.coords[dim] for dim in ds.Theta.dims if dim in ds.Theta.coords},
         attrs={
