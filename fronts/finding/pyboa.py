@@ -15,6 +15,13 @@ from scipy.ndimage import sobel, correlate, generic_filter, vectorized_filter
 from skimage import morphology
 from scipy.stats import norm
 
+try:
+    import dask.array as da
+    from dask.array import map_overlap
+    DASK_AVAILABLE = True
+except ImportError:
+    DASK_AVAILABLE = False
+
 
 types = xr.core.dataset.Dataset, xr.core.dataarray.DataArray
 
@@ -672,7 +679,7 @@ class pyBOA:
         return array_copy
 
 
-def front_thresh(array, wndw=64, prcnt=90):
+def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized', n_workers=None, chunks='auto'):
     """
     Identifies regions in the input array that exceed a local percentile threshold.
     This function computes a local percentile threshold for each element in the input
@@ -685,42 +692,85 @@ def front_thresh(array, wndw=64, prcnt=90):
                               percentile threshold. Default is 64.
         prcnt (float, optional): The percentile value (0-100) used to compute the threshold.
                                  Default is 90.
+        mode (str, optional): Mode of calculation - 'generic', 'vectorized', or 'dask'
+        n_workers (int, optional): Number of workers for dask mode. Default uses all available cores.
+        chunks (str or tuple, optional): Chunk size for dask mode. Default is 'auto'.
     Returns:
         numpy.ndarray: A boolean array of the same shape as the input array, where `True`
                        indicates that the corresponding element in the input array exceeds
                        the local percentile threshold, and `False` otherwise.
     """
 
-    '''
-    # Original generic
-    def percentile_filter(values):
-        valid_values = values[~np.isnan(values)]
-        if len(valid_values) > 0:
-            return np.percentile(valid_values, prcnt)
-        return np.nan
-    
-    # Use scipy's generic_filter for better performance
-    window_qt = generic_filter(
-        array, 
-        percentile_filter, 
-        size=wndw, 
-        mode='constant', 
-        cval=np.nan
-    )
-    '''
+    if mode == 'generic':
+        # Original generic
+        def percentile_filter(values):
+            valid_values = values[~np.isnan(values)]
+            if len(valid_values) > 0:
+                return np.percentile(valid_values, prcnt)
+            return np.nan
 
-    # Vectorized
-    window_qt = vectorized_filter(
-        array,
-        lambda x, *, axis: np.nanpercentile(x, prcnt, axis=axis),
-        size=wndw,
-        mode='constant',
-        cval=np.nan,
-)
-    
+        # Use scipy's generic_filter for better performance
+        window_qt = generic_filter(
+            array,
+            percentile_filter,
+            size=wndw,
+            mode='constant',
+            cval=np.nan
+        )
+
+    elif mode == 'vectorized':
+        # Vectorized
+        window_qt = vectorized_filter(
+            array,
+            lambda x, *, axis: np.nanpercentile(x, prcnt, axis=axis),
+            size=wndw,
+            mode='constant',
+            cval=np.nan,
+        )
+
+    elif mode == 'dask':
+        if not DASK_AVAILABLE:
+            raise ImportError("dask is required for parallel mode. Install with: pip install dask")
+
+        # Convert to dask array with specified chunks
+        dask_array = da.from_array(array, chunks=chunks)
+
+        # Define the local percentile function to apply
+        def local_percentile(block):
+            """Apply vectorized percentile filter to a block"""
+            return vectorized_filter(
+                block,
+                lambda x, *, axis: np.nanpercentile(x, prcnt, axis=axis),
+                size=wndw,
+                mode='constant',
+                cval=np.nan,
+            )
+
+        # Apply the function using map_overlap to handle window boundaries
+        depth = wndw // 2
+        window_qt_dask = map_overlap(
+            local_percentile,
+            dask_array,
+            depth=depth,
+            boundary='constant',
+            boundary_value=np.nan,
+            dtype=array.dtype
+        )
+
+        # Compute the result with specified number of workers
+        if n_workers is not None:
+            import dask
+            with dask.config.set(num_workers=n_workers):
+                window_qt = window_qt_dask.compute()
+        else:
+            window_qt = window_qt_dask.compute()
+
+    else:
+        raise ValueError(f"Invalid mode '{mode}'. Must be 'generic', 'vectorized', or 'dask'")
+
     # Apply threshold
     frnt = array > window_qt
-    
+
     return frnt
 
 def global_threshold(array, prcnt):
