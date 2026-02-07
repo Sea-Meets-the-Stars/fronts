@@ -7,6 +7,7 @@ Created on Fri May 13 11:31:52 2022
 
 # Packages
 
+import dask
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -732,9 +733,24 @@ def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized', n_workers=None
         if not DASK_AVAILABLE:
             raise ImportError("dask is required for parallel mode. Install with: pip install dask")
 
+        '''
         # Convert to dask array with specified chunks
-        dask_array = da.from_array(array, chunks=chunks)
+        nrows = array.shape[0]
 
+        darr = da.from_array(array, chunks=(nrows // n_workers, array.shape[1]))
+        result = darr.map_overlap(
+            lambda block: vectorized_filter(
+            block,
+            lambda x, *, axis: np.nanpercentile(x, prcnt, axis=axis),
+            size=wndw, mode='constant', cval=np.nan,
+            ),
+            depth=wndw // 2,
+            boundary=np.nan,
+        ).compute()
+        '''
+
+
+        dask_array = da.from_array(array, chunks=chunks)
         # Define the local percentile function to apply
         def local_percentile(block):
             """Apply vectorized percentile filter to a block"""
@@ -752,19 +768,16 @@ def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized', n_workers=None
             local_percentile,
             dask_array,
             depth=depth,
-            boundary='constant',
-            boundary_value=np.nan,
+            boundary=np.nan,  # Use numeric value directly
             dtype=array.dtype
         )
 
         # Compute the result with specified number of workers
         if n_workers is not None:
-            import dask
             with dask.config.set(num_workers=n_workers):
                 window_qt = window_qt_dask.compute()
         else:
             window_qt = window_qt_dask.compute()
-
     else:
         raise ValueError(f"Invalid mode '{mode}'. Must be 'generic', 'vectorized', or 'dask'")
 

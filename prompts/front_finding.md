@@ -15,3 +15,5 @@
 ## Please add a method to global_fronts.py in fronts/dev/ that will calculate the threshold array using fronts.finding.pyboa.front_thresh() on a 1000x1000 pixel set of the LLC4320_2012-11-09T12_00_00_fronts.npy file in fronts/dev/data/ centered at 4000,4000.  Use both the generic and vectorized modes of the algorithm and save the output to separate .npy files.
 
 ## Thanks!  Now add a new mode to front_thresh() which performs the same calculation but using dask to parallelize.
+
+## When testing, I get this error: "Error in dask mode: could not convert string to float: np.str_('constant')".  Please help.  If you need to run python on global_fronts.py, be sure to be on the "ocean14" environment of conda.
