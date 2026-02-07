@@ -17,3 +17,5 @@
 ## Thanks!  Now add a new mode to front_thresh() which performs the same calculation but using dask to parallelize.
 
 ## When testing, I get this error: "Error in dask mode: could not convert string to float: np.str_('constant')".  Please help.  If you need to run python on global_fronts.py, be sure to be on the "ocean14" environment of conda.
+
+## Ok, now modify global_fronts.py to test a fourth option:  mode == 'pool'.

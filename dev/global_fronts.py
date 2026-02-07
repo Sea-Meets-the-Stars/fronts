@@ -26,9 +26,10 @@ def test_whole_one(divb2_file:str, outfile:str):
 def test_threshold_modes(divb2_file:str, center:tuple=(4000, 4000),
                          size:int=1000, wndw:int=64, prcnt:float=90,
                          load_out:bool=False,
-                         test_dask:bool=True, n_workers=None):
+                         test_dask:bool=True, test_pool:bool=True,
+                         n_workers=None):
     """
-    Test front_thresh() function in generic, vectorized, and dask modes.
+    Test front_thresh() function in generic, vectorized, dask, and pool modes.
 
     Args:
         fronts_file (str): Path to the .npy file containing fronts data
@@ -37,8 +38,9 @@ def test_threshold_modes(divb2_file:str, center:tuple=(4000, 4000),
         wndw (int): Window size for front_thresh
         prcnt (float): Percentile for thresholding
         test_dask (bool): Whether to test dask mode
+        test_pool (bool): Whether to test pool mode
         load_out (bool, optional): Load pre-cooked output, if it exists
-        n_workers (int): Number of workers for dask mode
+        n_workers (int): Number of workers for parallel modes
     """
     # Load the fronts data
     print(f'Loading {divb2_file}')
@@ -135,34 +137,78 @@ def test_threshold_modes(divb2_file:str, center:tuple=(4000, 4000),
 
             results['dask'] = (thresh_dask, t_dask)
 
-            # Print timing summary
-            print(f'\n=== Timing Summary ===')
-            if t_generic > 0:
-                print(f'Generic:    {t_generic:.2f}s')
-            else:
-                print(f'Generic:    (loaded from file)')
-
-            if t_vectorized > 0:
-                print(f'Vectorized: {t_vectorized:.2f}s', end='')
-                if t_generic > 0:
-                    print(f' (speedup: {t_generic/t_vectorized:.2f}x)')
-                else:
-                    print()
-            else:
-                print(f'Vectorized: (loaded from file)')
-
-            print(f'Dask:       {t_dask:.2f}s', end='')
-            if t_generic > 0:
-                print(f' (speedup: {t_generic/t_dask:.2f}x)')
-            elif t_vectorized > 0:
-                print(f' (speedup: {t_vectorized/t_dask:.2f}x)')
-            else:
-                print()
-
         except ImportError as e:
             print(f'\nSkipping dask mode: {e}')
         except Exception as e:
             print(f'\nError in dask mode: {e}')
+
+    # Calculate threshold using pool mode
+    if test_pool:
+        try:
+            pool_workers = n_workers if n_workers is not None else os.cpu_count()
+            print(f'\nRunning front_thresh in pool mode (wndw={wndw}, prcnt={prcnt}, n_workers={pool_workers})')
+            t0 = time.time()
+            thresh_pool = pyboa.front_thresh(region, wndw=wndw, prcnt=prcnt,
+                                            mode='pool', n_workers=pool_workers,
+                                            chunks='auto')
+            t_pool = time.time() - t0
+            print(f'  Completed in {t_pool:.2f} seconds')
+
+            pool_outfile = f'{base_name}_thresh_pool_{size}x{size}_c{y_center}_{x_center}.npy'
+            np.save(pool_outfile, thresh_pool)
+            print(f'\nWrote {pool_outfile}')
+
+            # Compare pool vs vectorized
+            print(f'\n=== Comparing pool vs vectorized ===')
+            if np.array_equal(thresh_pool, thresh_vectorized):
+                print('Results are identical')
+            else:
+                diff = np.sum(thresh_pool != thresh_vectorized)
+                total = thresh_pool.size
+                print(f'Results differ: {diff}/{total} pixels ({100*diff/total:.2f}%)')
+
+            results['pool'] = (thresh_pool, t_pool)
+
+        except ImportError as e:
+            print(f'\nSkipping pool mode: {e}')
+        except Exception as e:
+            print(f'\nError in pool mode: {e}')
+
+    # Print timing summary
+    print(f'\n=== Timing Summary ===')
+    if t_generic > 0:
+        print(f'Generic:    {t_generic:.2f}s')
+    else:
+        print(f'Generic:    (loaded from file)')
+
+    if t_vectorized > 0:
+        print(f'Vectorized: {t_vectorized:.2f}s', end='')
+        if t_generic > 0:
+            print(f' (speedup: {t_generic/t_vectorized:.2f}x)')
+        else:
+            print()
+    else:
+        print(f'Vectorized: (loaded from file)')
+
+    if 'dask' in results:
+        t_dask = results['dask'][1]
+        print(f'Dask:       {t_dask:.2f}s', end='')
+        if t_generic > 0:
+            print(f' (speedup: {t_generic/t_dask:.2f}x)')
+        elif t_vectorized > 0:
+            print(f' (speedup: {t_vectorized/t_dask:.2f}x)')
+        else:
+            print()
+
+    if 'pool' in results:
+        t_pool = results['pool'][1]
+        print(f'Pool:       {t_pool:.2f}s', end='')
+        if t_generic > 0:
+            print(f' (speedup: {t_generic/t_pool:.2f}x)')
+        elif t_vectorized > 0:
+            print(f' (speedup: {t_vectorized/t_pool:.2f}x)')
+        else:
+            print()
 
     return results
 
@@ -171,13 +217,13 @@ if __name__ == '__main__':
     #test_whole_one('/home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc',
     #         '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy')
 
-    # Test threshold modes on 1000x1000 region (including dask parallel mode)
+    # Test threshold modes on 1000x1000 region (including parallel modes)
     test_threshold_modes('data/LLC4320_2012-11-09T12_00_00_divb2.nc',
                         center=(4000, 4000),
-                        size=500,
+                        size=1000,
                         load_out=False,  # Set to False to run all modes and get timing
-                        #size=1000,
                         wndw=64,
                         prcnt=90,
                         test_dask=True,
-                        n_workers=None)  # None = use all available cores
+                        test_pool=True,
+                        n_workers=4)  # None = use all available cores

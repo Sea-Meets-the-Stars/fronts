@@ -16,6 +16,9 @@ from scipy.ndimage import sobel, correlate, generic_filter, vectorized_filter
 from skimage import morphology
 from scipy.stats import norm
 
+from concurrent.futures import ProcessPoolExecutor
+
+
 try:
     import dask.array as da
     from dask.array import map_overlap
@@ -680,7 +683,30 @@ class pyBOA:
         return array_copy
 
 
-def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized', n_workers=None, chunks='auto'):
+class _PercentileFunc:
+    """Callable class for percentile calculation - can be pickled for multiprocessing"""
+    def __init__(self, prcnt):
+        self.prcnt = prcnt
+
+    def __call__(self, x, *, axis):
+        return np.nanpercentile(x, self.prcnt, axis=axis)
+
+
+def _filter_chunk_pool(args):
+    """Helper function for pool mode - must be at module level for pickling"""
+    chunk, wndw, prcnt = args
+    percentile_func = _PercentileFunc(prcnt)
+    return vectorized_filter(
+        chunk,
+        percentile_func,
+        size=wndw,
+        mode='constant',
+        cval=np.nan,
+    )
+
+
+def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized',
+                 n_workers=None, chunks='auto'):
     """
     Identifies regions in the input array that exceed a local percentile threshold.
     This function computes a local percentile threshold for each element in the input
@@ -778,6 +804,33 @@ def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized', n_workers=None
                 window_qt = window_qt_dask.compute()
         else:
             window_qt = window_qt_dask.compute()
+    elif mode == 'pool':
+        # Half-window overlap needed on each side
+        pad = wndw // 2
+        nrows = array.shape[0]
+
+        # Split row indices roughly evenly
+        splits = np.array_split(np.arange(nrows), n_workers)
+
+        chunks = []
+        slices = []  # Where to extract the valid (non-overlap) result
+        for s in splits:
+            r0 = s[0]
+            r1 = s[-1] + 1
+            # Padded range for input
+            pr0 = max(r0 - pad, 0)
+            pr1 = min(r1 + pad, nrows)
+            chunks.append((array[pr0:pr1], wndw, prcnt))
+            # Corresponding slice in the output chunk to keep
+            slices.append((r0 - pr0, r1 - pr0))
+
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            results = list(pool.map(_filter_chunk_pool, chunks))
+
+        # Stitch: keep only the non-overlapping core of each result
+        window_qt = np.empty_like(array)
+        for idx, (s_idx, (s0, s1)) in enumerate(zip(splits, slices)):
+            window_qt[s_idx[0]:s_idx[-1]+1] = results[idx][s0:s1]
     else:
         raise ValueError(f"Invalid mode '{mode}'. Must be 'generic', 'vectorized', or 'dask'")
 
