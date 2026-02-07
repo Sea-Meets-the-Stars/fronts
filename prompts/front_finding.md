@@ -19,3 +19,11 @@
 ## When testing, I get this error: "Error in dask mode: could not convert string to float: np.str_('constant')".  Please help.  If you need to run python on global_fronts.py, be sure to be on the "ocean14" environment of conda.
 
 ## Ok, now modify global_fronts.py to test a fourth option:  mode == 'pool'.
+
+# Thinning
+
+## Ok, now add a method to global_fronts.py that loads in the Pool output file from thresholding and runs the skimage.morphology.thin() method on it.  Please benchmark the time spent perfoming that calculation.
+
+# Cropping
+
+## Thanks.  Now add a method to test the timing of pyboa.cropping().  Run it on the output from thinning.  You do not need to run the rest of the tests.

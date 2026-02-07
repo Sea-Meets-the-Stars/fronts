@@ -8,6 +8,7 @@ from fronts.finding import algorithms
 from fronts.finding import pyboa
 
 from IPython import embed
+from skimage import morphology
 
 def test_whole_one(divb2_file:str, outfile:str):
 
@@ -212,13 +213,114 @@ def test_threshold_modes(divb2_file:str, center:tuple=(4000, 4000),
 
     return results
 
+
+def test_thinning(thresh_file:str, outfile:str=None):
+    """
+    Test morphological thinning on threshold output.
+
+    Args:
+        thresh_file (str): Path to the threshold .npy file
+        outfile (str, optional): Path to save thinned output. If None, generates from input filename.
+    """
+    print(f'Loading {thresh_file}')
+    thresh_data = np.load(thresh_file)
+    print(f'Data shape: {thresh_data.shape}')
+    print(f'Data type: {thresh_data.dtype}')
+
+    # Ensure boolean type
+    if thresh_data.dtype != bool:
+        print(f'Converting to boolean...')
+        thresh_data = thresh_data.astype(bool)
+
+    # Benchmark thinning
+    print(f'\nRunning morphology.thin()...')
+    t0 = time.time()
+    thinned = morphology.thin(thresh_data)
+    t_thin = time.time() - t0
+    print(f'  Completed in {t_thin:.2f} seconds')
+
+    # Statistics
+    n_true_before = np.sum(thresh_data)
+    n_true_after = np.sum(thinned)
+    reduction = (n_true_before - n_true_after) / n_true_before * 100
+
+    print(f'\n=== Thinning Statistics ===')
+    print(f'True pixels before: {n_true_before:,}')
+    print(f'True pixels after:  {n_true_after:,}')
+    print(f'Reduction: {reduction:.2f}%')
+
+    # Generate output filename if not provided
+    if outfile is None:
+        outfile = thresh_file.replace('.npy', '_thinned.npy')
+
+    # Save output
+    np.save(outfile, thinned)
+    print(f'\nWrote {outfile}')
+
+    return thinned, t_thin
+
+
+def test_cropping(thinned_file:str, outfile:str=None, min_size:int=7, connectivity:int=2):
+    """
+    Test cropping (spur removal, small object removal, hole filling) on thinned output.
+
+    Args:
+        thinned_file (str): Path to the thinned .npy file
+        outfile (str, optional): Path to save cropped output. If None, generates from input filename.
+        min_size (int): Minimum size of objects to keep
+        connectivity (int): Connectivity for small object removal
+    """
+    print(f'Loading {thinned_file}')
+    thinned_data = np.load(thinned_file)
+    print(f'Data shape: {thinned_data.shape}')
+    print(f'Data type: {thinned_data.dtype}')
+
+    # Ensure boolean type
+    if thinned_data.dtype != bool:
+        print(f'Converting to boolean...')
+        thinned_data = thinned_data.astype(bool)
+
+    # Benchmark cropping
+    print(f'\nRunning pyboa.cropping(min_size={min_size}, connectivity={connectivity})...')
+    t0 = time.time()
+    cropped = pyboa.cropping(thinned_data, min_size=min_size, connectivity=connectivity)
+    t_crop = time.time() - t0
+    print(f'  Completed in {t_crop:.2f} seconds')
+
+    # Statistics
+    n_true_before = np.sum(thinned_data)
+    n_true_after = np.sum(cropped)
+    reduction = (n_true_before - n_true_after) / n_true_before * 100 if n_true_before > 0 else 0
+
+    print(f'\n=== Cropping Statistics ===')
+    print(f'True pixels before: {n_true_before:,}')
+    print(f'True pixels after:  {n_true_after:,}')
+    print(f'Reduction: {reduction:.2f}%')
+
+    # Generate output filename if not provided
+    if outfile is None:
+        outfile = thinned_file.replace('.npy', '_cropped.npy')
+
+    # Save output
+    np.save(outfile, cropped)
+    print(f'\nWrote {outfile}')
+
+    return cropped, t_crop
+
+
 if __name__ == '__main__':
+
+    crop = True
+    thin = False
+    threshold = False
+
     # Entire
     #test_whole_one('/home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc',
     #         '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy')
 
     # Test threshold modes on 1000x1000 region (including parallel modes)
-    test_threshold_modes('data/LLC4320_2012-11-09T12_00_00_divb2.nc',
+    if threshold:
+        test_threshold_modes('data/LLC4320_2012-11-09T12_00_00_divb2.nc',
                         center=(4000, 4000),
                         size=1000,
                         load_out=False,  # Set to False to run all modes and get timing
@@ -227,3 +329,24 @@ if __name__ == '__main__':
                         test_dask=True,
                         test_pool=True,
                         n_workers=4)  # None = use all available cores
+
+    #=== Timing Summary ===
+    #Generic:    123.95s
+    #Vectorized: 107.82s (speedup: 1.15x)
+    #Dask:       118.19s (speedup: 1.05x)
+    #Pool:       42.98s (speedup: 2.88x)
+
+
+    # Test thinning on pool threshold output
+    if thin:
+        print('\n' + '='*60)
+        test_thinning('data/LLC4320_2012-11-09T12_00_00_divb2.nc_thresh_pool_1000x1000_c4000_4000.npy')
+    #Running morphology.thin()...
+    #Completed in 0.31 seconds
+
+    # Test cropping on thinned output
+    if crop:
+        print('\n' + '='*60)
+        test_cropping('data/LLC4320_2012-11-09T12_00_00_divb2.nc_thresh_pool_1000x1000_c4000_4000_thinned.npy',
+                     min_size=7,
+                     connectivity=2)
