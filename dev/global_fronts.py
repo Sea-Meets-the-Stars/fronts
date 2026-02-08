@@ -311,8 +311,8 @@ def test_cropping(thinned_file:str, outfile:str=None, min_size:int=7, connectivi
 if __name__ == '__main__':
 
     crop = True
-    thin = False
-    threshold = False
+    thin = True
+    threshold = True
 
     # Entire
     #test_whole_one('/home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc',
@@ -328,7 +328,7 @@ if __name__ == '__main__':
                         prcnt=90,
                         test_dask=True,
                         test_pool=True,
-                        n_workers=4)  # None = use all available cores
+                        n_workers=10)  # None = use all available cores
 
     #=== Timing Summary ===
     #Generic:    123.95s
