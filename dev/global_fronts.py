@@ -324,7 +324,7 @@ if __name__ == '__main__':
     if go_global:
         test_whole_one(div_b_file,
              '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy',
-             mode='pool', n_workers=10)
+             thresh_mode='pool', n_workers=10)
 
     # Test threshold modes on 1000x1000 region (including parallel modes)
     if threshold:
