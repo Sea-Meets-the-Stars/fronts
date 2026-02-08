@@ -14,10 +14,12 @@ def test_whole_one(divb2_file:str, outfile:str):
 
     # Load
     divb2 = xarray.open_dataset(divb2_file)['Divb2'].values
+    print(f'Processing divb2 with shape {divb2.shape}')
 
     # Find fronts
     fronts = algorithms.fronts_from_divb2(divb2, thin=True,
-                                          verbose=True)
+                                          verbose=True,
+                                          thresh_mode='pool')
 
     # Save
     np.save(outfile, fronts.astype(np.int16))
@@ -310,10 +312,10 @@ def test_cropping(thinned_file:str, outfile:str=None, min_size:int=7, connectivi
 
 if __name__ == '__main__':
 
-    go_global = False
-    crop = True
-    thin = True
-    threshold = True
+    go_global = True
+    crop = False
+    thin = False
+    threshold = False
     div_b_file = '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc'
 
     # Entire
