@@ -759,23 +759,6 @@ def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized',
         if not DASK_AVAILABLE:
             raise ImportError("dask is required for parallel mode. Install with: pip install dask")
 
-        '''
-        # Convert to dask array with specified chunks
-        nrows = array.shape[0]
-
-        darr = da.from_array(array, chunks=(nrows // n_workers, array.shape[1]))
-        result = darr.map_overlap(
-            lambda block: vectorized_filter(
-            block,
-            lambda x, *, axis: np.nanpercentile(x, prcnt, axis=axis),
-            size=wndw, mode='constant', cval=np.nan,
-            ),
-            depth=wndw // 2,
-            boundary=np.nan,
-        ).compute()
-        '''
-
-
         dask_array = da.from_array(array, chunks=chunks)
         # Define the local percentile function to apply
         def local_percentile(block):
@@ -805,6 +788,7 @@ def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized',
         else:
             window_qt = window_qt_dask.compute()
     elif mode == 'pool':
+
         # Half-window overlap needed on each side
         pad = wndw // 2
         nrows = array.shape[0]

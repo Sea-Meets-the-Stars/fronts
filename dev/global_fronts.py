@@ -10,7 +10,8 @@ from fronts.finding import pyboa
 from IPython import embed
 from skimage import morphology
 
-def test_whole_one(divb2_file:str, outfile:str):
+def test_whole_one(divb2_file:str, outfile:str,
+    thresh_mode:str='pool', n_workers:int=10):
 
     # Load
     divb2 = xarray.open_dataset(divb2_file)['Divb2'].values
@@ -19,7 +20,8 @@ def test_whole_one(divb2_file:str, outfile:str):
     # Find fronts
     fronts = algorithms.fronts_from_divb2(divb2, thin=True,
                                           verbose=True,
-                                          thresh_mode='pool')
+                                          thresh_mode=thresh_mode,
+                                          n_workers=n_workers)
 
     # Save
     np.save(outfile, fronts.astype(np.int16))
@@ -321,7 +323,8 @@ if __name__ == '__main__':
     # Entire
     if go_global:
         test_whole_one(div_b_file,
-             '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy')
+             '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy',
+             mode='pool', n_workers=10)
 
     # Test threshold modes on 1000x1000 region (including parallel modes)
     if threshold:
