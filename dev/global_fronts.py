@@ -310,13 +310,16 @@ def test_cropping(thinned_file:str, outfile:str=None, min_size:int=7, connectivi
 
 if __name__ == '__main__':
 
+    go_global = False
     crop = True
     thin = True
     threshold = True
+    div_b_file = '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc'
 
     # Entire
-    #test_whole_one('/home/xavier/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc',
-    #         '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy')
+    if go_global:
+        test_whole_one(div_b_file,
+             '/home/xavier/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy')
 
     # Test threshold modes on 1000x1000 region (including parallel modes)
     if threshold:
