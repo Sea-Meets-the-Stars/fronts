@@ -22,8 +22,9 @@ import os
 FRONTS_FILE = "/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy"
 DIVB2_FILE = "/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/data/LLC4320_2012-11-09T12_00_00_divb2.nc"  # Adjust if needed
 
-# Maximum display resolution (for performance)
-MAX_DISPLAY_SIZE = 8000  # pixels per dimension
+# Downsampling control - set to False for full resolution (WARNING: slow!)
+ENABLE_DOWNSAMPLING = True
+MAX_DISPLAY_SIZE = 8000  # pixels per dimension (only used if ENABLE_DOWNSAMPLING = True)
 
 
 # ==============================================================================
@@ -86,10 +87,16 @@ if DIVB2_FILE and os.path.exists(DIVB2_FILE):
 ny_full, nx_full = fronts_data_full.shape
 
 # Calculate downsampling factor
-downsample_factor = max(1, max(nx_full, ny_full) // MAX_DISPLAY_SIZE)
+if ENABLE_DOWNSAMPLING:
+    downsample_factor = max(1, max(nx_full, ny_full) // MAX_DISPLAY_SIZE)
+else:
+    downsample_factor = 1  # No downsampling
 
-print(f"\nDownsampling by factor of {downsample_factor} for performance...")
-print(f"  ({ny_full} x {nx_full}) -> ({ny_full//downsample_factor} x {nx_full//downsample_factor})")
+if downsample_factor > 1:
+    print(f"\nDownsampling by factor of {downsample_factor} for performance...")
+    print(f"  ({ny_full} x {nx_full}) -> ({ny_full//downsample_factor} x {nx_full//downsample_factor})")
+else:
+    print(f"\nUsing full resolution: ({ny_full} x {nx_full})")
 
 # Use block averaging for downsampling (preserves features better than simple decimation)
 if downsample_factor > 1:
@@ -150,28 +157,24 @@ extent_lat = [lat[0] - dlat/2, lat[-1] + dlat/2]
 # Create Bokeh figure
 # ==============================================================================
 
-# Apply threshold: < 0.1 = transparent, >= 0.1 = red
-FRONT_THRESHOLD = 0.1
-fronts_thresholded = np.where(fronts_data >= FRONT_THRESHOLD, fronts_data, np.nan)
+# Threshold-based front detection
+# (When downsampled, values represent front coverage in each block)
+FRONT_THRESHOLD = 0.1  # Show if ≥10% of pixels in block had a front
+fronts_thresholded = np.where(fronts_data >= FRONT_THRESHOLD, 1.0, np.nan)
 
-fronts_valid = fronts_thresholded[~np.isnan(fronts_thresholded)]
-if len(fronts_valid) > 0:
-    fronts_min = FRONT_THRESHOLD
-    fronts_max = np.nanmax(fronts_thresholded)
-else:
-    fronts_min, fronts_max = 0, 1
-
+# Single solid color for all detected fronts (no gradient)
 fronts_mapper = LinearColorMapper(
-    palette=Reds256[::-1],  # Reds: light -> dark red for values >= 0.1
-    low=fronts_min,
-    high=fronts_max,
-    nan_color='rgba(0,0,0,0)'  # Transparent for values < 0.1
+    palette=['#DC143C'],  # Solid crimson red for all fronts
+    low=0.5,
+    high=1.5,
+    nan_color='rgba(0,0,0,0)'  # Transparent below threshold
 )
 
+title_suffix = f"Downsampled {downsample_factor}x" if downsample_factor > 1 else "Full Resolution"
 p = figure(
     width=1400,
     height=700,
-    title=f"Ocean Fronts Detection (threshold >= {FRONT_THRESHOLD}) - Downsampled {downsample_factor}x",
+    title=f"Ocean Fronts Detection (threshold >= {FRONT_THRESHOLD}) - {title_suffix}",
     x_axis_label="Longitude",
     y_axis_label="Latitude",
     tools="pan,wheel_zoom,box_zoom,reset,save",
@@ -197,7 +200,7 @@ fronts_color_bar = ColorBar(
     color_mapper=fronts_mapper,
     width=8,
     location=(0, 0),
-    title="Fronts (Reds)"
+    title="Fronts"
 )
 p.add_layout(fronts_color_bar, 'right')
 
@@ -325,43 +328,25 @@ stats_text = f"""
   <li>NaN values: {np.sum(np.isnan(fronts_data)):,}</li>
 </ul>
 
-<p><b>Front Values (Reds, right colorbar):</b></p>
+<p><b>Front Detection:</b></p>
 <ul>
   <li><b>Threshold:</b> {FRONT_THRESHOLD} (values below are transparent)</li>
-  <li>All values: {np.nanmin(fronts_data):.6f} to {np.nanmax(fronts_data):.6f}</li>
-  <li>Visible fronts (≥{FRONT_THRESHOLD}): {np.sum(fronts_data >= FRONT_THRESHOLD):,} pixels</li>
-  <li>Hidden (below threshold): {np.sum(fronts_data < FRONT_THRESHOLD):,} pixels</li>
+  <li>Original data: Binary (0 or 1)</li>
+  <li>After downsampling: Continuous (front coverage per block)</li>
+  <li>Visible pixels (≥{FRONT_THRESHOLD}): {np.sum(fronts_data >= FRONT_THRESHOLD):,}</li>
+  <li><b>Display:</b> Solid red = front detected, Transparent = below threshold</li>
 </ul>
 """
 
-if divb2_data is not None:
-    stats_text += f"""
-<p><b>Divb2 Values (Inv. Grey, left colorbar):</b></p>
-<ul>
-  <li>Min: {np.nanmin(divb2_data):.6f}</li>
-  <li>Max: {np.nanmax(divb2_data):.6f}</li>
-  <li>Mean: {np.nanmean(divb2_data):.6f}</li>
-  <li>Std: {np.nanstd(divb2_data):.6f}</li>
-</ul>
-"""
 
 stats_text += f"""
 <p><b>Visualization Layers:</b></p>
 <ul>
   <li><b>Bottom:</b> Divb2 field (Inverse grey - high=white)</li>
-  <li><b>Top:</b> Fronts ≥ {FRONT_THRESHOLD} (Reds - transparent below threshold)</li>
+  <li><b>Top:</b> Fronts ≥ {FRONT_THRESHOLD} (Solid red)</li>
   <li><b>Toggle:</b> Use checkboxes above to show/hide layers</li>
 </ul>
 
-<p><b>Land Mask Check:</b></p>
-<ul>
-  <li>Any red = front ≥ {FRONT_THRESHOLD}, darker = stronger</li>
-  <li>Transparent = front < {FRONT_THRESHOLD} or no data</li>
-  <li>Zoom to coastlines to check masking</li>
-  <li>Look for red fronts along land boundaries</li>
-  <li><b style="color: red;">WARNING: 0 NaN values detected!</b></li>
-  <li>This suggests no land masking was applied</li>
-</ul>
 
 <p><b>Performance:</b></p>
 <ul>
@@ -381,7 +366,7 @@ stats_div = Div(text=stats_text, width=380, height=700)
 
 # Create list of renderers to toggle
 toggle_renderers = [fronts_img]
-toggle_labels = ["Front Strength (Reds)"]
+toggle_labels = [f"Fronts (≥{FRONT_THRESHOLD})"]
 
 if divb2_data is not None:
     toggle_renderers.insert(0, divb2_img)  # Add divb2 at the beginning
@@ -413,7 +398,7 @@ control_panel = column(controls_div, layer_toggle, stats_div)
 
 layout = row(p, control_panel)
 
-output_file("/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/front_finding/global/ocean_fronts_viewer_fast.html")
+output_file("/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/front_finding/global/global_front_finding_viewer.html")
 show(layout)
 
 print("\n" + "="*80)
@@ -421,27 +406,29 @@ print("FAST Visualization complete!")
 print("="*80)
 print(f"\nOriginal data: {fronts_data_full.shape}")
 print(f"Displayed at: {fronts_data.shape} ({downsample_factor}x downsampled)")
-print(f"\nFile saved: ocean_fronts_viewer_fast.html")
+print(f"\nFile saved: global_front_finding_viewer.html")
 
 if divb2_data is not None:
     print("\nLayers displayed:")
     print("  - Bottom: Divb2 field (Inverse grayscale - high values = white)")
-    print(f"  - Top: Fronts >= {FRONT_THRESHOLD} (Reds - values below threshold are transparent)")
+    print(f"  - Top: Fronts >= {FRONT_THRESHOLD} (Solid red - no gradient)")
 else:
     print("\nNote: Divb2 data not loaded (file not found)")
 
 print("\nKey findings:")
-print(f"  - Front threshold: {FRONT_THRESHOLD}")
-print(f"  - Front values range: {np.nanmin(fronts_data):.6f} to {np.nanmax(fronts_data):.6f}")
-print(f"  - Visible fronts (>={FRONT_THRESHOLD}): {np.sum(fronts_data >= FRONT_THRESHOLD):,} pixels")
-print(f"  - Hidden (<{FRONT_THRESHOLD}): {np.sum(fronts_data < FRONT_THRESHOLD):,} pixels")
+print(f"  - Original data: Binary (0 or 1)")
+print(f"  - After downsampling: Continuous (front coverage)")
+print(f"  - Threshold: {FRONT_THRESHOLD}")
+print(f"  - Visible fronts (>={FRONT_THRESHOLD}): {np.sum(fronts_data >= FRONT_THRESHOLD):,} pixels ({100*np.sum(fronts_data >= FRONT_THRESHOLD)/fronts_data.size:.2f}%)")
 if divb2_data is not None:
     print(f"  - Divb2 values range: {np.nanmin(divb2_data):.6f} to {np.nanmax(divb2_data):.6f}")
 print(f"  - NaN count: {np.sum(np.isnan(fronts_data)):,} (should be >0 if land masked)")
 print("\nNext steps:")
 print("  1. Use checkboxes to toggle layers and compare them")
-print("  2. Compare red fronts with inverse grayscale divb2 field")
+print(f"  2. Adjust FRONT_THRESHOLD (currently {FRONT_THRESHOLD}) if needed")
 print("  3. Zoom in on known ocean fronts (Gulf Stream, Kuroshio, ACC)")
 print("  4. Check coastlines for spurious front detections")
 print("  5. If fronts appear at coastlines, land masking needs fixing")
+print("\nNote: Downsampling converts binary data to continuous (front coverage).")
+print("      Solid red shows where coverage exceeds threshold.")
 print("="*80)
