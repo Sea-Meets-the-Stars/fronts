@@ -18,7 +18,7 @@ def generate_from_dbof(dbof_json_file:str, config_file:(str|dict),
     clobber:bool=False):
     """
     Generate training, validation, and test datasets from a DBoF JSON file.
-    This function processes a DBoF (Deep Bag of Features) JSON file and a 
+    This function processes a DBoF (Density Based Ocean Front) JSON file and a 
     configuration file to generate datasets for training, validation, and 
     testing. The datasets are saved as HDF5 files, and metadata is saved 
     as a Parquet file.
