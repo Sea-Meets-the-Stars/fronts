@@ -12,14 +12,14 @@ from fronts.dbof import defs as dbof_defs
 
 from IPython import embed
 
-def create_hdf5_cutouts(dbof_json_file:str, config_file:str, 
+def create_hdf5_cutouts(dbof_json_file:str, config_file:(str|dict), 
                      tbl:pandas.DataFrame, outfile:str, 
                      clobber:bool=False):
     """ Create the train, valid, test sets
 
     Args:
         dbof_json_file (str): Path to JSON file with the parameters
-        config_file (str): Path to JSON file with the configuration parameters
+        config_file (str|dict): Path to JSON file with the configuration parameters
         tbl (pandas.DataFrame): The training table
         outfile (str): Path to output file
 
@@ -82,10 +82,11 @@ def create_hdf5_cutouts(dbof_json_file:str, config_file:str,
         #embed(header='Creating dataset 81 ')
         dset = f.create_dataset(partition, data=cutouts)
         # Attributes
-        for field in fields:
-            dset.attrs[field] = f"field: {field}, units: {dbof_defs.fields_dmodel[field]['units']}"
+        for ss, field in enumerate(fields):
+            dset.attrs[str(ss)] = f"field: {field}, units: {dbof_defs.fields_dmodel[field]['units']}"
         dset.attrs['json_file'] = dbof_json_file
-        dset.attrs['config_file'] = config_file
+        if isinstance(config_file, str):
+            dset.attrs['config_file'] = config_file
         dset.attrs['version'] = dbof_dict['version']
 
     # Finish

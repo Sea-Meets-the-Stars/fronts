@@ -7,13 +7,24 @@ Created on Fri May 13 11:31:52 2022
 
 # Packages
 
+import dask
 import numpy as np
 import xarray as xr
 import pandas as pd
 from math import pi, floor, ceil
-from scipy.ndimage import sobel, correlate, generic_filter
+from scipy.ndimage import sobel, correlate, generic_filter, vectorized_filter
 from skimage import morphology
 from scipy.stats import norm
+
+from concurrent.futures import ProcessPoolExecutor
+
+
+try:
+    import dask.array as da
+    from dask.array import map_overlap
+    DASK_AVAILABLE = True
+except ImportError:
+    DASK_AVAILABLE = False
 
 
 types = xr.core.dataset.Dataset, xr.core.dataarray.DataArray
@@ -672,44 +683,174 @@ class pyBOA:
         return array_copy
 
 
-def front_thresh(array, wndw=64, prcnt=90):
+class _PercentileFunc:
+    """Callable class for percentile calculation - can be pickled for multiprocessing"""
+    def __init__(self, prcnt):
+        self.prcnt = prcnt
+
+    def __call__(self, x, *, axis):
+        return np.nanpercentile(x, self.prcnt, axis=axis)
+
+
+def _filter_chunk_pool(args):
+    """Helper function for pool mode - must be at module level for pickling"""
+    chunk, wndw, prcnt = args
+    percentile_func = _PercentileFunc(prcnt)
+    return vectorized_filter(
+        chunk,
+        percentile_func,
+        size=wndw,
+        mode='constant',
+        cval=np.nan,
+    )
+
+
+def front_thresh(array, wndw=64, prcnt=90, mode:str='vectorized',
+                 n_workers=None, chunks='auto'):
     """
     Identifies regions in the input array that exceed a local percentile threshold.
     This function computes a local percentile threshold for each element in the input
     array using a sliding window of specified size. It then compares the array values
     to the computed threshold to identify regions of interest.
+
     Parameters:
         array (numpy.ndarray): The input 2D array containing the data to be processed.
         wndw (int, optional): The size of the sliding window used to compute the local
                               percentile threshold. Default is 64.
         prcnt (float, optional): The percentile value (0-100) used to compute the threshold.
                                  Default is 90.
+        mode (str, optional): Mode of calculation - 'generic', 'vectorized', or 'dask'
+        n_workers (int, optional): Number of workers for dask mode. Default uses all available cores.
+        chunks (str or tuple, optional): Chunk size for dask mode. Default is 'auto'.
     Returns:
         numpy.ndarray: A boolean array of the same shape as the input array, where `True`
                        indicates that the corresponding element in the input array exceeds
                        the local percentile threshold, and `False` otherwise.
     """
 
-    def percentile_filter(values):
-        valid_values = values[~np.isnan(values)]
-        if len(valid_values) > 0:
-            return np.percentile(valid_values, prcnt)
-        return np.nan
-    
-    # Use scipy's generic_filter for better performance
-    window_qt = generic_filter(
-        array, 
-        percentile_filter, 
-        size=wndw, 
-        mode='constant', 
-        cval=np.nan
-    )
-    
+    if mode == 'generic':
+        # Original generic
+        def percentile_filter(values):
+            valid_values = values[~np.isnan(values)]
+            if len(valid_values) > 0:
+                return np.percentile(valid_values, prcnt)
+            return np.nan
+
+        # Use scipy's generic_filter for better performance
+        window_qt = generic_filter(
+            array,
+            percentile_filter,
+            size=wndw,
+            mode='constant',
+            cval=np.nan
+        )
+
+    elif mode == 'vectorized':
+        # Vectorized
+        window_qt = vectorized_filter(
+            array,
+            lambda x, *, axis: np.nanpercentile(x, prcnt, axis=axis),
+            size=wndw,
+            mode='constant',
+            cval=np.nan,
+        )
+
+    elif mode == 'dask':
+        if not DASK_AVAILABLE:
+            raise ImportError("dask is required for parallel mode. Install with: pip install dask")
+
+        dask_array = da.from_array(array, chunks=chunks)
+        # Define the local percentile function to apply
+        def local_percentile(block):
+            """Apply vectorized percentile filter to a block"""
+            return vectorized_filter(
+                block,
+                lambda x, *, axis: np.nanpercentile(x, prcnt, axis=axis),
+                size=wndw,
+                mode='constant',
+                cval=np.nan,
+            )
+
+        # Apply the function using map_overlap to handle window boundaries
+        depth = wndw // 2
+        window_qt_dask = map_overlap(
+            local_percentile,
+            dask_array,
+            depth=depth,
+            boundary=np.nan,  # Use numeric value directly
+            dtype=array.dtype
+        )
+
+        # Compute the result with specified number of workers
+        if n_workers is not None:
+            with dask.config.set(num_workers=n_workers):
+                window_qt = window_qt_dask.compute()
+        else:
+            window_qt = window_qt_dask.compute()
+    elif mode == 'pool':
+
+        # Half-window overlap needed on each side
+        pad = wndw // 2
+        nrows = array.shape[0]
+
+        # Split row indices roughly evenly
+        splits = np.array_split(np.arange(nrows), n_workers)
+
+        chunks = []
+        slices = []  # Where to extract the valid (non-overlap) result
+        for s in splits:
+            r0 = s[0]
+            r1 = s[-1] + 1
+            # Padded range for input
+            pr0 = max(r0 - pad, 0)
+            pr1 = min(r1 + pad, nrows)
+            chunks.append((array[pr0:pr1], wndw, prcnt))
+            # Corresponding slice in the output chunk to keep
+            slices.append((r0 - pr0, r1 - pr0))
+
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            results = list(pool.map(_filter_chunk_pool, chunks))
+
+        # Stitch: keep only the non-overlapping core of each result
+        window_qt = np.empty_like(array)
+        for idx, (s_idx, (s0, s1)) in enumerate(zip(splits, slices)):
+            window_qt[s_idx[0]:s_idx[-1]+1] = results[idx][s0:s1]
+    else:
+        raise ValueError(f"Invalid mode '{mode}'. Must be 'generic', 'vectorized', or 'dask'")
+
     # Apply threshold
     frnt = array > window_qt
-    
+
     return frnt
 
+def global_threshold(array, prcnt):
+    """
+    Apply global percentile threshold across entire image
+    
+    Parameters:
+    -----------
+    array : 2D numpy array
+        Input values (e.g., front intensity)
+    prcnt : float
+        Percentile threshold (0-100)
+    
+    Returns:
+    --------
+    frnt : boolean array
+        True where array exceeds global percentile
+    """
+    # Calculate percentile from all valid pixels
+    valid_values = array[~np.isnan(array)]
+    
+    if len(valid_values) == 0:
+        return np.full_like(array, False, dtype=bool)
+    
+    threshold = np.percentile(valid_values, prcnt)
+    
+    # Apply threshold to all pixels at once
+    frnt = array > threshold
+    
+    return frnt
 
 def thinning(in_array, iteration=2, f_dilate=True, min_size=7):
     array = in_array.copy()
@@ -738,7 +879,7 @@ def thinning(in_array, iteration=2, f_dilate=True, min_size=7):
     # 
     return array
 
-def cropping(array, min_size=7):
+def cropping(array, min_size:int=7, connectivity:int=2):
     """
     Process a binary array to remove spurs, small objects, and small holes.
 
@@ -763,15 +904,8 @@ def cropping(array, min_size=7):
     frnt = spur(frnt, n_iter=1)
     # clean small object
     frnt = morphology.remove_small_objects(
-        frnt.astype(bool), min_size=min_size, connectivity=2)
+        frnt.astype(bool), min_size=min_size, connectivity=connectivity)
             # remove small holes
     frnt = morphology.remove_small_holes(frnt)
     # 
     return frnt
-
-def fronts_in_divb2(Divb2, wndw:int=40):
-    res_frnt_np = front_thresh(Divb2, wndw=wndw)
-    res_frnt_crop = cropping(res_frnt_np)
-
-    return res_frnt_crop
-

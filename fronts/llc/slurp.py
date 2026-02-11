@@ -1,8 +1,11 @@
 """ Methods to slurp LLC data of interest"""
+
 import xarray as xr
 
+from IPython import embed
 
-def write_xr(xr_d, outfile, strip_coord=True, encode=True):
+def write_xr(xr_d, outfile:str, strip_coord=True, encode=True,
+             insert:bool=False):
     """
     Write an input xarray.DataArray of Theta to a netcdf file
 
@@ -13,7 +16,7 @@ def write_xr(xr_d, outfile, strip_coord=True, encode=True):
     strip_coord  : bool, optional
         Strip off coordinates?
     encode : bool, optional
-        Encode to int16?
+        Encode/compress
 
     """
 
@@ -37,6 +40,33 @@ def write_xr(xr_d, outfile, strip_coord=True, encode=True):
     # Encode?
     if encode:
         encoding = {}
+        encoding['Theta'] = {'dtype': 'float32', 
+                             'zlib': True, 'complevel': 4,
+                             '_FillValue': -32768,
+                             'missing_value': -32768}
+        for key in ['U', 'V', 'W', 'Eta', 'Salt']:
+            encoding[key] = encoding['Theta'].copy()
+        # Keep only those in data_vars
+        data_vars = list(xr_ds.data_vars.keys())
+        for key in list(encoding.keys()):
+            if key not in data_vars:
+                del(encoding[key])
+    else:
+        encoding = None
+
+    # Write
+    if insert:
+        mode = 'a'
+    else:
+        mode = 'w'
+        
+    # Do it
+    xr_ds.to_netcdf(outfile, encoding=encoding, engine='netcdf4', mode=mode)
+
+
+'''
+# Original coding
+        encoding = {}
         encoding['Theta'] = {'dtype': 'int16', 'scale_factor': 1e-3,
                              'add_offset': 10., 'zlib': True,
                              '_FillValue': -32768,
@@ -53,22 +83,11 @@ def write_xr(xr_d, outfile, strip_coord=True, encode=True):
                              'add_offset': 0., 'zlib': True,
                              '_FillValue': -32768,
                              'missing_value': -32768}
-        encoding['Eta'] = {'dtype': 'int16', 'scale_factor': 1e-6,
-                             'add_offset': 0., 'zlib': True,
-                             '_FillValue': -32768,
+        encoding['Eta'] = {'dtype': 'int16', 'scale_factor': 0.001,  # Adjust based on desired precision 'add_offset': 0.0,
+            'zlib': True,  'complevel': 4, '_FillValue': -32768,
                              'missing_value': -32768}
         encoding['Salt'] = {'dtype': 'int16', 'scale_factor': 1e-3,
                              'add_offset': 30., 'zlib': True,
                              '_FillValue': -32768,
                              'missing_value': -32768}
-        # Keep only those in data_vars
-        data_vars = list(xr_ds.data_vars.keys())
-        for key in list(encoding.keys()):
-            if key not in data_vars:
-                del(encoding[key])
-    else:
-        encoding = None
-
-    # Write
-    xr_ds.to_netcdf(outfile, encoding=encoding, engine='netcdf4')
-
+'''

@@ -18,6 +18,8 @@ def parser(options=None):
                         help="LLC data variable name.  Allowed options are [Theta, U, V, Salt, W, Eta]")
     parser.add_argument("--istart", type=int, default=0,
                         help="Index of model to start with")
+    parser.add_argument("--insert", default=False, action="store_true",
+                        help="Insert field(s) into existing file?")
     parser.add_argument("--debug", default=False, action="store_true",
                         help="Debug?")
 
@@ -115,16 +117,8 @@ def main(pargs):
     tsize = ds.time.size
     print("Model is ready")
 
-
-    '''
-    #define which iterations you want. 
-    start_from = 1180 # 0 is the first record of Eta, ~1180 is the first record for wind
-    length_in_hours = 12
-    time_step_in_hours = 3 # the minimum timestep between files is one hour
-
-
-    end_iter = 10368 + start_from*144 + length_in_hours*144
-    '''
+    # The following is taken + modified from:
+    #  https://github.com/cspencerjones/OSN_LLC4320
 
     all_vars = ['Theta','U','V','W','Salt','Eta']
     drop_vars = [var for var in all_vars if var not in varnames]
@@ -180,7 +174,7 @@ def main(pargs):
         outfile = '{:s}_{:s}.nc'.format(pargs.model,
             str(ds.time.values)[2:21].replace(':','_'))
         # No clobber
-        if os.path.isfile(outfile):
+        if os.path.isfile(outfile) and not pargs.insert:
             print("Not clobbering: {}".format(outfile))
             continue
 
@@ -194,7 +188,7 @@ def main(pargs):
         if pargs.debug:
             embed(header='203 of slurp_llc')
         # Write
-        write_xr(ds_rect, outfile, encode=True)
+        write_xr(ds_rect, outfile, encode=True, insert=pargs.insert)
         print("Wrote: {}".format(outfile))
 
 

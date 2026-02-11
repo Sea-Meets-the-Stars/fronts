@@ -6,6 +6,10 @@ __pycache__/
 # Figures
 *.png
 
+# Data
+*.nc
+*.npy
+
 # C extensions
 *.so
 

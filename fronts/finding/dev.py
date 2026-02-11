@@ -1,0 +1,266 @@
+""" Code to develop front finding algorithms """
+
+import os
+
+import numpy as np
+import h5py
+import pandas
+
+from matplotlib import pyplot as plt
+import matplotlib as mpl
+from matplotlib.ticker import MultipleLocator
+import matplotlib.gridspec as gridspec
+
+from skimage import morphology
+
+from wrangler.plotting import cutout
+
+from fronts.finding import algorithms
+
+from IPython import embed
+
+def parse_idx(b_train, idx):
+    # Parase
+    div_sst = b_train['inputs'][idx, 0, 0, ...]
+    sst = b_train['inputs'][idx, 2, 0, ...]
+    sss = b_train['inputs'][idx, 1, 0, ...]
+    #
+    Divb2 = b_train['targets'][idx, 0, 0, ...]
+    #
+    return div_sst, sst, sss, Divb2
+
+def load_test_data():
+    # files
+    b_tblfile = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'Training_Sets', 
+                     'LLC4320_SST144_SSS40_trainB.parquet')
+    b_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'Training_Sets', 
+                     'LLC4320_SST144_SSS40_trainB.h5')
+
+    # Load
+    b_train = h5py.File(b_file, 'r')
+
+    b_tbl = pandas.read_parquet(b_tblfile)
+
+    return b_train, b_tbl
+
+
+def run_a_test(algorithm:str, tst_idx:tuple=None):
+
+    tst_idx = (0, 500, 700)
+
+    # Load up
+    cutouts, tbl = load_test_data()
+
+    # Loop on indices
+    all_fronts, all_divb2, all_sst = [], [], []
+    for idx in tst_idx:
+
+        # Images
+        div_sst, sst, sss, Divb2 = parse_idx(cutouts, idx)
+
+        # Find fronts
+        if algorithm == 'vanilla':
+            fronts = algorithms.fronts_from_divb2(Divb2, wndw=40)
+        elif algorithm == 'rm_weak':
+            fronts = algorithms.fronts_from_divb2(Divb2, wndw=40, rm_weak=1e-15)
+        elif algorithm == 'thin':
+            fronts = algorithms.fronts_from_divb2(Divb2, wndw=40, thin=True)
+        elif algorithm == 'rm_weak-thin-dilate':
+            fronts = algorithms.fronts_from_divb2(Divb2, wndw=40, thin=True, rm_weak=1e-15, dilate=True)
+        else:
+            raise ValueError(f'Algorithm {algorithm} not recognized')
+
+        # Length
+        #labels = morphology.label(fronts)
+        #embed(header='70 of dev')
+
+        # Store
+        all_fronts.append(fronts)
+        all_divb2.append(Divb2)
+        all_sst.append(sst)
+
+    # Plot
+    outfile = f'fronts_{algorithm}_{tst_idx[0]}_{tst_idx[1]}_{tst_idx[2]}.png'
+    front_fig(outfile, np.stack(all_fronts), np.stack(all_divb2), np.stack(all_sst),
+              title=f'Algorithm: {algorithm}')
+
+
+def front_fig(outfile:str, all_fronts, all_divb2, all_sst, 
+              title:str=None):
+
+    fig = plt.figure(figsize=(12,6))
+    plt.clf()
+    gs = gridspec.GridSpec(2,3)
+
+    # First pair
+    #col = 0
+    for col in range(3):
+        #
+        ax_img = plt.subplot(gs[0, col])
+        cutout.show_image(all_sst[col], clbl='SST (deg C)', ax=ax_img)
+        #cutout.show_image(sv_divb2[col], cbar=True, #clbl=r'$\nabla b^2$', 
+        #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
+        ax_fronts = plt.subplot(gs[1, col])
+        cutout.show_image(all_divb2[col], cbar=True, #clbl=r'$\nabla b^2$', 
+                            cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
+        pcol,prow = np.where(np.flipud(all_fronts[col]))
+        ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+
+    # Add title?
+    if title is not None:
+        plt.suptitle(title)
+    
+    plt.tight_layout()#pad=0.0, h_pad=0.0, w_pad=0.3)
+    plt.savefig(outfile, dpi=300)
+    print(f"Saved: {outfile}")
+
+def front_fig3(outfile:str, all_fronts, all_divb2, all_sst, all_b,
+              title:str=None):
+
+    fig = plt.figure(figsize=(12,6))
+    plt.clf()
+    gs = gridspec.GridSpec(2,3)
+
+    # First pair
+    #col = 0
+    for row in range(2):
+        # SST
+        ax_img = plt.subplot(gs[row, 0])
+        cutout.show_image(all_sst[row], clbl='SST (deg C)', ax=ax_img)
+        # b
+        ax_b = plt.subplot(gs[row, 1])
+        cutout.show_image(all_b[row], clbl='buoyancy', ax=ax_b, cm='viridis')
+        #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
+        ax_fronts = plt.subplot(gs[row, 2])
+        cutout.show_image(all_divb2[row], cbar=True, #clbl=r'$\nabla b^2$', 
+                            cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
+        pcol,prow = np.where(np.flipud(all_fronts[row]))
+        ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+
+    # Add title?
+    if title is not None:
+        plt.suptitle(title)
+    
+    plt.tight_layout()#pad=0.0, h_pad=0.0, w_pad=0.3)
+    plt.savefig(outfile, dpi=300)
+    print(f"Saved: {outfile}")
+
+def front_fig4(outfile:str, all_fronts, all_divb2, all_sst, all_b,
+    all_divsst, title:str=None):
+
+    fig = plt.figure(figsize=(14,6))
+    plt.clf()
+    gs = gridspec.GridSpec(2,4)
+
+    # First pair
+    #col = 0
+    for row in range(2):
+        # SST
+        ax_sst = plt.subplot(gs[row, 0])
+        cutout.show_image(all_sst[row], clbl='SST (deg C)', ax=ax_sst)
+
+        # Div SST
+        ax_dsst = plt.subplot(gs[row, 1])
+        cutout.show_image(all_divsst[row], clbl='|Div SST|^2 (K/km)^2', 
+                          ax=ax_dsst, cm='Greys')
+        
+        # b
+        ax_b = plt.subplot(gs[row, 2])
+        cutout.show_image(all_b[row]*100, clbl='100*buoyancy', ax=ax_b, cm='viridis')
+        #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
+        ax_fronts = plt.subplot(gs[row, 3])
+        cutout.show_image(all_divb2[row], cbar=True, #clbl=r'$\nabla b^2$', 
+                            cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
+        pcol,prow = np.where(np.flipud(all_fronts[row]))
+        ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+        ax_dsst.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+        ax_sst.scatter(prow, pcol, s=0.3, color='k')#, alpha=0.5)
+        ax_b.scatter(prow, pcol, s=0.3, color='white')#, alpha=0.5)
+
+        # Add a grid
+        for ax in [ax_sst, ax_dsst, ax_b, ax_fronts]:
+            ax.xaxis.set_major_locator(MultipleLocator(10))
+            ax.yaxis.set_major_locator(MultipleLocator(10))
+            ax.grid(which='major', color='lightgrey', linestyle='--', alpha=0.5)
+
+    # Add title?
+    if title is not None:
+        plt.suptitle(title)
+    
+    plt.tight_layout()#pad=0.0, h_pad=0.0, w_pad=0.3)
+    plt.savefig(outfile, dpi=300)
+    print(f"Saved: {outfile}")
+
+def front_fig6(outfile:str, fronts, divb2, sst, b,
+    divsst, sss, divsss, title:str=None, show:bool=False,
+    scale_by_EoS:bool=True):
+
+    fig = plt.figure(figsize=(12,6))
+    plt.clf()
+    gs = gridspec.GridSpec(2,3)
+
+    # SST
+    ax_sst = plt.subplot(gs[0, 0])
+    cutout.show_image(sst, clbl='SST (deg C)', ax=ax_sst)
+
+    # Div SST
+    ax_dsst = plt.subplot(gs[1, 0])
+    if scale_by_EoS:
+        divsst = divsst * (2e-4)**2 * (0.0098)**2
+        clbl=r'$|g \, \alpha \, \nabla {\rm SST}|^2 \; \rm s^{-4}$' 
+    else:
+        clbl='|Div SST|^2 (K/km)^2', 
+    cutout.show_image(divsst, clbl=clbl,
+                        ax=ax_dsst, cm='Greys')
+
+    # SSS
+    ax_sss = plt.subplot(gs[0, 1])
+    cutout.show_image(sss, clbl='SSS (psu)', ax=ax_sss, cm='viridis')
+
+    # Div SSS
+    ax_dsss = plt.subplot(gs[1, 1])
+    if scale_by_EoS:
+        divsss = divsss * (7.8e-4)**2 * (0.0098)**2
+        clbl=r'$|g \, \beta \, \nabla {\rm SSS}|^2 \; \rm s^{-4}$' 
+    else:
+        clbl='|Div SSS|^2 (psu/km)^2' 
+    cutout.show_image(divsss, clbl=clbl, ax=ax_dsss, cm='Greys')
+    
+    # b
+    ax_b = plt.subplot(gs[0, 2])
+    cutout.show_image(b*100, clbl='100*buoyancy', ax=ax_b, cm='plasma')
+    #                      cm='Greys', ax=ax_img, vmnx=(mn_div,mx_div))
+    ax_fronts = plt.subplot(gs[1, 2])
+    cutout.show_image(divb2, cbar=True, #clbl=r'$\nabla b^2$', 
+                      clbl=r'$|\nabla b|^2 \; \rm s^{-4}$', 
+                      cm='Greys', ax=ax_fronts)#, vmnx=(mn_div,mx_div))
+
+    # Dots
+    pcol,prow = np.where(np.flipud(fronts))
+    pcol = pcol + 0.5
+    prow = prow + 0.5
+    ax_fronts.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+    ax_dsst.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+    ax_dsss.scatter(prow, pcol, s=0.3, color='r', alpha=0.5)
+    ax_sst.scatter(prow, pcol, s=0.3, color='k')#, alpha=0.5)
+    ax_sss.scatter(prow, pcol, s=0.3, color='white')#, alpha=0.5)
+    ax_b.scatter(prow, pcol, s=0.3, color='white')#, alpha=0.5)
+
+    # Add a grid
+    for ax in [ax_sst, ax_dsst, ax_b, ax_fronts]:
+        ax.xaxis.set_major_locator(MultipleLocator(10))
+        ax.yaxis.set_major_locator(MultipleLocator(10))
+        ax.grid(which='major', color='lightgrey', linestyle='--', alpha=0.5)
+
+    # Add title?
+    if title is not None:
+        plt.suptitle(title)
+    
+    plt.tight_layout()#pad=0.0, h_pad=0.0, w_pad=0.3)
+    if outfile is not None:
+        plt.savefig(outfile, dpi=300)
+        print(f"Saved: {outfile}")
+        plt.close()
+    if show:
+        plt.show()
+    return fig

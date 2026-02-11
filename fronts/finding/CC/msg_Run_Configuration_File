@@ -1,0 +1,24 @@
+123456789-123456789-123456789-123456789-123456789-123456789*Input Variable
+ParameterName: (Name of variable to be processed) (A60,A30):SST
+ParameterUnits: (Units for ParameterName)         (A60,A30):Kelvin
+AlongScanDimension: (along-scan dimension 1 or 2?)(A60,i1)':1
+LenXin: (x dimension of input fields) '(A60,i4)'           :3712
+LenYin: (y dimension of input fields) '(A60,i4)'           :3712
+LenX: (x dimension of output fields) '(A60,i4)'            :3712
+LenY: (y dimension of output fields) '(A60,i4)'            :3712
+NumClearThresh: (Min # clear pixels/image)      '(A60,I4)' : 100
+LocFileNamePrefix: (Empty if >1 loc file) '(A60,A20)'      :msg
+GeoNameIn: (Input filename with loc data) '(A60,A150)'     :meteosat_latlon.nc
+InputScaleFactor: (Factor to multipy input) '(A60,F9.5)'   :0.01
+InputOffset: (add to counts*scale to get SST) '(A60,F9.4)' :273.15
+DegreesK: (Input Units; 0 == DegC; 1== DegK '(A60,i2)'     :1
+OutputScaleFactor: (lowest allowed SST value) '(A60,9.5)'  :0.01
+OutputOffset: (highest value of SST accepted) '(A60,f9.4)' :268.15
+MaxSSTOut: (SST = scale*Counts+offset) '(A60,f9.4)'        :313.15
+ImageWindow: # of images to merge * 2           '(A60,I2)' :24
+HourWindow: Images within this time to merge    '(A60,I2)' :12
+MinStep: Minimum sep. of front pop. means       '(A60,I1)' :5
+MinLength: Minimum length of front segments     '(A60,I2)' : 5
+PlaneRemover: Remove trend before SIED (1 = yes)'(A60,I1)' :0
+Sobeltmp - NOT SURE WHAT THIS IS '(A60,I1)'                :0
+SIEDtmp - NOT SURE WHAT THIS IS '(A60,I1)'                 :0

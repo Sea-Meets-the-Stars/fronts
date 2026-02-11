@@ -15,8 +15,22 @@ tbl_dmodel['required'] = ('lat', 'lon', 'datetime', 'row', 'col', 'UID')
 tbl_dmodel.update({
     'Divb2': dict(dtype=np.bool,
                 help='Was Divb2 (div of buoyancy, squared) successfully extracted?'),
+    'b': dict(dtype=np.bool,
+                help='Was b (buoyancy) successfully extracted?'),
     'Fs': dict(dtype=np.bool,
                 help='Was Fs (frontogenesis tendency) successfully extracted?'),
+    'OW': dict(dtype=np.bool,
+                help='Was OW (Okubo-Weiss) successfully extracted?'),
+    'Cu': dict(dtype=np.bool,
+                help='Was Cu (Curvature number) successfully extracted?'),
+    'L': dict(dtype=np.bool,
+                help='Was L (angular momentum) successfully extracted?'),
+    'strain_rate': dict(dtype=np.bool,
+                help='Was strain_rate successfully extracted?'),
+    'divergence': dict(dtype=np.bool,
+                help='Was divergence successfully extracted?'),
+    'vorticity': dict(dtype=np.bool,
+                help='Was vorticity successfully extracted?'),
     'U': dict(dtype=np.bool,
                 help='Was U successfully extracted?'),
     'V': dict(dtype=np.bool,
@@ -25,14 +39,26 @@ tbl_dmodel.update({
                 help='Was W successfully extracted?'),
     'SSH': dict(dtype=np.bool,
                 help='Was SSH successfully extracted?'),
+    'SSHa': dict(dtype=np.bool,
+                help='Was SSHa (demeaned SSH) successfully extracted?'),
+    'SSHs': dict(dtype=np.bool,
+                help='Was SSHs (smoothed SSH) successfully extracted?'),
     'SSS': dict(dtype=np.bool,
                 help='Was SSS successfully extracted?'),
     'SSSs': dict(dtype=np.bool,
                 help='Was SSS (smoothed SSS) successfully extracted?'),
+    'DivSSS2': dict(dtype=np.bool,
+                help='Was DivSSS2 (gradient of SSS) successfully extracted?'),
+    'DivSST2': dict(dtype=np.bool,
+                help='Was DivSST2 (gradient of SST) successfully extracted?'),
     'SSTK': dict(dtype=np.bool,
                 help='Was SSTK successfully extracted?'),
 })
 
+# Meta
+meta_dmodel = wr_defs.meta_dmodel.copy()
+
+# Fields
 fields_dmodel = {
        "U": {
             "desc": "U in m/s at full resolution, modulo resizing",
@@ -67,13 +93,48 @@ fields_dmodel = {
                 "de_mean": False
             },
         },
-        "SSH": {
-            "desc": "SSH in ??, native resolution",
-            "units": "??",
+        "DivSST2": {
+            "desc": "Gradient of SST in Kelvin at full resolution, modulo resizing",
+            "units": "(K/km)^2",
             "pdict": {
                 "resize": True,
                 "downscale": False,
                 "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
+        },
+        "SSH": {
+            "desc": "SSH, native resolution",
+            "units": "m",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False
+            },
+        },
+        "SSHa": {
+            "desc": "SSHa, native resolution, demenaed",
+            "units": "m",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": True
+            },
+        },
+        "SSHs": {
+            "desc": "SSHs smoothed by 15km to match MEASUREs data product",
+            "units": "m",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "smooth_km": 15.0, 
                 "median": False,
                 "de_mean": False
             },
@@ -89,6 +150,18 @@ fields_dmodel = {
                 "de_mean": False
             },
         },
+        "DivSSS2": {
+            "desc": "Gradient of SSS in psu at full resolution, modulo resizing",
+            "units": "(psu/km)^2",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
+        },
         "SSSs": {
             "desc": "SSS in psu, smoothed to sattelite resolution",
             "units": "psu",
@@ -101,6 +174,54 @@ fields_dmodel = {
                 "de_mean": False
             },
         },
+        "vorticity": {
+            "desc": "Vorticity, native resolution.",
+            "units": "1/s",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
+        },
+        "divergence": {
+            "desc": "Divergence, native resolution.",
+            "units": "1/s",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
+        },
+        "strain_rate": {
+            "desc": "Strain rate (aka alpha), native resolution.",
+            "units": "1/s",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
+        },
+        "OW": {
+            "desc": "Okubo-Weiss in 1/s^2, native resolution",
+            "units": "1/s^2",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25  # km
+            },
+        },
         "Fs": {
             "desc": "Frontogenesis tendency in 1/s^2, native resolution",
             "units": "1/s^2 (maybe)",
@@ -111,6 +232,41 @@ fields_dmodel = {
                 "median": False,
                 "de_mean": False,
                 "dx": 2.25
+            },
+        },
+        "Cu": {
+            "desc": "Curvature number",
+            "units": "Dimensionless",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25
+            },
+        },
+        "L": {
+            "desc": "Angular momentum",
+            "units": "(m/s)^2",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False,
+                "dx": 2.25
+            },
+        },
+        "b": {
+            "desc": "buoyancy, native resolution",
+            "units": "unitless?",
+            "pdict": {
+                "resize": True,
+                "downscale": False,
+                "inpaint": False,
+                "median": False,
+                "de_mean": False
             },
         },
         "Divb2": {

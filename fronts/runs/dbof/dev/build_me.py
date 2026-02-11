@@ -5,7 +5,6 @@ from fronts.dbof import tables
 from fronts.dbof import fields
 from fronts.dbof import io as dbof_io
 from fronts import io as fronts_io
-from fronts.train import tables as ttables
 from fronts.train import datasets
 
 from IPython import embed
@@ -76,7 +75,8 @@ if __name__ == '__main__':
         flg = 0
 
         #flg = 1 # Generate super table
-        #flg = 2 # Preproc super table
+        #flg = 2 # Preproc SST only
+        #flg = 3 # Build em all
 
         #flg += 2 ** 1  # 2 -- Extract
         #flg += 2 ** 2  # 4 -- Evaluate (with noise)
