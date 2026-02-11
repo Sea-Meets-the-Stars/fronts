@@ -90,6 +90,14 @@ class Divb2Viewer(QMainWindow):
 
         control_layout.addSpacing(20)
 
+        # Log scale toggle checkbox
+        self.log_scale_checkbox = QCheckBox('Log₁₀ Scale')
+        self.log_scale_checkbox.setChecked(True)  # Default to log scale
+        self.log_scale_checkbox.stateChanged.connect(self.toggle_log_scale)
+        control_layout.addWidget(self.log_scale_checkbox)
+
+        control_layout.addSpacing(20)
+
         # Reset view button
         self.reset_view_btn = QPushButton('Reset View')
         self.reset_view_btn.clicked.connect(self.reset_view)
@@ -246,9 +254,12 @@ class Divb2Viewer(QMainWindow):
         # Clear previous plots
         self.plot_widget.clear()
 
-        # Prepare Divb2 data for display (use log scale)
-        plot_data = np.log10(np.abs(self.divb2_data))
-        plot_data[np.isinf(plot_data)] = np.nan
+        # Prepare Divb2 data for display (log or linear scale)
+        if self.log_scale_checkbox.isChecked():
+            plot_data = np.log10(np.abs(self.divb2_data))
+            plot_data[np.isinf(plot_data)] = np.nan
+        else:
+            plot_data = self.divb2_data.copy()
 
         # Track NaN positions for green overlay
         nan_mask = np.isnan(plot_data)
@@ -258,7 +269,8 @@ class Divb2Viewer(QMainWindow):
         vmin = np.nanpercentile(plot_data, 100 - percentile)
         vmax = np.nanpercentile(plot_data, percentile)
 
-        print(f"Display range: [{vmin:.2f}, {vmax:.2f}] (log10 scale)")
+        scale_type = 'log₁₀ scale' if self.log_scale_checkbox.isChecked() else 'linear scale'
+        print(f"Display range: [{vmin:.2e}, {vmax:.2e}] ({scale_type})")
 
         # Create grayscale image for Divb2
         # pyqtgraph ImageItem expects data in (rows, cols) = (y, x)
@@ -281,11 +293,12 @@ class Divb2Viewer(QMainWindow):
             # Remove old colorbar if it exists
             self.graphics_widget.removeItem(self.colorbar)
 
-        # Create colorbar
+        # Create colorbar with appropriate label
+        label = 'log₁₀(Divb2)' if self.log_scale_checkbox.isChecked() else 'Divb2'
         self.colorbar = pg.ColorBarItem(
             values=(vmin, vmax),
             colorMap=colormap,
-            label='log₁₀(Divb2)',
+            label=label,
             interactive=False,
             width=15
         )
@@ -326,7 +339,7 @@ class Divb2Viewer(QMainWindow):
 
             # Set alpha channel: transparent where no front, semi-transparent where front
             # Alpha value of 60 gives nice visibility without overwhelming the background
-            fronts_rgba[:, :, 3] = (self.fronts_data > 0).astype(np.ubyte) * 60
+            fronts_rgba[:, :, 3] = (self.fronts_data > 0).astype(np.ubyte) * 120
 
             # Create ImageItem for fronts overlay
             self.fronts_image = pg.ImageItem()
@@ -344,9 +357,12 @@ class Divb2Viewer(QMainWindow):
         self.contrast_value_label.setText(f'{value}%')
 
         if self.divb2_data is not None and self.divb2_image is not None:
-            # Recalculate levels
-            plot_data = np.log10(np.abs(self.divb2_data))
-            plot_data[np.isinf(plot_data)] = np.nan
+            # Recalculate levels (log or linear)
+            if self.log_scale_checkbox.isChecked():
+                plot_data = np.log10(np.abs(self.divb2_data))
+                plot_data[np.isinf(plot_data)] = np.nan
+            else:
+                plot_data = self.divb2_data.copy()
 
             vmin = np.nanpercentile(plot_data, 100 - value)
             vmax = np.nanpercentile(plot_data, value)
@@ -367,6 +383,12 @@ class Divb2Viewer(QMainWindow):
             else:
                 # Remove fronts from plot
                 self.plot_widget.removeItem(self.fronts_image)
+
+    def toggle_log_scale(self, state):
+        """Toggle between log and linear scale."""
+        if self.divb2_data is not None:
+            # Replot with new scale
+            self.plot_data()
 
     def reset_view(self):
         """Reset the view to show all data."""
@@ -392,9 +414,14 @@ class Divb2Viewer(QMainWindow):
         # Extract visible data
         visible_data = self.divb2_data[y_min:y_max, x_min:x_max]
 
-        # Apply log transform
-        visible_plot_data = np.log10(np.abs(visible_data))
-        visible_plot_data[np.isinf(visible_plot_data)] = np.nan
+        # Apply transform (log or linear)
+        if self.log_scale_checkbox.isChecked():
+            visible_plot_data = np.log10(np.abs(visible_data))
+            visible_plot_data[np.isinf(visible_plot_data)] = np.nan
+            scale_label = 'log₁₀ scale'
+        else:
+            visible_plot_data = visible_data.copy()
+            scale_label = 'linear scale'
 
         # Calculate new levels from visible data
         percentile = self.contrast_slider.value()
@@ -409,10 +436,10 @@ class Divb2Viewer(QMainWindow):
             self.colorbar.setLevels(values=(vmin, vmax))
 
         self.status_bar.showMessage(
-            f'Limits adjusted to view: [{vmin:.2f}, {vmax:.2f}] (log10 scale)',
+            f'Limits adjusted to view: [{vmin:.2e}, {vmax:.2e}] ({scale_label})',
             3000
         )
-        print(f"Adjusted limits to view range: [{vmin:.2f}, {vmax:.2f}]")
+        print(f"Adjusted limits to view range: [{vmin:.2e}, {vmax:.2e}] ({scale_label})")
 
 
 def main():

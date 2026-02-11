@@ -17,3 +17,5 @@
 ## I don't see the colorbar in the GUI.  Also, can we use a darker green for land?
 
 ## Thanks.  Please rename Adjust Contrast to Adjust Limits.  And when one uses that button, the limits on the colorbar should update.
+
+## Can you add a box that toggles between log10 divb2 and linear?
