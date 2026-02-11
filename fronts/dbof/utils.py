@@ -20,7 +20,7 @@ def series_from_UID(dbof_tbl:pandas.DataFrame, UID:int):
 
 def find_entry(dbof_json_dict:(str|dict|pandas.DataFrame), sdict:dict, debug:bool=False):
     """
-    Find an entry in a DBOF (Database of Oceanographic Fronts) table that matches the specified criteria.
+    Find an entry in a DBOF (Density Based Ocean Fronts) table that matches the specified criteria.
     Parameters:
     -----------
     dbof_json_dict : str | dict | pandas.DataFrame
