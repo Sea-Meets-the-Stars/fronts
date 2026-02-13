@@ -39,6 +39,7 @@ import time
 from datetime import datetime
 from multiprocessing import Pool, cpu_count
 from functools import partial
+import os
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -256,6 +257,11 @@ def main():
         lon=lon_global,
         time_str=time_str
     )
+
+    # Process in parallel
+    print(f"\nStarting multiprocessing Pool with {n_workers} workers...")
+    print(f"  PID of main process: {os.getpid()}")
+    print(f"  Starting parallel processing now...")
 
     # Process in parallel
     with Pool(processes=n_workers) as pool:
