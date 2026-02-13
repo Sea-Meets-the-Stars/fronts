@@ -53,7 +53,8 @@ def calculate_front_length(
     mask: np.ndarray,
     lat: np.ndarray,
     lon: np.ndarray,
-    method: str = 'perimeter'
+    method: str = 'skeleton',
+    skeleton: np.ndarray = None
 ) -> float:
     """
     Calculate the length of a front.
@@ -68,9 +69,13 @@ def calculate_front_length(
         2D array of longitude coordinates
     method : str, optional
         Method for calculating length:
-        - 'perimeter': Use perimeter of the region (default, fast)
-        - 'skeleton': Calculate length along the front skeleton (more accurate)
-        Default is 'perimeter'.
+        - 'skeleton': Calculate length along the front skeleton using haversine distances (default, accurate)
+        - 'perimeter': Use perimeter of the region (FAST but INACCURATE for non-uniform grids like LLC4320)
+        Default is 'skeleton'.
+    skeleton : np.ndarray, optional
+        Pre-computed skeleton (for method='skeleton' only). If provided, skips
+        skeletonization step. Used to share skeleton between length and curvature
+        calculations for efficiency. Default is None.
 
     Returns
     -------
@@ -79,8 +84,15 @@ def calculate_front_length(
 
     Notes
     -----
-    The 'perimeter' method is faster but may overestimate for thick fronts.
-    The 'skeleton' method traces the centerline but is computationally more expensive.
+    The 'skeleton' method is RECOMMENDED for non-uniform grids (like LLC4320) because it:
+    - Traces the actual centerline of the front
+    - Calculates true haversine distances between skeleton points
+    - Accounts for variable grid spacing
+
+    The 'perimeter' method is DEPRECATED for non-uniform grids because it:
+    - Assumes approximate pixel spacing based on sampling
+    - Less accurate for curvilinear grids where pixel size varies spatially
+    - Use only for quick testing on uniform grids
     """
     if method == 'perimeter':
         # Use skimage.measure.perimeter
@@ -130,8 +142,9 @@ def calculate_front_length(
         # Extract skeleton/centerline and trace it
         from skimage.morphology import skeletonize
 
-        # Skeletonize the mask
-        skeleton = skeletonize(mask)
+        # Use pre-computed skeleton if provided, otherwise compute it
+        if skeleton is None:
+            skeleton = skeletonize(mask)
 
         # Count skeleton pixels and estimate length
         skel_pixels = np.sum(skeleton)
@@ -182,9 +195,11 @@ def calculate_front_orientation(
     Returns
     -------
     orientation : float
-        Orientation angle in degrees, measured clockwise from North (0-180°)
-        - 0° = North-South front
-        - 90° = East-West front
+        Orientation angle in degrees, measured as acute angle from North (0-90°)
+        - 0° = North-South front (meridional)
+        - 45° = Diagonal front (NE-SW or NW-SE)
+        - 90° = East-West front (zonal)
+        Note: Uses acute angle to eliminate ambiguity since fronts are lines, not vectors
 
     Notes
     -----
@@ -208,11 +223,16 @@ def calculate_front_orientation(
     # We want angle from vertical (N-S) axis
     orientation_from_north = 90 - orientation_deg
 
-    # Normalize to 0-180 range
+    # Normalize to 0-180 range first
     if orientation_from_north < 0:
         orientation_from_north += 180
     elif orientation_from_north >= 180:
         orientation_from_north -= 180
+
+    # Fold to 0-90 range (acute angle from North)
+    # This removes ambiguity since fronts are lines, not vectors
+    if orientation_from_north > 90:
+        orientation_from_north = 180 - orientation_from_north
 
     return orientation_from_north
 
@@ -221,7 +241,8 @@ def calculate_front_curvature(
     mask: np.ndarray,
     lat: np.ndarray,
     lon: np.ndarray,
-    window_size: int = 5
+    window_size: int = 5,
+    skeleton: np.ndarray = None
 ) -> Tuple[float, float]:
     """
     Calculate mean curvature and curvature direction of a front.
@@ -236,6 +257,10 @@ def calculate_front_curvature(
         2D array of longitude coordinates
     window_size : int, optional
         Window size for local curvature calculation. Default is 5.
+    skeleton : np.ndarray, optional
+        Pre-computed skeleton. If provided, skips skeletonization step.
+        Used to share skeleton with length calculation for efficiency.
+        Default is None.
 
     Returns
     -------
@@ -254,8 +279,10 @@ def calculate_front_curvature(
     """
     from skimage.morphology import skeletonize
 
-    # Get skeleton of front
-    skeleton = skeletonize(mask)
+    # Use pre-computed skeleton if provided, otherwise compute it
+    if skeleton is None:
+        skeleton = skeletonize(mask)
+
     rows, cols = np.where(skeleton)
 
     if len(rows) < 3:
@@ -429,7 +456,7 @@ def calculate_all_geometric_properties(
     lon: np.ndarray,
     time: Optional[Union[str, np.datetime64]] = None,
     include_curvature: bool = True,
-    length_method: str = 'perimeter'
+    length_method: str = 'skeleton'
 ) -> Dict[int, Dict[str, float]]:
     """
     Calculate all geometric properties for all fronts.
@@ -448,8 +475,8 @@ def calculate_all_geometric_properties(
         Whether to calculate curvature (computationally expensive).
         Default is True.
     length_method : str, optional
-        Method for length calculation ('perimeter' or 'skeleton').
-        Default is 'perimeter'.
+        Method for length calculation ('skeleton' or 'perimeter').
+        Default is 'skeleton' (recommended for non-uniform grids).
 
     Returns
     -------

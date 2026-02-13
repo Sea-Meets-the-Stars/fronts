@@ -19,6 +19,7 @@ Usage:
                                     --coords_file /path/to/coords.nc \
                                     --output_dir /path/to/output \
                                     --n_workers 8
+                                    --skip_curvature
     
     python process_global_fronts.py --fronts_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/global/LLC4320_2012-11-09T12_00_00_fronts.npy' \
                                     --coords_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/LLC_coords_lat_lon.nc' \
@@ -46,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from group_fronts import label, geometry, io
 
 
-def process_single_front(front_id, labeled_array, lat, lon, time_str):
+def process_single_front(front_id, labeled_array, lat, lon, time_str,length_method='skeleton', skip_curvature=False):
     """
     Process a single front to calculate geometric properties.
 
@@ -102,9 +103,21 @@ def process_single_front(front_id, labeled_array, lat, lon, time_str):
             props['lon_min'] = np.nan
             props['lon_max'] = np.nan
 
+        # Optimize: If using skeleton for both length AND curvature, compute skeleton once
+        skeleton = None
+        if length_method == 'skeleton' and not skip_curvature:
+            from skimage.morphology import skeletonize
+            skeleton = skeletonize(mask)
+
         # Length
         try:
-            props['length_km'] = float(geometry.calculate_front_length(mask, lat, lon, method='skeleton'))
+            # Use skeleton method (recommended for LLC4320 non-uniform grid)
+            # Skeleton uses true haversine distances between points
+            # ~0.1s per front → ~7.5 hours for 135k fronts with 20 workers
+            # If skeleton was pre-computed above, pass it in to avoid re-computing
+            props['length_km'] = float(geometry.calculate_front_length(
+                mask, lat, lon, method=length_method, skeleton=skeleton
+            ))
         except:
             props['length_km'] = np.nan
 
@@ -114,12 +127,19 @@ def process_single_front(front_id, labeled_array, lat, lon, time_str):
         except:
             props['orientation'] = np.nan
 
-        # Curvature
-        try:
-            curv, curv_dir = geometry.calculate_front_curvature(mask, lat, lon)
-            props['mean_curvature'] = float(curv)
-            props['curvature_direction'] = float(curv_dir)
-        except:
+        # Curvature (optional - can be skipped to save time)
+        if not skip_curvature:
+            try:
+                # If skeleton was pre-computed above, pass it in to avoid re-computing
+                curv, curv_dir = geometry.calculate_front_curvature(
+                    mask, lat, lon, skeleton=skeleton
+                )
+                props['mean_curvature'] = float(curv)
+                props['curvature_direction'] = float(curv_dir)
+            except:
+                props['mean_curvature'] = np.nan
+                props['curvature_direction'] = np.nan
+        else:
             props['mean_curvature'] = np.nan
             props['curvature_direction'] = np.nan
 
@@ -146,6 +166,11 @@ def main():
                        help='Minimum front size in pixels (default: 10)')
     parser.add_argument('--downsample', type=int, default=None,
                        help='Downsample factor for testing (e.g., 2 = half resolution)')
+    parser.add_argument('--length_method', type=str, default='skeleton',
+                       choices=['skeleton', 'perimeter'],
+                       help='Method for length calculation: skeleton (accurate, uses haversine) or perimeter (DEPRECATED, inaccurate for non-uniform grids). Default: skeleton')
+    parser.add_argument('--skip_curvature', action='store_true',
+                       help='Skip curvature calculation (saves ~50%% time when using skeleton method)')
 
     args = parser.parse_args()
 
@@ -245,7 +270,8 @@ def main():
     print("CALCULATING GEOMETRIC PROPERTIES (PARALLEL)")
     print("="*70)
     print(f"Processing {num_filtered:,} fronts using {n_workers} workers...")
-    print("This may take 30min-2hr depending on data size and CPU...")
+    print(f"Length method: {args.length_method}")
+    print(f"Curvature: {'SKIPPED (faster)' if args.skip_curvature else 'CALCULATED'}")
 
     t0 = time.time()
 
@@ -255,7 +281,9 @@ def main():
         labeled_array=labeled,
         lat=lat_global,
         lon=lon_global,
-        time_str=time_str
+        time_str=time_str,
+        length_method=args.length_method,
+        skip_curvature=args.skip_curvature
     )
 
     # Process in parallel

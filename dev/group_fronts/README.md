@@ -2,7 +2,10 @@
 
 **Label and characterize the geometric properties of ocean fronts**
 
-This module groups connected front pixels into individual fronts and characterizes their geometric properties. For advanced characterization (field properties, dimensionless numbers, dynamical properties), see the companion `characterize_fronts` module.
+This module groups connected front pixels into individual fronts and characterizes their geometric properties. 
+
+(work in progress...)
+For advanced characterization (field properties, dimensionless numbers, dynamical properties), see the companion `characterize_fronts` module.
 
 ## What This Module Does
 
@@ -17,14 +20,22 @@ Starting with binary front arrays (from front detection algorithms), this module
 ### Core Modules
 
 - **`label.py`**: Connected component labeling and ID generation
-  - Groups connected front pixels (4-connected or 8-connected)
+  - Groups connected front pixels (4-connected or 8-connected; skimage.measure.label)
   - Generates unique front IDs in `TIME_LAT_LON` format
-  - Filters fronts by size or other criteria
+  - Filters fronts by size (i.e. if number of pixels < X, don't include)
 
 - **`geometry.py`**: Geometric property calculation
-  - Length and perimeter (in km)
-  - Orientation angle (0-180°)
+  - Length and perimeter (in km) 
+      - skimage.measure.skeleton or skimage.measure.perimeter
+      - skeleton just looks at centerline ; it is more accurate, but takes longer
+  - Orientation angle (0-90°)
+      - skimage.measure.regionprops.orientation
+      - Uses PCA to find dominant direction of front
+      - 0 = N/S ; 90 = E/W
   - Mean curvature and curvature direction
+      - Skeletonize; calculate angle change between incoming and outgoing (before and after points); curvature = d(theta)/dS
+      - Mean curvature: mean(abs) = how curvy
+      - Curvature direction: mean(curvature); positive = clockwise, negative = counterclockwise
   - Centroid location (lat, lon)
   - Bounding box (lat/lon ranges)
 
@@ -45,7 +56,7 @@ import xarray as xr
 # Load binary front data and coordinates
 front_binary = np.load('my_fronts.npy')
 ds_coords = xr.open_dataset('coords.nc')
-time = '2012-11-09T12:00:00'
+time = '2012-11-09T12:00:00' 
 
 lat = ds_coords['YC'].values
 lon = ds_coords['XC'].values
@@ -81,7 +92,7 @@ The resulting DataFrame contains these geometric properties for each front:
 | `centroid_lat` | Centroid latitude | degrees |
 | `centroid_lon` | Centroid longitude | degrees |
 | `length_km` | Front length | km |
-| `orientation` | Front angle (0° = E-W, 90° = N-S) | degrees |
+| `orientation` | Front angle (90° = E-W, 0° = N-S) | degrees |
 | `lat_min`, `lat_max` | Latitude bounds | degrees |
 | `lon_min`, `lon_max` | Longitude bounds | degrees |
 | `lat_range`, `lon_range` | Spatial extent | degrees |
@@ -90,14 +101,18 @@ The resulting DataFrame contains these geometric properties for each front:
 
 ## Notebooks
 
-- **`visual_inspection.ipynb`**: Quick visualization of labeled fronts with log₁₀(divB²) background
+- **`visualize.ipynb`**: Quick visualization of labeled fronts with log₁₀(divB²) background
+- **`visualize_global.ipynb`**: Visualization of globally labeled fronts 
+  - run after process_global_fronts.py
 - **`interactive_viewer_bokeh.py`**: Interactive Bokeh app with:
+  - work in progress.....
   - Global map with color-coded fronts (random or by property)
   - Dynamic PDFs that update based on map zoom/selection
   - Scatter plots of properties vs. latitude/longitude
 
 ## Advanced Characterization
 
+**WORK IN PROGRESS**
 For field-based properties (SST gradients, dominance), dimensionless numbers (Rossby, Richardson, Burger), and dynamical properties (frontogenesis, PV, vertical velocity), see the `characterize_fronts` module.
 
 ## API Reference
