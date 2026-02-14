@@ -1,6 +1,8 @@
 # Code for configuring the parameters for front finding
 
 import numpy as np
+import os
+from importlib import resources
 import yaml
 
 # Front finding data model
@@ -25,6 +27,12 @@ finding_dmodel = {
 finding_dmodel['required'] = ('window', 'threshold', 'thresh_mode', 'thin',
         'label')
     
+def config_filename(config_label: str, path:str=None):
+    if path is None:
+        path = os.path.join(resources.files('fronts'), 'finding', 'configs')
+    base = f'finding_config_{config_label}.yaml'
+    # Return
+    return os.path.join(path, base)
 
 def load(config_file: str) -> dict:
     """

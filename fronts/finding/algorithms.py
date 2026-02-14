@@ -4,7 +4,7 @@ from fronts.finding import pyboa
 from skimage import morphology
 
 
-def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False, 
+def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
                       rm_weak:float=None, dilate:bool=False,
                       connectivity:int=2, prcnt:float=90,
                       thresh_mode:str='generic', n_workers:int=None,
@@ -34,6 +34,7 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
         Percentile used in the cropping function to determine size threshold.
     verbose : bool, optional, default=False
         If True, prints verbose output.
+
     Returns:
     --------
     ndarray

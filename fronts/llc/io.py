@@ -29,6 +29,25 @@ def load_coords(verbose=True):
     coord_ds = xr.load_dataset(coord_file, engine='h5netcdf')
     return coord_ds
 
+def derived_filename(timestamp:str, field:str,
+                 root:str='LLC4320', path:str=None):
+    """Generate filename of derived field from LLC 
+
+    Returns:
+        filename: str
+    """
+    # Path
+    if path is None:
+        path = os.path.join(os.getenv('OS_OGCM'),
+            'LLC', 'Fronts', 'derived')
+
+    # Generate base
+    basefile = f'{root}_{timestamp}_{field}.nc'
+
+    # Join and return
+    return os.path.join(path, basefile)
+
+
 def load_CC_mask(field_size=(64,64), verbose=True, local=True):
     """Load up a CC mask.  Typically used for setting coordinates
 
