@@ -33,6 +33,17 @@ def derived_filename(timestamp:str, field:str,
                  root:str='LLC4320', path:str=None):
     """Generate filename of derived field from LLC 
 
+    Args:
+        timestamp: str
+            Timestamp of the data to be loaded.
+            Format: 'YYYY-MM-DDTHH_MM_SS'
+        field: str
+            Field to be loaded, e.g. 'Divb2'
+        root: str
+            Root of the filename.  Defaults to 'LLC4320'.
+        path: str
+            Path to the data.  If None, will use $OS_OGCM/LLC/Fronts/derived.
+
     Returns:
         filename: str
     """

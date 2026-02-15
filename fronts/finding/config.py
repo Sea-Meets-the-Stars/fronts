@@ -30,6 +30,22 @@ finding_dmodel['required'] = ('window', 'threshold', 'thresh_mode', 'thin',
         'label')
     
 def config_filename(config_label: str, path:str=None):
+    """Build the full path to a finding configuration YAML file.
+
+    Parameters
+    ----------
+    config_label : str
+        Short label identifying the config (e.g. 'A').
+        The resulting filename is ``finding_config_{config_label}.yaml``.
+    path : str, optional
+        Directory containing the config file.
+        Defaults to ``fronts/finding/configs/`` inside the installed package.
+
+    Returns
+    -------
+    str
+        Full path to the configuration file.
+    """
     if path is None:
         path = os.path.join(resources.files('fronts'), 'finding', 'configs')
     base = f'finding_config_{config_label}.yaml'
