@@ -26,3 +26,14 @@ def load_binary_fronts(timestamp:str, config_lbl:str, **kwargs):
 
     # Return
     return binary_fronts
+
+def save_binary_fronts(fronts:np.ndarray, timestamp:str, config_lbl:str, **kwargs):
+
+    # Grab filename
+    b_file = binary_filename(timestamp, config_lbl, **kwargs)
+
+    # Open
+    np.save(b_file, fronts)
+    print(f"Wrote: {b_file}")
+
+    return

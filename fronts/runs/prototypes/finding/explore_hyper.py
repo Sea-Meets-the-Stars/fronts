@@ -4,6 +4,7 @@ import os
 from fronts.llc import io as llc_io
 from fronts.finding import config as find_config
 from fronts.finding import algorithms
+from fronts.finding import io as finding_io
 import xarray
 
 from IPython import embed
@@ -17,15 +18,23 @@ def explore_threshold(timestamp:str):
 
     # Loop on configs
     for config in configs:
+        print(f"Processing config: {config}")
+
         # Load config 
         config_file = find_config.config_filename(config)
         cdict = find_config.load(config_file)
 
-        #
-        fronts = algorithms.fronts_from_divb2(
-            Divb2, thin=True, verbose=True, 
-            thresh_mode=thresh_mode, n_workers=n_workers)
+        # Binary parameters
+        bparam = cdict['binary']
+        bparam['n_workers'] = 10
+        bparam['verbose'] = True
 
+        # Do it
+        fronts = algorithms.fronts_from_divb2(Divb2, **bparam)
+
+        # Save em
+        finding_io.save_binary_fronts(
+            fronts, timestamp, config)
     
 
 # #######################################################33
@@ -35,6 +44,7 @@ def main(flg:str):
     # Explore threshold
     if flg == 1:
         timestamp = '2012-11-09T12_00_00'
+        explore_threshold(timestamp)
 
 
 # Command line execution
