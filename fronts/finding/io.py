@@ -32,6 +32,9 @@ def save_binary_fronts(fronts:np.ndarray, timestamp:str, config_lbl:str, **kwarg
     # Grab filename
     b_file = binary_filename(timestamp, config_lbl, **kwargs)
 
+    # Generate directory if it doesn't exist
+    os.makedirs(os.path.dirname(b_file), exist_ok=True)
+
     # Open
     np.save(b_file, fronts)
     print(f"Wrote: {b_file}")

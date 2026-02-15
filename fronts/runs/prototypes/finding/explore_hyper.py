@@ -14,7 +14,9 @@ def explore_threshold(timestamp:str):
 
     # Load Divb2
     Divb2_file = llc_io.derived_filename(timestamp, 'Divb2')
+    print(f"Loading Divb2 from: {Divb2_file}")
     Divb2 = xarray.open_dataset(Divb2_file)['Divb2'].values
+    print(f"Loaded Divb2 with shape: {Divb2.shape}")
 
     # Loop on configs
     for config in configs:
