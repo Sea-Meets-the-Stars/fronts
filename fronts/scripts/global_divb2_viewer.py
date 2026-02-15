@@ -9,10 +9,10 @@ This application loads:
 And displays them in an interactive viewer with pan/zoom capabilities.
 
 Usage:
-    python global_divb2_viewer.py <divb2_file> <fronts_file> [--downsample N]
+    python global_divb2_viewer.py <divb2_file> <fronts_file> [--fronts2 FILE] [--downsample N]
 
 Example:
-    python global_divb2_viewer.py LLC4320_2012-11-09T12_00_00_divb2.nc fronts.npy --downsample 5
+    python global_divb2_viewer.py LLC4320_2012-11-09T12_00_00_divb2.nc fronts.npy --fronts2 fronts2.npy --downsample 5
 """
 
 import sys
@@ -23,7 +23,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSlider, QCheckBox, QFileDialog, QStatusBar
+    QPushButton, QLabel, QSlider, QCheckBox, QStatusBar
 )
 from PyQt6.QtCore import Qt
 import pyqtgraph as pg
@@ -32,22 +32,25 @@ import pyqtgraph as pg
 class Divb2Viewer(QMainWindow):
     """Main window for Divb2 front visualization."""
 
-    def __init__(self, divb2_file=None, fronts_file=None, downsample=1):
+    def __init__(self, divb2_file=None, fronts_file=None, fronts2_file=None, downsample=1):
         super().__init__()
 
         self.divb2_file = divb2_file
         self.fronts_file = fronts_file
+        self.fronts2_file = fronts2_file
         self.downsample = downsample
 
         # Data storage
         self.divb2_data = None
         self.fronts_data = None
+        self.fronts2_data = None
         self.ds = None
 
         # Plot items
         self.divb2_image = None
         self.nan_image = None  # Green overlay for NaN values
         self.fronts_image = None
+        self.fronts2_image = None  # Blue overlay for second fronts
         self.colorbar = None  # Colorbar for divb2 values
 
         self.init_ui()
@@ -55,6 +58,10 @@ class Divb2Viewer(QMainWindow):
         # Load data if files provided
         if divb2_file and fronts_file:
             self.load_data(divb2_file, fronts_file, downsample)
+
+        # Load second fronts file if provided
+        if fronts2_file:
+            self.load_fronts2(fronts2_file, downsample)
 
     def init_ui(self):
         """Initialize the user interface."""
@@ -71,28 +78,23 @@ class Divb2Viewer(QMainWindow):
         # Control panel
         control_layout = QHBoxLayout()
 
-        # Load buttons
-        self.load_divb2_btn = QPushButton('Load Divb2 NetCDF')
-        self.load_divb2_btn.clicked.connect(self.load_divb2_dialog)
-        control_layout.addWidget(self.load_divb2_btn)
-
-        self.load_fronts_btn = QPushButton('Load Fronts .npy')
-        self.load_fronts_btn.clicked.connect(self.load_fronts_dialog)
-        control_layout.addWidget(self.load_fronts_btn)
-
-        control_layout.addSpacing(20)
-
         # Show/hide fronts checkbox
-        self.show_fronts_checkbox = QCheckBox('Show Fronts')
+        self.show_fronts_checkbox = QCheckBox('Show Fronts (red)')
         self.show_fronts_checkbox.setChecked(True)
         self.show_fronts_checkbox.stateChanged.connect(self.toggle_fronts)
         control_layout.addWidget(self.show_fronts_checkbox)
+
+        # Show/hide fronts 2 checkbox
+        self.show_fronts2_checkbox = QCheckBox('Show Fronts 2 (blue)')
+        self.show_fronts2_checkbox.setChecked(True)
+        self.show_fronts2_checkbox.stateChanged.connect(self.toggle_fronts2)
+        control_layout.addWidget(self.show_fronts2_checkbox)
 
         control_layout.addSpacing(20)
 
         # Log scale toggle checkbox
         self.log_scale_checkbox = QCheckBox('Log₁₀ Scale')
-        self.log_scale_checkbox.setChecked(True)  # Default to log scale
+        self.log_scale_checkbox.setChecked(False)  # Default to linear scale
         self.log_scale_checkbox.stateChanged.connect(self.toggle_log_scale)
         control_layout.addWidget(self.log_scale_checkbox)
 
@@ -148,39 +150,61 @@ class Divb2Viewer(QMainWindow):
         # Status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage('Ready - Load Divb2 and Fronts files to begin')
+        self.status_bar.showMessage('Ready')
 
-    def load_divb2_dialog(self):
-        """Open file dialog to load Divb2 NetCDF file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            'Open Divb2 NetCDF File',
-            '',
-            'NetCDF Files (*.nc);;All Files (*)'
-        )
+    def load_fronts2(self, fronts2_file, downsample=1):
+        """Load and display a second fronts file (blue overlay)."""
+        try:
+            self.fronts2_file = fronts2_file
+            print(f"Loading fronts 2 from: {fronts2_file}")
+            self.fronts2_data = np.load(fronts2_file)
 
-        if file_path:
-            self.divb2_file = file_path
-            if self.fronts_file:
-                self.load_data(self.divb2_file, self.fronts_file, self.downsample)
-            else:
-                self.status_bar.showMessage(f'Loaded Divb2 file: {Path(file_path).name} - Now load Fronts file')
+            if downsample > 1:
+                self.fronts2_data = self.fronts2_data[::downsample, ::downsample]
 
-    def load_fronts_dialog(self):
-        """Open file dialog to load fronts .npy file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            'Open Fronts .npy File',
-            '',
-            'NumPy Files (*.npy);;All Files (*)'
-        )
+            print(f"Fronts 2 shape: {self.fronts2_data.shape}")
+            print(f"Number of front 2 pixels: {np.sum(self.fronts2_data > 0)}")
 
-        if file_path:
-            self.fronts_file = file_path
-            if self.divb2_file:
-                self.load_data(self.divb2_file, self.fronts_file, self.downsample)
-            else:
-                self.status_bar.showMessage(f'Loaded Fronts file: {Path(file_path).name} - Now load Divb2 file')
+            if self.divb2_data is not None and self.divb2_data.shape != self.fronts2_data.shape:
+                self.status_bar.showMessage(
+                    f'WARNING: Shape mismatch - Divb2: {self.divb2_data.shape}, Fronts 2: {self.fronts2_data.shape}'
+                )
+
+            # Create or update the blue overlay
+            self._add_fronts2_overlay()
+
+            self.status_bar.showMessage(
+                f'Loaded Fronts 2: {Path(fronts2_file).name} | '
+                f'Fronts 2: {np.sum(self.fronts2_data > 0)} pixels'
+            )
+        except Exception as e:
+            error_msg = f'Error loading fronts 2: {str(e)}'
+            self.status_bar.showMessage(error_msg)
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+
+    def _add_fronts2_overlay(self):
+        """Create and add the blue fronts 2 overlay to the plot."""
+        if self.fronts2_data is None:
+            return
+
+        # Remove old overlay if present
+        if self.fronts2_image is not None and self.fronts2_image.scene() is not None:
+            self.plot_widget.removeItem(self.fronts2_image)
+
+        # Create RGBA image for fronts 2 overlay (blue)
+        fronts2_rgba = np.zeros((*self.fronts2_data.shape, 4), dtype=np.ubyte)
+        fronts2_rgba[:, :, 0] = 0    # Red channel
+        fronts2_rgba[:, :, 1] = 0    # Green channel
+        fronts2_rgba[:, :, 2] = 255  # Blue channel
+        fronts2_rgba[:, :, 3] = (self.fronts2_data > 0).astype(np.ubyte) * 120
+
+        self.fronts2_image = pg.ImageItem()
+        self.fronts2_image.setImage(fronts2_rgba.transpose(1, 0, 2))
+
+        if self.show_fronts2_checkbox.isChecked():
+            self.plot_widget.addItem(self.fronts2_image)
 
     def load_data(self, divb2_file, fronts_file, downsample=1):
         """
@@ -349,6 +373,10 @@ class Divb2Viewer(QMainWindow):
             if self.show_fronts_checkbox.isChecked():
                 self.plot_widget.addItem(self.fronts_image)
 
+        # Create fronts 2 overlay as semi-transparent blue image
+        if self.fronts2_data is not None:
+            self._add_fronts2_overlay()
+
         # Auto-range to fit data
         self.plot_widget.autoRange()
 
@@ -384,11 +412,23 @@ class Divb2Viewer(QMainWindow):
                 # Remove fronts from plot
                 self.plot_widget.removeItem(self.fronts_image)
 
+    def toggle_fronts2(self, state):
+        """Show or hide the second fronts overlay."""
+        if self.fronts2_image is not None:
+            if state == Qt.CheckState.Checked.value:
+                if self.fronts2_image.scene() is None:
+                    self.plot_widget.addItem(self.fronts2_image)
+            else:
+                self.plot_widget.removeItem(self.fronts2_image)
+
     def toggle_log_scale(self, state):
-        """Toggle between log and linear scale."""
+        """Toggle between log and linear scale, preserving zoom level."""
         if self.divb2_data is not None:
-            # Replot with new scale
+            # Save current view range before replotting
+            view_range = self.plot_widget.viewRange()
             self.plot_data()
+            # Restore view range after replot
+            self.plot_widget.setRange(xRange=view_range[0], yRange=view_range[1], padding=0)
 
     def reset_view(self):
         """Reset the view to show all data."""
@@ -442,21 +482,26 @@ class Divb2Viewer(QMainWindow):
         print(f"Adjusted limits to view range: [{vmin:.2e}, {vmax:.2e}] ({scale_label})")
 
 
-def main():
-    """Main function to run the GUI application."""
-    parser = argparse.ArgumentParser(
+def parser():
+    """Parse command line arguments."""
+    pparser = argparse.ArgumentParser(
         description='Interactive viewer for global Divb2 data with fronts',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument('divb2_file', type=str, nargs='?', default=None,
+    pparser.add_argument('divb2_file', type=str, nargs='?', default=None,
                         help='Path to Divb2 NetCDF file')
-    parser.add_argument('fronts_file', type=str, nargs='?', default=None,
+    pparser.add_argument('fronts_file', type=str, nargs='?', default=None,
                         help='Path to fronts .npy file (1=front, 0=no front)')
-    parser.add_argument('--downsample', '-d', type=int, default=1,
+    pparser.add_argument('--fronts2', type=str, default=None,
+                        help='Path to second fronts .npy file (displayed in blue)')
+    pparser.add_argument('--downsample', '-d', type=int, default=1,
                         help='Downsample factor for faster display (1 = no downsampling)')
 
-    args = parser.parse_args()
+    args = pparser.parse_args()
+    return args
 
+def main(args):
+    """Main function to run the GUI application."""
     # Create Qt application
     app = QApplication(sys.argv)
 
@@ -464,6 +509,7 @@ def main():
     viewer = Divb2Viewer(
         divb2_file=args.divb2_file,
         fronts_file=args.fronts_file,
+        fronts2_file=args.fronts2,
         downsample=args.downsample
     )
     viewer.show()
@@ -471,6 +517,3 @@ def main():
     # Run application
     sys.exit(app.exec())
 
-
-if __name__ == '__main__':
-    main()

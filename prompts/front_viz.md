@@ -1,4 +1,6 @@
-# Front finding viz tool
+# Front viz tools
+
+# Global divb2 viewer
 
 ## Please generate a simple PyQt6 + pyqtgraph GUI based on the global_divb2_map.py file in fronts/dev/ which reads in a NetCDF file of divb2 data and a .npy file of fronts (1=front, 0=no front).  The top panel will show a downsampled version of the global field and one should be able to pan and zoom.  The divb2 data will be a grayscale and the fronts will be red dots.
 
@@ -19,3 +21,7 @@
 ## Thanks.  Please rename Adjust Contrast to Adjust Limits.  And when one uses that button, the limits on the colorbar should update.
 
 ## Can you add a box that toggles between log10 divb2 and linear?
+
+## In the script fronts.scripts/global_divb2_viewer.py, allow for a second fronts file to be loaded and displayed.  This should be a separate checkbox and use blue instead of red for the fronts.
+
+## Please remove the load buttons and default the scaling to be linear.  Also, can we maintain the current zoom level when the log/linear toggle is changed?
