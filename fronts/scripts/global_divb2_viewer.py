@@ -145,7 +145,10 @@ class Divb2Viewer(QMainWindow):
         self.plot_widget.setLabel('bottom', 'i (grid index)')
         self.plot_widget.setTitle('Divb2 Field with Fronts')
 
-        main_layout.addWidget(self.graphics_widget)
+        main_layout.addWidget(self.graphics_widget, stretch=1)
+
+        # Connect to view range changes to update title with corners
+        self.plot_widget.sigRangeChanged.connect(self._update_corners_label)
 
         # Status bar
         self.status_bar = QStatusBar()
@@ -429,6 +432,18 @@ class Divb2Viewer(QMainWindow):
             self.plot_data()
             # Restore view range after replot
             self.plot_widget.setRange(xRange=view_range[0], yRange=view_range[1], padding=0)
+
+    def _update_corners_label(self):
+        """Update the plot title with current view corner coordinates."""
+        view_range = self.plot_widget.viewRange()
+        x0, x1 = view_range[0]
+        y0, y1 = view_range[1]
+        self.plot_widget.setTitle(
+            f'Divb2 Field with Fronts'
+            f'    |    '
+            f'x [{x0:.1f}, {x1:.1f}]  '
+            f'y [{y0:.1f}, {y1:.1f}]'
+        )
 
     def reset_view(self):
         """Reset the view to show all data."""

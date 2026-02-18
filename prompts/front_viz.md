@@ -25,3 +25,5 @@
 ## In the script fronts.scripts/global_divb2_viewer.py, allow for a second fronts file to be loaded and displayed.  This should be a separate checkbox and use blue instead of red for the fronts.
 
 ## Please remove the load buttons and default the scaling to be linear.  Also, can we maintain the current zoom level when the log/linear toggle is changed?
+
+## Please modify the GUI to show the x,y values for the corners of the current view.
