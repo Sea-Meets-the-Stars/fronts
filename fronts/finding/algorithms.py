@@ -72,6 +72,8 @@ def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
     if min_size > 0:
         if verbose:
             print(f'Cropping with minimum size {min_size} and connectivity {connectivity}')
+        # This also fills in small holes and 
+        #   requires a second thinning step (if thin=True)
         res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size,
                                    connectivity=connectivity)
     else:
