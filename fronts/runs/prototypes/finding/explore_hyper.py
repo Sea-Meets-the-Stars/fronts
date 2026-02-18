@@ -96,6 +96,11 @@ def main(flg:str):
         timestamp = '2012-11-09T12_00_00'
         build_unthinned(timestamp)
 
+    # More debugging
+    if flg == 3:
+        timestamp = '2012-11-09T12_00_00'
+        debug_thinning(timestamp)
+
 # Command line execution
 if __name__ == '__main__':
     import sys
