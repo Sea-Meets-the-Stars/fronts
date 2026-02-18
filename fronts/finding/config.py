@@ -138,6 +138,7 @@ def load(config_file: str) -> dict:
         If required fields are missing or have invalid types
     """
     # Load the YAML file
+    print(f'Loading config from: {config_file}')
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
 

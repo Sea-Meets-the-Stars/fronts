@@ -1,5 +1,6 @@
 """ Front finding algorithms """
 from fronts.finding import pyboa
+import numpy as np
 
 from skimage import morphology
 
@@ -57,17 +58,20 @@ def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
     # Thin?
     if thin:
         if verbose:
+            print(f'There are {np.sum(res_frnt_np)} front pixels before thinning')
             print('Thinning...')
         res_frnt_np = morphology.thin(res_frnt_np)
+        if verbose:
+            print(f'There are {np.sum(res_frnt_np)} front pixels after thinning')
         if debug:
             print('Thinning another time...')
             thin_2x = morphology.thin(res_frnt_np)
             embed(header='63 of algorithms')
     
     # Crop
-    if verbose:
-        print(f'Cropping with minimum size {min_size} and connectivity {connectivity}')
     if min_size > 0:
+        if verbose:
+            print(f'Cropping with minimum size {min_size} and connectivity {connectivity}')
         res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size,
                                    connectivity=connectivity)
     else:

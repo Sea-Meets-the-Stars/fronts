@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from fronts.finding.io import load_binary_fronts
 from skimage import morphology
 
+from IPython import embed
+
 TEMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp')
 
 def plot_fronts_bbox(timestamp: str, config_lbl: str,
@@ -101,6 +103,7 @@ def thin_and_skeletonize(timestamp: str, config_lbl: str,
     print('Running morphology.thin() ...')
     thinned = morphology.thin(fronts)
     print(f'  thinned front pixels: {np.sum(thinned)}')
+    embed(header='106 of thin_and_skeletonize')
 
     print('Running morphology.skeletonize() ...')
     skeleton = morphology.skeletonize(fronts)
@@ -273,19 +276,19 @@ if __name__ == '__main__':
         plot_fronts_bbox('2012-11-09T12_00_00', 'C', 
             12014,12230, 9237,9400)
         # Try another thin on full image
-        plot_fronts_bbox('2012-11-09T12_00_00', 'C', 
-            12014,12230, 9237,9400, thin_full=True)
+        #plot_fronts_bbox('2012-11-09T12_00_00', 'C', 
+        #    12014,12230, 9237,9400, thin_full=True)
         # Try another thin on subset
         plot_fronts_bbox('2012-11-09T12_00_00', 'C', 
             12014,12230, 9237,9400, thin_again=True)
     
     # Thin and skeletonize
-    #thin_and_skeletonize('2012-11-09T12_00_00', 'Z')
+    thin_and_skeletonize('2012-11-09T12_00_00', 'Z')
 
     # Compare thinning and skeletonization
     #compare_thinning('2012-11-09T12_00_00', 'Z',
     #    12014,12230, 9237,9400)
 
     # Check idempotency of thinning
-    identical, fig = check_idempotent('2012-11-09T12_00_00', 'Z',
-        12014,12230, 9237,9400)
+    #identical, fig = check_idempotent('2012-11-09T12_00_00', 'Z',
+    #    12014,12230, 9237,9400)

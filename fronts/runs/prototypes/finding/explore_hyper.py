@@ -9,8 +9,7 @@ import xarray
 
 from IPython import embed
 
-def explore_threshold(timestamp:str): 
-    configs = ['A', 'B', 'C']
+def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C']): 
 
     # Load Divb2
     Divb2_file = llc_io.derived_filename(timestamp, 'Divb2')
@@ -89,7 +88,8 @@ def main(flg:str):
     # Explore threshold
     if flg == 1:
         timestamp = '2012-11-09T12_00_00'
-        explore_threshold(timestamp)
+        #explore_threshold(timestamp)
+        explore_threshold(timestamp, configs=['C'])
 
     # Generate unthinned/cropped front for debugging
     if flg == 2:
