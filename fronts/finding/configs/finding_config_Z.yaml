@@ -1,8 +1,8 @@
-# Front Finding Configuration - C
+# Front Finding Configuration - Z
 # This configuration file defines parameters for ocean front detection
-# Modifying threshold
+# Unthinned/cropped front for debugging
 
-label: "C"                      # Config label - will be part of the output filename
+label: "Z"                      # Config label - will be part of the output filename
 
 # Binary parameters
 binary:

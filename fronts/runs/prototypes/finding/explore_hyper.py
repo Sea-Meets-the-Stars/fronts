@@ -61,6 +61,27 @@ def build_unthinned(timestamp:str, config:str='Z'):
     finding_io.save_binary_fronts(
         fronts, timestamp, config)
 
+
+def debug_thinning(timestamp:str, config:str='Z'): 
+    # Load Divb2
+    Divb2_file = llc_io.derived_filename(timestamp, 'Divb2')
+    print(f"Loading Divb2 from: {Divb2_file}")
+    Divb2 = xarray.open_dataset(Divb2_file)['Divb2'].values
+    print(f"Loaded Divb2 with shape: {Divb2.shape}")
+
+    # Load config 
+    config_file = find_config.config_filename(config)
+    cdict = find_config.load(config_file)
+
+    # Binary parameters
+    bparam = cdict['binary']
+    bparam['n_workers'] = 10
+    bparam['verbose'] = True
+
+    # Do it
+    fronts = algorithms.fronts_from_divb2(
+        Divb2, debug=True, **bparam)
+
 # #######################################################33
 def main(flg:str):
     flg= int(flg)

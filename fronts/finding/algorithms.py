@@ -3,12 +3,14 @@ from fronts.finding import pyboa
 
 from skimage import morphology
 
+from IPython import embed
 
 def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
                       rm_weak:float=None, dilate:bool=False,
                       connectivity:int=2, threshold:float=90,
                       thresh_mode:str='generic', n_workers:int=None,
-                      min_size:int=7, verbose:bool=False):
+                      min_size:int=7, verbose:bool=False,
+                      debug:bool=False):
     """
     Identifies and processes fronts from a divergence field (Divb2).
 
@@ -34,6 +36,7 @@ def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
         Percentile used in the cropping function to determine size threshold.
     verbose : bool, optional, default=False
         If True, prints verbose output.
+    debug : bool, optional, default=False
 
     Returns:
     --------
@@ -56,6 +59,10 @@ def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
         if verbose:
             print('Thinning...')
         res_frnt_np = morphology.thin(res_frnt_np)
+        if debug:
+            print('Thinning another time...')
+            thin_2x = morphology.thin(res_frnt_np)
+            embed(header='63 of algorithms')
     
     # Crop
     if verbose:
