@@ -62,7 +62,7 @@ def build_unthinned(timestamp:str, config:str='Z'):
         fronts, timestamp, config)
 
 
-def debug_thinning(timestamp:str, config:str='Z'): 
+def debug_thinning(timestamp:str, config:str='C'): 
     # Load Divb2
     Divb2_file = llc_io.derived_filename(timestamp, 'Divb2')
     print(f"Loading Divb2 from: {Divb2_file}")
