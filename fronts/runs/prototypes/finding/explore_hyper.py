@@ -73,7 +73,7 @@ def main(flg:str):
     # Generate unthinned/cropped front for debugging
     if flg == 2:
         timestamp = '2012-11-09T12_00_00'
-        explore_threshold(timestamp)
+        build_unthinned(timestamp)
 
 # Command line execution
 if __name__ == '__main__':
