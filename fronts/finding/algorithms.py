@@ -81,4 +81,12 @@ def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
     if dilate:
         res_frnt_crop = morphology.dilation(res_frnt_crop)#, morphology.square(3))
 
+    # Thin a final time
+    if thin:
+        if verbose:
+            print('Thinning a final time...')
+        res_frnt_crop = morphology.thin(res_frnt_crop)
+        if verbose:
+            print(f'There are {np.sum(res_frnt_crop)} front pixels after final thinning')
+
     return res_frnt_crop

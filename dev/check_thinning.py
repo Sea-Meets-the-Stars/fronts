@@ -271,7 +271,7 @@ def check_idempotent(timestamp: str, config_lbl: str,
 
 # Command line interface
 if __name__ == '__main__':
-    if False:
+    if True:
     # Original
         plot_fronts_bbox('2012-11-09T12_00_00', 'C', 
             12014,12230, 9237,9400)
@@ -283,7 +283,7 @@ if __name__ == '__main__':
             12014,12230, 9237,9400, thin_again=True)
     
     # Thin and skeletonize
-    thin_and_skeletonize('2012-11-09T12_00_00', 'Z')
+    #thin_and_skeletonize('2012-11-09T12_00_00', 'Z')
 
     # Compare thinning and skeletonization
     #compare_thinning('2012-11-09T12_00_00', 'Z',
