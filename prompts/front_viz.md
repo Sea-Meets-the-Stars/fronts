@@ -27,3 +27,5 @@
 ## Please remove the load buttons and default the scaling to be linear.  Also, can we maintain the current zoom level when the log/linear toggle is changed?
 
 ## Please modify the GUI to show the x,y values for the corners of the current view.
+
+### no luck;  maybe you should put it next to the plot title?
