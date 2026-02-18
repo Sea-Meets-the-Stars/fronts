@@ -60,8 +60,11 @@ def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
     # Crop
     if verbose:
         print(f'Cropping with minimum size {min_size} and connectivity {connectivity}')
-    res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size,
+    if min_size > 0:
+        res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size,
                                    connectivity=connectivity)
+    else:
+        res_frnt_crop = res_frnt_np
 
     # Dilate?
     if dilate:
