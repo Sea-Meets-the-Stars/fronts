@@ -84,58 +84,73 @@ def calculate_front_length(
 
     Notes
     -----
-    The 'skeleton' method is RECOMMENDED for non-uniform grids (like LLC4320) because it:
-    - Traces the actual centerline of the front
-    - Calculates true haversine distances between skeleton points
-    - Accounts for variable grid spacing
+    The 'skeleton' method (RECOMMENDED):
+    - Traces the centerline of the front
+    - Samples ~20 skeleton pixels and measures spacing to connected neighbors
+    - Returns the "length" of the front along its central axis
+    - For 1-pixel wide fronts, this is the most meaningful length measure
 
-    The 'perimeter' method is DEPRECATED for non-uniform grids because it:
-    - Assumes approximate pixel spacing based on sampling
-    - Less accurate for curvilinear grids where pixel size varies spatially
-    - Use only for quick testing on uniform grids
+    The 'perimeter' method:
+    - Traces the boundary/perimeter of the front
+    - Samples ~20 perimeter pixels and measures spacing to connected neighbors
+    - Returns the total perimeter length (boundary length)
+    - For 1-pixel wide fronts, perimeter ≈ 2× skeleton (both sides of the line)
+    - Useful for area/width calculations or validation
+
+    Both methods handle LLC4320's non-uniform grid by sampling local haversine distances.
     """
     if method == 'perimeter':
-        # Use skimage.measure.perimeter
-        # This counts the length of the boundary
+        # Use skimage.measure.perimeter to count perimeter length in pixels
         perim_pixels = measure.perimeter(mask.astype(int))
 
-        # Estimate physical distance per pixel
-        # Use average grid spacing at the front location
-        rows, cols = np.where(mask)
+        # Extract actual perimeter pixels (boundary pixels)
+        # Perimeter pixels are those in the mask that have at least one non-mask neighbor
+        from scipy import ndimage
+        eroded = ndimage.binary_erosion(mask)
+        perimeter_mask = mask & ~eroded  # Pixels in mask but not in eroded version
+
+        rows, cols = np.where(perimeter_mask)
         if len(rows) < 2:
             return 0.0
 
-        # Sample a few points to estimate grid spacing
-        idx = np.random.choice(len(rows), min(10, len(rows)), replace=False)
-        dists = []
-        for i in range(len(idx) - 1):
-            r1, c1 = rows[idx[i]], cols[idx[i]]
-            r2, c2 = rows[idx[i+1]], cols[idx[i+1]]
+        # OPTIMIZED: Sample perimeter pixels and measure spacing to connected neighbors
+        # Same approach as skeleton method, but for perimeter
+        sample_size = min(20, len(rows))
+        idx = np.random.choice(len(rows), sample_size, replace=False)
 
-            # Calculate distance between adjacent pixels
-            if abs(r1 - r2) + abs(c1 - c2) == 1:  # Only adjacent pixels
-                dist = haversine_distance(
-                    lat[r1, c1], lon[r1, c1],
-                    lat[r2, c2], lon[r2, c2]
-                )
-                dists.append(dist)
+        # Calculate distances to 8-connected neighbors on perimeter
+        spacings = []
+        for i in idx:
+            r, c = rows[i], cols[i]
+            # Check 8-connected neighbors
+            for dr, dc in [(-1,0), (1,0), (0,-1), (0,1), (-1,-1), (-1,1), (1,-1), (1,1)]:
+                nr, nc = r + dr, c + dc
+                if (0 <= nr < perimeter_mask.shape[0] and
+                    0 <= nc < perimeter_mask.shape[1] and
+                    perimeter_mask[nr, nc]):
+                    # Found a connected perimeter neighbor
+                    dist = haversine_distance(
+                        lat[r, c], lon[r, c],
+                        lat[nr, nc], lon[nr, nc]
+                    )
+                    spacings.append(dist)
+                    break  # Only need one neighbor per sampled point
 
-        if len(dists) == 0:
-            # Fallback: estimate from grid resolution
-            mean_lat = np.mean(lat[mask])
-            dlat = np.abs(np.diff(lat[:, 0])).mean() if lat.ndim == 2 else np.abs(np.diff(lat)).mean()
-            dlon = np.abs(np.diff(lon[0, :])).mean() if lon.ndim == 2 else np.abs(np.diff(lon)).mean()
-
-            # Approximate distance per degree at this latitude
-            km_per_deg_lat = 111.0  # roughly constant
-            km_per_deg_lon = 111.0 * np.cos(np.radians(mean_lat))
-
-            dx = dlon * km_per_deg_lon
-            dy = dlat * km_per_deg_lat
-            pixel_size = np.sqrt(dx**2 + dy**2)
+        if len(spacings) == 0:
+            # Fallback: estimate from grid resolution at centroid
+            mean_r, mean_c = int(np.mean(rows)), int(np.mean(cols))
+            if mean_r + 1 < lat.shape[0] and mean_c + 1 < lat.shape[1]:
+                dx = haversine_distance(lat[mean_r, mean_c], lon[mean_r, mean_c],
+                                       lat[mean_r, mean_c+1], lon[mean_r, mean_c+1])
+                dy = haversine_distance(lat[mean_r, mean_c], lon[mean_r, mean_c],
+                                       lat[mean_r+1, mean_c], lon[mean_r+1, mean_c])
+                pixel_size = np.mean([dx, dy])
+            else:
+                pixel_size = 1.0  # Last resort fallback
         else:
-            pixel_size = np.mean(dists)
+            pixel_size = np.mean(spacings)
 
+        # Approximate total length as: perimeter pixel count × average spacing
         length = perim_pixels * pixel_size
 
     elif method == 'skeleton':
@@ -146,25 +161,56 @@ def calculate_front_length(
         if skeleton is None:
             skeleton = skeletonize(mask)
 
-        # Count skeleton pixels and estimate length
+        # Count skeleton pixels
         skel_pixels = np.sum(skeleton)
 
-        # Estimate physical length
         rows, cols = np.where(skeleton)
         if len(rows) < 2:
             return 0.0
 
-        # Calculate sum of distances between consecutive skeleton points
-        # For better accuracy, trace the skeleton path
-        total_length = 0.0
-        for i in range(len(rows) - 1):
-            dist = haversine_distance(
-                lat[rows[i], cols[i]], lon[rows[i], cols[i]],
-                lat[rows[i+1], cols[i+1]], lon[rows[i+1], cols[i+1]]
-            )
-            total_length += dist
+        # OPTIMIZED: Fast approximation using average grid spacing
+        # Old method: calculated haversine distance between ALL skeleton points (SLOW!)
+        # New method: sample a few points to estimate average spacing, multiply by pixel count
 
-        length = total_length
+        # Sample points to estimate average grid spacing in this region
+        sample_size = min(20, len(rows))
+        idx = np.random.choice(len(rows), sample_size, replace=False)
+
+        # Calculate distances to 8-connected neighbors in skeleton
+        spacings = []
+        for i in idx:
+            r, c = rows[i], cols[i]
+            # Check 8-connected neighbors
+            for dr, dc in [(-1,0), (1,0), (0,-1), (0,1), (-1,-1), (-1,1), (1,-1), (1,1)]:
+                nr, nc = r + dr, c + dc
+                if (0 <= nr < skeleton.shape[0] and
+                    0 <= nc < skeleton.shape[1] and
+                    skeleton[nr, nc]):
+                    # Found a connected skeleton neighbor
+                    dist = haversine_distance(
+                        lat[r, c], lon[r, c],
+                        lat[nr, nc], lon[nr, nc]
+                    )
+                    spacings.append(dist)
+                    break  # Only need one neighbor per sampled point
+
+        if len(spacings) == 0:
+            # Fallback: estimate from grid resolution at centroid
+            mean_r, mean_c = int(np.mean(rows)), int(np.mean(cols))
+            # Try to get spacing from adjacent grid cells
+            if mean_r + 1 < lat.shape[0] and mean_c + 1 < lat.shape[1]:
+                dx = haversine_distance(lat[mean_r, mean_c], lon[mean_r, mean_c],
+                                       lat[mean_r, mean_c+1], lon[mean_r, mean_c+1])
+                dy = haversine_distance(lat[mean_r, mean_c], lon[mean_r, mean_c],
+                                       lat[mean_r+1, mean_c], lon[mean_r+1, mean_c])
+                avg_spacing = np.mean([dx, dy])
+            else:
+                avg_spacing = 1.0  # Last resort fallback
+        else:
+            avg_spacing = np.mean(spacings)
+
+        # Approximate total length as: number of skeleton pixels × average spacing
+        length = skel_pixels * avg_spacing
 
     else:
         raise ValueError(f"Unknown method: {method}. Use 'perimeter' or 'skeleton'.")
@@ -357,6 +403,67 @@ def calculate_front_curvature(
 
     return mean_abs_curv, mean_signed_curv
 
+def calculate_branch_points(
+    mask: np.ndarray,
+    skeleton: np.ndarray = None
+) -> int:
+    """
+    Count the number of branch/junction points in a front.
+
+    A branch point is a skeleton pixel with 3 or more skeleton neighbors,
+    indicating where the front splits into multiple arms.
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        Binary mask for a single front
+    skeleton : np.ndarray, optional
+        Pre-computed skeleton. If None, will compute it.
+        Default is None.
+
+    Returns
+    -------
+    num_branches : int
+        Number of branch/junction points
+
+    Notes
+    -----
+    Branch points indicate structural complexity:
+    - 0 branches: Simple line (no branching)
+    - 1-2 branches: Y-shape or T-junction
+    - 3+ branches: Complex multi-armed structure
+
+    Examples
+    --------
+    Simple line: #### → 0 branch points
+    Y-shape:  #     → 1 branch point (at the junction)
+             # #
+              #
+    Complex:  # # # → Multiple branch points
+               ###
+              # # #
+    """
+    from skimage.morphology import skeletonize
+
+    # Use pre-computed skeleton if provided, otherwise compute it
+    if skeleton is None:
+        skeleton = skeletonize(mask)
+
+    # Fast method: Use convolution to count 8-connected neighbors
+    # Kernel counts neighbors (excluding center pixel)
+    kernel = np.array([[1, 1, 1],
+                       [1, 0, 1],
+                       [1, 1, 1]])
+
+    # Count neighbors for each pixel
+    neighbor_count = ndimage.convolve(skeleton.astype(int), kernel, mode='constant')
+
+    # Branch points are skeleton pixels with 3+ neighbors
+    # (2 neighbors = line continuation, 3+ = junction)
+    branch_points = (skeleton) & (neighbor_count >= 3)
+
+    return int(np.sum(branch_points))
+
 
 def calculate_front_centroid(
     mask: np.ndarray,
@@ -405,6 +512,17 @@ def calculate_front_extent(
 ) -> Dict[str, float]:
     """
     Calculate spatial extent of a front.
+
+    NOTE: For batch processing many fronts, it's more efficient to:
+    1. Extract bounding boxes using label.get_front_bboxes()
+    2. Compute extent directly from bbox region:
+       front_lats = lat[bbox][mask]
+       lat_min, lat_max = front_lats.min(), front_lats.max()
+
+    This function is useful for:
+    - Interactive analysis of a single front
+    - Cases where you don't have the full labeled array
+    - Legacy code compatibility
 
     Parameters
     ----------

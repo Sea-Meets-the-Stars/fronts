@@ -426,3 +426,107 @@ def filter_fronts_by_size(
     filtered = lookup[labeled_fronts]
 
     return filtered
+
+
+def get_front_bboxes(labeled_fronts: np.ndarray) -> Dict[int, Tuple[slice, slice]]:
+    """
+    Extract bounding boxes for all labeled fronts.
+
+    Uses scipy.ndimage.find_objects to efficiently find the minimal bounding
+    box (in array indices) for each labeled front. This enables processing
+    only the relevant region for each front, dramatically reducing memory
+    usage and computation time.
+
+    Parameters
+    ----------
+    labeled_fronts : np.ndarray
+        Labeled front array from label_fronts()
+
+    Returns
+    -------
+    bbox_dict : dict
+        Dictionary mapping label -> (i_slice, j_slice) bounding box
+        where i_slice = slice(i_min, i_max) and j_slice = slice(j_min, j_max)
+
+    Examples
+    --------
+    >>> labeled = np.array([[0, 1, 1], [0, 1, 0], [2, 2, 0]])
+    >>> bboxes = get_front_bboxes(labeled)
+    >>> bboxes[1]
+    (slice(0, 2), slice(1, 3))
+    >>> bboxes[2]
+    (slice(2, 3), slice(0, 2))
+
+    The returned slices can be used directly to extract regions:
+    >>> bbox = bboxes[1]
+    >>> region = labeled_fronts[bbox]
+    >>> lat_region = lat_global[bbox]
+    """
+    from scipy import ndimage
+
+    # find_objects returns list of bounding boxes
+    # bboxes[i] corresponds to label (i+1)
+    bboxes = ndimage.find_objects(labeled_fronts)
+
+    # Create dictionary mapping label -> bbox
+    bbox_dict = {}
+    for label_idx, bbox in enumerate(bboxes):
+        if bbox is not None:  # find_objects returns None for missing labels
+            label_value = label_idx + 1  # Labels are 1-indexed
+            bbox_dict[label_value] = bbox
+
+    return bbox_dict
+
+
+def get_front_bboxes_as_coords(
+    labeled_fronts: np.ndarray
+) -> Dict[int, Dict[str, int]]:
+    """
+    Extract bounding boxes as explicit i,j coordinates.
+
+    Similar to get_front_bboxes(), but returns bounding boxes as explicit
+    coordinate dictionaries instead of slice objects. Useful for saving to
+    files or passing to other tools.
+
+    Parameters
+    ----------
+    labeled_fronts : np.ndarray
+        Labeled front array from label_fronts()
+
+    Returns
+    -------
+    bbox_coords : dict
+        Dictionary mapping label -> {'i_min', 'i_max', 'j_min', 'j_max'}
+
+    Examples
+    --------
+    >>> labeled = np.array([[0, 1, 1], [0, 1, 0], [2, 2, 0]])
+    >>> bbox_coords = get_front_bboxes_as_coords(labeled)
+    >>> bbox_coords[1]
+    {'i_min': 0, 'i_max': 2, 'j_min': 1, 'j_max': 3}
+
+    Notes
+    -----
+    These coordinates are ARRAY INDICES (i,j), not lat/lon coordinates.
+    - i corresponds to rows (typically latitude axis)
+    - j corresponds to columns (typically longitude axis)
+    - Ranges are [i_min, i_max) and [j_min, j_max) (exclusive upper bound)
+
+    To extract a front region:
+    >>> coords = bbox_coords[label]
+    >>> region = array[coords['i_min']:coords['i_max'], 
+    ...                coords['j_min']:coords['j_max']]
+    """
+    bbox_dict = get_front_bboxes(labeled_fronts)
+
+    bbox_coords = {}
+    for label, bbox in bbox_dict.items():
+        i_slice, j_slice = bbox
+        bbox_coords[label] = {
+            'i_min': i_slice.start,
+            'i_max': i_slice.stop,
+            'j_min': j_slice.start,
+            'j_max': j_slice.stop
+        }
+
+    return bbox_coords
