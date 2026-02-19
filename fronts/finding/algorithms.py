@@ -4,9 +4,9 @@ from fronts.finding import pyboa
 from skimage import morphology
 
 
-def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False, 
+def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
                       rm_weak:float=None, dilate:bool=False,
-                      connectivity:int=2, prcnt:float=90,
+                      connectivity:int=2, threshold:float=90,
                       thresh_mode:str='generic', n_workers:int=None,
                       min_size:int=7, verbose:bool=False):
     """
@@ -16,7 +16,7 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
     -----------
     Divb2 : ndarray
         The input divergence field from which fronts are to be identified.
-    wndw : int, optional, default=40
+    window : int, optional, default=40
         The window size used for thresholding in the front detection algorithm.
     thin : bool, optional, default=False
         If True, thins the detected fronts to single-pixel width.
@@ -30,10 +30,11 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
         Thresholding mode
     n_workers : int, optional, 
         Number of workers for parallel calculations
-    prcnt : float, optional, default=90
+    threshold : float, optional, default=90
         Percentile used in the cropping function to determine size threshold.
     verbose : bool, optional, default=False
         If True, prints verbose output.
+
     Returns:
     --------
     ndarray
@@ -42,8 +43,8 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
 
     # Threshold
     if verbose:
-        print(f'Thresholding with window size {wndw} and percentile {prcnt} and mode {thresh_mode}')
-    res_frnt_np = pyboa.front_thresh(Divb2, wndw=wndw, prcnt=prcnt,
+        print(f'Thresholding with window size {window} and threshold {threshold} and mode {thresh_mode}')
+    res_frnt_np = pyboa.front_thresh(Divb2, wndw=window, prcnt=threshold,
         mode=thresh_mode, n_workers=n_workers)
 
     # Remove weak segments?
