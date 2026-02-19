@@ -117,6 +117,9 @@ def calculate_front_length(
         # Same approach as skeleton method, but for perimeter
         sample_size = min(20, len(rows))
         idx = np.random.choice(len(rows), sample_size, replace=False)
+        # Use deterministic sampling (every Nth element) to avoid RNG lock in multiprocessing
+        step = max(1, len(rows) // sample_size)
+        idx = np.arange(0, len(rows), step)[:sample_size]
 
         # Calculate distances to 8-connected neighbors on perimeter
         spacings = []
@@ -174,7 +177,9 @@ def calculate_front_length(
 
         # Sample points to estimate average grid spacing in this region
         sample_size = min(20, len(rows))
-        idx = np.random.choice(len(rows), sample_size, replace=False)
+        # Use deterministic sampling (every Nth element) to avoid RNG lock in multiprocessing
+        step = max(1, len(rows) // sample_size)
+        idx = np.arange(0, len(rows), step)[:sample_size]
 
         # Calculate distances to 8-connected neighbors in skeleton
         spacings = []
