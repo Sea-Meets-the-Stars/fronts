@@ -120,7 +120,12 @@ def main(flg:str):
     # Explore threshold
     if flg == 1:
         timestamp = '2012-11-09T12_00_00'
-        explore_threshold(timestamp)
+        # v0
+        #explore_threshold(timestamp, version='0')
+        # v1
+        explore_threshold(timestamp, version='1')
+
+        # Debugging
         #explore_threshold(timestamp, configs=['C'])
 
     # Generate unthinned/cropped front for debugging
@@ -139,6 +144,7 @@ if __name__ == '__main__':
 
     if len(sys.argv) == 1:
         flg = 0
+        # flg = 1 # Explore threshold
         pass
     else:
         flg = sys.argv[1]
