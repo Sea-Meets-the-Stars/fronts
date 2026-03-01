@@ -11,7 +11,8 @@ import xarray
 
 from IPython import embed
 
-def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C']): 
+def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
+    version:str='1'):
     """ 
     Explore the threshold for front finding
     using a range of thresholds.  Each binary front field is saved to disk.
@@ -19,10 +20,11 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C']):
     Args:
         timestamp (str): Timestamp of the data to process
         configs (list, optional): List of config files to process. Defaults to ['A', 'B', 'C'].
+        version (str, optional): Version of the algorithm to use. Defaults to '0'.
     """
 
     # Load Divb2
-    Divb2_file = llc_io.derived_filename(timestamp, 'Divb2')
+    Divb2_file = llc_io.derived_filename(timestamp, 'Divb2', version=version)
     print(f"Loading Divb2 from: {Divb2_file}")
     Divb2 = xarray.open_dataset(Divb2_file)['Divb2'].values
     print(f"Loaded Divb2 with shape: {Divb2.shape}")
@@ -45,7 +47,7 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C']):
 
         # Save em
         finding_io.save_binary_fronts(
-            fronts, timestamp, config)
+            fronts, timestamp, config, version)
     
 def build_unthinned(timestamp:str, config:str='Z'): 
     """ 

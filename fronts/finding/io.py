@@ -3,7 +3,7 @@
 import os
 import numpy as np
 
-def binary_filename(timestamp:str, config_lbl:str,
+def binary_filename(timestamp:str, config_lbl:str, version:str,
                     root:str='LLC4320', path:str=None):
     """Build the filename for a binary-front .npy file.
 
@@ -13,6 +13,8 @@ def binary_filename(timestamp:str, config_lbl:str,
         Timestamp string for the snapshot (e.g. '2012-11-09T12_00_00').
     config_lbl : str
         Configuration label (e.g. 'A') appended to the filename.
+    version : str
+        Version of the data to use.
     root : str, optional
         Dataset root name. Default is 'LLC4320'.
     path : str, optional
@@ -29,12 +31,12 @@ def binary_filename(timestamp:str, config_lbl:str,
             'LLC', 'Fronts', 'outputs')
     
     # Generate base
-    basefile = f'{root}_{timestamp}_bin_{config_lbl}.npy'
+    basefile = f'{root}_{timestamp}_v{version}_bin_{config_lbl}.npy'
 
     # Join and return
     return os.path.join(path, basefile)
 
-def load_binary_fronts(timestamp:str, config_lbl:str, **kwargs):
+def load_binary_fronts(timestamp:str, config_lbl:str, version:str, **kwargs):
     """Load a binary-front array from a .npy file.
 
     Parameters
@@ -52,7 +54,7 @@ def load_binary_fronts(timestamp:str, config_lbl:str, **kwargs):
         Binary front array.
     """
     # Grab filename
-    b_file = binary_filename(timestamp, config_lbl, **kwargs)
+    b_file = binary_filename(timestamp, config_lbl, version, **kwargs)
 
     # Open
     binary_fronts = np.load(b_file)
@@ -60,7 +62,8 @@ def load_binary_fronts(timestamp:str, config_lbl:str, **kwargs):
     # Return
     return binary_fronts
 
-def save_binary_fronts(fronts:np.ndarray, timestamp:str, config_lbl:str, **kwargs):
+def save_binary_fronts(fronts:np.ndarray, timestamp:str, config_lbl:str, 
+    version:str, **kwargs):
     """Save a binary-front array to a .npy file.
 
     Creates the output directory if it does not already exist.
@@ -73,11 +76,13 @@ def save_binary_fronts(fronts:np.ndarray, timestamp:str, config_lbl:str, **kwarg
         Timestamp string for the snapshot.
     config_lbl : str
         Configuration label appended to the filename.
+    version : str
+        Version of the data to use.
     **kwargs
         Passed to :func:`binary_filename` (``root``, ``path``).
     """
     # Grab filename
-    b_file = binary_filename(timestamp, config_lbl, **kwargs)
+    b_file = binary_filename(timestamp, config_lbl, version, **kwargs)
 
     # Generate directory if it doesn't exist
     os.makedirs(os.path.dirname(b_file), exist_ok=True)
