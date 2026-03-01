@@ -56,7 +56,7 @@ class Divb2Viewer(QMainWindow):
         self.init_ui()
 
         # Load data if files provided
-        if divb2_file and fronts_file:
+        if divb2_file:# and fronts_file:
             self.load_data(divb2_file, fronts_file, downsample)
 
         # Load second fronts file if provided
@@ -222,11 +222,14 @@ class Divb2Viewer(QMainWindow):
             print(f"Loading Divb2 from: {divb2_file}")
             self.ds = xr.open_dataset(divb2_file)
 
-            if 'Divb2' not in self.ds:
+            if 'Divb2' in self.ds:
+                self.divb2_data = self.ds.Divb2.values
+            elif 'log_gradb' in self.ds:
+                self.divb2_data = 10**(self.ds.log_gradb.values)
+            else:
                 self.status_bar.showMessage('ERROR: Divb2 variable not found in NetCDF file')
                 return
 
-            self.divb2_data = self.ds.Divb2.values
 
             # Apply downsampling
             if downsample > 1:
@@ -237,8 +240,11 @@ class Divb2Viewer(QMainWindow):
             print(f"Divb2 range: [{np.nanmin(self.divb2_data):.2e}, {np.nanmax(self.divb2_data):.2e}]")
 
             # Load fronts from .npy
-            print(f"Loading fronts from: {fronts_file}")
-            self.fronts_data = np.load(fronts_file)
+            if fronts_file is not None:
+                print(f"Loading fronts from: {fronts_file}")
+                self.fronts_data = np.load(fronts_file)
+            else:
+                self.fronts_data = np.zeros_like(self.divb2_data)
 
             # Apply downsampling to fronts
             if downsample > 1:
