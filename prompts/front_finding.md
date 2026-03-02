@@ -24,6 +24,16 @@
 
 ## Ok, now add a method to global_fronts.py that loads in the Pool output file from thresholding and runs the skimage.morphology.thin() method on it.  Please benchmark the time spent perfoming that calculation.
 
+## Debugging
+
+### Generate a new module in fronts/dev/ named check_thinning.py that includes a method that will load the binary front output and a bounding box (x0,y0,x1,y1) and plot the pixels within the bounding box.  Use the matplotlib.pyplot.imshow() method. 
+
+### Add a method in check_thinning.py that will apply the skimage.morphology.thin() method and the skimage.morphology.skeletonize() method to an input unthinned binary front image.  Save these outputs to .npy files in a temp/ folder in the fronts/dev/ directory.  
+
+### Add a method in check_thinning.py that will load the skeletonized output, thinnined, and original binary front output and plot them side by side using the matplotlib.pyplot.imshow() method.  The method should also input the bounding box (x0,y0,x1,y1) and plot the pixels within the bounding box.
+
+### Write a method to load up the thinned version for config Z and run the thinning() method again.  Compare the results with the original and the new output.  Are they identical?
+
 # Cropping
 
 ## Thanks.  Now add a method to test the timing of pyboa.cropping().  Run it on the output from thinning.  You do not need to run the rest of the tests.

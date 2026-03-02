@@ -905,7 +905,7 @@ def cropping(array, min_size:int=7, connectivity:int=2):
     # clean small object
     frnt = morphology.remove_small_objects(
         frnt.astype(bool), min_size=min_size, connectivity=connectivity)
-            # remove small holes
+    # remove small holes
     frnt = morphology.remove_small_holes(frnt)
     # 
     return frnt

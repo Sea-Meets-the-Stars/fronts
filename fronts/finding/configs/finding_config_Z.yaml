@@ -1,0 +1,18 @@
+# Front Finding Configuration - Z
+# This configuration file defines parameters for ocean front detection
+# Unthinned/cropped front for debugging
+
+label: "Z"                      # Config label - will be part of the output filename
+
+# Binary parameters
+binary:
+  # Required
+  window: 64                      # Size of the region for thresholding (pixels)
+  threshold: 80                   # Threshold for front finding
+  thresh_mode: "pool"              # Mode for finding threshold [generic, vectorized, dask, pool]
+  thin: false                      # Apply morphological thinning to fronts
+
+  # Optional fields
+  dilate: false                   # Dilate the front (usually after thin + crop)
+  min_size: 0                     # Minimum size for front (pixels) - used for cropping
+  connectivity: 2                 # Connectivity for morphological operations (1=4-conn, 2=8-conn)
