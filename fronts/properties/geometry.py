@@ -171,9 +171,7 @@ def calculate_front_length(
         if len(rows) < 2:
             return 0.0
 
-        # OPTIMIZED: Fast approximation using average grid spacing
-        # Old method: calculated haversine distance between ALL skeleton points (SLOW!)
-        # New method: sample a few points to estimate average spacing, multiply by pixel count
+        # Sample a few points to estimate average spacing, multiply by pixel count
 
         # Sample points to estimate average grid spacing in this region
         sample_size = min(20, len(rows))
@@ -573,6 +571,152 @@ def calculate_front_extent(
     return extent
 
 
+def process_single_front(
+    label: int,
+    name: str,
+    mask: np.ndarray,
+    lat: np.ndarray,
+    lon: np.ndarray,
+    time_str: str,
+    y0: Optional[int] = None,
+    y1: Optional[int] = None,
+    x0: Optional[int] = None,
+    x1: Optional[int] = None,
+    length_method: str = 'skeleton',
+    skip_curvature: bool = False
+) -> Optional[dict]:
+    """
+    Calculate geometric properties for a single front cutout.
+
+    Operates on a cutout (bbox-extracted region) for efficiency. Intended
+    for parallel batch processing of large domains — call this via a
+    module-level multiprocessing wrapper. For interactive or serial use on
+    small domains, prefer calculate_all_geometric_properties().
+
+    Parameters
+    ----------
+    label : int
+        Integer front label.
+    name : str
+        Unique front ID string (TIME_LAT_LON format from label.generate_front_ids).
+    mask : np.ndarray
+        Boolean mask, True where this front exists. Should be pre-extracted
+        to the cutout region (same shape as lat and lon).
+    lat : np.ndarray
+        2D latitude array for the cutout region.
+    lon : np.ndarray
+        2D longitude array for the cutout region.
+    time_str : str
+        Timestamp string (ISO 8601 format).
+    y0, y1, x0, x1 : int, optional
+        Bounding box coordinates in the global array. Stored in output for
+        traceability (e.g. reloading the cutout later); not used in any
+        geometric calculation.
+    length_method : str, optional
+        'skeleton' (default, recommended for non-uniform grids like LLC4320)
+        or 'perimeter' (deprecated).
+    skip_curvature : bool, optional
+        Skip curvature calculation to save ~50%% time. Default False.
+
+    Returns
+    -------
+    props : dict or None
+        Geometric properties, or None if processing failed entirely.
+        Keys: label, name, time, npix, y0, y1, x0, x1,
+              centroid_lat, centroid_lon, lat_min, lat_max, lon_min, lon_max,
+              length_km, num_branches, orientation,
+              mean_curvature, curvature_direction
+
+    See Also
+    --------
+    calculate_all_geometric_properties : serial version for interactive/notebook use
+    """
+    try:
+        props = {
+            'label': label,
+            'name': name,
+            'time': time_str,
+            'npix': int(np.sum(mask))
+        }
+
+        if all(v is not None for v in [y0, y1, x0, x1]):
+            props.update({'y0': int(y0), 'y1': int(y1),
+                          'x0': int(x0), 'x1': int(x1)})
+
+        # Centroid
+        try:
+            clat, clon = calculate_front_centroid(mask, lat, lon)
+            props['centroid_lat'] = float(clat)
+            props['centroid_lon'] = float(clon)
+        except Exception:
+            props['centroid_lat'] = np.nan
+            props['centroid_lon'] = np.nan
+
+        # Spatial extent
+        try:
+            front_lats = lat[mask]
+            front_lons = lon[mask]
+            props['lat_min'] = float(front_lats.min())
+            props['lat_max'] = float(front_lats.max())
+            props['lon_min'] = float(front_lons.min())
+            props['lon_max'] = float(front_lons.max())
+        except Exception:
+            props.update({'lat_min': np.nan, 'lat_max': np.nan,
+                          'lon_min': np.nan, 'lon_max': np.nan})
+
+        # Pre-compute skeleton once — shared by length, branches, curvature
+        skeleton = None
+        if length_method == 'skeleton':
+            from skimage.morphology import skeletonize
+            skeleton = skeletonize(mask)
+
+        # Length
+        try:
+            props['length_km'] = float(
+                calculate_front_length(mask, lat, lon,
+                                       method=length_method, skeleton=skeleton)
+            )
+        except Exception:
+            props['length_km'] = np.nan
+
+        # Branch points
+        try:
+            props['num_branches'] = int(
+                calculate_branch_points(mask, skeleton=skeleton)
+            )
+        except Exception:
+            props['num_branches'] = 0
+
+        # Orientation
+        try:
+            props['orientation'] = float(
+                calculate_front_orientation(mask, lat, lon)
+            )
+        except Exception:
+            props['orientation'] = np.nan
+
+        # Curvature (optional)
+        if not skip_curvature:
+            try:
+                curv, curv_dir = calculate_front_curvature(
+                    mask, lat, lon, skeleton=skeleton
+                )
+                props['mean_curvature'] = float(curv)
+                props['curvature_direction'] = float(curv_dir)
+            except Exception:
+                props['mean_curvature'] = np.nan
+                props['curvature_direction'] = np.nan
+        else:
+            props['mean_curvature'] = np.nan
+            props['curvature_direction'] = np.nan
+
+        return props
+
+    except Exception as e:
+        print(f"  ERROR processing front {label} ({name}): {e}")
+        return None
+    
+    
 def calculate_all_geometric_properties(
     labeled_fronts: np.ndarray,
     lat: np.ndarray,

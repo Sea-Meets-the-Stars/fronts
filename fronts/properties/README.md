@@ -1,11 +1,8 @@
-# group_fronts
+# properties
 
-**Label and characterize the geometric properties of ocean fronts**
+**Label and characterize the properties of ocean fronts**
 
-This module groups connected front pixels into individual fronts and characterizes their geometric properties. 
-
-(work in progress...)
-For advanced characterization (field properties, dimensionless numbers, dynamical properties), see the companion `characterize_fronts` module.
+This module groups connected front pixels into individual fronts and characterizes their properties. 
 
 ## What This Module Does
 
@@ -19,7 +16,7 @@ Starting with binary front arrays (from front detection algorithms), this module
 
 ### Core Modules
 
-- **`label.py`**: Connected component labeling and ID generation
+- **`group_labels.py`**: Connected component labeling and ID generation
   - Groups connected front pixels (4-connected or 8-connected; skimage.measure.label)
   - Generates unique front IDs in `TIME_LAT_LON` format
   - Filters fronts by size (i.e. if number of pixels < X, don't include)
@@ -49,17 +46,15 @@ Starting with binary front arrays (from front detection algorithms), this module
 ### Basic Usage
 
 ```python
-from group_fronts import label, geometry, io
+from fronts.properties import label, geometry, io
 import numpy as np
 import xarray as xr
 
 # Load binary front data and coordinates
 front_binary = np.load('my_fronts.npy')
 ds_coords = xr.open_dataset('coords.nc')
-time = '2012-11-09T12:00:00' 
-
-lat = ds_coords['YC'].values
-lon = ds_coords['XC'].values
+lat, lon = ds_coords['YC'].values, ds_coords['XC'].values
+time = '2012-11-09T12:00:00'
 
 # 1. Label connected fronts
 labeled = label.label_fronts(front_binary, connectivity=2)
@@ -73,11 +68,15 @@ geom_props = geometry.calculate_all_geometric_properties(
     labeled, lat, lon, time, include_curvature=True
 )
 
-# 4. Export to DataFrame
+# 4. Export to DataFrame and save
 df = io.properties_to_dataframe(geom_props, front_ids)
-df.to_csv('front_geometric_properties.csv')
+df.to_csv('front_properties.csv', index=False)
 print(f"Found {len(df)} fronts")
 print(df.head())
+
+# 5. Load results
+df = io.from_csv('front_properties.csv')
+labeled, lat, lon, time, front_ids = io.from_netcdf('front_properties.nc')
 ```
 
 ### Example Output
@@ -101,23 +100,14 @@ The resulting DataFrame contains these geometric properties for each front:
 
 ## Notebooks
 
-- **`visualize.ipynb`**: Quick visualization of labeled fronts with log₁₀(divB²) background
-- **`visualize_global.ipynb`**: Visualization of globally labeled fronts 
+- **`visualize.ipynb`**: Quick visualization of labeled fronts with log₁₀(divB²) background; processes fronts on the fly; must be over small region
+- **`visualize_global.ipynb`**: Visualization of globally labeled fronts; processes fronts on preexisitng file for grouped global fronts 
   - run after process_global_fronts.py
-- **`interactive_viewer_bokeh.py`**: Interactive Bokeh app with:
-  - work in progress.....
-  - Global map with color-coded fronts (random or by property)
-  - Dynamic PDFs that update based on map zoom/selection
-  - Scatter plots of properties vs. latitude/longitude
 
-## Advanced Characterization
-
-**WORK IN PROGRESS**
-For field-based properties (SST gradients, dominance), dimensionless numbers (Rossby, Richardson, Burger), and dynamical properties (frontogenesis, PV, vertical velocity), see the `characterize_fronts` module.
 
 ## API Reference
 
-### label.py
+### group_labels.py
 
 ```python
 # Label connected fronts
@@ -147,6 +137,16 @@ orientation = geometry.calculate_orientation(labeled, lat, lon)
 curvature = geometry.calculate_curvature(labeled, lat, lon)
 ```
 
+### characterize.py
+
+```python
+# Calculate all properties
+work in progress
+
+# Calculate individual properties
+work in progress
+```
+
 ### io.py
 
 ```python
@@ -173,7 +173,6 @@ netCDF4
 
 For interactive visualization:
 ```
-bokeh
 matplotlib
 ```
 
@@ -183,6 +182,6 @@ This module is part of the `fronts` package. To use:
 
 ```python
 import sys
-sys.path.insert(0, '/path/to/fronts/dev')
-from group_fronts import label, geometry, io
+sys.path.insert(0, '/path/to/fronts/properties')
+from properties import group_labels, geometry, io
 ```
