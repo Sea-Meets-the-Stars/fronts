@@ -37,3 +37,7 @@
 # Cropping
 
 ## Thanks.  Now add a method to test the timing of pyboa.cropping().  Run it on the output from thinning.  You do not need to run the rest of the tests.
+
+# Inpainting
+
+## Please add a method to examine_face_edges.py that will inpaint the bad pixels for an input image using RegularGridInterpolator.  Call it inpaint_regular().
