@@ -23,15 +23,18 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
         version (str, optional): Version of the algorithm to use. Defaults to '0'.
     """
 
-    # Load Divb2
-    Divb2_file = llc_io.derived_filename(timestamp, 'Divb2', version=version)
-    print(f"Loading Divb2 from: {Divb2_file}")
+    # Load gradb2
+    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2', version=version)
+    print(f"Loading gradb2 from: {gradb2_file}")
     if version == '0':
-        Divb2 = xarray.open_dataset(Divb2_file)['Divb2'].values
+        gradb2 = xarray.open_dataset(gradb2_file)['Divb2'].values
     elif version == '1':
-        Divb2 = xarray.open_dataset(Divb2_file)['log_gradb'].values
+        gradb2 = xarray.open_dataset(gradb2_file)['gradb2'].values
 
-    print(f"Loaded Divb2 with shape: {Divb2.shape}")
+    print(f"Loaded gradb2 with shape: {gradb2.shape}")
+
+    # Interpolate over bad pixels
+    embed(header='37 of explore_threshold.py')
 
     # Loop on configs
     for config in configs:
@@ -47,7 +50,7 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
         bparam['verbose'] = True
 
         # Do it
-        fronts = algorithms.fronts_from_divb2(Divb2, **bparam)
+        fronts = algorithms.fronts_from_gradb2(gradb2, **bparam)
 
         # Save em
         finding_io.save_binary_fronts(
@@ -98,11 +101,11 @@ def debug_thinning(timestamp:str, config:str='C'):
         config (str, optional): Config file to process. Defaults to 'C'.
     """
 
-    # Load Divb2
-    Divb2_file = llc_io.derived_filename(timestamp, 'Divb2')
-    print(f"Loading Divb2 from: {Divb2_file}")
-    Divb2 = xarray.open_dataset(Divb2_file)['Divb2'].values
-    print(f"Loaded Divb2 with shape: {Divb2.shape}")
+    # Load gradb2
+    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2')
+    print(f"Loading gradb2 from: {gradb2_file}")
+    gradb2 = xarray.open_dataset(gradb2_file)['gradb2'].values
+    print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
     # Load config 
     config_file = find_config.config_filename(config)
@@ -114,8 +117,8 @@ def debug_thinning(timestamp:str, config:str='C'):
     bparam['verbose'] = True
 
     # Do it
-    fronts = algorithms.fronts_from_divb2(
-        Divb2, debug=True, **bparam)
+    fronts = algorithms.fronts_from_gradb2(
+        gradb2, debug=True, **bparam)
 
 # #######################################################33
 def main(flg:str):

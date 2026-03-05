@@ -39,7 +39,7 @@ def derived_filename(timestamp:str, field:str,
             Timestamp of the data to be loaded.
             Format: 'YYYY-MM-DDTHH_MM_SS'
         field: str
-            Field to be loaded, e.g. 'Divb2'
+            Field to be loaded, e.g. 'gradb2'
         root: str
             Root of the filename.  Defaults to 'LLC4320'.
         path: str
