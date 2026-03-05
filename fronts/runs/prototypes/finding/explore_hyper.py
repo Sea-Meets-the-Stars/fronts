@@ -34,6 +34,7 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
     print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
     # Interpolate over bad pixels
+    mask = gradb2 == -999.
     embed(header='37 of explore_threshold.py')
 
     # Loop on configs
