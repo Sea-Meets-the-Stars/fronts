@@ -126,7 +126,7 @@ def examine_inpainting():
     plt.show()
 
     # Cut down for memory
-    gradb2 = gradb2[7750:9250, 8000:10000]
+    #gradb2 = gradb2[7750:9250, 8000:10000]
     print("More inpainting...")
     mask = (gradb2 < 1e-20) & np.isfinite(gradb2)
     print(f"{np.sum(mask)} bad pixels remain")
@@ -145,8 +145,8 @@ def examine_inpainting():
     #gradb2 = sk_inpaint.inpaint_biharmonic(tmp, mask, channel_axis=None)
 
     print("Plotting new one...")
-    #plt.imshow(np.log10(gradb2[7750:9250, 8000:10000]), origin='lower')#, vmin=1e-16, vmax=1e-14)
-    plt.imshow(np.log10(gradb2), origin='lower')#, vmin=1e-16, vmax=1e-14)
+    plt.imshow(np.log10(gradb2[7750:9250, 8000:10000]), origin='lower')#, vmin=1e-16, vmax=1e-14)
+    #plt.imshow(np.log10(gradb2), origin='lower')#, vmin=1e-16, vmax=1e-14)
     plt.colorbar()
     plt.show()
 
