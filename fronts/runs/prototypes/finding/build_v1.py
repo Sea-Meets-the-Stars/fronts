@@ -6,6 +6,8 @@ import os
 import xarray
 
 from dbof.cli import generate_fronts_global
+from dbof.cli import zarr_to_netcdf
+import dbof.dataset_creation.config as config
 
 from IPython import embed
 
@@ -27,10 +29,31 @@ def generate_gradb2(config_file:str):
 def main(flg:str):
     flg= int(flg)
 
-    # Generate gradb2
+    # Generate gradb2 as zarr
     if flg == 1:
         config_file = './testing_global_v1.yaml'
         generate_gradb2(config_file)
+
+    # Convert zarr to netcdf (this could be combined with the first step)
+    if flg == 2:
+        # Output
+        out_dir = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
+                               'derived')
+        out_file = 'LLC4320_2012-11-09T12_00_00_gradb2.nc'
+        # Confg
+        config_file = './testing_global_v1.yaml'
+        cfg = config.load_config(config_file)
+        # Call it
+        zarr_to_netcdf.main(out_dir, 
+            output_filename=out_file,
+            mode='snapshots',
+            run_id=cfg.run.run_id,
+            s3_endpoint=cfg.output.s3_endpoint,
+            bucket=cfg.output.bucket,
+            channel='gradb2',
+            dates=cfg.data.date_iterations,
+            dataset_name=cfg.output.dataset_name,
+            folder=cfg.output.folder)
 
 
 # Command line execution
