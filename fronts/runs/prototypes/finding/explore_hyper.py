@@ -2,6 +2,8 @@
 ##  e.g. threshold, window size, etc.
 
 import os
+import numpy as np
+from skimage.restoration import inpaint as sk_inpaint
 
 from fronts.llc import io as llc_io
 from fronts.finding import config as find_config
@@ -33,8 +35,10 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
 
     print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
-    # Interpolate over bad pixels
+    # Interpolate over bad import numpy as nppixels
     mask = gradb2 == -999.
+    mask = np.uint8(mask)
+    gradb2 = sk_inpaint.inpaint_biharmonic(gradb2, mask, channel_axis=None)
     embed(header='37 of explore_threshold.py')
 
     # Loop on configs
