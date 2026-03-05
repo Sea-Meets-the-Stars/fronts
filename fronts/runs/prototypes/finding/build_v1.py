@@ -9,11 +9,15 @@ from dbof.cli import generate_fronts_global
 from dbof.cli import zarr_to_netcdf
 import dbof.dataset_creation.config as config
 
+from fronts.preproc import inpaint_edges
 from fronts.llc import io as llc_io
+from fronts.finding import algorithms
+from fronts.finding import config as find_config
+from fronts.finding import io as finding_io
 
 from IPython import embed
 
-def generate_gradb2(config_file:str):
+def generate_gradb2(timestamp:str, config_file:str, field:str='gradb2'):
     """ 
     Generate the gradb2 field for the given config file.
 
@@ -22,41 +26,78 @@ def generate_gradb2(config_file:str):
         configs (list, optional): List of config files to process. Defaults to ['A', 'B', 'C'].
         version (str, optional): Version of the algorithm to use. Defaults to '0'.
     """
+    # zarr in s3
     generate_fronts_global.main(config_file)
+
+    # Output to netcdf on disk
+    full_path = llc_io.derived_filename(timestamp, field, version='1')
+    out_dir = os.path.dirname(full_path)
+    out_file = os.path.basename(full_path)
+    # Confg
+    cfg = config.load_config(config_file)
+    # Call it
+    zarr_to_netcdf.main(out_dir, 
+        output_filename=out_file,
+        mode='snapshots',
+        run_id=cfg.run.run_id,
+        s3_endpoint=cfg.output.s3_endpoint,
+        bucket=cfg.output.bucket,
+        channels=[field],
+        dates=cfg.data.date_iterations,
+        dataset_name=cfg.output.dataset_name,
+        folder=cfg.output.folder)
+
+def find_fronts(timestamp:str, config:str, version:str):
+
+    # Load gradb2
+    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2', version=version)
+    print(f"Loading gradb2 from: {gradb2_file}")
+    gradb2 = xarray.open_dataset(gradb2_file)['gradb2'].values
+
+    print(f"Loaded gradb2 with shape: {gradb2.shape}")
+
+    # Inpaint
+    print("Inpainting...")
+    gradb2 = inpaint_edges.inpaint(gradb2, method='biharmonic',
+                         second_pass='regular',
+                         second_threshold=1e-20)
+    print("Inpainted.")
+
+    print(f"Processing config: {config}")
+
+    # Load config
+    config_file = find_config.config_filename(config)
+    cdict = find_config.load(config_file)
+
+    # Binary parameters
+    bparam = cdict['binary']
+    bparam['n_workers'] = 10
+    bparam['verbose'] = True
+
+    # Do it
+    fronts = algorithms.fronts_from_gradb2(gradb2, **bparam)
+
+    # Save em
+    finding_io.save_binary_fronts(
+        fronts, timestamp, config, version)
 
 
 # #######################################################33
 def main(flg:str):
     flg= int(flg)
 
-    field = 'gradb2'
-
     # Generate gradb2 as zarr
     if flg == 1:
+        timestamp = '2012-11-09T12_00_00'
         config_file = './testing_global_v1.yaml'
-        generate_gradb2(config_file)
+        generate_gradb2(timestamp, config_file)
 
-    # Convert zarr to netcdf (this could be combined with the first step)
+    # Find fronts
     if flg == 2:
         timestamp = '2012-11-09T12_00_00'
-        # Output
-        full_path = llc_io.derived_filename(timestamp, field, version='1')
-        out_dir = os.path.dirname(full_path)
-        out_file = os.path.basename(full_path)
-        # Confg
-        config_file = './testing_global_v1.yaml'
-        cfg = config.load_config(config_file)
-        # Call it
-        zarr_to_netcdf.main(out_dir, 
-            output_filename=out_file,
-            mode='snapshots',
-            run_id=cfg.run.run_id,
-            s3_endpoint=cfg.output.s3_endpoint,
-            bucket=cfg.output.bucket,
-            channels=[field],
-            dates=cfg.data.date_iterations,
-            dataset_name=cfg.output.dataset_name,
-            folder=cfg.output.folder)
+        config = 'B'
+        version = '1'
+        find_fronts(timestamp, config, version)
 
 
 # Command line execution
