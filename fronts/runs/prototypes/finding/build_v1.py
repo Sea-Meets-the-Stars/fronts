@@ -50,7 +50,7 @@ def main(flg:str):
             run_id=cfg.run.run_id,
             s3_endpoint=cfg.output.s3_endpoint,
             bucket=cfg.output.bucket,
-            channel='gradb2',
+            channels=['gradb2'],
             dates=cfg.data.date_iterations,
             dataset_name=cfg.output.dataset_name,
             folder=cfg.output.folder)

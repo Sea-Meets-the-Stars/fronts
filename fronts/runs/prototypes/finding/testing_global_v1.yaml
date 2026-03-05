@@ -1,5 +1,5 @@
 run:
-  run_id: "year_1xglobal_20260226_043824"
+  run_id: "year_1xglobal_20260305_050000"
   log_dir: "./logs/"
 
 data:
