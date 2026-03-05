@@ -41,3 +41,5 @@
 # Inpainting
 
 ## Please add a method to examine_face_edges.py that will inpaint the bad pixels for an input image using RegularGridInterpolator.  Call it inpaint_regular().
+
+## Add to the module inpaint_edges.py in fronts/preproc/ the inpaint_regular() and inpaint_biharmonic() methods from the examine_face_edges.py module.  Add doc strings.  Also add a inpaint() method that will call the appropriate inpainting method based on the input parameters and allow for a two stage process of inpainting as in the examine_inpainting() method.

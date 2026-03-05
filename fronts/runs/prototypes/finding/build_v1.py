@@ -15,15 +15,13 @@ from IPython import embed
 
 def generate_gradb2(config_file:str):
     """ 
-    Explore the threshold for front finding
-    using a range of thresholds.  Each binary front field is saved to disk.
+    Generate the gradb2 field for the given config file.
 
     Args:
         timestamp (str): Timestamp of the data to process
         configs (list, optional): List of config files to process. Defaults to ['A', 'B', 'C'].
         version (str, optional): Version of the algorithm to use. Defaults to '0'.
     """
-
     generate_fronts_global.main(config_file)
 
 

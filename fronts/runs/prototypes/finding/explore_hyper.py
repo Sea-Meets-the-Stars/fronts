@@ -9,6 +9,7 @@ from fronts.llc import io as llc_io
 from fronts.finding import config as find_config
 from fronts.finding import algorithms
 from fronts.finding import io as finding_io
+from fronts.preproc import inpaint_edges
 import xarray
 
 from IPython import embed
@@ -35,17 +36,18 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
 
     print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
-    # Interpolate over bad import numpy as nppixels
-    mask = gradb2 == -999.
-    mask = np.uint8(mask)
-    gradb2 = sk_inpaint.inpaint_biharmonic(gradb2, mask, channel_axis=None)
-    embed(header='37 of explore_threshold.py')
+    # Inpaint
+    print("Inpainting...")
+    gradb2 = inpaint_edges.inpaint(gradb2, method='biharmonic',
+                         second_pass='regular',
+                         second_threshold=1e-20)
+    print("Inpainted.")
 
     # Loop on configs
     for config in configs:
         print(f"Processing config: {config}")
 
-        # Load config 
+        # Load config
         config_file = find_config.config_filename(config)
         cdict = find_config.load(config_file)
 
