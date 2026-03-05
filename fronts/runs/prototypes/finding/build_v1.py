@@ -9,7 +9,7 @@ from dbof.cli import generate_fronts_global
 
 from IPython import embed
 
-def generate_gradb2(timestamp:str):
+def generate_gradb2(config_file:str):
     """ 
     Explore the threshold for front finding
     using a range of thresholds.  Each binary front field is saved to disk.
@@ -20,6 +20,8 @@ def generate_gradb2(timestamp:str):
         version (str, optional): Version of the algorithm to use. Defaults to '0'.
     """
 
+    generate_fronts_global.main(config_file)
+
 
 # #######################################################33
 def main(flg:str):
@@ -27,9 +29,8 @@ def main(flg:str):
 
     # Generate gradb2
     if flg == 1:
-        timestamp = '2012-11-09T12_00_00'
         config_file = './testing_global_v1.yaml'
-        generate_gradb2(config_file, run_id)
+        generate_gradb2(config_file)
 
 
 # Command line execution
