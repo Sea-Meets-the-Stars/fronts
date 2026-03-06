@@ -231,7 +231,7 @@ def write_front_properties_to_csv(
     >>> props = {1: {'npix': 100, 'length_km': 50.3}}
     >>> to_csv(props, 'front_properties.csv')
     """
-    df = properties_to_dataframe(properties, front_ids)
+    df = write_front_properties_to_dataframe(properties, front_ids)
     df.to_csv(output_path, index=False)
     print(f"Saved front properties to {output_path}")
 
@@ -261,7 +261,7 @@ def write_front_properties_to_parquet(
     >>> props = {1: {'npix': 100, 'length_km': 50.3}}
     >>> to_parquet(props, 'front_properties.parquet')
     """
-    df = properties_to_dataframe(properties, front_ids)
+    df = write_front_properties_to_dataframe(properties, front_ids)
     df.to_parquet(output_path, index=False, engine='pyarrow')
     print(f"Saved front properties to {output_path}")
 
