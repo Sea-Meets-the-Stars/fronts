@@ -12,7 +12,7 @@ from typing import Dict, Optional, Union
 import warnings
 
 
-def to_netcdf(
+def write_front_properties_to_netcdf(
     labeled_fronts: np.ndarray,
     lat: np.ndarray,
     lon: np.ndarray,
@@ -114,7 +114,7 @@ def to_netcdf(
     print(f"Saved labeled fronts to {output_path}")
 
 
-def from_netcdf(
+def load_fronts_from_netcdf(
     input_path: Union[str, Path]
 ) -> tuple:
     """
@@ -157,7 +157,7 @@ def from_netcdf(
     return labeled_fronts, lat, lon, time, front_ids
 
 
-def properties_to_dataframe(
+def write_front_properties_to_dataframe(
     properties: Dict[int, Dict],
     front_ids: Optional[Dict[int, str]] = None
 ) -> pd.DataFrame:
@@ -209,7 +209,7 @@ def properties_to_dataframe(
     return df
 
 
-def to_csv(
+def write_front_properties_to_csv(
     properties: Dict[int, Dict],
     output_path: Union[str, Path],
     front_ids: Optional[Dict[int, str]] = None
@@ -236,7 +236,7 @@ def to_csv(
     print(f"Saved front properties to {output_path}")
 
 
-def to_parquet(
+def write_front_properties_to_parquet(
     properties: Dict[int, Dict],
     output_path: Union[str, Path],
     front_ids: Optional[Dict[int, str]] = None
@@ -266,7 +266,7 @@ def to_parquet(
     print(f"Saved front properties to {output_path}")
 
 
-def from_csv(
+def load_front_properties_from_csv(
     input_path: Union[str, Path]
 ) -> pd.DataFrame:
     """
@@ -285,7 +285,7 @@ def from_csv(
     return pd.read_csv(input_path)
 
 
-def from_parquet(
+def load_front_properties_from_parquet(
     input_path: Union[str, Path]
 ) -> pd.DataFrame:
     """
@@ -304,7 +304,7 @@ def from_parquet(
     return pd.read_parquet(input_path, engine='pyarrow')
 
 
-def to_group_table(
+def write_front_group_table(
     front_ids: Dict[int, str],
     bbox_coords: Dict[int, Dict[str, int]],
     output_path: Union[str, Path],
@@ -376,7 +376,7 @@ def to_group_table(
     return df
 
 
-def from_group_table(
+def load_front_group_table(
     input_path: Union[str, Path]
 ) -> pd.DataFrame:
     """
@@ -405,7 +405,7 @@ def from_group_table(
         return pd.read_csv(input_path)
 
 
-def save_all(
+def save_all_group_formats(
     labeled_fronts: np.ndarray,
     properties: Dict[int, Dict],
     lat: np.ndarray,
@@ -466,17 +466,17 @@ def save_all(
 
     if 'netcdf' in formats:
         nc_path = output_dir / f"{base_name}.nc"
-        to_netcdf(labeled_fronts, lat, lon, time, nc_path, front_ids)
+        write_front_properties_to_netcdf(labeled_fronts, lat, lon, time, nc_path, front_ids)
         output_files['netcdf'] = nc_path
 
     if 'csv' in formats:
         csv_path = output_dir / f"{base_name}.csv"
-        to_csv(properties, csv_path, front_ids)
+        write_front_properties_to_csv(properties, csv_path, front_ids)
         output_files['csv'] = csv_path
 
     if 'parquet' in formats:
         parquet_path = output_dir / f"{base_name}.parquet"
-        to_parquet(properties, parquet_path, front_ids)
+        write_front_properties_to_parquet(properties, parquet_path, front_ids)
         output_files['parquet'] = parquet_path
 
     print(f"\nAll files saved to {output_dir}/")

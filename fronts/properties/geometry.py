@@ -229,9 +229,6 @@ def calculate_front_orientation(
     """
     Calculate the primary orientation of a front.
 
-    Uses principal component analysis (PCA) to find the dominant direction
-    of the front.
-
     Parameters
     ----------
     mask : np.ndarray
@@ -429,22 +426,6 @@ def calculate_branch_points(
     num_branches : int
         Number of branch/junction points
 
-    Notes
-    -----
-    Branch points indicate structural complexity:
-    - 0 branches: Simple line (no branching)
-    - 1-2 branches: Y-shape or T-junction
-    - 3+ branches: Complex multi-armed structure
-
-    Examples
-    --------
-    Simple line: #### → 0 branch points
-    Y-shape:  #     → 1 branch point (at the junction)
-             # #
-              #
-    Complex:  # # # → Multiple branch points
-               ###
-              # # #
     """
     from skimage.morphology import skeletonize
 

@@ -183,15 +183,13 @@ def generate_front_ids(
 
         if match:
             time_str_raw = match.group(1)
-            # Convert underscores to colons: 2012-11-09T12_00_00 -> 2012-11-09T12:00:00
             time_str_iso = time_str_raw.replace('_', ':')
-            time = np.datetime64(time_str_iso)
-
-            if time is not None:
+            if time is not None:                       
                 warnings.warn(
                     f"Both filename and time provided. Using time from filename: {time_str_iso}",
                     UserWarning
                 )
+            time = np.datetime64(time_str_iso)        
         else:
             raise ValueError(
                 f"Could not extract timestamp from filename: {filename}. "
@@ -205,9 +203,7 @@ def generate_front_ids(
         )
 
     # Parse time if it's a string or datetime
-    if isinstance(time, str):
-        time = np.datetime64(time)
-    elif isinstance(time, datetime):
+    if isinstance(time, (str, datetime)):
         time = np.datetime64(time)
 
     # Convert to string format: YYYYMMDDTHHMMSS
@@ -373,9 +369,6 @@ def filter_fronts_by_size(
     """
     Remove fronts that are too small or too large.
 
-    OPTIMIZED VERSION: ~1000x faster than previous implementation for large
-    numbers of fronts. Uses vectorized operations instead of loops.
-
     Parameters
     ----------
     labeled_fronts : np.ndarray
@@ -391,15 +384,6 @@ def filter_fronts_by_size(
     filtered_fronts : np.ndarray
         Labeled array with small/large fronts removed and labels re-numbered
 
-    Examples
-    --------
-    >>> labeled = np.array([[1, 1, 0], [0, 2, 0], [3, 3, 3]])
-    >>> # Remove fronts with < 3 pixels
-    >>> filtered = filter_fronts_by_size(labeled, min_size=3)
-    >>> print(filtered)
-    [[0 0 0]
-     [0 0 0]
-     [1 1 1]]
     """
     # Get all unique labels and their counts in ONE vectorized pass
     # This is MUCH faster than looping through each label
@@ -432,10 +416,9 @@ def get_front_bboxes(labeled_fronts: np.ndarray) -> Dict[int, Tuple[slice, slice
     """
     Extract bounding boxes for all labeled fronts.
 
-    Uses scipy.ndimage.find_objects to efficiently find the minimal bounding
+    Uses scipy.ndimage.find_objects to find the minimal bounding
     box (in array indices) for each labeled front. This enables processing
-    only the relevant region for each front, dramatically reducing memory
-    usage and computation time.
+    only the relevant region for each front.
 
     Parameters
     ----------
@@ -452,10 +435,6 @@ def get_front_bboxes(labeled_fronts: np.ndarray) -> Dict[int, Tuple[slice, slice
     --------
     >>> labeled = np.array([[0, 1, 1], [0, 1, 0], [2, 2, 0]])
     >>> bboxes = get_front_bboxes(labeled)
-    >>> bboxes[1]
-    (slice(0, 2), slice(1, 3))
-    >>> bboxes[2]
-    (slice(2, 3), slice(0, 2))
 
     The returned slices can be used directly to extract regions:
     >>> bbox = bboxes[1]
