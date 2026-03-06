@@ -8,8 +8,8 @@
 This script grabs LLC data from the internet with xmitgcm
 """
 
-from fronts.scripts import global_divb2_viewer
+from fronts.scripts import global_field_viewer
 
 if __name__ == '__main__':
-    args = global_divb2_viewer.parser()
-    global_divb2_viewer.main(args)
+    args = global_field_viewer.parser()
+    global_field_viewer.main(args)

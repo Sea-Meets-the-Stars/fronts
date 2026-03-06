@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-PyQt6 + pyqtgraph GUI for visualizing global Divb2 data with detected fronts.
+PyQt6 + pyqtgraph GUI for visualizing global field data with detected fronts.
 
 This application loads:
-1. NetCDF file containing Divb2 data
+1. NetCDF file containing field data
 2. .npy file containing front detection mask (1=front, 0=no front)
 
 And displays them in an interactive viewer with pan/zoom capabilities.
@@ -29,19 +29,21 @@ from PyQt6.QtCore import Qt
 import pyqtgraph as pg
 
 
-class Divb2Viewer(QMainWindow):
-    """Main window for Divb2 front visualization."""
+class GlobalViewer(QMainWindow):
+    """Main window for field front visualization."""
 
-    def __init__(self, gradb2_file=None, fronts_file=None, fronts2_file=None, downsample=1):
+    def __init__(self, data_file=None, fronts_file=None, fronts2_file=None, 
+        downsample=1, field='gradb2'):
         super().__init__()
 
-        self.gradb2_file = gradb2_file
+        self.data_file = data_file
+        self.field = field
         self.fronts_file = fronts_file
         self.fronts2_file = fronts2_file
         self.downsample = downsample
 
         # Data storage
-        self.divb2_data = None
+        self.field_data = None
         self.fronts_data = None
         self.fronts2_data = None
         self.ds = None
@@ -56,8 +58,8 @@ class Divb2Viewer(QMainWindow):
         self.init_ui()
 
         # Load data if files provided
-        if gradb2_file:# and fronts_file:
-            self.load_data(gradb2_file, fronts_file, downsample)
+        if data_file:# and fronts_file:
+            self.load_data(data_file, fronts_file, downsample)
 
         # Load second fronts file if provided
         if fronts2_file:
@@ -65,7 +67,7 @@ class Divb2Viewer(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle('Global Divb2 Front Viewer')
+        self.setWindowTitle('Global field Front Viewer')
         self.setGeometry(100, 100, 1200, 800)
 
         # Central widget
@@ -143,7 +145,7 @@ class Divb2Viewer(QMainWindow):
         # Set labels
         self.plot_widget.setLabel('left', 'j (grid index)')
         self.plot_widget.setLabel('bottom', 'i (grid index)')
-        self.plot_widget.setTitle('Divb2 Field with Fronts')
+        self.plot_widget.setTitle(f'{self.field} field with Fronts')
 
         main_layout.addWidget(self.graphics_widget)
 
@@ -165,9 +167,9 @@ class Divb2Viewer(QMainWindow):
             print(f"Fronts 2 shape: {self.fronts2_data.shape}")
             print(f"Number of front 2 pixels: {np.sum(self.fronts2_data > 0)}")
 
-            if self.divb2_data is not None and self.divb2_data.shape != self.fronts2_data.shape:
+            if self.field_data is not None and self.field_data.shape != self.fronts2_data.shape:
                 self.status_bar.showMessage(
-                    f'WARNING: Shape mismatch - Divb2: {self.divb2_data.shape}, Fronts 2: {self.fronts2_data.shape}'
+                    f'WARNING: Shape mismatch - field: {self.field_data.shape}, Fronts 2: {self.fronts2_data.shape}'
                 )
 
             # Create or update the blue overlay
@@ -206,45 +208,43 @@ class Divb2Viewer(QMainWindow):
         if self.show_fronts2_checkbox.isChecked():
             self.plot_widget.addItem(self.fronts2_image)
 
-    def load_data(self, gradb2_file, fronts_file, downsample=1):
+    def load_data(self, data_file, fronts_file, downsample=1):
         """
-        Load Divb2 and fronts data from files.
+        Load field and fronts data from files.
 
         Parameters:
-            gradb2_file (str): Path to NetCDF file with Divb2 data
+            data_file (str): Path to NetCDF file with field data
             fronts_file (str): Path to .npy file with front mask
             downsample (int): Downsampling factor
         """
         try:
             self.status_bar.showMessage('Loading data...')
 
-            # Load Divb2 from NetCDF
-            print(f"Loading Divb2 from: {gradb2_file}")
-            self.ds = xr.open_dataset(gradb2_file)
+            # Load field from NetCDF
+            print(f"Loading {self.field} from: {data_file}")
+            self.ds = xr.open_dataset(data_file)
 
-            if 'Divb2' in self.ds:
-                self.divb2_data = self.ds.Divb2.values
-            elif 'gradb2' in self.ds:
-                self.divb2_data = self.ds.gradb2.values
+            if self.field in self.ds:
+                self.field_data = self.ds[self.field].values
             else:
-                self.status_bar.showMessage('ERROR: Divb2 variable not found in NetCDF file')
+                self.status_bar.showMessage(f'ERROR: {self.field} variable not found in NetCDF file')
                 return
 
 
             # Apply downsampling
             if downsample > 1:
                 print(f"Downsampling by factor of {downsample}")
-                self.divb2_data = self.divb2_data[::downsample, ::downsample]
+                self.field_data = self.field_data[::downsample, ::downsample]
 
-            print(f"Divb2 shape: {self.divb2_data.shape}")
-            print(f"Divb2 range: [{np.nanmin(self.divb2_data):.2e}, {np.nanmax(self.divb2_data):.2e}]")
+            print(f"data shape: {self.field_data.shape}")
+            print(f"data range: [{np.nanmin(self.field_data):.2e}, {np.nanmax(self.field_data):.2e}]")
 
             # Load fronts from .npy
             if fronts_file is not None:
                 print(f"Loading fronts from: {fronts_file}")
                 self.fronts_data = np.load(fronts_file)
             else:
-                self.fronts_data = np.zeros_like(self.divb2_data)
+                self.fronts_data = np.zeros_like(self.field_data)
 
             # Apply downsampling to fronts
             if downsample > 1:
@@ -254,9 +254,9 @@ class Divb2Viewer(QMainWindow):
             print(f"Number of front pixels: {np.sum(self.fronts_data == 1)}")
 
             # Check dimensions match
-            if self.divb2_data.shape != self.fronts_data.shape:
+            if self.field_data.shape != self.fronts_data.shape:
                 self.status_bar.showMessage(
-                    f'WARNING: Shape mismatch - Divb2: {self.divb2_data.shape}, Fronts: {self.fronts_data.shape}'
+                    f'WARNING: Shape mismatch - field: {self.field_data.shape}, Fronts: {self.fronts_data.shape}'
                 )
                 print(f"WARNING: Shape mismatch!")
 
@@ -264,8 +264,8 @@ class Divb2Viewer(QMainWindow):
             self.plot_data()
 
             self.status_bar.showMessage(
-                f'Loaded: {Path(gradb2_file).name} | '
-                f'Shape: {self.divb2_data.shape} | '
+                f'Loaded: {Path(data_file).name} | '
+                f'Shape: {self.field_data.shape} | '
                 f'Fronts: {np.sum(self.fronts_data == 1)} pixels'
             )
 
@@ -277,19 +277,19 @@ class Divb2Viewer(QMainWindow):
             traceback.print_exc()
 
     def plot_data(self):
-        """Plot Divb2 data and fronts."""
-        if self.divb2_data is None:
+        """Plot field data and fronts."""
+        if self.field_data is None:
             return
 
         # Clear previous plots
         self.plot_widget.clear()
 
-        # Prepare Divb2 data for display (log or linear scale)
+        # Prepare field data for display (log or linear scale)
         if self.log_scale_checkbox.isChecked():
-            plot_data = np.log10(np.abs(self.divb2_data))
+            plot_data = np.log10(np.abs(self.field_data))
             plot_data[np.isinf(plot_data)] = np.nan
         else:
-            plot_data = self.divb2_data.copy()
+            plot_data = self.field_data.copy()
 
         # Track NaN positions for green overlay
         nan_mask = np.isnan(plot_data)
@@ -302,7 +302,7 @@ class Divb2Viewer(QMainWindow):
         scale_type = 'log₁₀ scale' if self.log_scale_checkbox.isChecked() else 'linear scale'
         print(f"Display range: [{vmin:.2e}, {vmax:.2e}] ({scale_type})")
 
-        # Create grayscale image for Divb2
+        # Create grayscale image for field
         # pyqtgraph ImageItem expects data in (rows, cols) = (y, x)
         self.divb2_image = pg.ImageItem()
         self.divb2_image.setImage(plot_data.T)  # Transpose for correct orientation
@@ -324,7 +324,7 @@ class Divb2Viewer(QMainWindow):
             self.graphics_widget.removeItem(self.colorbar)
 
         # Create colorbar with appropriate label
-        label = 'log₁₀(Divb2)' if self.log_scale_checkbox.isChecked() else 'Divb2'
+        label = f'log₁₀({self.field})' if self.log_scale_checkbox.isChecked() else f'{self.field}'
         self.colorbar = pg.ColorBarItem(
             values=(vmin, vmax),
             colorMap=colormap,
@@ -340,7 +340,7 @@ class Divb2Viewer(QMainWindow):
         # Create green overlay for NaN values (land/missing data)
         if np.any(nan_mask):
             # Create RGBA image for NaN overlay
-            nan_rgba = np.zeros((*self.divb2_data.shape, 4), dtype=np.ubyte)
+            nan_rgba = np.zeros((*self.field_data.shape, 4), dtype=np.ubyte)
 
             # Set dark green color for land
             nan_rgba[:, :, 0] = 0    # Red channel
@@ -387,16 +387,16 @@ class Divb2Viewer(QMainWindow):
         self.plot_widget.autoRange()
 
     def update_contrast(self, value):
-        """Update the contrast/levels of the Divb2 image."""
+        """Update the contrast/levels of the field image."""
         self.contrast_value_label.setText(f'{value}%')
 
-        if self.divb2_data is not None and self.divb2_image is not None:
+        if self.field_data is not None and self.divb2_image is not None:
             # Recalculate levels (log or linear)
             if self.log_scale_checkbox.isChecked():
-                plot_data = np.log10(np.abs(self.divb2_data))
+                plot_data = np.log10(np.abs(self.field_data))
                 plot_data[np.isinf(plot_data)] = np.nan
             else:
-                plot_data = self.divb2_data.copy()
+                plot_data = self.field_data.copy()
 
             vmin = np.nanpercentile(plot_data, 100 - value)
             vmax = np.nanpercentile(plot_data, value)
@@ -429,7 +429,7 @@ class Divb2Viewer(QMainWindow):
 
     def toggle_log_scale(self, state):
         """Toggle between log and linear scale, preserving zoom level."""
-        if self.divb2_data is not None:
+        if self.field_data is not None:
             # Save current view range before replotting
             view_range = self.plot_widget.viewRange()
             self.plot_data()
@@ -443,7 +443,7 @@ class Divb2Viewer(QMainWindow):
 
     def adjust_limits_to_view(self):
         """Adjust limits based on data visible in current view."""
-        if self.divb2_data is None or self.divb2_image is None:
+        if self.field_data is None or self.divb2_image is None:
             return
 
         # Get current view range
@@ -453,12 +453,12 @@ class Divb2Viewer(QMainWindow):
 
         # Convert to array indices (accounting for transpose)
         x_min = max(0, int(np.floor(x_range[0])))
-        x_max = min(self.divb2_data.shape[1], int(np.ceil(x_range[1])))
+        x_max = min(self.field_data.shape[1], int(np.ceil(x_range[1])))
         y_min = max(0, int(np.floor(y_range[0])))
-        y_max = min(self.divb2_data.shape[0], int(np.ceil(y_range[1])))
+        y_max = min(self.field_data.shape[0], int(np.ceil(y_range[1])))
 
         # Extract visible data
-        visible_data = self.divb2_data[y_min:y_max, x_min:x_max]
+        visible_data = self.field_data[y_min:y_max, x_min:x_max]
 
         # Apply transform (log or linear)
         if self.log_scale_checkbox.isChecked():
@@ -491,15 +491,18 @@ class Divb2Viewer(QMainWindow):
 def parser():
     """Parse command line arguments."""
     pparser = argparse.ArgumentParser(
-        description='Interactive viewer for global Divb2 data with fronts',
+        description='Interactive viewer for global data with fronts',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    pparser.add_argument('gradb2_file', type=str, nargs='?', default=None,
+    pparser.add_argument('data_file', type=str, nargs='?', default=None,
                         help='Path to gradb2 NetCDF file')
     pparser.add_argument('fronts_file', type=str, nargs='?', default=None,
                         help='Path to fronts .npy file (1=front, 0=no front)')
     pparser.add_argument('--fronts2', type=str, default=None,
                         help='Path to second fronts .npy file (displayed in blue)')
+    pparser.add_argument('--field', type=str, default='gradb2',
+                        help='Field to display')
+
     pparser.add_argument('--downsample', '-d', type=int, default=1,
                         help='Downsample factor for faster display (1 = no downsampling)')
 
@@ -512,11 +515,12 @@ def main(args):
     app = QApplication(sys.argv)
 
     # Create and show main window
-    viewer = Divb2Viewer(
-        gradb2_file=args.gradb2_file,
+    viewer = GlobalViewer(
+        data_file=args.data_file,
         fronts_file=args.fronts_file,
         fronts2_file=args.fronts2,
-        downsample=args.downsample
+        downsample=args.downsample,
+        field=args.field
     )
     viewer.show()
 
