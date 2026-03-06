@@ -7,7 +7,7 @@ import xarray
 
 from dbof.cli import generate_fronts_global
 from dbof.cli import zarr_to_netcdf
-import dbof.dataset_creation.config as config
+import dbof.dataset_creation.config as dbof_config
 
 from fronts.preproc import inpaint_edges
 from fronts.llc import io as llc_io
@@ -34,7 +34,7 @@ def generate_gradb2(timestamp:str, config_file:str, field:str='gradb2'):
     out_dir = os.path.dirname(full_path)
     out_file = os.path.basename(full_path)
     # Confg
-    cfg = config.load_config(config_file)
+    cfg = dbof_config.load_config(config_file)
     # Call it
     zarr_to_netcdf.main(out_dir, 
         output_filename=out_file,
@@ -112,7 +112,7 @@ def main(flg:str):
         out_dir = os.path.dirname(full_path)
         out_file = os.path.basename(full_path)
         # Confg
-        cfg = config.load_config(config_file)
+        cfg = dbof_config.load_config(config_file)
         zarr_to_netcdf.main(out_dir, 
             output_filename=out_file,
             mode='snapshots',
