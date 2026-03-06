@@ -1,5 +1,5 @@
 run:
-  run_id: "year_1xglobal_20260305_050000"
+  run_id: "year_1xglobal_20260306_050000"
   log_dir: "./logs/"
 
 data:
@@ -38,7 +38,7 @@ features:
     - V
     - W
   compute_features_channels:
-    - relative_vorticity
+    # - relative_vorticity
     # - gradb2 is added to the list automatically. This is currently not an optional feature
 
 runtime:
