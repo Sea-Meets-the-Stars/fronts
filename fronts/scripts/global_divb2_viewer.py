@@ -9,7 +9,7 @@ This application loads:
 And displays them in an interactive viewer with pan/zoom capabilities.
 
 Usage:
-    python global_divb2_viewer.py <divb2_file> <fronts_file> [--fronts2 FILE] [--downsample N]
+    python global_divb2_viewer.py <gradb2_file> <fronts_file> [--fronts2 FILE] [--downsample N]
 
 Example:
     python global_divb2_viewer.py LLC4320_2012-11-09T12_00_00_divb2.nc fronts.npy --fronts2 fronts2.npy --downsample 5
@@ -32,10 +32,10 @@ import pyqtgraph as pg
 class Divb2Viewer(QMainWindow):
     """Main window for Divb2 front visualization."""
 
-    def __init__(self, divb2_file=None, fronts_file=None, fronts2_file=None, downsample=1):
+    def __init__(self, gradb2_file=None, fronts_file=None, fronts2_file=None, downsample=1):
         super().__init__()
 
-        self.divb2_file = divb2_file
+        self.gradb2_file = gradb2_file
         self.fronts_file = fronts_file
         self.fronts2_file = fronts2_file
         self.downsample = downsample
@@ -56,8 +56,8 @@ class Divb2Viewer(QMainWindow):
         self.init_ui()
 
         # Load data if files provided
-        if divb2_file:# and fronts_file:
-            self.load_data(divb2_file, fronts_file, downsample)
+        if gradb2_file:# and fronts_file:
+            self.load_data(gradb2_file, fronts_file, downsample)
 
         # Load second fronts file if provided
         if fronts2_file:
@@ -206,12 +206,12 @@ class Divb2Viewer(QMainWindow):
         if self.show_fronts2_checkbox.isChecked():
             self.plot_widget.addItem(self.fronts2_image)
 
-    def load_data(self, divb2_file, fronts_file, downsample=1):
+    def load_data(self, gradb2_file, fronts_file, downsample=1):
         """
         Load Divb2 and fronts data from files.
 
         Parameters:
-            divb2_file (str): Path to NetCDF file with Divb2 data
+            gradb2_file (str): Path to NetCDF file with Divb2 data
             fronts_file (str): Path to .npy file with front mask
             downsample (int): Downsampling factor
         """
@@ -219,13 +219,13 @@ class Divb2Viewer(QMainWindow):
             self.status_bar.showMessage('Loading data...')
 
             # Load Divb2 from NetCDF
-            print(f"Loading Divb2 from: {divb2_file}")
-            self.ds = xr.open_dataset(divb2_file)
+            print(f"Loading Divb2 from: {gradb2_file}")
+            self.ds = xr.open_dataset(gradb2_file)
 
             if 'Divb2' in self.ds:
                 self.divb2_data = self.ds.Divb2.values
-            elif 'log_gradb' in self.ds:
-                self.divb2_data = 10**(self.ds.log_gradb.values)
+            elif 'gradb2' in self.ds:
+                self.divb2_data = self.ds.gradb2.values
             else:
                 self.status_bar.showMessage('ERROR: Divb2 variable not found in NetCDF file')
                 return
@@ -264,7 +264,7 @@ class Divb2Viewer(QMainWindow):
             self.plot_data()
 
             self.status_bar.showMessage(
-                f'Loaded: {Path(divb2_file).name} | '
+                f'Loaded: {Path(gradb2_file).name} | '
                 f'Shape: {self.divb2_data.shape} | '
                 f'Fronts: {np.sum(self.fronts_data == 1)} pixels'
             )
@@ -494,8 +494,8 @@ def parser():
         description='Interactive viewer for global Divb2 data with fronts',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    pparser.add_argument('divb2_file', type=str, nargs='?', default=None,
-                        help='Path to Divb2 NetCDF file')
+    pparser.add_argument('gradb2_file', type=str, nargs='?', default=None,
+                        help='Path to gradb2 NetCDF file')
     pparser.add_argument('fronts_file', type=str, nargs='?', default=None,
                         help='Path to fronts .npy file (1=front, 0=no front)')
     pparser.add_argument('--fronts2', type=str, default=None,
@@ -513,7 +513,7 @@ def main(args):
 
     # Create and show main window
     viewer = Divb2Viewer(
-        divb2_file=args.divb2_file,
+        gradb2_file=args.gradb2_file,
         fronts_file=args.fronts_file,
         fronts2_file=args.fronts2,
         downsample=args.downsample

@@ -82,7 +82,7 @@ def find_fronts(timestamp:str, config:str, version:str):
         fronts, timestamp, config, version)
 
 
-# #######################################################33
+# #######################################################
 def main(flg:str):
     flg= int(flg)
 
@@ -92,7 +92,7 @@ def main(flg:str):
         config_file = './testing_global_v1.yaml'
         generate_gradb2(timestamp, config_file)
 
-    # Find fronts
+    # Find fronts -- binary pixels
     if flg == 2:
         timestamp = '2012-11-09T12_00_00'
         config = 'B'
