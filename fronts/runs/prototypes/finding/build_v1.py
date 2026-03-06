@@ -99,6 +99,30 @@ def main(flg:str):
         version = '1'
         find_fronts(timestamp, config, version)
 
+    # ###########################
+    # Testing
+
+    # Test relative vorticity
+    if flg == 102:
+        # Output to netcdf on disk
+        timestamp = '2012-11-09T12_00_00'
+        config_file = './testing_global_v1.yaml'
+        field = 'relative_vorticity'
+        full_path = llc_io.derived_filename(timestamp, field, version='1')
+        out_dir = os.path.dirname(full_path)
+        out_file = os.path.basename(full_path)
+        # Confg
+        cfg = config.load_config(config_file)
+        zarr_to_netcdf.main(out_dir, 
+            output_filename=out_file,
+            mode='snapshots',
+            run_id=cfg.run.run_id,
+            s3_endpoint=cfg.output.s3_endpoint,
+            bucket=cfg.output.bucket,
+            channels=[field],
+            dates=cfg.data.date_iterations,
+            dataset_name=cfg.output.dataset_name,
+            folder=cfg.output.folder)
 
 # Command line execution
 if __name__ == '__main__':
