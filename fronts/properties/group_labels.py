@@ -211,17 +211,10 @@ def generate_front_ids(
     else:
         labeled_2d = labeled_fronts
 
-    # Handle 1D coordinate arrays
-    if lat.ndim == 1 and lon.ndim == 1:
-        lon_grid, lat_grid = np.meshgrid(lon, lat)
-    elif lat.ndim == 2 and lon.ndim == 2:
-        lat_grid = lat
-        lon_grid = lon
-    else:
-        raise ValueError(
-            f"lat and lon must be 1D or 2D arrays. Got shapes: "
-            f"lat={lat.shape}, lon={lon.shape}"
-        )
+    assert lat.ndim == 2 and lon.ndim == 2, \
+        f"Expected 2D lat/lon arrays, got lat={lat.ndim}D, lon={lon.ndim}D"
+    lat_grid = lat
+    lon_grid = lon
 
     # Get unique front labels
     labels = get_front_labels(labeled_2d)
