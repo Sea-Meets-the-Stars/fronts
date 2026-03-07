@@ -259,49 +259,6 @@ def generate_front_ids(
     return front_ids
 
 
-def get_front_masks(
-    labeled_fronts: np.ndarray,
-    labels: Optional[Union[int, List[int]]] = None
-) -> Dict[int, np.ndarray]:
-    """
-    Extract binary masks for individual fronts.
-    This creates a mask over the entire region of the labeled array, therefore it is not optimal to use for global arrays
-    and should be used only in cases with bounding boxes or small cutouts. 
-    
-    Parameters
-    ----------
-    labeled_fronts : np.ndarray
-        Labeled front array from label_fronts()
-    labels : int, list of int, or None, optional
-        Specific label(s) to extract. If None, extract all fronts.
-        Default is None.
-
-    Returns
-    -------
-    masks : dict
-        Dictionary mapping label -> binary mask array
-        Each mask is True where that specific front exists
-
-    Examples
-    --------
-    >>> labeled = np.array([[1, 1, 0], [0, 2, 2]])
-    >>> masks = get_front_masks(labeled)
-    >>> print(masks[1])
-    [[ True  True False]
-     [False False False]]
-    """
-    if labels is None:
-        labels = get_front_labels(labeled_fronts)
-    elif isinstance(labels, int):
-        labels = [labels]
-
-    masks = {}
-    for label_val in labels:
-        masks[label_val] = labeled_fronts == label_val
-
-    return masks
-
-
 def get_front_properties_basic(
     labeled_fronts: np.ndarray
 ) -> Dict[int, Dict[str, Union[int, Tuple]]]:
