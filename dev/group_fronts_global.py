@@ -33,7 +33,7 @@ Usage
     
     python group_fronts_global.py --fronts_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/outputs/LLC4320_2012-11-09T12_00_00_bin_A.npy' \
                                     --coords_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/LLC_coords_lat_lon.nc' \
-                                    --output_dir  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/testing/pr/' \
+                                    --output_dir  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/testing/pr1/' \
                                     --n_workers 2 \
                                     --skip_curvature
 """
@@ -74,9 +74,9 @@ def _process_cutout_wrapper(args_tuple):
     Parameters
     ----------
     args_tuple : tuple
-        (label, name, y0, y1, x0, x1, time_str, length_method, skip_curvature)
+        (label, name, y0, y1, x0, x1, time_str, skip_curvature)
     """
-    label, name, y0, y1, x0, x1, time_str, length_method, skip_curvature = args_tuple
+    label, name, y0, y1, x0, x1, time_str, skip_curvature = args_tuple
 
     labeled_cutout = _GLOBAL_LABELED[y0:y1, x0:x1]
     lat_cutout     = _GLOBAL_LAT[y0:y1, x0:x1]
@@ -88,7 +88,6 @@ def _process_cutout_wrapper(args_tuple):
         mask=mask, lat=lat_cutout, lon=lon_cutout,
         time_str=time_str,
         y0=y0, y1=y1, x0=x0, x1=x1,
-        length_method=length_method,
         skip_curvature=skip_curvature
     )
 
@@ -122,11 +121,10 @@ def main(
     fronts_file,
     coords_file,
     output_dir,
-    time=None,
+    time_input=None,
     n_workers=None,
     min_size=10,
     downsample=None,
-    length_method='skeleton',
     skip_curvature=False,
 ):
 
@@ -179,7 +177,7 @@ def main(
     print(f"  Loaded in {time.time() - t0:.1f}s")
 
     # Extract time from filename if not provided
-    if time is None:
+    if time_input is None:
         match = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2})',
                           fronts_file)
         if match:
@@ -188,7 +186,7 @@ def main(
             time_str = datetime.now().isoformat()
         print(f"\nExtracted time: {time_str}")
     else:
-        time_str = time
+        time_str = time_input
 
     # Filename-safe timestamp for output files
     time_str_safe = time_str.replace(':', '_').replace('-', '')
@@ -238,7 +236,7 @@ def main(
     print("WRITING GROUP TABLE")
     print("=" * 70)
     group_table_file = io.get_global_front_output_path(output_dir, time_str, 'group_table')
-    group_df = io.to_group_table(front_ids, bbox_coords, group_table_file)
+    group_df = io.write_front_group_table(front_ids, bbox_coords, group_table_file)
 
     # ------------------------------------------------------------------
     # 5. Pool on cutouts
@@ -252,7 +250,6 @@ def main(
     print("CALCULATING GEOMETRIC PROPERTIES (PARALLEL)")
     print("=" * 70)
     print(f"Processing {len(group_df):,} fronts using {n_workers} workers...")
-    print(f"Length method : {length_method}")
     print(f"Curvature     : {'SKIPPED' if skip_curvature else 'calculated'}")
 
     print("\nSetting up shared arrays for workers...")
@@ -265,7 +262,7 @@ def main(
     # Build args from group table — only small scalars, no large arrays
     front_args = [
         (row.label, row.name, row.y0, row.y1, row.x0, row.x1,
-         time_str, length_method, skip_curvature)
+         time_str, skip_curvature)
         for row in group_df.itertuples()
     ]
 
@@ -358,4 +355,14 @@ def main(
 
 
 if __name__ == '__main__':
-    main()
+    args = get_parser().parse_args()
+    main(
+        fronts_file=args.fronts_file,
+        coords_file=args.coords_file,
+        output_dir=args.output_dir,
+        time_input=args.time,
+        n_workers=args.n_workers,
+        min_size=args.min_size,
+        downsample=args.downsample,
+        skip_curvature=args.skip_curvature,
+    )
