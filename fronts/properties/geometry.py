@@ -10,43 +10,14 @@ from scipy import ndimage
 from skimage import measure
 from typing import Dict, Tuple, Optional, Union
 import warnings
+from sklearn.metrics.pairwise import haversine_distances
 
 
-def haversine_distance(
-    lat1: float, lon1: float,
-    lat2: float, lon2: float,
-    radius: float = 6371.0
-) -> float:
-    """
-    Calculate great circle distance between two points on Earth.
-
-    Uses the Haversine formula to compute the distance between two points
-    specified by latitude and longitude.
-
-    Parameters
-    ----------
-    lat1, lon1 : float
-        Latitude and longitude of first point in degrees
-    lat2, lon2 : float
-        Latitude and longitude of second point in degrees
-    radius : float, optional
-        Radius of Earth in kilometers. Default is 6371.0 km.
-
-    Returns
-    -------
-    distance : float
-        Distance between points in kilometers (or units of radius)
-    """
-    # Convert to radians
-    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-
-    # Haversine formula
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
-    c = 2 * np.arcsin(np.sqrt(a))
-
-    return radius * c
+def haversine_distance(lat1, lon1, lat2, lon2, radius=6371.0):
+    # haversine_distances expects radians
+    p1 = np.radians([[lat1, lon1]])
+    p2 = np.radians([[lat2, lon2]])
+    return haversine_distances(p1, p2)[0, 0] * radius
 
 
 def calculate_front_length(
@@ -113,7 +84,7 @@ def calculate_front_length(
         if len(rows) < 2:
             return 0.0
 
-        # OPTIMIZED: Sample perimeter pixels and measure spacing to connected neighbors
+        # Sample perimeter pixels and measure spacing to connected neighbors
         # Same approach as skeleton method, but for perimeter
         sample_size = min(20, len(rows))
         idx = np.random.choice(len(rows), sample_size, replace=False)
@@ -449,11 +420,7 @@ def calculate_branch_points(
     return int(np.sum(branch_points))
 
 
-def calculate_front_centroid(
-    mask: np.ndarray,
-    lat: np.ndarray,
-    lon: np.ndarray
-) -> Tuple[float, float]:
+def calculate_front_centroid(mask, lat, lon):
     """
     Calculate the centroid (center of mass) of a front.
 
@@ -473,18 +440,11 @@ def calculate_front_centroid(
     centroid_lon : float
         Longitude of centroid in degrees
     """
-    rows, cols = np.where(mask)
-
-    if len(rows) == 0:
+    if not np.any(mask):
         return np.nan, np.nan
-
-    # Get lat/lon at each pixel
-    lats = lat[rows, cols]
-    lons = lon[rows, cols]
-
-    # Calculate mean
-    centroid_lat = np.mean(lats)
-    centroid_lon = np.mean(lons)
+    
+    centroid_lat = ndimage.mean(lat, labels=mask.astype(int), index=1)
+    centroid_lon = ndimage.mean(lon, labels=mask.astype(int), index=1)
 
     return centroid_lat, centroid_lon
 
@@ -506,7 +466,6 @@ def calculate_front_extent(
     This function is useful for:
     - Interactive analysis of a single front
     - Cases where you don't have the full labeled array
-    - Legacy code compatibility
 
     Parameters
     ----------

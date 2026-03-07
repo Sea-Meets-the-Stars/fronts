@@ -63,7 +63,6 @@ def label_fronts(
 
     Notes
     -----
-    - Uses skimage.measure.label which is more efficient than scipy.ndimage.label
     - Connectivity=2 (8-connected) is recommended for oceanographic fronts to
       capture diagonal connections
     - For 3D arrays, connectivity determines temporal connectivity as well
@@ -88,19 +87,9 @@ def label_fronts(
 
 def get_front_labels(labeled_fronts: np.ndarray) -> np.ndarray:
     """
-    Get sorted array of unique front labels (excluding background).
-
-    Parameters
-    ----------
-    labeled_fronts : np.ndarray
-        Labeled front array from label_fronts()
-
-    Returns
-    -------
-    labels : np.ndarray
-        1D array of unique front labels, sorted in ascending order,
-        excluding 0 (background)
+    Get sorted (ascending) 1D array of unique front labels (excluding background).
     """
+
     labels = np.unique(labeled_fronts)
     return labels[labels > 0]  # Exclude background (0)
 
@@ -117,8 +106,7 @@ def generate_front_ids(
     Generate unique string IDs for each front in TIME_LAT_LON format.
 
     Each front receives a unique identifier based on the timestamp and the
-    location of its centroid. This allows fronts to be tracked and referenced
-    across different analyses.
+    location of its centroid. 
 
     Parameters
     ----------
@@ -239,27 +227,21 @@ def generate_front_ids(
     labels = get_front_labels(labeled_2d)
 
     # Generate IDs for each front
-    # OPTIMIZED VERSION: Calculate centroids for all fronts at once using scipy
+    # Calculate centroids for all fronts at once using scipy
     from scipy import ndimage
-
-    # Calculate centroids for all labels at once (MUCH faster!)
-    # This processes all 135k fronts in one vectorized operation
     label_indices = labels  # Labels to process
 
-    # Use scipy to calculate weighted means (centroids) for all labels at once
-    # This is ~1000x faster than looping
+    # Calculate weighted means (centroids) for all labels at once
     lat_centroids = ndimage.mean(lat_grid, labels=labeled_2d, index=label_indices)
     lon_centroids = ndimage.mean(lon_grid, labels=labeled_2d, index=label_indices)
 
-    # Now we still need to loop to find representative points and format strings
-    # But we already have all centroids, which was the slow part
+    # Loop to find representative points and format strings
     front_ids = {}
     for idx, label_val in enumerate(label_indices):
         lat_centroid = lat_centroids[idx]
         lon_centroid = lon_centroids[idx]
 
-        # For ID, use centroid directly (simpler and faster)
-        # Skip the "find closest pixel to centroid" step for speed
+        # For ID, use centroid  
         lat_on_front = lat_centroid
         lon_on_front = lon_centroid
 
@@ -283,7 +265,9 @@ def get_front_masks(
 ) -> Dict[int, np.ndarray]:
     """
     Extract binary masks for individual fronts.
-
+    This creates a mask over the entire region of the labeled array, therefore it is not optimal to use for global arrays
+    and should be used only in cases with bounding boxes or small cutouts. 
+    
     Parameters
     ----------
     labeled_fronts : np.ndarray
@@ -359,7 +343,6 @@ def get_front_properties_basic(
         }
 
     return properties
-
 
 def filter_fronts_by_size(
     labeled_fronts: np.ndarray,

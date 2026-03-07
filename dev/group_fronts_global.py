@@ -92,13 +92,11 @@ def _process_cutout_wrapper(args_tuple):
         skip_curvature=skip_curvature
     )
 
-
-def main():
+def get_parser():
     parser = argparse.ArgumentParser(
         description="Process global fronts with parallelization",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-
     parser.add_argument('--fronts_file', required=True,
                         help='Path to fronts .npy file')
     parser.add_argument('--coords_file', required=True,
@@ -118,23 +116,35 @@ def main():
                         help='Method for length calculation (default: skeleton)')
     parser.add_argument('--skip_curvature', action='store_true',
                         help='Skip curvature calculation (saves ~50%% time)')
+    return parser
 
-    args = parser.parse_args()
+def main(
+    fronts_file,
+    coords_file,
+    output_dir,
+    time=None,
+    n_workers=None,
+    min_size=10,
+    downsample=None,
+    length_method='skeleton',
+    skip_curvature=False,
+):
 
-    output_dir = Path(args.output_dir)
+
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    n_workers = args.n_workers or cpu_count()
+    n_workers = n_workers or cpu_count()
 
     print("=" * 70)
     print("GLOBAL FRONT PROCESSING")
     print("=" * 70)
-    print(f"Fronts file : {args.fronts_file}")
-    print(f"Coords file : {args.coords_file}")
+    print(f"Fronts file : {fronts_file}")
+    print(f"Coords file : {coords_file}")
     print(f"Output dir  : {output_dir}")
     print(f"Workers     : {n_workers}")
-    print(f"Min size    : {args.min_size} pixels")
-    if args.downsample:
-        print(f"Downsample  : {args.downsample}x (testing mode)")
+    print(f"Min size    : {min_size} pixels")
+    if downsample:
+        print(f"Downsample  : {downsample}x (testing mode)")
     print()
 
     # ------------------------------------------------------------------
@@ -142,10 +152,10 @@ def main():
     # ------------------------------------------------------------------
     print("Loading global fronts...")
     t0 = time.time()
-    fronts_global = np.load(args.fronts_file)
+    fronts_global = np.load(fronts_file)
 
-    if args.downsample:
-        fronts_global = fronts_global[::args.downsample, ::args.downsample]
+    if downsample:
+        fronts_global = fronts_global[::downsample, ::downsample]
 
     print(f"  Shape: {fronts_global.shape}")
     print(f"  Front pixels: {np.sum(fronts_global):,}")
@@ -153,15 +163,15 @@ def main():
 
     print("\nLoading coordinates...")
     t0 = time.time()
-    ds_coords = xr.open_dataset(args.coords_file)
+    ds_coords = xr.open_dataset(coords_file)
     lat_global = (ds_coords['lat'].values if 'lat' in ds_coords
                   else ds_coords['YC'].values)
     lon_global = (ds_coords['lon'].values if 'lon' in ds_coords
                   else ds_coords['XC'].values)
 
-    if args.downsample:
-        lat_global = lat_global[::args.downsample, ::args.downsample]
-        lon_global = lon_global[::args.downsample, ::args.downsample]
+    if downsample:
+        lat_global = lat_global[::downsample, ::downsample]
+        lon_global = lon_global[::downsample, ::downsample]
 
     ds_coords.close()
     print(f"  Lat range: [{lat_global.min():.1f}, {lat_global.max():.1f}]")
@@ -169,16 +179,16 @@ def main():
     print(f"  Loaded in {time.time() - t0:.1f}s")
 
     # Extract time from filename if not provided
-    if args.time is None:
+    if time is None:
         match = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2})',
-                          args.fronts_file)
+                          fronts_file)
         if match:
             time_str = match.group(1).replace('_', ':')
         else:
             time_str = datetime.now().isoformat()
         print(f"\nExtracted time: {time_str}")
     else:
-        time_str = args.time
+        time_str = time
 
     # Filename-safe timestamp for output files
     time_str_safe = time_str.replace(':', '_').replace('-', '')
@@ -197,15 +207,14 @@ def main():
     print(f"  Initial fronts: {num_fronts:,}")
     print(f"  Labeled in {time.time() - t0:.1f}s")
 
-    print(f"\nFiltering fronts (min_size={args.min_size})...")
+    print(f"\nFiltering fronts (min_size={min_size})...")
     t0 = time.time()
-    labeled = group_labels.filter_fronts_by_size(labeled, min_size=args.min_size)
     front_labels = group_labels.get_front_labels(labeled)
     print(f"  After filtering: {len(front_labels):,} fronts")
     print(f"  Filtered in {time.time() - t0:.1f}s")
 
     # Save labeled array
-    labeled_file = output_dir / f'labeled_fronts_global_{time_str_safe}.npy'
+    labeled_file     = io.get_global_front_output_path(output_dir, time_str, 'labeled')
     np.save(labeled_file, labeled)
     print(f"\nSaved labeled array: {labeled_file}")
 
@@ -228,7 +237,7 @@ def main():
     print("\n" + "=" * 70)
     print("WRITING GROUP TABLE")
     print("=" * 70)
-    group_table_file = output_dir / f'group_table_{time_str_safe}.parquet'
+    group_table_file = io.get_global_front_output_path(output_dir, time_str, 'group_table')
     group_df = io.to_group_table(front_ids, bbox_coords, group_table_file)
 
     # ------------------------------------------------------------------
@@ -243,8 +252,8 @@ def main():
     print("CALCULATING GEOMETRIC PROPERTIES (PARALLEL)")
     print("=" * 70)
     print(f"Processing {len(group_df):,} fronts using {n_workers} workers...")
-    print(f"Length method : {args.length_method}")
-    print(f"Curvature     : {'SKIPPED' if args.skip_curvature else 'calculated'}")
+    print(f"Length method : {length_method}")
+    print(f"Curvature     : {'SKIPPED' if skip_curvature else 'calculated'}")
 
     print("\nSetting up shared arrays for workers...")
     global _GLOBAL_LABELED, _GLOBAL_LAT, _GLOBAL_LON
@@ -256,7 +265,7 @@ def main():
     # Build args from group table — only small scalars, no large arrays
     front_args = [
         (row.label, row.name, row.y0, row.y1, row.x0, row.x1,
-         time_str, args.length_method, args.skip_curvature)
+         time_str, length_method, skip_curvature)
         for row in group_df.itertuples()
     ]
 
@@ -311,32 +320,26 @@ def main():
     cols = [c for c in cols if c in df.columns]
     df = df[cols]
 
-    csv_file = output_dir / f'global_front_properties_{time_str_safe}.csv'
-    df.to_csv(csv_file, index=False)
-    print(f"✓ CSV     : {csv_file}  ({csv_file.stat().st_size / 1e6:.1f} MB)")
-
-    parquet_file = output_dir / f'global_front_properties_{time_str_safe}.parquet'
+    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'properties')
     df.to_parquet(parquet_file, index=False)
     print(f"✓ Parquet : {parquet_file}  ({parquet_file.stat().st_size / 1e6:.1f} MB)")
 
-    import json
     metadata = {
-        'fronts_file': args.fronts_file,
-        'coords_file': args.coords_file,
+        'fronts_file': fronts_file,
+        'coords_file': coords_file,
         'time': time_str,
         'shape': list(fronts_global.shape),
         'num_fronts': len(df),
-        'min_size': args.min_size,
+        'min_size': min_size,
         'processing_time_minutes': total_time / 60,
         'n_workers': n_workers,
-        'downsample_factor': args.downsample,
+        'downsample_factor': downsample,
         'lat_range': [float(lat_global.min()), float(lat_global.max())],
         'lon_range': [float(lon_global.min()), float(lon_global.max())],
         'timestamp': datetime.now().isoformat()
     }
-    metadata_file = output_dir / f'metadata_{time_str_safe}.json'
-    with open(metadata_file, 'w') as f:
-        json.dump(metadata, f, indent=2)
+    metadata_file = io.get_global_front_output_path(output_dir, time_str, 'metadata')
+    io.write_json(metadata, metadata_file)
     print(f"✓ Metadata: {metadata_file}")
 
     print("\n" + "=" * 70)
@@ -347,7 +350,6 @@ def main():
     print(f"Output files:")
     print(f"  Labeled array : {labeled_file}")
     print(f"  Group table   : {group_table_file}")
-    print(f"  Properties CSV: {csv_file}")
     print(f"  Properties PQ : {parquet_file}")
     print(f"  Metadata      : {metadata_file}")
     print()

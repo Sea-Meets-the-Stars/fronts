@@ -481,3 +481,67 @@ def save_all_group_formats(
 
     print(f"\nAll files saved to {output_dir}/")
     return output_files
+
+def get_global_front_output_path(
+    output_dir: Union[str, Path],
+    time_str: str,
+    file_type: str,
+) -> Path:
+    """
+    Generate standardized output file paths for global front processing.
+
+    Parameters
+    ----------
+    output_dir : str or Path
+        Output directory
+    time_str : str
+        ISO 8601 timestamp string (e.g. '2012-11-09T12:00:00').
+        Colons and dashes are made filename-safe automatically.
+    file_type : str
+        One of: 'labeled', 'group_table', 'properties', 'metadata'
+
+    Returns
+    -------
+    path : Path
+        Full output file path
+
+    Examples
+    --------
+    >>> get_global_front_output_path('/out', '2012-11-09T12:00:00', 'properties')
+    PosixPath('/out/global_front_properties_20121109T120000.parquet')
+    """
+    time_str_safe = time_str.replace(':', '_').replace('-', '')
+
+    names = {
+        'labeled':     f'labeled_fronts_global_{time_str_safe}.npy',
+        'group_table': f'group_table_{time_str_safe}.parquet',
+        'properties':  f'global_front_properties_{time_str_safe}.parquet',
+        'metadata':    f'metadata_{time_str_safe}.json',
+    }
+
+    if file_type not in names:
+        raise ValueError(
+            f"Unknown file_type: {file_type!r}. Options: {list(names.keys())}"
+        )
+
+    return Path(output_dir) / names[file_type]
+
+def write_json(
+    data: dict,
+    output_path: Union[str, Path],
+) -> None:
+    """
+    Write a dictionary to a JSON file.
+
+    Parameters
+    ----------
+    data : dict
+        Data to serialise
+    output_path : str or Path
+        Output file path (should end in .json)
+    """
+    import json
+
+    with open(output_path, 'w') as f:
+        json.dump(data, f, indent=2)
+    print(f"Saved JSON to {output_path}")
