@@ -1,3 +1,5 @@
+
+#TODO: get_front_properties_basic is a simple function - how can we use it to replace others ?
 """
 Front Labeling Module
 

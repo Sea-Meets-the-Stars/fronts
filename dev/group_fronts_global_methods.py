@@ -55,6 +55,13 @@ Example (full pipeline from Python)
         n_workers=8,
         total_time=total_time,
     )
+
+    python /home/lhoffma2/git/fronts/dev/group_fronts_global_methods.py \
+    --fronts_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/outputs/LLC4320_2012-11-09T12_00_00_bin_A.npy' \
+    --coords_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/LLC_coords_lat_lon.nc' \
+    --output_dir  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/testing/pr2/' \
+    --n_workers 2 \
+    --skip_curvature
 """
 
 import numpy as np
@@ -225,7 +232,6 @@ def label_and_filter(
 
     print(f"\nFiltering fronts (min_size={min_size})...")
     t0 = time_module.time()
-    labeled = group_labels.filter_fronts_by_size(labeled, min_size=min_size)
     front_labels = group_labels.get_front_labels(labeled)
     num_fronts = len(front_labels)
     print(f"  After filtering: {num_fronts:,} fronts")
