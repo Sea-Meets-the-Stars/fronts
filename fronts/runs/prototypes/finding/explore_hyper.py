@@ -15,7 +15,7 @@ import xarray
 from IPython import embed
 
 def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
-    version:str='1'):
+    version:str='1', clobber:bool=False):
     """ 
     Explore the threshold for front finding
     using a range of thresholds.  Each binary front field is saved to disk.
@@ -24,6 +24,7 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
         timestamp (str): Timestamp of the data to process
         configs (list, optional): List of config files to process. Defaults to ['A', 'B', 'C'].
         version (str, optional): Version of the algorithm to use. Defaults to '0'.
+        clobber (bool, optional): If True, clobber the existing binary front fields. Defaults to False.
     """
 
     # Load gradb2
@@ -46,6 +47,12 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
     # Loop on configs
     for config in configs:
         print(f"Processing config: {config}")
+
+        # Check if the binary front field exists
+        bfile = finding_io.binary_filename(timestamp, config, version)
+        if os.path.isfile(bfile) and not clobber:
+            print(f"Binary front field {bfile} exists and clobber is False. Returning")
+            continue
 
         # Load config
         config_file = find_config.config_filename(config)
