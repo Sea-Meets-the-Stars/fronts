@@ -15,7 +15,7 @@ import xarray
 from IPython import embed
 
 def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
-    version:str='1', clobber:bool=False):
+    version:str='1', clobber:bool=False, inpaint:bool=False):
     """ 
     Explore the threshold for front finding
     using a range of thresholds.  Each binary front field is saved to disk.
@@ -38,8 +38,9 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
     print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
     # Inpaint
-    print("Inpainting...")
-    gradb2 = inpaint_edges.inpaint(gradb2, method='biharmonic',
+    if inpaint:
+        print("Inpainting...")
+        gradb2 = inpaint_edges.inpaint(gradb2, method='biharmonic',
                          second_pass='regular',
                          second_threshold=1e-20)
     print("Inpainted.")

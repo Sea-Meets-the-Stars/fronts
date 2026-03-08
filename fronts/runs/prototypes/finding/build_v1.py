@@ -47,7 +47,14 @@ def generate_gradb2(timestamp:str, config_file:str, field:str='gradb2'):
         dataset_name=cfg.output.dataset_name,
         folder=cfg.output.folder)
 
-def find_fronts(timestamp:str, config:str, version:str):
+def find_fronts(timestamp:str, config:str, version:str, inpaint:bool=False,
+    clobber:bool=False):
+
+    # Check if the binary front field exists
+    bfile = finding_io.binary_filename(timestamp, config, version)
+    if os.path.isfile(bfile) and not clobber:
+        print(f"Binary front field {bfile} exists and clobber is False. Returning")
+        return
 
     # Load gradb2
     gradb2_file = llc_io.derived_filename(timestamp, 'gradb2', version=version)
@@ -57,11 +64,12 @@ def find_fronts(timestamp:str, config:str, version:str):
     print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
     # Inpaint
-    print("Inpainting...")
-    gradb2 = inpaint_edges.inpaint(gradb2, method='biharmonic',
+    if inpaint:
+        print("Inpainting...")
+        gradb2 = inpaint_edges.inpaint(gradb2, method='biharmonic',
                          second_pass='regular',
                          second_threshold=1e-20)
-    print("Inpainted.")
+        print("Inpainted.")
 
     print(f"Processing config: {config}")
 
@@ -95,9 +103,11 @@ def main(flg:str):
     # Find fronts -- binary pixels
     if flg == 2:
         timestamp = '2012-11-09T12_00_00'
-        config = 'B'
         version = '1'
-        find_fronts(timestamp, config, version)
+        # Let's do all 3 configs for now
+        configs = ['A', 'B', 'C']
+        for config in configs:
+            find_fronts(timestamp, config, version)
 
     # ###########################
     # Testing
