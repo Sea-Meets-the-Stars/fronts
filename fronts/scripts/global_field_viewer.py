@@ -32,8 +32,8 @@ import pyqtgraph as pg
 class GlobalViewer(QMainWindow):
     """Main window for field front visualization."""
 
-    def __init__(self, data_file=None, fronts_file=None, fronts2_file=None, 
-        downsample=1, field='gradb2'):
+    def __init__(self, data_file=None, fronts_file=None, fronts2_file=None,
+        downsample=1, field='gradb2', divergent=False):
         super().__init__()
 
         self.data_file = data_file
@@ -41,6 +41,7 @@ class GlobalViewer(QMainWindow):
         self.fronts_file = fronts_file
         self.fronts2_file = fronts2_file
         self.downsample = downsample
+        self._init_divergent = divergent
 
         # Data storage
         self.field_data = None
@@ -56,6 +57,10 @@ class GlobalViewer(QMainWindow):
         self.colorbar = None  # Colorbar for divb2 values
 
         self.init_ui()
+
+        # Apply divergent flag from CLI
+        if self._init_divergent:
+            self.divergent_checkbox.setChecked(True)
 
         # Load data if files provided
         if data_file:# and fronts_file:
@@ -91,6 +96,14 @@ class GlobalViewer(QMainWindow):
         self.show_fronts2_checkbox.setChecked(True)
         self.show_fronts2_checkbox.stateChanged.connect(self.toggle_fronts2)
         control_layout.addWidget(self.show_fronts2_checkbox)
+
+        control_layout.addSpacing(20)
+
+        # Divergent colormap checkbox
+        self.divergent_checkbox = QCheckBox('Divergent cmap')
+        self.divergent_checkbox.setChecked(False)
+        self.divergent_checkbox.stateChanged.connect(self.toggle_divergent)
+        control_layout.addWidget(self.divergent_checkbox)
 
         control_layout.addSpacing(20)
 
@@ -153,6 +166,33 @@ class GlobalViewer(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage('Ready')
+
+    def _make_colormap(self):
+        """Return the appropriate colormap based on current settings."""
+        if self.divergent_checkbox.isChecked():
+            # Seismic: blue -> white -> red
+            colors = np.array([
+                [0, 0, 153],    # dark blue
+                [0, 0, 255],    # blue
+                [255, 255, 255],# white
+                [255, 0, 0],    # red
+                [153, 0, 0],    # dark red
+            ], dtype=np.ubyte)
+            pos = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
+        else:
+            # Inverted grayscale (white -> black)
+            colors = np.array([[255, 255, 255], [0, 0, 0]], dtype=np.ubyte)
+            pos = np.array([0.0, 1.0])
+        return pg.ColorMap(pos=pos, color=colors)
+
+    def _compute_levels(self, plot_data, percentile):
+        """Compute vmin/vmax, symmetric around zero if divergent."""
+        vmin = np.nanpercentile(plot_data, 100 - percentile)
+        vmax = np.nanpercentile(plot_data, percentile)
+        if self.divergent_checkbox.isChecked():
+            absmax = max(abs(vmin), abs(vmax))
+            vmin, vmax = -absmax, absmax
+        return vmin, vmax
 
     def load_fronts2(self, fronts2_file, downsample=1):
         """Load and display a second fronts file (blue overlay)."""
@@ -230,6 +270,9 @@ class GlobalViewer(QMainWindow):
                 self.status_bar.showMessage(f'ERROR: {self.field} variable not found in NetCDF file')
                 return
 
+            # Hack for Rossby Number
+            #if self.field == 'rossby_number':
+            #    self.field_data = np.abs(self.field_data) 
 
             # Apply downsampling
             if downsample > 1:
@@ -296,21 +339,18 @@ class GlobalViewer(QMainWindow):
 
         # Get contrast percentile (only from valid data)
         percentile = self.contrast_slider.value()
-        vmin = np.nanpercentile(plot_data, 100 - percentile)
-        vmax = np.nanpercentile(plot_data, percentile)
+        vmin, vmax = self._compute_levels(plot_data, percentile)
 
         scale_type = 'log₁₀ scale' if self.log_scale_checkbox.isChecked() else 'linear scale'
         print(f"Display range: [{vmin:.2e}, {vmax:.2e}] ({scale_type})")
 
-        # Create grayscale image for field
+        # Create image for field
         # pyqtgraph ImageItem expects data in (rows, cols) = (y, x)
         self.divb2_image = pg.ImageItem()
         self.divb2_image.setImage(plot_data.T)  # Transpose for correct orientation
 
-        # Set grayscale colormap (inverted: white to black)
-        # Higher values = darker (inverted grayscale)
-        colors = np.array([[255, 255, 255], [0, 0, 0]], dtype=np.ubyte)
-        colormap = pg.ColorMap(pos=np.array([0.0, 1.0]), color=colors)
+        # Set colormap
+        colormap = self._make_colormap()
         self.divb2_image.setColorMap(colormap)
 
         # Set levels (contrast)
@@ -356,20 +396,24 @@ class GlobalViewer(QMainWindow):
 
             self.plot_widget.addItem(self.nan_image)
 
-        # Create fronts overlay as semi-transparent red image
+        # Create fronts overlay (grey when divergent cmap, red otherwise)
         if self.fronts_data is not None:
-            # Create RGBA image for fronts overlay
-            # Shape: (height, width, 4) for RGBA
             fronts_rgba = np.zeros((*self.fronts_data.shape, 4), dtype=np.ubyte)
 
-            # Set red channel where fronts exist
-            fronts_rgba[:, :, 0] = 255  # Red channel
-            fronts_rgba[:, :, 1] = 0    # Green channel
-            fronts_rgba[:, :, 2] = 0    # Blue channel
+            if self.divergent_checkbox.isChecked():
+                # Dark grey for divergent colormap
+                fronts_rgba[:, :, 0] = 60
+                fronts_rgba[:, :, 1] = 60
+                fronts_rgba[:, :, 2] = 60
+            else:
+                # Red for default colormap
+                fronts_rgba[:, :, 0] = 255
+                fronts_rgba[:, :, 1] = 0
+                fronts_rgba[:, :, 2] = 0
 
             # Set alpha channel: transparent where no front, semi-transparent where front
-            # Alpha value of 60 gives nice visibility without overwhelming the background
-            fronts_rgba[:, :, 3] = (self.fronts_data > 0).astype(np.ubyte) * 120
+            alpha = 200 if self.divergent_checkbox.isChecked() else 120
+            fronts_rgba[:, :, 3] = (self.fronts_data > 0).astype(np.ubyte) * alpha
 
             # Create ImageItem for fronts overlay
             self.fronts_image = pg.ImageItem()
@@ -398,9 +442,7 @@ class GlobalViewer(QMainWindow):
             else:
                 plot_data = self.field_data.copy()
 
-            vmin = np.nanpercentile(plot_data, 100 - value)
-            vmax = np.nanpercentile(plot_data, value)
-
+            vmin, vmax = self._compute_levels(plot_data, value)
             self.divb2_image.setLevels([vmin, vmax])
 
             # Update colorbar to reflect new limits
@@ -434,6 +476,18 @@ class GlobalViewer(QMainWindow):
             view_range = self.plot_widget.viewRange()
             self.plot_data()
             # Restore view range after replot
+            self.plot_widget.setRange(xRange=view_range[0], yRange=view_range[1], padding=0)
+
+    def toggle_divergent(self, state):
+        """Toggle between default and divergent colormap, preserving zoom level."""
+        # Update fronts checkbox label to reflect color
+        if state == Qt.CheckState.Checked.value:
+            self.show_fronts_checkbox.setText('Show Fronts (grey)')
+        else:
+            self.show_fronts_checkbox.setText('Show Fronts (red)')
+        if self.field_data is not None:
+            view_range = self.plot_widget.viewRange()
+            self.plot_data()
             self.plot_widget.setRange(xRange=view_range[0], yRange=view_range[1], padding=0)
 
     def reset_view(self):
@@ -471,8 +525,7 @@ class GlobalViewer(QMainWindow):
 
         # Calculate new levels from visible data
         percentile = self.contrast_slider.value()
-        vmin = np.nanpercentile(visible_plot_data, 100 - percentile)
-        vmax = np.nanpercentile(visible_plot_data, percentile)
+        vmin, vmax = self._compute_levels(visible_plot_data, percentile)
 
         # Update image levels
         self.divb2_image.setLevels([vmin, vmax])
@@ -503,6 +556,8 @@ def parser():
     pparser.add_argument('--field', type=str, default='gradb2',
                         help='Field to display')
 
+    pparser.add_argument('--divergent', action='store_true', default=False,
+                        help='Use divergent (seismic) colormap centered at zero')
     pparser.add_argument('--downsample', '-d', type=int, default=1,
                         help='Downsample factor for faster display (1 = no downsampling)')
 
@@ -520,7 +575,8 @@ def main(args):
         fronts_file=args.fronts_file,
         fronts2_file=args.fronts2,
         downsample=args.downsample,
-        field=args.field
+        field=args.field,
+        divergent=args.divergent
     )
     viewer.show()
 

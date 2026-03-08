@@ -25,3 +25,11 @@
 ## In the script fronts.scripts/global_divb2_viewer.py, allow for a second fronts file to be loaded and displayed.  This should be a separate checkbox and use blue instead of red for the fronts.
 
 ## Please remove the load buttons and default the scaling to be linear.  Also, can we maintain the current zoom level when the log/linear toggle is changed?
+
+## Colormap
+
+### Please modify the global_field_viewer.py code to allow for a divergent colormap, like matplotlib's "seismic".
+
+## Two more changes:  (1) when the divergent colormap is used, the fronts should be displayed in grey (not red) and (2) add a parameter for the user to turn on the divergent colormap on the command line.
+
+## The fronts are white, not grey.  Please change to grey.
