@@ -1,3 +1,5 @@
+#TODO: separate this into multiple files: visualization & vis helpers
+
 """ Methods to visualize properties of fronts """
 
 import numpy as np
@@ -10,6 +12,7 @@ import seaborn as sns
 
 from wrangler.plotting import cutout
 
+'''
 from fronts.plotting.images import field_defs
 
 def show_field(field:str, data:np.ndarray, ax:plt.Axes=None,
@@ -135,16 +138,16 @@ def plot_velocities(U, V, ax:plt.Axes=None):
     print(f"Mean velocity magnitude: {velocity_magnitude.mean():.3f}")
 
     return ax
-
+'''
 
 # ---------------------------------------------------------------------------------------------
 # Group Fronts - Visualization aids
 # ---------------------------------------------------------------------------------------------
 
 from typing import Dict, Tuple, Optional, Union, List
-from properties.geometry import calculate_front_centroid, calculate_front_length, calculate_front_orientation, calculate_front_curvature
+from fronts.properties.geometry import calculate_front_centroid, calculate_front_length, calculate_front_orientation, calculate_front_curvature
 import warnings
-from properties.group_labels import get_front_labels
+from fronts.properties.group_labels import get_front_labels
 
 def get_front_masks(
     labeled_fronts: np.ndarray,
@@ -258,7 +261,6 @@ def calculate_all_geometric_properties(
     lon: np.ndarray,
     time: Optional[Union[str, np.datetime64]] = None,
     include_curvature: bool = True,
-    length_method: str = 'skeleton'
 ) -> Dict[int, Dict[str, float]]:
     """
     Calculate all geometric properties for all fronts.
@@ -266,7 +268,7 @@ def calculate_all_geometric_properties(
     Parameters
     ----------
     labeled_fronts : np.ndarray
-        Labeled front array from label.label_fronts()
+        Labeled front array from group_labels.label_fronts()
     lat : np.ndarray
         2D array of latitude coordinates
     lon : np.ndarray
@@ -314,7 +316,7 @@ def calculate_all_geometric_properties(
         lon_grid = lon
 
     # Get all front labels
-    from . import label as label_module
+    from . import group_labels as label_module
     labels = label_module.get_front_labels(labeled_fronts)
 
     properties = {}
@@ -338,7 +340,7 @@ def calculate_all_geometric_properties(
 
         # Length
         try:
-            length = calculate_front_length(mask, lat_grid, lon_grid, method=length_method)
+            length = calculate_front_length(mask, lat_grid, lon_grid)
             props['length_km'] = length
         except Exception as e:
             warnings.warn(f"Could not calculate length for front {lbl}: {e}")
