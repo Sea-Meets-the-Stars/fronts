@@ -1,14 +1,17 @@
 """ Front finding algorithms """
 from fronts.finding import pyboa
+import numpy as np
 
 from skimage import morphology
 
+from IPython import embed
 
-def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False, 
+def fronts_from_divb2(Divb2, window:int=40, thin:bool=False,
                       rm_weak:float=None, dilate:bool=False,
-                      connectivity:int=2, prcnt:float=90,
+                      connectivity:int=2, threshold:float=90,
                       thresh_mode:str='generic', n_workers:int=None,
-                      min_size:int=7, verbose:bool=False):
+                      min_size:int=7, verbose:bool=False,
+                      debug:bool=False):
     """
     Identifies and processes fronts from a divergence field (Divb2).
 
@@ -16,7 +19,7 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
     -----------
     Divb2 : ndarray
         The input divergence field from which fronts are to be identified.
-    wndw : int, optional, default=40
+    window : int, optional, default=40
         The window size used for thresholding in the front detection algorithm.
     thin : bool, optional, default=False
         If True, thins the detected fronts to single-pixel width.
@@ -30,10 +33,12 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
         Thresholding mode
     n_workers : int, optional, 
         Number of workers for parallel calculations
-    prcnt : float, optional, default=90
+    threshold : float, optional, default=90
         Percentile used in the cropping function to determine size threshold.
     verbose : bool, optional, default=False
         If True, prints verbose output.
+    debug : bool, optional, default=False
+
     Returns:
     --------
     ndarray
@@ -42,8 +47,8 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
 
     # Threshold
     if verbose:
-        print(f'Thresholding with window size {wndw} and percentile {prcnt} and mode {thresh_mode}')
-    res_frnt_np = pyboa.front_thresh(Divb2, wndw=wndw, prcnt=prcnt,
+        print(f'Thresholding with window size {window} and threshold {threshold} and mode {thresh_mode}')
+    res_frnt_np = pyboa.front_thresh(Divb2, wndw=window, prcnt=threshold,
         mode=thresh_mode, n_workers=n_workers)
 
     # Remove weak segments?
@@ -53,17 +58,37 @@ def fronts_from_divb2(Divb2, wndw:int=40, thin:bool=False,
     # Thin?
     if thin:
         if verbose:
+            print(f'There are {np.sum(res_frnt_np)} front pixels before thinning')
             print('Thinning...')
         res_frnt_np = morphology.thin(res_frnt_np)
+        if verbose:
+            print(f'There are {np.sum(res_frnt_np)} front pixels after thinning')
+        if debug:
+            print('Thinning another time...')
+            thin_2x = morphology.thin(res_frnt_np)
+            embed(header='63 of algorithms')
     
-    # Crop
-    if verbose:
-        print(f'Cropping with minimum size {min_size} and connectivity {connectivity}')
-    res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size,
+    # Crop?
+    if min_size > 0:
+        if verbose:
+            print(f'Cropping with minimum size {min_size} and connectivity {connectivity}')
+        # This also fills in small holes and 
+        #   requires a second thinning step (if thin=True)
+        res_frnt_crop = pyboa.cropping(res_frnt_np, min_size=min_size,
                                    connectivity=connectivity)
+    else:
+        res_frnt_crop = res_frnt_np
 
     # Dilate?
     if dilate:
         res_frnt_crop = morphology.dilation(res_frnt_crop)#, morphology.square(3))
+
+    # Thin a final time
+    if thin:
+        if verbose:
+            print('Thinning a final time...')
+        res_frnt_crop = morphology.thin(res_frnt_crop)
+        if verbose:
+            print(f'There are {np.sum(res_frnt_crop)} front pixels after final thinning')
 
     return res_frnt_crop
