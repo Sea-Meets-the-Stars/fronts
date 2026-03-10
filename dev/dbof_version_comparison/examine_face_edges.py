@@ -1,3 +1,7 @@
+""" Code to examine the inpainting of the gradb2 field 
+This was useful but largely unnecessary.  
+The inpainting is now handled in the preproc/inpaint_edges.py module."""
+
 from matplotlib import pyplot as plt
 import numpy as np
 import xarray

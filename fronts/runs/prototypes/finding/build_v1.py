@@ -49,6 +49,15 @@ def generate_gradb2(timestamp:str, config_file:str, field:str='gradb2'):
 
 def find_fronts(timestamp:str, config:str, version:str, inpaint:bool=False,
     clobber:bool=False):
+    """ Find us the fronts
+
+    Args:
+        timestamp (str): _description_
+        config (str): _description_
+        version (str): _description_
+        inpaint (bool, optional): _description_. Defaults to False.
+        clobber (bool, optional): _description_. Defaults to False.
+    """
 
     # Check if the binary front field exists
     bfile = finding_io.binary_filename(timestamp, config, version)
