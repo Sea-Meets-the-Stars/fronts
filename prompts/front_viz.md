@@ -33,3 +33,7 @@
 ## Two more changes:  (1) when the divergent colormap is used, the fronts should be displayed in grey (not red) and (2) add a parameter for the user to turn on the divergent colormap on the command line.
 
 ## The fronts are white, not grey.  Please change to grey.
+
+## Please modify the GUI to show the x,y values for the corners of the current view.
+
+### no luck;  maybe you should put it next to the plot title?
