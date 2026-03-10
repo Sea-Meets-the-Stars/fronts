@@ -222,14 +222,14 @@ def colocate_fronts_with_properties(
     properties : dict[str, np.ndarray]
         Mapping from property name to a 2-D numpy array **with the same shape
         as** *labeled_fronts*.  Values at grid cells that do not belong to any
-        front are ignored.  Examples: ``{'vorticity': v_arr, 'Ro': ro_arr}``.
+        front are ignored.  Examples: ``{'relative_vorticity': v_arr, 'rossby_number': ro_arr}``.
     stats : list of str, optional
         Statistics to compute for every property.  Any combination of
         ``'mean'``, ``'std'``, ``'median'``, ``'min'``, ``'max'``,
         ``'count'``.  Defaults to ``['mean', 'std', 'median']``.
     percentiles : sequence of numbers, optional
         Additional percentile statistics.  E.g. ``[10, 25, 75, 90]`` adds
-        columns ``'vorticity_p10'``, ``'vorticity_p25'``, etc.
+        columns ``'relative_vorticity_p10'``, ``'relative_vorticity_p25'``, etc.
         Default is ``None`` (no percentile columns).
     min_npix : int, optional
         Fronts with fewer pixels than this threshold are excluded from the
