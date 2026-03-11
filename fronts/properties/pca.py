@@ -398,7 +398,7 @@ class FrontPCAResult:
             Must align with ``scores`` (same index / order).
         lat_bins, lon_bins : int or array
             Number of equal-width bins or explicit bin-edge arrays.
-            Default: 90 lat bins (2°) × 180 lon bins (2°).
+            Default: 90 lat bins (2°) X 180 lon bins (2°).
         statistic : str
             Aggregation applied within each bin ('mean', 'median', 'std', …).
             Passed directly to ``scipy.stats.binned_statistic_2d``.
@@ -485,20 +485,18 @@ def run_pca_fronts(
     ----------
     df : DataFrame
         One row per front.  Must contain all columns listed in
-        ``property_cols``.  Rows with any NaN in those columns are dropped.
+        ``property_cols``.  
     property_cols : list of str
         Names of the property columns to include in PCA (e.g.
         ``['gradb2_mean', 'strain_mag_mean', 'okubo_weiss_mean', ...]``).
     n_components : int, optional
         Number of PCs to retain.  Defaults to ``len(property_cols)``.
     standardize : bool
-        Z-score each property before PCA (strongly recommended when
-        properties have different physical units).
+        Z-score each property before PCA.
     max_fit_fronts : int, optional
         If set and the number of valid fronts exceeds this, a random
         subsample is drawn for *fitting*.  The full valid set is always
-        *transformed*.  Rarely needed — front counts are typically O(10³–10⁵),
-        far smaller than gridded-map pixel counts.
+        *transformed*. 
     random_state : int
         Random seed for subsampling reproducibility.
 
@@ -525,7 +523,7 @@ def run_pca_fronts(
     >>> lon_e2d, lat_e2d = np.meshgrid(lon_e, lat_e)
     >>> ax.pcolormesh(lon_e2d, lat_e2d, np.ma.masked_invalid(grid))
     """
-    # ── Validate and clean ────────────────────────────────────────────────────
+    # ── Choose variables, remove incomplete rows ─────────────────────────────────
     missing = [c for c in property_cols if c not in df.columns]
     if missing:
         raise ValueError(f'Columns not found in df: {missing}')
@@ -545,7 +543,7 @@ def run_pca_fronts(
 
     X_full = df_valid.values.astype(np.float32)   # (n_valid, n_props)
 
-    # ── Standardise ───────────────────────────────────────────────────────────
+    # ── Standardize ───────────────────────────────────────────────────────────
     scaler = None
     if standardize:
         scaler = StandardScaler()
