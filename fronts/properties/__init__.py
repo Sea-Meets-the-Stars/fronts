@@ -11,8 +11,9 @@ from . import defs
 from . import measure
 from . import colocation
 from . import pca
+from . import jpdf
 #from . import utils
 #from . import views
 
 __all__ = ['group_labels', 'geometry', 'io', 'defs', 'measure', 'colocation',
-           'pca', 'utils', 'views']
+           'pca', 'jpdf', 'utils', 'views']
