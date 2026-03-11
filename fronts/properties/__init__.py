@@ -10,8 +10,9 @@ from . import io
 from . import defs
 from . import measure
 from . import colocation
+from . import pca
 #from . import utils
 #from . import views
 
 __all__ = ['group_labels', 'geometry', 'io', 'defs', 'measure', 'colocation',
-           'utils', 'views']
+           'pca', 'utils', 'views']
