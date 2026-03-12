@@ -4,20 +4,30 @@ import numpy as np
 
 import pandas
 
-# Front proprties
+# Front properties
 fprop_dmodel = {
     'UID': dict(dtype=(int, np.integer),
+                help='UID of the front'),
+    'UID_cutout': dict(dtype=(int, np.integer),
                 help='UID of the cutout'),
     'datetime': dict(dtype=pandas.Timestamp,
                 help='Timestamp of the cutout'),
+    'Npix': dict(dtype=(int, np.integer),
+                help='Number of pixels in the front'),
     'flabel': dict(dtype=(int, np.integer),
                 help='Front label in the cutout (1, 2,, ...). 0=not in a front'),
     'avg_Divb2': dict(dtype=(float,np.floating),
                 help='Average Divb2 of the front'),
-    'avg_lat': dict(dtype=(float,np.floating),
+    'length': dict(dtype=(float,np.floating),
+                help='Length of the front (km)'),
+    'lat': dict(dtype=(float,np.floating),
                 help='Average latitude of the front (deg)'),
-    'avg_lon': dict(dtype=(float,np.floating),
+    'lon': dict(dtype=(float,np.floating),
                 help='Average longitude of the front (deg)'),
+    'PV_max': dict(dtype=(float,np.floating),
+                help='Maximum PV of the front (units)'),
+    'PV_mean': dict(dtype=(float,np.floating),
+                help='Maximum PV of the front (units)'),
     'front_id': dict(dtype=str,
                 help='Unique front ID in TIME_LAT_LON format'),
     'time': dict(dtype=str,

@@ -1,0 +1,46 @@
+run:
+  run_id: "year_1xglobal_20260306_050000"
+  log_dir: "./logs/"
+
+data:
+  sampling_step: 168 # how many hours between snapshots (168 = weekly)
+  start_record: 1180
+  timestep_hours: 168 # total hours to process (336 = 2 snapshots, good for testing)
+  date_iterations: # YYYY-MM-DD HH:MM:SS (ISO) format
+    - '2012-11-09 12:00:00'
+##    - '11092012-12:00:00'
+  # --- alternative: specify exact timestamps in DDMMYYYY-HH:MM:SS format ---
+  # date_iterations:
+  #   - '01012012-00:00:00'
+  #   - '01042012-00:00:00'
+  # If set, date_iterations overrides sampling_step / start_record / timestep_hours.
+  # Dates are converted to LLC4320 iteration numbers automatically
+  # (model start: 2011-09-13 00:00 UTC, 25-second timestep).
+
+sampling:
+  # not used by the global script but config.py still requires the section
+  bias_to_high_gradients: 1.0
+  sample_points_per_snapshot: 1
+
+output:
+  target_km_res: 150 # only used if use_halo=True; safe to leave as-is otherwise; kept for config compatibility
+  down_sample_res: 64       # not used in the global script; kept for config compatibility
+  s3_endpoint: "https://s3-west.nrp-nautilus.io"
+  bucket: "dbof/"
+  folder: "native_grid_dbof_training_data/"
+  dataset_name: "dataset_creation.zarr"
+
+features:
+  model_data_feature_channels:
+    - Eta
+    - Salt
+    - Theta
+    - U
+    - V
+    - W
+  compute_features_channels:
+    - relative_vorticity
+    # - gradb2 is added to the list automatically. This is currently not an optional feature
+
+runtime:
+  zarr_async_concurrency: 128

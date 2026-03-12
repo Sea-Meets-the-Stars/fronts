@@ -2,16 +2,20 @@
 ##  e.g. threshold, window size, etc.
 
 import os
+import numpy as np
+from skimage.restoration import inpaint as sk_inpaint
 
 from fronts.llc import io as llc_io
 from fronts.finding import config as find_config
 from fronts.finding import algorithms
 from fronts.finding import io as finding_io
+from fronts.preproc import inpaint_edges
 import xarray
 
 from IPython import embed
 
-def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C']): 
+def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C'],
+    version:str='1', clobber:bool=False, inpaint:bool=False):
     """ 
     Explore the threshold for front finding
     using a range of thresholds.  Each binary front field is saved to disk.
@@ -19,19 +23,39 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C']):
     Args:
         timestamp (str): Timestamp of the data to process
         configs (list, optional): List of config files to process. Defaults to ['A', 'B', 'C'].
+        version (str, optional): Version of the algorithm to use. Defaults to '0'.
+        clobber (bool, optional): If True, clobber the existing binary front fields. Defaults to False.
     """
 
-    # Load Divb2
-    Divb2_file = llc_io.derived_filename(timestamp, 'Divb2')
-    print(f"Loading Divb2 from: {Divb2_file}")
-    Divb2 = xarray.open_dataset(Divb2_file)['Divb2'].values
-    print(f"Loaded Divb2 with shape: {Divb2.shape}")
+    # Load gradb2
+    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2', version=version)
+    print(f"Loading gradb2 from: {gradb2_file}")
+    if version == '0':
+        gradb2 = xarray.open_dataset(gradb2_file)['Divb2'].values
+    elif version == '1':
+        gradb2 = xarray.open_dataset(gradb2_file)['gradb2'].values
+
+    print(f"Loaded gradb2 with shape: {gradb2.shape}")
+
+    # Inpaint
+    if inpaint:
+        print("Inpainting...")
+        gradb2 = inpaint_edges.inpaint(gradb2, method='biharmonic',
+                         second_pass='regular',
+                         second_threshold=1e-20)
+    print("Inpainted.")
 
     # Loop on configs
     for config in configs:
         print(f"Processing config: {config}")
 
-        # Load config 
+        # Check if the binary front field exists
+        bfile = finding_io.binary_filename(timestamp, config, version)
+        if os.path.isfile(bfile) and not clobber:
+            print(f"Binary front field {bfile} exists and clobber is False. Returning")
+            continue
+
+        # Load config
         config_file = find_config.config_filename(config)
         cdict = find_config.load(config_file)
 
@@ -41,11 +65,11 @@ def explore_threshold(timestamp:str, configs:list=['A', 'B', 'C']):
         bparam['verbose'] = True
 
         # Do it
-        fronts = algorithms.fronts_from_divb2(Divb2, **bparam)
+        fronts = algorithms.fronts_from_gradb2(gradb2, **bparam)
 
         # Save em
         finding_io.save_binary_fronts(
-            fronts, timestamp, config)
+            fronts, timestamp, config, version)
     
 def build_unthinned(timestamp:str, config:str='Z'): 
     """ 
@@ -92,11 +116,11 @@ def debug_thinning(timestamp:str, config:str='C'):
         config (str, optional): Config file to process. Defaults to 'C'.
     """
 
-    # Load Divb2
-    Divb2_file = llc_io.derived_filename(timestamp, 'Divb2')
-    print(f"Loading Divb2 from: {Divb2_file}")
-    Divb2 = xarray.open_dataset(Divb2_file)['Divb2'].values
-    print(f"Loaded Divb2 with shape: {Divb2.shape}")
+    # Load gradb2
+    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2')
+    print(f"Loading gradb2 from: {gradb2_file}")
+    gradb2 = xarray.open_dataset(gradb2_file)['gradb2'].values
+    print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
     # Load config 
     config_file = find_config.config_filename(config)
@@ -108,8 +132,8 @@ def debug_thinning(timestamp:str, config:str='C'):
     bparam['verbose'] = True
 
     # Do it
-    fronts = algorithms.fronts_from_divb2(
-        Divb2, debug=True, **bparam)
+    fronts = algorithms.fronts_from_gradb2(
+        gradb2, debug=True, **bparam)
 
 # #######################################################33
 def main(flg:str):
@@ -118,7 +142,12 @@ def main(flg:str):
     # Explore threshold
     if flg == 1:
         timestamp = '2012-11-09T12_00_00'
-        explore_threshold(timestamp)
+        # v0
+        #explore_threshold(timestamp, version='0')
+        # v1
+        explore_threshold(timestamp, version='1')
+
+        # Debugging
         #explore_threshold(timestamp, configs=['C'])
 
     # Generate unthinned/cropped front for debugging
@@ -137,6 +166,7 @@ if __name__ == '__main__':
 
     if len(sys.argv) == 1:
         flg = 0
+        # flg = 1 # Explore threshold
         pass
     else:
         flg = sys.argv[1]

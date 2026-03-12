@@ -37,3 +37,13 @@
 # Cropping
 
 ## Thanks.  Now add a method to test the timing of pyboa.cropping().  Run it on the output from thinning.  You do not need to run the rest of the tests.
+
+# Inpainting
+
+## Please add a method to examine_face_edges.py that will inpaint the bad pixels for an input image using RegularGridInterpolator.  Call it inpaint_regular().
+
+## Add to the module inpaint_edges.py in fronts/preproc/ the inpaint_regular() and inpaint_biharmonic() methods from the examine_face_edges.py module.  Add doc strings.  Also add a inpaint() method that will call the appropriate inpainting method based on the input parameters and allow for a two stage process of inpainting as in the examine_inpainting() method.
+
+# Spurs
+
+## Please exmine the spurs() method in pyboa.py and run it on the test file bfronts_spurs.npy in dev/spurs.  You will find it removes nearly all of the fronts instead of only spurs.  Can you explain why?  If you need to run python on this, be sure to be on the "ocean14" environment of conda.

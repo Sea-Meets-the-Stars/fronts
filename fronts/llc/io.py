@@ -30,7 +30,8 @@ def load_coords(verbose=True):
     return coord_ds
 
 def derived_filename(timestamp:str, field:str,
-                 root:str='LLC4320', path:str=None):
+                 root:str='LLC4320', path:str=None,
+                 version:str='1'):
     """Generate filename of derived field from LLC 
 
     Args:
@@ -38,11 +39,13 @@ def derived_filename(timestamp:str, field:str,
             Timestamp of the data to be loaded.
             Format: 'YYYY-MM-DDTHH_MM_SS'
         field: str
-            Field to be loaded, e.g. 'Divb2'
+            Field to be loaded, e.g. 'gradb2'
         root: str
             Root of the filename.  Defaults to 'LLC4320'.
         path: str
             Path to the data.  If None, will use $OS_OGCM/LLC/Fronts/derived.
+        version: str
+            Version of the algorithm to use.  Defaults to '1'.
 
     Returns:
         filename: str
@@ -53,7 +56,7 @@ def derived_filename(timestamp:str, field:str,
             'LLC', 'Fronts', 'derived')
 
     # Generate base
-    basefile = f'{root}_{timestamp}_{field}.nc'
+    basefile = f'{root}_{timestamp}_{field}_v{version}.nc'
 
     # Join and return
     return os.path.join(path, basefile)
