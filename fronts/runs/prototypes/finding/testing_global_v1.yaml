@@ -6,8 +6,9 @@ data:
   sampling_step: 168 # how many hours between snapshots (168 = weekly)
   start_record: 1180
   timestep_hours: 168 # total hours to process (336 = 2 snapshots, good for testing)
-  date_iterations:
-    - '11092012-12:00:00'
+  date_iterations: # YYYY-MM-DD HH:MM:SS (ISO) format
+    - '2012-11-09 12:00:00'
+##    - '11092012-12:00:00'
   # --- alternative: specify exact timestamps in DDMMYYYY-HH:MM:SS format ---
   # date_iterations:
   #   - '01012012-00:00:00'

@@ -55,6 +55,7 @@ def load_binary_fronts(timestamp:str, config_lbl:str, version:str, **kwargs):
     """
     # Grab filename
     b_file = binary_filename(timestamp, config_lbl, version, **kwargs)
+    print(f"Loading binary front field from {b_file}")
 
     # Open
     binary_fronts = np.load(b_file)
