@@ -1,6 +1,6 @@
 # Front viz tools
 
-# Global divb2 viewer
+# Global gradb2 viewer
 
 ## Please generate a simple PyQt6 + pyqtgraph GUI based on the global_divb2_map.py file in fronts/dev/ which reads in a NetCDF file of divb2 data and a .npy file of fronts (1=front, 0=no front).  The top panel will show a downsampled version of the global field and one should be able to pan and zoom.  The divb2 data will be a grayscale and the fronts will be red dots.
 
