@@ -122,66 +122,34 @@ def calculate_front_length(
     return length
 
 
-def calculate_front_orientation(
-    mask: np.ndarray,
-    lat: np.ndarray,
-    lon: np.ndarray
-) -> float:
+def calculate_front_orientation(mask: np.ndarray) -> float:
     """
     Calculate the primary orientation of a front.
 
     Parameters
     ----------
     mask : np.ndarray
-        Binary mask for a single front
-    lat : np.ndarray
-        2D array of latitude coordinates
-    lon : np.ndarray
-        2D array of longitude coordinates
+        Binary mask for a single front.
 
     Returns
     -------
     orientation : float
-        Orientation angle in degrees, measured as acute angle from North (0-90°)
-        - 0° = North-South front (meridional)
-        - 45° = Diagonal front (NE-SW or NW-SE)
-        - 90° = East-West front (zonal)
-        Note: Uses acute angle to eliminate ambiguity since fronts are lines, not vectors
+        Acute angle from North (0–90°):
+        - 0°  = N-S front (meridional)
+        - 45° = diagonal (NE-SW or NW-SE)
+        - 90° = E-W front (zonal)
 
     Notes
     -----
-    Uses the orientation of the major axis from regionprops.
+    regionprops.orientation is the angle between axis-0 (rows, N-S) and the
+    major axis, in [-π/2, π/2]. An E-W front has its major axis perpendicular
+    to rows → ~±90°; an N-S front → ~0°. Taking abs() gives the correct
+    convention directly without further transformation.
     """
-    # Use skimage regionprops for orientation
-    labeled = mask.astype(int)
-    props = measure.regionprops(labeled)
-
-    if len(props) == 0:
+    props = measure.regionprops(mask.astype(int))
+    if not props:
         return np.nan
-
-    # Orientation from regionprops (in radians, -pi/2 to pi/2)
-    orientation_rad = props[0].orientation
-
-    # Convert to degrees (0-180, measured from horizontal)
-    orientation_deg = np.degrees(orientation_rad)
-
-    # Convert to oceanographic convention (0° = N, 90° = E)
-    # regionprops gives angle from horizontal (E-W) axis
-    # We want angle from vertical (N-S) axis
-    orientation_from_north = 90 - orientation_deg
-
-    # Normalize to 0-180 range first
-    if orientation_from_north < 0:
-        orientation_from_north += 180
-    elif orientation_from_north >= 180:
-        orientation_from_north -= 180
-
-    # Fold to 0-90 range (acute angle from North)
-    # This removes ambiguity since fronts are lines, not vectors
-    if orientation_from_north > 90:
-        orientation_from_north = 180 - orientation_from_north
-
-    return orientation_from_north
+    return float(abs(np.degrees(props[0].orientation)))
 
 
 def calculate_front_curvature(
@@ -350,35 +318,6 @@ def calculate_branch_points(
     return int(np.sum(branch_points))
 
 
-def calculate_front_centroid(mask, lat, lon):
-    """
-    Calculate the centroid (center of mass) of a front.
-
-    Parameters
-    ----------
-    mask : np.ndarray
-        Binary mask for a single front
-    lat : np.ndarray
-        2D array of latitude coordinates
-    lon : np.ndarray
-        2D array of longitude coordinates
-
-    Returns
-    -------
-    centroid_lat : float
-        Latitude of centroid in degrees
-    centroid_lon : float
-        Longitude of centroid in degrees
-    """
-    if not np.any(mask):
-        return np.nan, np.nan
-    
-    centroid_lat = ndimage.mean(lat, labels=mask.astype(int), index=1)
-    centroid_lon = ndimage.mean(lon, labels=mask.astype(int), index=1)
-
-    return centroid_lat, centroid_lon
-
-
 def process_single_front(
     label: int,
     name: str,
@@ -440,14 +379,11 @@ def process_single_front(
             props.update({'y0': int(y0), 'y1': int(y1),
                           'x0': int(x0), 'x1': int(x1)})
 
-        # Centroid
-        clat, clon = calculate_front_centroid(mask, lat, lon)
-        props['centroid_lat'] = float(clat)
-        props['centroid_lon'] = float(clon)
-
-        # Spatial extent
+        # Centroid and spatial extent — compute lat[mask] once, reuse for both
         front_lats = lat[mask]
         front_lons = lon[mask]
+        props['centroid_lat'] = float(front_lats.mean())
+        props['centroid_lon'] = float(front_lons.mean())
         props['lat_min'] = float(front_lats.min())
         props['lat_max'] = float(front_lats.max())
         props['lon_min'] = float(front_lons.min())
@@ -458,7 +394,7 @@ def process_single_front(
 
         props['length_km'] = float(calculate_front_length(mask, lat, lon, skeleton=skeleton))
         props['num_branches'] = int(calculate_branch_points(mask, skeleton=skeleton))
-        props['orientation'] = float(calculate_front_orientation(mask, lat, lon))
+        props['orientation'] = float(calculate_front_orientation(mask))
 
         if not skip_curvature:
             curv, curv_dir = calculate_front_curvature(mask, lat, lon, skeleton=skeleton)
