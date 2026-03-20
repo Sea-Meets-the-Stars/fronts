@@ -36,12 +36,17 @@ def get_parser():
 
 def main(fronts_file, coords_file, output_dir,
          n_workers=None, skip_curvature=False):
+    
+    # load fronts
     fronts_binary = np.load(fronts_file)
+
+    # load coordinates
     ds = xr.open_dataset(coords_file)
     lat = ds['lat'].values if 'lat' in ds else ds['YC'].values
     lon = ds['lon'].values if 'lon' in ds else ds['XC'].values
     ds.close()
 
+    # group fronts, compute geometric properties
     algorithms.group_fronts(
         fronts_binary, lat, lon,
         fronts_file=fronts_file,

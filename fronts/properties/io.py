@@ -1,9 +1,7 @@
 """
-Input/Output for front grouping results.
-
-Three functions mirroring the pattern in fronts.finding.io:
-  write_front_group_table  — save label/name/bbox table to parquet or csv
-  load_front_group_table   — load that table back
+Input/Output for front grouping results.:
+  write_front_index        — save label/name/bbox index table to parquet or csv
+  load_front_index         — load that table back
   get_global_front_output_path — standardised output paths for global runs
 """
 
@@ -13,14 +11,17 @@ from pathlib import Path
 from typing import Dict, Union
 
 
-def write_front_group_table(
+def write_front_index(
     front_ids: Dict[int, str],
     properties: Dict[int, Dict],
     output_path: Union[str, Path],
     format: str = 'parquet'
 ) -> pd.DataFrame:
     """
-    Save front group table to disk.
+    Save front index table to disk.
+
+    The front index is the master lookup table for all detected fronts:
+    one row per front with its integer label, unique name, and bounding box.
 
     Columns: label, name, x0, y0, x1, y1
         - label : integer front label
@@ -43,7 +44,7 @@ def write_front_group_table(
     Returns
     -------
     df : pd.DataFrame
-        The group table DataFrame (also saved to disk).
+        The front index DataFrame (also saved to disk).
     """
     rows = []
     for label, name in front_ids.items():
@@ -68,31 +69,31 @@ def write_front_group_table(
     else:
         raise ValueError(f"Unknown format: {format!r}. Use 'parquet' or 'csv'.")
 
-    print(f"Saved group table ({len(df)} fronts) to {output_path}")
+    print(f"Saved front index ({len(df)} fronts) to {output_path}")
     return df
 
 
-def load_front_group_table(
+def load_front_index(
     input_path: Union[str, Path]
 ) -> pd.DataFrame:
     """
-    Load front group table from disk.
+    Load front index table from disk.
 
     Parameters
     ----------
     input_path : str or Path
-        Path to group table file (.parquet or .csv).
+        Path to front index file (.parquet or .csv).
 
     Returns
     -------
     df : pd.DataFrame
-        Group table with columns: label, name, x0, y0, x1, y1.
+        Front index with columns: label, name, x0, y0, x1, y1.
 
     Examples
     --------
-    >>> group_df = load_front_group_table('group_table.parquet')
-    >>> row = group_df.iloc[0]
-    >>> cutout = labeled[row.y0:row.y1, row.x0:row.x1]
+    >>> index_df = load_front_index('front_index.parquet')
+    >>> row = index_df.iloc[0]
+    >>> cutout = label_map[row.y0:row.y1, row.x0:row.x1]
     """
     input_path = Path(input_path)
     if input_path.suffix == '.parquet':
@@ -108,7 +109,7 @@ def get_global_front_output_path(
     run_tag: str = '',
 ) -> Path:
     """
-    Generate standardised output file paths for global front processing.
+    Generate standardized output file paths for global front processing.
 
     Parameters
     ----------
@@ -118,7 +119,7 @@ def get_global_front_output_path(
         ISO 8601 timestamp string (e.g. '2012-11-09T12:00:00').
         Colons and dashes are made filename-safe automatically.
     file_type : str
-        One of: 'labeled', 'group_table', 'properties', 'colocation', 'metadata'.
+        One of: 'label_map', 'front_index', 'geometry', 'properties', 'metadata'.
     run_tag : str, optional
         Version/config suffix extracted from the source fronts filename,
         e.g. 'v1_bin_A' from 'LLC4320_2012-11-09T12_00_00_v1_bin_A.npy'.
@@ -131,17 +132,17 @@ def get_global_front_output_path(
 
     Examples
     --------
-    >>> get_global_front_output_path('/out', '2012-11-09T12:00:00', 'properties', 'v1_bin_A')
-    PosixPath('/out/global_front_properties_20121109T12_00_00_v1_bin_A.parquet')
+    >>> get_global_front_output_path('/out', '2012-11-09T12:00:00', 'geometry', 'v1_bin_A')
+    PosixPath('/out/global_front_geometry_20121109T12_00_00_v1_bin_A.parquet')
     """
     time_str_safe = time_str.replace(':', '_').replace('-', '')
     tag = f'_{run_tag}' if run_tag else ''
 
     names = {
-        'labeled':     f'labeled_fronts_global_{time_str_safe}{tag}.npy',
-        'group_table': f'group_table_{time_str_safe}{tag}.parquet',
-        'properties':  f'global_front_properties_{time_str_safe}{tag}.parquet',
-        'colocation':  f'colocation_{time_str_safe}{tag}.parquet',
+        'label_map':   f'labeled_fronts_global_{time_str_safe}{tag}.npy',
+        'front_index': f'front_index_{time_str_safe}{tag}.parquet',
+        'geometry':    f'global_front_geometry_{time_str_safe}{tag}.parquet',
+        'properties':  f'front_properties_{time_str_safe}{tag}.parquet',
         'metadata':    f'metadata_{time_str_safe}{tag}.json',
     }
 

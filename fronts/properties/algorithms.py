@@ -123,16 +123,16 @@ def group_fronts(
     # --- Label ---
     labeled, n = group_labels.label_fronts(fronts_binary, connectivity=2, return_num=True)
     print(f"Labeled {n:,} fronts")
-    np.save(io.get_global_front_output_path(output_dir, time_str, 'labeled', run_tag), labeled)
+    np.save(io.get_global_front_output_path(output_dir, time_str, 'label_map', run_tag), labeled)
 
     # --- Properties (bbox + centroid indices) and front IDs ---
     properties = group_labels.get_front_properties(labeled)
     front_ids  = group_labels.generate_front_ids(lat, lon, str(fronts_file),
                                                  properties=properties)
 
-    # --- Group table ---
-    group_table_file = io.get_global_front_output_path(output_dir, time_str, 'group_table', run_tag)
-    group_df = io.write_front_group_table(front_ids, properties, group_table_file)
+    # --- Front index ---
+    front_index_file = io.get_global_front_output_path(output_dir, time_str, 'front_index', run_tag)
+    group_df = io.write_front_index(front_ids, properties, front_index_file)
 
     # --- Parallel geometric properties ---
     _GLOBAL_LABELED = labeled
@@ -153,7 +153,7 @@ def group_fronts(
         ]
     print(f"Processed {len(results):,} fronts")
 
-    # --- Save parquet ---
+    # --- Save geometry parquet ---
     df = pd.DataFrame(results)
     col_order = ['label', 'name', 'time', 'npix',
                  'y0', 'y1', 'x0', 'x1',
@@ -163,7 +163,7 @@ def group_fronts(
                  'mean_curvature', 'curvature_direction']
     df = df[[c for c in col_order if c in df.columns]]
 
-    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'properties', run_tag)
+    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'geometry', run_tag)
     df.to_parquet(parquet_file, index=False)
     print(f"Wrote: {parquet_file}")
 
@@ -281,7 +281,7 @@ def colocate_fronts(
     )
     print(f"Co-located {len(df):,} fronts")
 
-    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'colocation', run_tag)
+    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'properties', run_tag)
     df.to_parquet(parquet_file, index=False)
     print(f"Wrote: {parquet_file}")
 

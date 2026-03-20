@@ -202,7 +202,7 @@ def characterize_fronts(timestamp: str, config_file: str, version: str,
     # get_global_front_output_path expects colons in the time string
     time_str    = timestamp.replace('_', ':')   # '2012-11-09T12:00:00'
     labeled_file = properties_io.get_global_front_output_path(
-        group_dir, time_str, 'labeled')
+        group_dir, time_str, 'label_map')
     labeled = np.load(labeled_file)
 
     ds = xarray.open_dataset(prop_file)

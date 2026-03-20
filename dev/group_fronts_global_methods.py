@@ -14,7 +14,7 @@ Pipeline
 2. label_and_filter        — connected component labeling + size filter
 3. save_labeled_array      — write labeled array to disk
 4. extract_bboxes_and_ids  — bounding boxes + unique front IDs
-5. build_group_table       — write group table (label, name, bbox) to disk
+5. build_front_index       — write front index (label, name, bbox) to disk
 6. run_parallel_geometry   — pool workers on cutouts, calculate properties
 7. save_results            — write parquet + metadata JSON to disk
 
@@ -25,7 +25,7 @@ Example (full pipeline from Python)
 ------------------------------------
     from group_fronts_global_methods import (
         load_fronts_data, label_and_filter, save_labeled_array,
-        extract_bboxes_and_ids, build_group_table,
+        extract_bboxes_and_ids, build_front_index,
         run_parallel_geometry, save_results
     )
 
@@ -38,7 +38,7 @@ Example (full pipeline from Python)
     properties, front_ids = extract_bboxes_and_ids(
         labeled, lat, lon, fronts_file='/data/fronts.npy'
     )
-    group_df, group_table_file = build_group_table(
+    group_df, front_index_file = build_front_index(
         front_ids, properties, '/data/output', time_str
     )
     results, total_time = run_parallel_geometry(
@@ -267,9 +267,9 @@ def save_labeled_array(
     labeled_file : Path
         Path to the saved .npy file
     """
-    labeled_file = io.get_global_front_output_path(output_dir, time_str, 'labeled')
+    labeled_file = io.get_global_front_output_path(output_dir, time_str, 'label_map')
     np.save(labeled_file, labeled)
-    print(f"\nSaved labeled array: {labeled_file}")
+    print(f"\nSaved label map: {labeled_file}")
     return labeled_file
 
 
@@ -324,14 +324,14 @@ def extract_bboxes_and_ids(
 # Step 5
 # ---------------------------------------------------------------------------
 
-def build_group_table(
+def build_front_index(
     front_ids,
     properties,
     output_dir,
     time_str,
 ):
     """
-    Write the group table (label, name, x0, y0, x1, y1) to disk.
+    Write the front index table (label, name, x0, y0, x1, y1) to disk.
 
     Parameters
     ----------
@@ -347,18 +347,18 @@ def build_group_table(
     Returns
     -------
     group_df : pd.DataFrame
-        Group table DataFrame
-    group_table_file : Path
-        Path to the saved group table file
+        Front index DataFrame
+    front_index_file : Path
+        Path to the saved front index file
     """
     print("\n" + "=" * 70)
-    print("WRITING GROUP TABLE")
+    print("WRITING FRONT INDEX")
     print("=" * 70)
 
-    group_table_file = io.get_global_front_output_path(output_dir, time_str, 'group_table')
-    group_df = io.write_front_group_table(front_ids, properties, group_table_file)
+    front_index_file = io.get_global_front_output_path(output_dir, time_str, 'front_index')
+    group_df = io.write_front_index(front_ids, properties, front_index_file)
 
-    return group_df, group_table_file
+    return group_df, front_index_file
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +384,7 @@ def run_parallel_geometry(
     Parameters
     ----------
     group_df : pd.DataFrame
-        Group table from build_group_table()
+        Front index DataFrame from build_front_index()
     labeled : np.ndarray
         Labeled front array
     lat_global : np.ndarray
@@ -534,9 +534,9 @@ def save_results(
     cols = [c for c in cols if c in df.columns]
     df = df[cols]
 
-    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'properties')
+    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'geometry')
     df.to_parquet(parquet_file, index=False)
-    print(f"✓ Parquet : {parquet_file}  ({parquet_file.stat().st_size / 1e6:.1f} MB)")
+    print(f"✓ Geometry PQ : {parquet_file}  ({parquet_file.stat().st_size / 1e6:.1f} MB)")
 
 
     metadata = {
@@ -619,7 +619,7 @@ def main(
     properties, front_ids = extract_bboxes_and_ids(
         labeled, lat_global, lon_global, fronts_file
     )
-    group_df, group_table_file = build_group_table(
+    group_df, front_index_file = build_front_index(
         front_ids, properties, output_dir, time_str
     )
     results, total_time = run_parallel_geometry(
@@ -648,9 +648,9 @@ def main(
     print(f"Total fronts   : {len(df):,}")
     print(f"Processing time: {total_time / 60:.1f} minutes")
     print(f"Output files:")
-    print(f"  Labeled array : {labeled_file}")
-    print(f"  Group table   : {group_table_file}")
-    print(f"  Properties PQ : {parquet_file}")
+    print(f"  Label map     : {labeled_file}")
+    print(f"  Front index   : {front_index_file}")
+    print(f"  Geometry PQ   : {parquet_file}")
     print(f"  Metadata      : {metadata_file}")
     print()
     print("✓ Ready for visualization in visualize_global_results.ipynb!")
