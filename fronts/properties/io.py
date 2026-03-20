@@ -105,6 +105,7 @@ def get_global_front_output_path(
     output_dir: Union[str, Path],
     time_str: str,
     file_type: str,
+    run_tag: str = '',
 ) -> Path:
     """
     Generate standardised output file paths for global front processing.
@@ -117,7 +118,11 @@ def get_global_front_output_path(
         ISO 8601 timestamp string (e.g. '2012-11-09T12:00:00').
         Colons and dashes are made filename-safe automatically.
     file_type : str
-        One of: 'labeled', 'group_table', 'properties', 'metadata'
+        One of: 'labeled', 'group_table', 'properties', 'colocation', 'metadata'.
+    run_tag : str, optional
+        Version/config suffix extracted from the source fronts filename,
+        e.g. 'v1_bin_A' from 'LLC4320_2012-11-09T12_00_00_v1_bin_A.npy'.
+        Appended to all output filenames so results are traceable to their input.
 
     Returns
     -------
@@ -126,17 +131,18 @@ def get_global_front_output_path(
 
     Examples
     --------
-    >>> get_global_front_output_path('/out', '2012-11-09T12:00:00', 'properties')
-    PosixPath('/out/global_front_properties_20121109T120000.parquet')
+    >>> get_global_front_output_path('/out', '2012-11-09T12:00:00', 'properties', 'v1_bin_A')
+    PosixPath('/out/global_front_properties_20121109T12_00_00_v1_bin_A.parquet')
     """
     time_str_safe = time_str.replace(':', '_').replace('-', '')
+    tag = f'_{run_tag}' if run_tag else ''
 
     names = {
-        'labeled':     f'labeled_fronts_global_{time_str_safe}.npy',
-        'group_table': f'group_table_{time_str_safe}.parquet',
-        'properties':  f'global_front_properties_{time_str_safe}.parquet',
-        'colocation':  f'colocation_{time_str_safe}.parquet',
-        'metadata':    f'metadata_{time_str_safe}.json',
+        'labeled':     f'labeled_fronts_global_{time_str_safe}{tag}.npy',
+        'group_table': f'group_table_{time_str_safe}{tag}.parquet',
+        'properties':  f'global_front_properties_{time_str_safe}{tag}.parquet',
+        'colocation':  f'colocation_{time_str_safe}{tag}.parquet',
+        'metadata':    f'metadata_{time_str_safe}{tag}.json',
     }
 
     if file_type not in names:

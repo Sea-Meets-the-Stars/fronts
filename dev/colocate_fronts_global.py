@@ -6,27 +6,25 @@ Global Front Co-location
 Co-locate a labeled front array with one or more mapped property fields and
 save per-front statistics as a parquet file.
 
+Property .nc files are located automatically from --property_dir using the
+timestamp and version extracted from --fronts_file:
+
+    LLC4320_{timestamp}_{property_name}_{version}.nc
+
 This is a thin CLI wrapper around fronts.properties.algorithms.colocate_fronts().
 For step-by-step control from Python, call that function directly.
 
 Usage
 -----
 python dev/colocate_fronts_global.py \
-    --labeled_file  '/path/to/labeled_fronts_global_20121109T12_00_00.npy' \
-    --fronts_file   '/path/to/LLC4320_2012-11-09T12_00_00_bin_A.npy' \
-    --property relative_vorticity '/path/to/relative_vorticity.npy' \
-    --property strain_n            '/path/to/strain_n.npy' \
+    --labeled_file  '/path/to/labeled_fronts_global_20121109T12_00_00_v1_bin_A.npy' \
+    --fronts_file   '/path/to/LLC4320_2012-11-09T12_00_00_v1_bin_A.npy' \
+    --property_dir  '/path/to/property/files/' \
+    --properties    relative_vorticity strain_n frontogenesis_tendency \
     --output_dir    '/path/to/output/' \
     --dilation_radius 5 \
     --stats mean std median \
     --percentiles 10 90
-
-Notes
------
-- --property can be repeated for as many fields as needed.
-- --fronts_file is used only to extract the timestamp for the output filename;
-  it does not need to be loaded again.
-- Property arrays must be .npy files with the same shape as the labeled array.
 """
 
 import argparse
@@ -49,12 +47,16 @@ def get_parser():
     )
     parser.add_argument(
         '--fronts_file', required=True,
-        help="Path to original binary fronts .npy file (used for timestamp only)"
+        help="Path to binary fronts .npy file; timestamp and version extracted from filename"
     )
     parser.add_argument(
-        '--property', nargs=2, metavar=('NAME', 'PATH'),
-        action='append', required=True,
-        help="Property name and path to .npy file. Repeat for each field."
+        '--property_dir', required=True,
+        help="Directory containing property .nc files"
+    )
+    parser.add_argument(
+        '--properties', nargs='+', required=True,
+        metavar='NAME',
+        help="Property names to co-locate, e.g. relative_vorticity strain_n"
     )
     parser.add_argument(
         '--output_dir', required=True,
@@ -88,7 +90,8 @@ def get_parser():
 def main(
     labeled_file,
     fronts_file,
-    property_files,
+    property_dir,
+    properties,
     output_dir,
     stats=None,
     percentiles=None,
@@ -97,13 +100,11 @@ def main(
     dilation_radius=0,
 ):
     labeled = np.load(labeled_file)
-    property_arrays = {
-        name: np.load(path) for name, path in property_files.items()
-    }
 
     algorithms.colocate_fronts(
         labeled=labeled,
-        property_arrays=property_arrays,
+        property_names=properties,
+        property_dir=property_dir,
         fronts_file=fronts_file,
         output_dir=output_dir,
         stats=stats,
@@ -119,7 +120,8 @@ if __name__ == '__main__':
     main(
         labeled_file=args.labeled_file,
         fronts_file=args.fronts_file,
-        property_files=dict(args.property),   # [['name', 'path'], ...] -> dict
+        property_dir=args.property_dir,
+        properties=args.properties,
         output_dir=args.output_dir,
         stats=args.stats,
         percentiles=args.percentiles,

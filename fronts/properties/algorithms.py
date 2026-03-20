@@ -17,6 +17,42 @@ from fronts.properties import group_labels, io, geometry, colocation
 
 
 # ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _parse_fronts_filename(fronts_file: str):
+    """
+    Extract time_str and run_tag from a fronts filename.
+
+    Expected pattern: LLC4320_YYYY-MM-DDTHH_MM_SS_{run_tag}.npy
+    e.g. 'LLC4320_2012-11-09T12_00_00_v1_bin_A.npy'
+      -> time_str = '2012-11-09T12:00:00'
+      -> run_tag  = 'v1_bin_A'
+
+    Returns
+    -------
+    time_str : str
+        ISO 8601 timestamp with colons restored.
+    run_tag : str
+        Everything after the timestamp and before .npy, e.g. 'v1_bin_A'.
+    timestamp_raw : str
+        Timestamp as it appears in the filename (underscores, not colons),
+        e.g. '2012-11-09T12_00_00'. Used to build property filenames.
+    """
+    fname = str(fronts_file)
+    match = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2})_(.+?)\.npy', fname)
+    if not match:
+        raise ValueError(
+            f"Could not parse timestamp and run_tag from fronts_file: {fronts_file}\n"
+            "Expected pattern: *_YYYY-MM-DDTHH_MM_SS_{run_tag}.npy"
+        )
+    timestamp_raw = match.group(1)                      # '2012-11-09T12_00_00'
+    time_str      = timestamp_raw.replace('_', ':')     # '2012-11-09T12:00:00'
+    run_tag       = match.group(2)                      # 'v1_bin_A'
+    return time_str, run_tag, timestamp_raw
+
+
+# ---------------------------------------------------------------------------
 # Module-level globals for copy-on-write sharing across forked workers.
 # Must be at module level to be picklable by multiprocessing.
 # Set in group_fronts() before Pool creation; inherited by workers via fork.
@@ -82,16 +118,12 @@ def group_fronts(
     output_dir.mkdir(parents=True, exist_ok=True)
     n_workers = n_workers or cpu_count()
 
-    # Extract timestamp from filename for io path generation
-    match = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2})', str(fronts_file))
-    if not match:
-        raise ValueError(f"Could not extract timestamp from fronts_file: {fronts_file}")
-    time_str = match.group(1).replace('_', ':')   # e.g. '2012-11-09T12:00:00'
+    time_str, run_tag, _ = _parse_fronts_filename(fronts_file)
 
     # --- Label ---
     labeled, n = group_labels.label_fronts(fronts_binary, connectivity=2, return_num=True)
     print(f"Labeled {n:,} fronts")
-    np.save(io.get_global_front_output_path(output_dir, time_str, 'labeled'), labeled)
+    np.save(io.get_global_front_output_path(output_dir, time_str, 'labeled', run_tag), labeled)
 
     # --- Properties (bbox + centroid indices) and front IDs ---
     properties = group_labels.get_front_properties(labeled)
@@ -99,7 +131,7 @@ def group_fronts(
                                                  properties=properties)
 
     # --- Group table ---
-    group_table_file = io.get_global_front_output_path(output_dir, time_str, 'group_table')
+    group_table_file = io.get_global_front_output_path(output_dir, time_str, 'group_table', run_tag)
     group_df = io.write_front_group_table(front_ids, properties, group_table_file)
 
     # --- Parallel geometric properties ---
@@ -131,7 +163,7 @@ def group_fronts(
                  'mean_curvature', 'curvature_direction']
     df = df[[c for c in col_order if c in df.columns]]
 
-    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'properties')
+    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'properties', run_tag)
     df.to_parquet(parquet_file, index=False)
     print(f"Wrote: {parquet_file}")
 
@@ -139,6 +171,7 @@ def group_fronts(
     from datetime import datetime
     metadata = {
         'fronts_file':              str(fronts_file),
+        'run_tag':                  run_tag,
         'time':                     time_str,
         'shape':                    list(fronts_binary.shape),
         'num_fronts':               len(df),
@@ -148,7 +181,7 @@ def group_fronts(
         'lon_range':                [float(lon.min()), float(lon.max())],
         'timestamp':                datetime.now().isoformat(),
     }
-    metadata_file = io.get_global_front_output_path(output_dir, time_str, 'metadata')
+    metadata_file = io.get_global_front_output_path(output_dir, time_str, 'metadata', run_tag)
     io.write_json(metadata, metadata_file)
 
     return df
@@ -156,7 +189,8 @@ def group_fronts(
 
 def colocate_fronts(
     labeled: np.ndarray,
-    property_arrays: dict,
+    property_names: list,
+    property_dir: str,
     fronts_file: str,
     output_dir: str,
     stats: list = None,
@@ -171,16 +205,30 @@ def colocate_fronts(
     Wraps colocation.colocate_fronts_with_properties() with file I/O,
     parallel to how group_fronts() wraps group_labels and geometry.
 
+    Property files are located automatically using the timestamp and version
+    extracted from fronts_file. Expected filename pattern:
+
+        LLC4320_{timestamp}_{property_name}_{version}.nc
+
+    e.g. for fronts_file='LLC4320_2012-11-09T12_00_00_v1_bin_A.npy' and
+    property_name='relative_vorticity':
+        property_dir/LLC4320_2012-11-09T12_00_00_relative_vorticity_v1.nc
+
     Parameters
     ----------
     labeled : np.ndarray
         Integer label array from group_fronts() (0 = background).
-    property_arrays : dict
-        Mapping of property name -> 2D array, same shape as labeled.
-        e.g. {'relative_vorticity': rv_array, 'strain_n': sn_array}
+    property_names : list of str
+        Names of property fields to co-locate, e.g.
+        ['relative_vorticity', 'strain_n', 'frontogenesis_tendency'].
+        Each name must match both the variable name inside its .nc file
+        and the {property_name} component of the filename.
+    property_dir : str
+        Directory containing property .nc files.
     fronts_file : str
-        Path to the source .npy file. Used only to extract the timestamp
-        for output filenames (expects YYYY-MM-DDTHH_MM_SS pattern).
+        Path to the source binary fronts .npy file. Timestamp and version
+        (e.g. 'v1') are extracted from this filename and used to build
+        property file paths and output filenames.
     output_dir : str
         Directory where the colocation parquet is saved.
     stats : list, optional
@@ -202,14 +250,21 @@ def colocate_fronts(
         One row per front. Columns: flabel, npix, {prop}_{stat},
         {prop}_p{pct}. Also saved as parquet.
     """
+    import xarray as xr
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Extract timestamp from filename for output path
-    match = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2})', str(fronts_file))
-    if not match:
-        raise ValueError(f"Could not extract timestamp from fronts_file: {fronts_file}")
-    time_str = match.group(1).replace('_', ':')
+    time_str, run_tag, timestamp_raw = _parse_fronts_filename(fronts_file)
+    version = run_tag.split('_')[0]   # e.g. 'v1' from 'v1_bin_A'
+
+    # --- Load property arrays from standardised filenames ---
+    property_arrays = {}
+    for prop_name in property_names:
+        prop_file = Path(property_dir) / f'LLC4320_{timestamp_raw}_{prop_name}_{version}.nc'
+        print(f"Loading {prop_name} from {prop_file.name}...")
+        with xr.open_dataset(prop_file) as ds:
+            property_arrays[prop_name] = ds[prop_name].values.squeeze()
 
     print(f"Co-locating {len(property_arrays)} properties with "
           f"{(labeled > 0).sum():,} front pixels "
@@ -226,7 +281,7 @@ def colocate_fronts(
     )
     print(f"Co-located {len(df):,} fronts")
 
-    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'colocation')
+    parquet_file = io.get_global_front_output_path(output_dir, time_str, 'colocation', run_tag)
     df.to_parquet(parquet_file, index=False)
     print(f"Wrote: {parquet_file}")
 
