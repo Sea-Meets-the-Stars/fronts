@@ -117,7 +117,7 @@ def get_global_front_output_path(
         ISO 8601 timestamp string (e.g. '2012-11-09T12:00:00').
         Colons and dashes are made filename-safe automatically.
     file_type : str
-        One of: 'labeled', 'group_table', 'properties'.
+        One of: 'labeled', 'group_table', 'properties', 'metadata'
 
     Returns
     -------
@@ -135,6 +135,7 @@ def get_global_front_output_path(
         'labeled':     f'labeled_fronts_global_{time_str_safe}.npy',
         'group_table': f'group_table_{time_str_safe}.parquet',
         'properties':  f'global_front_properties_{time_str_safe}.parquet',
+        'metadata':    f'metadata_{time_str_safe}.json',
     }
 
     if file_type not in names:
@@ -143,3 +144,23 @@ def get_global_front_output_path(
         )
 
     return Path(output_dir) / names[file_type]
+
+def write_json(
+    data: dict,
+    output_path: Union[str, Path],
+) -> None:
+    """
+    Write a dictionary to a JSON file.
+
+    Parameters
+    ----------
+    data : dict
+        Data to serialise
+    output_path : str or Path
+        Output file path (should end in .json)
+    """
+    import json
+
+    with open(output_path, 'w') as f:
+        json.dump(data, f, indent=2)
+    print(f"Saved JSON to {output_path}")

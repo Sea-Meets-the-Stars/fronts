@@ -73,6 +73,7 @@ from pathlib import Path
 import time as time_module
 import re
 from multiprocessing import Pool, cpu_count
+from datetime import datetime
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -100,7 +101,7 @@ def _process_cutout_wrapper(args_tuple):
     args_tuple : tuple
         (label, name, y0, y1, x0, x1, time_str, length_method, skip_curvature)
     """
-    label, name, y0, y1, x0, x1, time_str, length_method, skip_curvature = args_tuple
+    label, name, y0, y1, x0, x1, time_str, skip_curvature = args_tuple
 
     labeled_cutout = _GLOBAL_LABELED[y0:y1, x0:x1]
     lat_cutout     = _GLOBAL_LAT[y0:y1, x0:x1]
@@ -112,7 +113,6 @@ def _process_cutout_wrapper(args_tuple):
         mask=mask, lat=lat_cutout, lon=lon_cutout,
         time_str=time_str,
         y0=y0, y1=y1, x0=x0, x1=x1,
-        length_method=length_method,
         skip_curvature=skip_curvature
     )
 
@@ -372,7 +372,6 @@ def run_parallel_geometry(
     lon_global,
     time_str,
     n_workers=None,
-    length_method='skeleton',
     skip_curvature=False,
 ):
     """
@@ -416,7 +415,6 @@ def run_parallel_geometry(
     print("CALCULATING GEOMETRIC PROPERTIES (PARALLEL)")
     print("=" * 70)
     print(f"Processing {len(group_df):,} fronts using {n_workers} workers...")
-    print(f"Length method : {length_method}")
     print(f"Curvature     : {'SKIPPED' if skip_curvature else 'calculated'}")
 
     print("\nSetting up shared arrays for workers...")
@@ -427,7 +425,7 @@ def run_parallel_geometry(
 
     front_args = [
         (row.label, row.name, row.y0, row.y1, row.x0, row.x1,
-         time_str, length_method, skip_curvature)
+         time_str, skip_curvature)
         for row in group_df.itertuples()
     ]
 
@@ -540,7 +538,27 @@ def save_results(
     df.to_parquet(parquet_file, index=False)
     print(f"✓ Parquet : {parquet_file}  ({parquet_file.stat().st_size / 1e6:.1f} MB)")
 
-    return df, parquet_file
+
+    metadata = {
+        'fronts_file': fronts_file,
+        'coords_file': coords_file,
+        'time': time_str,
+        'shape': list(fronts_global.shape),
+        'num_fronts': len(df),
+        'min_size': min_size,
+        'processing_time_minutes': total_time / 60,
+        'n_workers': n_workers,
+        'downsample_factor': downsample,
+        'lat_range': [float(lat_global.min()), float(lat_global.max())],
+        'lon_range': [float(lon_global.min()), float(lon_global.max())],
+        'timestamp': datetime.now().isoformat()
+    }
+    metadata_file = io.get_global_front_output_path(output_dir, time_str, 'metadata')
+    io.write_json(metadata, metadata_file)
+    print(f"✓ Metadata: {metadata_file}")
+
+    return df, parquet_file, metadata_file
+
 
 
 # ---------------------------------------------------------------------------
@@ -606,10 +624,10 @@ def main(
     )
     results, total_time = run_parallel_geometry(
         group_df, labeled, lat_global, lon_global, time_str,
-        n_workers=n_workers, length_method=length_method,
+        n_workers=n_workers,
         skip_curvature=skip_curvature
     )
-    df, parquet_file = save_results(
+    df, parquet_file, metadata_file = save_results(
         results=results,
         fronts_file=fronts_file,
         coords_file=coords_file,
@@ -633,6 +651,7 @@ def main(
     print(f"  Labeled array : {labeled_file}")
     print(f"  Group table   : {group_table_file}")
     print(f"  Properties PQ : {parquet_file}")
+    print(f"  Metadata      : {metadata_file}")
     print()
     print("✓ Ready for visualization in visualize_global_results.ipynb!")
     print("=" * 70)
@@ -648,6 +667,5 @@ if __name__ == '__main__':
         n_workers=args.n_workers,
         min_size=args.min_size,
         downsample=args.downsample,
-        length_method=args.length_method,
         skip_curvature=args.skip_curvature,
     )
