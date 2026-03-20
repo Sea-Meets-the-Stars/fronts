@@ -90,6 +90,37 @@ algorithms.colocate_fronts(
 | `curvature_direction` | Sign: + clockwise, − counterclockwise |
 | `lat/lon_min/max` | Bounding box |
 
+
+## Oceanographic Property Fields & Subsets
+
+Fields available via `generate_properties()`, grouped by subset as defined in `testing_global_v1.yaml`.
+
+| Field | Subset |
+|---|---|
+| `Theta` | `native_fields` |
+| `Salt` | `native_fields` |
+| `Eta` | `native_fields` |
+| `U` | `native_fields` |
+| `V` | `native_fields` |
+| `W` | `native_fields` |
+| `gradb2` | `frontal_structure` |
+| `gradsalt2` | `frontal_structure` |
+| `gradtheta2` | `frontal_structure` |
+| `gradeta2` | `frontal_structure` |
+| `relative_vorticity` | `kinematic` |
+| `strain_n` | `kinematic` |
+| `strain_s` | `kinematic` |
+| `strain_mag` | `kinematic` |
+| `divergence` | `kinematic` |
+| `coriolis_f` | `kinematic` |
+| `rossby_number` | `kinematic` |
+| `okubo_weiss` | `kinematic` |
+| `frontogenesis_tendency` | `frontogenesis` |
+| `ug` | `frontogenesis` |
+| `vg` | `frontogenesis` |
+| `frontogenesis_geo` | `frontogenesis` |
+| `frontogenesis_ageo` | `frontogenesis` |
+
 ## Dependencies
 
 ```

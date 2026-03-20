@@ -24,7 +24,7 @@ python dev/colocate_fronts_global.py \
     --output_dir    '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/group_fronts/v1/' \
     --dilation_radius 5 \
     --stats mean std median \
-    --percentiles 10 90
+    --percentiles 10 25 75 90
 """
 
 import argparse
