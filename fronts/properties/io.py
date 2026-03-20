@@ -119,7 +119,8 @@ def get_global_front_output_path(
         ISO 8601 timestamp string (e.g. '2012-11-09T12:00:00').
         Colons and dashes are made filename-safe automatically.
     file_type : str
-        One of: 'label_map', 'front_index', 'geometry', 'properties', 'metadata'.
+        One of: 'label_map', 'front_index', 'geometry', 'properties', 'metadata',
+        'metadata_properties'.
     run_tag : str, optional
         Version/config suffix extracted from the source fronts filename,
         e.g. 'v1_bin_A' from 'LLC4320_2012-11-09T12_00_00_v1_bin_A.npy'.
@@ -144,6 +145,7 @@ def get_global_front_output_path(
         'geometry':    f'global_front_geometry_{time_str_safe}{tag}.parquet',
         'properties':  f'front_properties_{time_str_safe}{tag}.parquet',
         'metadata':    f'metadata_{time_str_safe}{tag}.json',
+        'metadata_properties':    f'metadata_properties_{time_str_safe}{tag}.json',
     }
 
     if file_type not in names:

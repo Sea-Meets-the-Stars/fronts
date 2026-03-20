@@ -285,4 +285,24 @@ def colocate_fronts(
     df.to_parquet(parquet_file, index=False)
     print(f"Wrote: {parquet_file}")
 
+    # --- Save metadata JSON ---
+    from datetime import datetime
+    metadata = {
+        'fronts_file':      str(fronts_file),
+        'run_tag':          run_tag,
+        'time':             time_str,
+        'property_names':   property_names,
+        'property_dir':     str(property_dir),
+        'stats':            stats,
+        'percentiles':      percentiles,
+        'min_npix':         min_npix,
+        'nan_policy':       nan_policy,
+        'dilation_radius':  dilation_radius,
+        'num_fronts':       len(df),
+        'timestamp':        datetime.now().isoformat(),
+    }
+    metadata_file = io.get_global_front_output_path(output_dir, time_str, 'metadata_properties', run_tag)
+    io.write_json(metadata, metadata_file)
+    print(f"Wrote: {metadata_file}")
+
     return df

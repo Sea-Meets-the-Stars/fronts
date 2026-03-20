@@ -19,7 +19,6 @@ from fronts.finding import config as find_config
 from fronts.finding import io as finding_io
 from fronts.properties import algorithms as prop_algorithms
 from fronts.properties import io as properties_io
-from fronts.properties import colocation
 
 from IPython import embed
 
@@ -28,10 +27,17 @@ from IPython import embed
 # Private helper
 # ---------------------------------------------------------------------------
 
-def _zarr_to_nc(timestamp: str, config_file: str, subset: str, field: str,
+def _zarr_to_nc(timestamp: str, config_file: str, subset: str,
+                field: str = None, channels: list = None,
                 version: str = '1', run_id: str = None):
-    """Write a single-field netcdf from the S3 zarr store."""
-    full_path = llc_io.derived_filename(timestamp, field, version=version)
+    """Write netcdf from the S3 zarr store.
+
+    Pass either `field` (single field, e.g. 'gradb2') or `channels` (list of
+    field names for multi-channel subsets). The output path is derived from
+    `field` if provided, otherwise from `subset`.
+    """
+    name = field if field is not None else subset
+    full_path = llc_io.derived_filename(timestamp, name, version=version)
     cfg = dbof_config.load_config(config_file)
     with open(config_file) as fh:
         raw = yaml.safe_load(fh) or {}
@@ -44,7 +50,7 @@ def _zarr_to_nc(timestamp: str, config_file: str, subset: str, field: str,
         run_id=run_id or cfg.run.run_id,
         s3_endpoint=cfg.output.s3_endpoint,
         bucket=cfg.output.bucket,
-        channels=[field],
+        channels=[field] if field is not None else channels,
         dates=cfg.data.date_iterations,
         dataset_name=dataset_name,
         folder=cfg.output.folder)
@@ -56,7 +62,7 @@ def _zarr_to_nc(timestamp: str, config_file: str, subset: str, field: str,
 # ---------------------------------------------------------------------------
 
 def generate_gradb2(timestamp: str, config_file: str, run_id: str = None,
-                    field: str = 'gradb2'):
+                    field: str = 'gradb2', clobber: bool = False):
     """Generate the gradb2 field for the given config file.
 
     Args:
@@ -64,9 +70,14 @@ def generate_gradb2(timestamp: str, config_file: str, run_id: str = None,
         config_file (str): Path to the YAML config file.
         run_id (str, optional): Override the run_id in the config YAML.
         field (str): Field name to extract. Defaults to 'gradb2'.
+        clobber (bool): Overwrite existing output. Defaults to False.
     """
-    generate_global.main(config_file, subset='frontal_structure', run_id=run_id)
-    _zarr_to_nc(timestamp, config_file, 'frontal_structure', field, run_id=run_id)
+    out_file = llc_io.derived_filename(timestamp, field, version='1')
+    if os.path.isfile(out_file) and not clobber:
+        print(f"gradb2 file {out_file} exists and clobber is False. Returning")
+    else:
+        generate_global.main(config_file, subset='frontal_structure', run_id=run_id)
+        _zarr_to_nc(timestamp, config_file, 'frontal_structure', field, run_id=run_id)
 
 
 def find_fronts(timestamp: str, config: str, version: str, inpaint: bool = False,
@@ -153,72 +164,147 @@ def group_fronts(timestamp: str, config: str, version: str,
     )
 
 
-def characterize_fronts(timestamp: str, config_file: str, version: str,
-                        run_id: str = None, subset: str = 'kinematic'):
-    """Generate physical property fields and compute per-front statistics.
+def generate_properties(timestamp: str, config_file: str, version: str,
+                        property_names: list, run_id: str = None,
+                        clobber: bool = False):
+    """Generate individual per-property .nc files for the requested properties.
 
-    (a) Calls generate_global to produce the requested property subset via
-        dbof, then writes to netcdf via zarr_to_netcdf — same pattern as
-        generate_gradb2 but for a different subset.
-    (b) Loads the labeled-front array from the group_fronts output, colocates
-        each front with the property fields, and saves per-front statistics
-        (mean, std, median) as a parquet file alongside the group_fronts outputs.
+    Resolves which dbof subset each property belongs to from the YAML config,
+    then writes one LLC4320_{timestamp}_{property}_v{version}.nc file per
+    property — the format expected by colocate_fronts(). Existing files are
+    skipped unless clobber=True.
 
     Args:
         timestamp (str): Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
         config_file (str): Path to the YAML config file.
         version (str): Data version string.
+        property_names (list): Property/channel names to generate, e.g.
+            ['relative_vorticity', 'strain_n'].
         run_id (str, optional): Override the run_id in the config YAML.
-        subset (str): dbof subset to generate. Defaults to 'kinematic'.
+        clobber (bool): Overwrite existing output files. Defaults to False.
     """
-    # (a) Generate property fields -----------------------------------------
-    generate_global.main(config_file, subset=subset, run_id=run_id)
-
-    # Resolve channels and dataset_name from the subset entry
     with open(config_file) as fh:
         raw = yaml.safe_load(fh) or {}
-    sub_cfg = raw.get('subsets', {}).get(subset, {})
-    channels = ([c.strip() for c in sub_cfg.get('compute_features_channels', []) if c.strip()]
-                + [c.strip() for c in sub_cfg.get('model_data_feature_channels', []) if c.strip()])
-    dataset_name = sub_cfg.get('dataset_name') or raw.get('output', {}).get('dataset_name')
 
-    cfg = dbof_config.load_config(config_file)
-    prop_file = llc_io.derived_filename(timestamp, subset, version=version)
-    zarr_to_netcdf.main(
-        os.path.dirname(prop_file),
-        output_filename=os.path.basename(prop_file),
-        mode='snapshots',
-        run_id=run_id or cfg.run.run_id,
-        s3_endpoint=cfg.output.s3_endpoint,
-        bucket=cfg.output.bucket,
-        channels=channels or None,
-        dates=cfg.data.date_iterations,
-        dataset_name=dataset_name,
-        folder=cfg.output.folder)
+    # Build channel → subset mapping from the YAML
+    # this is so the user can input which properties they want
+    # and the 'subset' is determined by the code from YAML
+    channel_to_subset = {}
+    for subset_name, sub_cfg in (raw.get('subsets') or {}).items():
+        for ch in sub_cfg.get('compute_features_channels', []):
+            ch = ch.strip()
+            if ch:
+                channel_to_subset[ch] = subset_name
+        for ch in sub_cfg.get('model_data_feature_channels', []):
+            ch = ch.strip()
+            if ch:
+                channel_to_subset[ch] = subset_name
 
-    # (b) Colocate fronts with properties ----------------------------------
+    # Validate that all requested properties are known
+    unknown = [p for p in property_names if p not in channel_to_subset]
+    if unknown:
+        raise ValueError(
+            f"The following properties were not found in any subset of {config_file}: {unknown}"
+        )
+
+    # Group requested properties by subset so generate_global runs once per subset
+    subset_to_channels = {}
+    for prop in property_names:
+        subset_to_channels.setdefault(channel_to_subset[prop], []).append(prop)
+
+    # Process each subset
+    for subset, channels in subset_to_channels.items():
+        missing = [ch for ch in channels
+                   if not os.path.isfile(llc_io.derived_filename(timestamp, ch, version=version))]
+
+        if not missing and not clobber:
+            print(f"All {len(channels)} property file(s) for subset '{subset}' exist "
+                  f"and clobber is False. Skipping.")
+            continue
+
+        to_generate = channels if clobber else missing
+        print(f"Generating {len(to_generate)} property file(s) from subset '{subset}'")
+
+        generate_global.main(config_file, subset=subset, run_id=run_id)
+
+        for channel in to_generate:
+            _zarr_to_nc(timestamp, config_file, subset, field=channel,
+                        version=version, run_id=run_id)
+
+
+def colocate_fronts(timestamp: str, config: str, version: str,
+                    property_names: list, property_dir: str,
+                    output_dir: str = None,
+                    stats: list = None, percentiles: list = None,
+                    min_npix: int = 1, nan_policy: str = 'omit',
+                    dilation_radius: int = 0, clobber: bool = False):
+    """Co-locate labeled fronts with physical property fields.
+
+    Args:
+        timestamp (str): Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
+        config (str): Front-finding config label, e.g. 'A'.
+        version (str): Data version string.
+        property_names (list): Property field names to co-locate, e.g.
+            ['relative_vorticity', 'strain_n']. Each must match both the
+            variable name inside its .nc file and the filename pattern
+            LLC4320_{timestamp}_{property_name}_{version}.nc.
+        property_dir (str): Directory containing property .nc files.
+        output_dir (str, optional): Output directory. Defaults to the
+            standard group_fronts output directory for this version.
+        stats (list, optional): Statistics to compute per property.
+            Defaults to ['mean', 'std', 'median'].
+        percentiles (list, optional): Percentiles to compute, e.g. [10, 90].
+        min_npix (int): Minimum front size in pixels. Defaults to 1.
+        nan_policy (str): 'omit' or 'propagate' NaNs. Defaults to 'omit'.
+        dilation_radius (int): Pixels to dilate each front before stats.
+            Defaults to 0.
+        clobber (bool): Overwrite existing output. Defaults to False.
+    """
+    fronts_file = finding_io.binary_filename(timestamp, config, version)
     group_dir   = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
                                'group_fronts', f'v{version}')
-    # get_global_front_output_path expects colons in the time string
-    time_str    = timestamp.replace('_', ':')   # '2012-11-09T12:00:00'
+    if output_dir is None:
+        output_dir = group_dir
+
+    # Check if output already exists
+    time_str = timestamp.replace('_', ':')   # '2012-11-09T12:00:00'
+    run_tag  = f'v{version}_bin_{config}'    # e.g. 'v1_bin_A'
+    out_file = properties_io.get_global_front_output_path(
+        output_dir, time_str, 'properties', run_tag)
+    if os.path.isfile(out_file) and not clobber:
+        print(f"Properties file {out_file} exists and clobber is False. Returning")
+        return
+
+    # Validate all property files exist before doing any heavy work
+    missing = [
+        name for name in property_names
+        if not os.path.isfile(
+            os.path.join(property_dir, f'LLC4320_{timestamp}_{name}_v{version}.nc'))
+    ]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing property file(s) for: {missing}\n"
+            f"Run generate_properties() first for the subset containing these fields, "
+            f"or check that property_dir is correct: {property_dir}"
+        )
+
+    # Load label map
     labeled_file = properties_io.get_global_front_output_path(
         group_dir, time_str, 'label_map')
     labeled = np.load(labeled_file)
 
-    ds = xarray.open_dataset(prop_file)
-    properties = {var: ds[var].values for var in ds.data_vars}
-    ds.close()
-
-    df = colocation.colocate_fronts_with_properties(
-        labeled, properties,
-        stats=['mean', 'std', 'median'],
-        nan_policy='omit',
+    prop_algorithms.colocate_fronts(
+        labeled=labeled,
+        property_names=property_names,
+        property_dir=property_dir,
+        fronts_file=fronts_file,
+        output_dir=output_dir,
+        stats=stats,
+        percentiles=percentiles,
+        min_npix=min_npix,
+        nan_policy=nan_policy,
+        dilation_radius=dilation_radius,
     )
-
-    out_file = os.path.join(
-        group_dir, f'LLC4320_{timestamp}_{subset}_v{version}_front_stats.parquet')
-    df.to_parquet(out_file, index=False)
-    print(f"Wrote: {out_file}")
 
 
 # #######################################################
@@ -248,13 +334,33 @@ def main(flg: str):
         for config in configs:
             group_fronts(timestamp, config, version)
 
-    # Characterize fronts (physical properties + per-front stats)
+    # Generate physical property fields → individual per-property nc files
     if flg == 4:
         timestamp   = '2012-11-09T12_00_00'
         config_file = './testing_global_v1.yaml'
         run_id      = 'year_1xglobal_20260306_050000'
         version     = '1'
-        characterize_fronts(timestamp, config_file, version, run_id=run_id)
+        property_names = [
+            'relative_vorticity', 'divergence', 'strain_mag',
+            'frontogenesis_tendency', 'okubo_weiss',
+        ]
+        generate_properties(timestamp, config_file, version,
+                            property_names=property_names, run_id=run_id)
+
+    # Co-locate fronts with physical properties
+    if flg == 5:
+        timestamp     = '2012-11-09T12_00_00'
+        version       = '1'
+        configs       = ['A', 'B', 'C']
+        property_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'derived')
+        property_names = [
+            'relative_vorticity', 'divergence', 'strain_mag',
+            'frontogenesis_tendency', 'okubo_weiss',
+        ]
+        for config in configs:
+            colocate_fronts(timestamp, config, version,
+                            property_names=property_names,
+                            property_dir=property_dir)
 
     # ###########################
     # Testing
