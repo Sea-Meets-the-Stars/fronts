@@ -10,8 +10,8 @@ from . import io
 from . import defs
 from . import measure
 from . import colocation
-from . import pca
-from . import jpdf
+from .analysis import pca
+from .analysis import jpdf
 #from . import utils
 #from . import views
 
