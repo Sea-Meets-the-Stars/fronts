@@ -35,14 +35,16 @@ Example (full pipeline from Python)
     )
     labeled, n = label_and_filter(fronts, min_size=10)
     labeled_file = save_labeled_array(labeled, '/data/output', time_str)
-    bbox_coords, front_ids = extract_bboxes_and_ids(labeled, lat, lon, time_str)
+    properties, front_ids = extract_bboxes_and_ids(
+        labeled, lat, lon, fronts_file='/data/fronts.npy'
+    )
     group_df, group_table_file = build_group_table(
-        front_ids, bbox_coords, '/data/output', time_str
+        front_ids, properties, '/data/output', time_str
     )
     results, total_time = run_parallel_geometry(
         group_df, labeled, lat, lon, time_str, n_workers=8
     )
-    df, parquet_file, metadata_file = save_results(
+    df, parquet_file = save_results(
         results=results,
         fronts_file='/data/fronts.npy',
         coords_file='/data/coords.nc',
@@ -59,7 +61,7 @@ Example (full pipeline from Python)
     python /home/lhoffma2/git/fronts/dev/group_fronts_global_methods.py \
     --fronts_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/outputs/LLC4320_2012-11-09T12_00_00_bin_A.npy' \
     --coords_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/LLC_coords_lat_lon.nc' \
-    --output_dir  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/testing/pr2/' \
+    --output_dir  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/testing/pr2_1/' \
     --n_workers 2 \
     --skip_curvature
 """
@@ -70,7 +72,6 @@ import pandas as pd
 from pathlib import Path
 import time as time_module
 import re
-from datetime import datetime
 from multiprocessing import Pool, cpu_count
 
 import sys
@@ -280,10 +281,10 @@ def extract_bboxes_and_ids(
     labeled,
     lat_global,
     lon_global,
-    time_str,
+    fronts_file,
 ):
     """
-    Extract bounding boxes and generate unique string IDs for all fronts.
+    Extract front properties (incl. bounding boxes) and generate unique string IDs.
 
     Parameters
     ----------
@@ -293,29 +294,30 @@ def extract_bboxes_and_ids(
         2D latitude array
     lon_global : np.ndarray
         2D longitude array
-    time_str : str
-        ISO 8601 timestamp string
+    fronts_file : str
+        Path to the binary fronts .npy file; timestamp is extracted from filename.
 
     Returns
     -------
-    bbox_coords : dict
-        Mapping label -> {'i_min', 'i_max', 'j_min', 'j_max'}
+    properties : dict
+        Mapping label -> {'npix', 'bbox': (min_row, min_col, max_row, max_col),
+        'centroid_indices': (row, col)}
     front_ids : dict
         Mapping label -> unique front ID string (TIME_LAT_LON format)
     """
-    print("\nExtracting bounding boxes...")
+    print("\nExtracting front properties...")
     t0 = time_module.time()
-    bbox_coords = group_labels.get_front_bboxes_as_coords(labeled)
-    print(f"  Valid bboxes: {len(bbox_coords):,}  ({time_module.time() - t0:.1f}s)")
+    properties = group_labels.get_front_properties(labeled)
+    print(f"  Valid fronts: {len(properties):,}  ({time_module.time() - t0:.1f}s)")
 
     print("Generating front IDs...")
     t0 = time_module.time()
     front_ids = group_labels.generate_front_ids(
-        labeled, lat_global, lon_global, time_str
+        lat_global, lon_global, fronts_file, properties=properties
     )
     print(f"  Generated {len(front_ids):,} IDs  ({time_module.time() - t0:.1f}s)")
 
-    return bbox_coords, front_ids
+    return properties, front_ids
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +326,7 @@ def extract_bboxes_and_ids(
 
 def build_group_table(
     front_ids,
-    bbox_coords,
+    properties,
     output_dir,
     time_str,
 ):
@@ -335,8 +337,8 @@ def build_group_table(
     ----------
     front_ids : dict
         Mapping label -> front ID string from extract_bboxes_and_ids()
-    bbox_coords : dict
-        Mapping label -> bbox coords from extract_bboxes_and_ids()
+    properties : dict
+        Mapping label -> properties dict from extract_bboxes_and_ids()
     output_dir : str or Path
         Output directory
     time_str : str
@@ -354,7 +356,7 @@ def build_group_table(
     print("=" * 70)
 
     group_table_file = io.get_global_front_output_path(output_dir, time_str, 'group_table')
-    group_df = io.write_front_group_table(front_ids, bbox_coords, group_table_file)
+    group_df = io.write_front_group_table(front_ids, properties, group_table_file)
 
     return group_df, group_table_file
 
@@ -518,8 +520,6 @@ def save_results(
         Properties DataFrame
     parquet_file : Path
         Path to saved Parquet file
-    metadata_file : Path
-        Path to saved metadata JSON file
     """
     print("\n" + "=" * 70)
     print("SAVING RESULTS")
@@ -540,25 +540,7 @@ def save_results(
     df.to_parquet(parquet_file, index=False)
     print(f"✓ Parquet : {parquet_file}  ({parquet_file.stat().st_size / 1e6:.1f} MB)")
 
-    metadata = {
-        'fronts_file': fronts_file,
-        'coords_file': coords_file,
-        'time': time_str,
-        'shape': list(fronts_global.shape),
-        'num_fronts': len(df),
-        'min_size': min_size,
-        'processing_time_minutes': total_time / 60,
-        'n_workers': n_workers,
-        'downsample_factor': downsample,
-        'lat_range': [float(lat_global.min()), float(lat_global.max())],
-        'lon_range': [float(lon_global.min()), float(lon_global.max())],
-        'timestamp': datetime.now().isoformat()
-    }
-    metadata_file = io.get_global_front_output_path(output_dir, time_str, 'metadata')
-    io.write_json(metadata, metadata_file)
-    print(f"✓ Metadata: {metadata_file}")
-
-    return df, parquet_file, metadata_file
+    return df, parquet_file
 
 
 # ---------------------------------------------------------------------------
@@ -616,18 +598,18 @@ def main(
     )
     labeled, _ = label_and_filter(fronts_global, min_size=min_size)
     labeled_file = save_labeled_array(labeled, output_dir, time_str)
-    bbox_coords, front_ids = extract_bboxes_and_ids(
-        labeled, lat_global, lon_global, time_str
+    properties, front_ids = extract_bboxes_and_ids(
+        labeled, lat_global, lon_global, fronts_file
     )
     group_df, group_table_file = build_group_table(
-        front_ids, bbox_coords, output_dir, time_str
+        front_ids, properties, output_dir, time_str
     )
     results, total_time = run_parallel_geometry(
         group_df, labeled, lat_global, lon_global, time_str,
         n_workers=n_workers, length_method=length_method,
         skip_curvature=skip_curvature
     )
-    df, parquet_file, metadata_file = save_results(
+    df, parquet_file = save_results(
         results=results,
         fronts_file=fronts_file,
         coords_file=coords_file,
@@ -651,7 +633,6 @@ def main(
     print(f"  Labeled array : {labeled_file}")
     print(f"  Group table   : {group_table_file}")
     print(f"  Properties PQ : {parquet_file}")
-    print(f"  Metadata      : {metadata_file}")
     print()
     print("✓ Ready for visualization in visualize_global_results.ipynb!")
     print("=" * 70)

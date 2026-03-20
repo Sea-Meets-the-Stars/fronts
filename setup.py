@@ -21,8 +21,7 @@ if os.path.exists('README.md'):
 setup_keywords['provides'] = [setup_keywords['name']]
 setup_keywords['requires'] = ['Python (>=3.11.0)']
 setup_keywords['install_requires'] = [
-    # Uncomment once llc4320-native-grid-preprocessing@global is merged to main:
-    # 'dbof-in-native-grid @ git+https://github.com/Sea-Meets-the-Stars/llc4320-native-grid-preprocessing.git@main',
+    'dbof-in-native-grid @ git+https://github.com/Sea-Meets-the-Stars/llc4320-native-grid-preprocessing.git@main',
     'torch',
     'torchvision', 'seaborn', 'smart-open[s3]', 'pyarrow',
     'scikit-learn', 'scikit-image', 'tqdm', 'astropy', 'astropy-healpix',

@@ -2,8 +2,6 @@
 ##  e.g. threshold, window size, etc.
 
 import os
-import sys
-import pathlib
 
 import yaml
 import numpy as np
@@ -15,15 +13,12 @@ import dbof.dataset_creation.config as dbof_config
 
 from fronts.preproc import inpaint_edges
 from fronts.llc import io as llc_io
-from fronts.finding import algorithms
+from fronts.finding import algorithms as finding_algorithms
 from fronts.finding import config as find_config
 from fronts.finding import io as finding_io
+from fronts.properties import algorithms as prop_algorithms
 from fronts.properties import io as properties_io
 from fronts.properties import colocation
-
-# group_fronts_global lives in dev/ (no package __init__)
-sys.path.insert(0, str(pathlib.Path(__file__).parents[3] / 'dev'))
-from group_fronts_global import main as group_fronts_global_main
 
 from IPython import embed
 
@@ -118,7 +113,7 @@ def find_fronts(timestamp: str, config: str, version: str, inpaint: bool = False
     bparam['verbose'] = True
 
     # Do it
-    fronts = algorithms.fronts_from_gradb2(gradb2, **bparam)
+    fronts = finding_algorithms.fronts_from_gradb2(gradb2, **bparam)
 
     # Save em
     finding_io.save_binary_fronts(
@@ -127,10 +122,7 @@ def find_fronts(timestamp: str, config: str, version: str, inpaint: bool = False
 
 def group_fronts(timestamp: str, config: str, version: str,
                  n_workers: int = None, skip_curvature: bool = False):
-    """Label connected front components and compute geometric properties.
-
-    Wraps group_fronts_global.main(), deriving all paths from env vars and
-    the binary front filename conventions.
+    """Label connected front components and compute geometric properties globally.
 
     Args:
         timestamp (str): Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
@@ -143,9 +135,17 @@ def group_fronts(timestamp: str, config: str, version: str,
     coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'LLC_coords.nc')
     output_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
                                'group_fronts', f'v{version}')
-    group_fronts_global_main(
+
+    # Load
+    fronts_binary = np.load(fronts_file)
+    ds = xarray.open_dataset(coords_file)
+    lat = ds['lat'].values if 'lat' in ds else ds['YC'].values
+    lon = ds['lon'].values if 'lon' in ds else ds['XC'].values
+    ds.close()
+
+    prop_algorithms.group_fronts(
+        fronts_binary, lat, lon,
         fronts_file=fronts_file,
-        coords_file=coords_file,
         output_dir=output_dir,
         n_workers=n_workers,
         skip_curvature=skip_curvature,
