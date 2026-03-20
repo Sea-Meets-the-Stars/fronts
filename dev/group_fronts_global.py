@@ -6,8 +6,8 @@ Usage
 -----
     python dev/group_fronts_global.py \
         --fronts_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/outputs/LLC4320_2012-11-09T12_00_00_v1_bin_A.npy' \
-        --coords_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/LLC_coords_lat_lon.nc' \
-        --output_dir  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/group_fronts/testing/pr2_2/' \
+        --coords_file '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/coords/LLC_coords_lat_lon.nc' \
+        --output_dir  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/group_fronts/v1/' \
         --n_workers 8 \
         --skip_curvature
 """

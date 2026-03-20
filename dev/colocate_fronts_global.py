@@ -17,11 +17,11 @@ For step-by-step control from Python, call that function directly.
 Usage
 -----
 python dev/colocate_fronts_global.py \
-    --labeled_file  '/path/to/labeled_fronts_global_20121109T12_00_00_v1_bin_A.npy' \
-    --fronts_file   '/path/to/LLC4320_2012-11-09T12_00_00_v1_bin_A.npy' \
-    --property_dir  '/path/to/property/files/' \
-    --properties    relative_vorticity strain_n frontogenesis_tendency \
-    --output_dir    '/path/to/output/' \
+    --labeled_file  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/group_fronts/v1/labeled_fronts_global_20121109T12_00_00_v1_bin_A.npy' \
+    --fronts_file   '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/outputs/LLC4320_2012-11-09T12_00_00_v1_bin_A.npy' \
+    --property_dir  '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/derived/' \
+    --properties    coriolis_f divergence Eta frontogenesis_tendency gradb2 gradeta2 gradrho2 gradsalt2 gradtheta2 okubo_weiss relative_vorticity rossby_number Salt strain_mag strain_n strain_s Theta ug vg U V W \
+    --output_dir    '/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/group_fronts/v1/' \
     --dilation_radius 5 \
     --stats mean std median \
     --percentiles 10 90
