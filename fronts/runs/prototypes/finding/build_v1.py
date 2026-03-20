@@ -6,6 +6,7 @@ import os
 import yaml
 import numpy as np
 import xarray
+import sys
 
 from dbof.cli import generate_global
 from dbof.cli import zarr_to_netcdf

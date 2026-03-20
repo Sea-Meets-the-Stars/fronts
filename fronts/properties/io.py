@@ -135,6 +135,7 @@ def get_global_front_output_path(
         'labeled':     f'labeled_fronts_global_{time_str_safe}.npy',
         'group_table': f'group_table_{time_str_safe}.parquet',
         'properties':  f'global_front_properties_{time_str_safe}.parquet',
+        'colocation':  f'colocation_{time_str_safe}.parquet',
         'metadata':    f'metadata_{time_str_safe}.json',
     }
 
