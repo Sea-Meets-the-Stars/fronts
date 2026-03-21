@@ -121,6 +121,18 @@ Fields available via `generate_properties()`, grouped by subset as defined in `t
 | `frontogenesis_geo` | `frontogenesis` |
 | `frontogenesis_ageo` | `frontogenesis` |
 
+## Notebooks
+
+**`GroupFronts_Viz.ipynb`** 
+**`GroupFronts_Global_Viz.ipynb`** 
+**`ColocateFrontProperties_Global_Viz.ipynb`** 
+**`PCA_Global_Viz.ipynb`** 
+**`JPDF_Global_Viz.ipynb`** 
+**`Okubo_Weiss_Global_Viz.ipynb`** 
+**`Turner_Angle_Global_Viz.ipynb`** 
+
+
+
 ## Dependencies
 
 ```
