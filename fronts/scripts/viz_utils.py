@@ -15,11 +15,11 @@ def make_colormap(divergent=False):
     """
     if divergent:
         colors = np.array([
-            [0, 0, 153],     # dark blue
-            [0, 0, 255],     # blue
-            [255, 255, 255], # white
-            [255, 0, 0],     # red
-            [153, 0, 0],     # dark red
+            [ 58,  76, 139],   # muted dark blue
+            [103, 137, 196],   # muted blue
+            [245, 245, 245],   # near-white
+            [196, 117, 103],   # muted red
+            [139,  58,  58],   # muted dark red
         ], dtype=np.ubyte)
         pos = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
     else:
