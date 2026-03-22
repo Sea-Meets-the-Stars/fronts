@@ -119,7 +119,7 @@ class FrontPropertyViewer(QMainWindow):
         self.panel_titles = ['gradb2'] + list(fields)
 
         # Fields that use a divergent (blue-white-red) colormap centered on 0
-        self._DIVERGENT_FIELDS = {'okubo_weiss', 'vorticity', 'divergence'}
+        self._DIVERGENT_FIELDS = {'okubo_weiss', 'vorticity', 'divergence', 'frontogenesis_tendency'}
 
         # Data arrays (loaded later)
         self.panel_data = [None, None, None, None]
@@ -131,9 +131,6 @@ class FrontPropertyViewer(QMainWindow):
         self.nan_image_items = [None, None, None, None]
         self.fronts_image_items = [None, None, None, None]
         self.panels = []   # list of PlotItem
-
-        # Sync guard for linked pan/zoom
-        self._syncing = False
 
         self._init_ui()
         self._load_all_data()
@@ -199,22 +196,36 @@ class FrontPropertyViewer(QMainWindow):
 
         for i, (row, dcol, _cbarcol) in enumerate(self._PANEL_GRID):
             panel = self.graphics_widget.addPlot(row=row, col=dcol)
-            panel.setAspectLocked(True)
             panel.showGrid(x=False, y=False)
-            panel.setLabel('left', 'j (pixel)')
             panel.setLabel('bottom', 'i (pixel)')
             panel.setTitle(self.panel_titles[i])
-            # Connect range change for linked pan/zoom
-            idx = i  # capture by value
-            panel.sigRangeChanged.connect(lambda _vb, _rng, src=idx: self._on_range_changed(src))
+            # Show y-axis label only on left-column panels (cols 0,1)
+            if dcol == 0:
+                panel.setLabel('left', 'j (pixel)')
+            else:
+                panel.hideAxis('left')
             self.panels.append(panel)
 
-        # Equal stretch for the two data columns so panels are the same size
+        # Only panel 0 locks aspect (controls zoom behaviour);
+        # panels 1-3 accept panel 0's range without fighting it.
+        self.panels[0].setAspectLocked(True)
+
+        # Link all panel axes to panel 0 so pan/zoom stays in sync
+        for panel in self.panels[1:]:
+            panel.setXLink(self.panels[0])
+            panel.setYLink(self.panels[0])
+
+        # Equal stretch for the two data columns so panels are the same size.
+        # Colorbar columns get a fixed width so differing tick-label widths
+        # cannot make left/right data columns unequal.
         layout = self.graphics_widget.ci.layout
         layout.setColumnStretchFactor(0, 1)  # left data panel
-        layout.setColumnStretchFactor(1, 0)  # left colorbar – natural width only
+        layout.setColumnStretchFactor(1, 0)  # left colorbar
         layout.setColumnStretchFactor(2, 1)  # right data panel
-        layout.setColumnStretchFactor(3, 0)  # right colorbar – natural width only
+        layout.setColumnStretchFactor(3, 0)  # right colorbar
+        cbar_width = 80  # fixed pixel width for colorbar columns
+        layout.setColumnFixedWidth(1, cbar_width)
+        layout.setColumnFixedWidth(3, cbar_width)
         layout.setRowStretchFactor(0, 1)
         layout.setRowStretchFactor(1, 1)
 
@@ -282,9 +293,8 @@ class FrontPropertyViewer(QMainWindow):
     def _render_all_panels(self):
         for i in range(4):
             self._render_panel(i)
-        # Auto-range all panels to fit data
-        for panel in self.panels:
-            panel.autoRange()
+        # Auto-range panel 0 only; linked axes propagate to the rest
+        self.panels[0].autoRange()
 
     def _render_panel(self, idx):
         """Render data into panel *idx*, adding colorbar and overlays."""
@@ -348,20 +358,6 @@ class FrontPropertyViewer(QMainWindow):
                 panel.addItem(fronts_item)
 
     # ------------------------------------------------------------------
-    # Linked pan/zoom
-    # ------------------------------------------------------------------
-
-    def _on_range_changed(self, source_idx):
-        if self._syncing:
-            return
-        self._syncing = True
-        vr = self.panels[source_idx].viewRange()
-        for i, panel in enumerate(self.panels):
-            if i != source_idx:
-                panel.setRange(xRange=vr[0], yRange=vr[1], padding=0)
-        self._syncing = False
-
-    # ------------------------------------------------------------------
     # Controls
     # ------------------------------------------------------------------
 
@@ -389,8 +385,7 @@ class FrontPropertyViewer(QMainWindow):
                 panel.removeItem(fronts_item)
 
     def _reset_view(self):
-        for panel in self.panels:
-            panel.autoRange()
+        self.panels[0].autoRange()
         self.status_bar.showMessage('View reset', 2000)
 
 
