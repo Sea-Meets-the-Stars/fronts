@@ -61,7 +61,7 @@ def make_fronts_rgba(fronts_data, divergent=False):
     fronts_data : np.ndarray
         Binary front mask (>0 = front pixel).
     divergent : bool
-        If True, use dark grey; otherwise use red.
+        If True, use yellow; otherwise use red.
 
     Returns
     -------
@@ -70,9 +70,9 @@ def make_fronts_rgba(fronts_data, divergent=False):
     """
     rgba = np.zeros((*fronts_data.shape, 4), dtype=np.ubyte)
     if divergent:
-        rgba[:, :, 0] = 60
-        rgba[:, :, 1] = 60
-        rgba[:, :, 2] = 60
+        rgba[:, :, 0] = 255
+        rgba[:, :, 1] = 255
+        rgba[:, :, 2] = 0
         alpha = 200
     else:
         rgba[:, :, 0] = 255
