@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c:*)",
+      "Bash(conda run:*)",
+      "Bash(chmod:*)",
+      "Bash(python global_divb2_viewer.py:*)",
+      "Bash(pkill:*)",
+      "Bash(find:*)",
+      "Bash(source ~/miniforge3/etc/profile.d/conda.sh)",
+      "Bash(conda activate ocean14)",
+      "Bash(python3 -c \":*)",
+      "Bash(/home/xavier/miniforge3/envs/ocean14/bin/python:*)",
+      "Bash(/home/xavier/miniforge3/envs/ocean14/bin/pip:*)",
+      "Bash(ls:*)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(git:*)",
+      "Bash(cd:*)"
+    ]
+  }
+}
