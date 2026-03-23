@@ -103,3 +103,7 @@ Consider including log(npix) as a feature, but avoid it if it dominates the UMAP
 3. Execute the new plan.  Be sure to document the changes to the claude_explore.tex file.  Please spend at least 30min on the task and you may use multiple agents.  As before, update new results to the claude_explore_findings.tex file in Section 3 with a sub-section called "Run 3".  When possible re-use existing code and modules rather than writing new code.
 
 4.  Edit the claude_explore_findings.tex file so that the figures occur close to the text that describes them.
+
+## Run 4
+
+1. Can you re-run a UMAP on C5 from Run 3, but ignoring the Salt, and log_grad_ratio features?  As always, document the findings in the claude_explore_findings.tex file in Section 3 with a sub-section called "Run 4".
