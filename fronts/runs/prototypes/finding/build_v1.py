@@ -237,7 +237,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
                     output_dir: str = None,
                     stats: list = None, percentiles: list = None,
                     min_npix: int = 1, nan_policy: str = 'omit',
-                    dilation_radius: int = 0, clobber: bool = False):
+                    dilation_radius: int = 1, clobber: bool = False):
     """Co-locate labeled fronts with physical property fields.
 
     Args:
