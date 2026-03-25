@@ -61,6 +61,7 @@ subsets:
       - gradsalt2
       - gradtheta2
       - gradeta2
+      - gradrho2
 
   kinematic:
     dataset_name: "kinematic.zarr"

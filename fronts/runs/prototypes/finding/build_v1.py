@@ -144,7 +144,7 @@ def group_fronts(timestamp: str, config: str, version: str,
         skip_curvature (bool): Skip curvature calculation (~50% faster).
     """
     fronts_file = finding_io.binary_filename(timestamp, config, version)
-    coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'LLC_coords.nc')
+    coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'coords', 'LLC_coords.nc')
     output_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
                                'group_fronts', f'v{version}')
 
@@ -290,7 +290,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
 
     # Load label map
     labeled_file = properties_io.get_global_front_output_path(
-        group_dir, time_str, 'label_map')
+        group_dir, time_str, 'label_map',run_tag)
     labeled = np.load(labeled_file)
 
     prop_algorithms.colocate_fronts(
@@ -315,7 +315,7 @@ def main(flg: str):
     if flg == 1:
         timestamp   = '2012-11-09T12_00_00'
         config_file = './testing_global_v1.yaml'
-        run_id      = 'year_1xglobal_20260306_050000'
+        run_id      = 'global_20260324_020000'
         generate_gradb2(timestamp, config_file, run_id=run_id)
 
     # Find fronts -- binary pixels
@@ -338,11 +338,14 @@ def main(flg: str):
     if flg == 4:
         timestamp   = '2012-11-09T12_00_00'
         config_file = './testing_global_v1.yaml'
-        run_id      = 'year_1xglobal_20260306_050000'
+        run_id      = 'global_20260324_020000'
         version     = '1'
         property_names = [
             'relative_vorticity', 'divergence', 'strain_mag',
-            'frontogenesis_tendency', 'okubo_weiss',
+            'frontogenesis_tendency', 'okubo_weiss','coriolis_f',
+            'Eta','gradeta2','gradrho2','gradtheta2','gradsalt2',
+            'rossby_number','Salt','strain_n','strain_s','Theta',
+            'ug','vg','U','V','W','frontogenesis_geo','frontogenesis_ageo',
         ]
         generate_properties(timestamp, config_file, version,
                             property_names=property_names, run_id=run_id)
@@ -355,7 +358,10 @@ def main(flg: str):
         property_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'derived')
         property_names = [
             'relative_vorticity', 'divergence', 'strain_mag',
-            'frontogenesis_tendency', 'okubo_weiss',
+            'frontogenesis_tendency', 'okubo_weiss','coriolis_f',
+            'Eta','gradeta2','gradrho2','gradtheta2','gradsalt2',
+            'rossby_number','Salt','strain_n','strain_s','Theta',
+            'ug','vg','U','V','W','frontogenesis_geo','frontogenesis_ageo',
         ]
         for config in configs:
             colocate_fronts(timestamp, config, version,
