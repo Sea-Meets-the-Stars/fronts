@@ -28,14 +28,19 @@ from fronts.properties import io as properties_io
 TIMESTAMP   = '2012-11-09T12_00_00'
 VERSION     = '1'
 CONFIG_FILE = './testing_global_v1.yaml'
-RUN_ID      = 'global_20260324_010000'
+RUN_ID      = 'global_20260324_020000'
 CONFIGS     = ['A', 'B', 'C']
 
-TESTING_DIR = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'testing')
+#TESTING_DIR = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'testing')
+TESTING_DIR = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'derived')
 
 PROPERTY_NAMES = [
     'relative_vorticity', 'divergence', 'strain_mag',
-    'frontogenesis_tendency', 'okubo_weiss',
+    'frontogenesis_tendency', 'okubo_weiss','coriolis_f',
+    'Eta','gradeta2','gradrho2','gradtheta2','gradsalt2',
+    'rossby_number','Salt','strain_n','strain_s','Theta',
+    'ug','vg','U','V','W','frontogenesis_geo','frontogenesis_ageo',
+    'turner_angle', 'gradb2',
 ]
 
 
@@ -175,7 +180,7 @@ def generate_properties(clobber=False):
                 folder=cfg.output.folder)
 
 
-def colocate_fronts(config, clobber=False):
+def colocate_fronts(config, clobber=True):
     fronts_file = finding_io.binary_filename(TIMESTAMP, config, VERSION, path=TESTING_DIR)
     time_str = TIMESTAMP.replace('_', ':')
     run_tag  = f'v{VERSION}_bin_{config}'
