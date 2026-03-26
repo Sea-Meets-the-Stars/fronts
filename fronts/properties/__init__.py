@@ -10,10 +10,11 @@ from . import io
 from . import defs
 from . import measure
 from . import colocation
-from . import pca
-from . import jpdf
+from . import characteristics
+from .analysis import pca
+from .analysis import jpdf
 #from . import utils
 #from . import views
 
 __all__ = ['group_labels', 'geometry', 'io', 'defs', 'measure', 'colocation',
-           'pca', 'jpdf', 'utils', 'views']
+           'characteristics', 'pca', 'jpdf', 'utils', 'views']
