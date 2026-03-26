@@ -19,6 +19,19 @@
 
 ## The script should be called front_viz_groups_bokeh.py and be placed in the fronts/scripts directory.
 
+## Updates
+
+### 1
+
+- The strain, relative_vorticity, and divergence properties should all be normalized by the coriolis_f_median.  This includes the mean, median, p10, p25, p75, and p90 metrics for each.
+- Do not include gradeta2, gradrho2, gradsalt2, or gradtheta2 in the list of possible properties.
+- Do not include rossby_number in the list of possible properties.
+
+### 2
+
+ - Do not include the un-normalized strain, relative_vorticity, and divergence properties in the list of possible properties.
+ - Do not include strain_n or strain_s in the list of possible properties.
+
 # Prompts
 
 1. Please provide a plan for creating the Bokeh script as described in prompts/front_viz_groups_bokeh.md
@@ -26,3 +39,7 @@
 2. Please review this file for updates on functionality and modify your plan accordingly.
 
 3. Please implement the script.
+
+4. Please make the Updates 1 given in the Updates section.
+
+5. Please make the Updates 2 given in the Updates section.

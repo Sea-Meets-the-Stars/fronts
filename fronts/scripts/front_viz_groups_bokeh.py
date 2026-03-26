@@ -225,6 +225,54 @@ def rgba_to_bokeh_image(rgba):
 # Properties lookup dict for JS
 # ---------------------------------------------------------------------------
 
+# Columns to exclude from the selectable property list
+_EXCLUDE_PREFIXES = (
+    'gradeta2', 'gradrho2', 'gradsalt2', 'gradtheta2', 'rossby_number',
+    'strain_n', 'strain_s',
+)
+
+# Un-normalized columns that have _over_f counterparts — exclude the raw versions.
+# We match exactly these prefixes + stat suffixes so that e.g. strain_mag_std (no
+# _over_f counterpart) is still excluded along with its normalised siblings.
+_EXCLUDE_RAW_PREFIXES = ('strain_mag', 'relative_vorticity', 'divergence')
+
+# Fields whose mean/median/p10/p25/p75/p90 should be divided by |coriolis_f_median|
+_NORMALIZE_BY_F = ('strain_mag', 'strain_n', 'strain_s',
+                    'relative_vorticity', 'divergence')
+_NORMALIZE_SUFFIXES = ('_mean', '_median', '_p10', '_p25', '_p75', '_p90')
+
+
+def _add_normalized_columns(df):
+    """Add *_over_f columns for strain/vorticity/divergence normalised by |f|."""
+    if 'coriolis_f_median' not in df.columns:
+        return df
+    abs_f = df['coriolis_f_median'].abs()
+    with np.errstate(divide='ignore', invalid='ignore'):
+        for prefix in _NORMALIZE_BY_F:
+            for suffix in _NORMALIZE_SUFFIXES:
+                src = f'{prefix}{suffix}'
+                dst = f'{prefix}{suffix}_over_f'
+                if src in df.columns:
+                    df[dst] = df[src] / abs_f
+    return df
+
+
+def filter_property_columns(columns):
+    """Remove excluded columns and return the filtered list."""
+    result = []
+    for c in columns:
+        if c == 'flabel':
+            continue
+        if any(c.startswith(ex) for ex in _EXCLUDE_PREFIXES):
+            continue
+        # Exclude raw (un-normalized) strain_mag/relative_vorticity/divergence
+        # but keep their *_over_f counterparts
+        if any(c.startswith(p) for p in _EXCLUDE_RAW_PREFIXES) and not c.endswith('_over_f'):
+            continue
+        result.append(c)
+    return result
+
+
 def build_properties_lookup(properties_df, labeled_crop, selected_cols):
     """Build a JSON-serialisable dict: flabel -> {col: value, ...}.
 
@@ -237,10 +285,8 @@ def build_properties_lookup(properties_df, labeled_crop, selected_cols):
     df = properties_df[properties_df['flabel'].isin(labels_in_view)].copy()
     df = df.set_index('flabel')
 
-    # Add strain_mag_median / coriolis_f_median as a derived column if available
-    if 'strain_mag_median' in df.columns and 'coriolis_f_median' in df.columns:
-        with np.errstate(divide='ignore', invalid='ignore'):
-            df['strain_over_f'] = df['strain_mag_median'] / df['coriolis_f_median'].abs()
+    # Add normalised columns
+    df = _add_normalized_columns(df)
 
     lookup = {}
     cols_to_include = [c for c in selected_cols if c in df.columns]
@@ -278,13 +324,15 @@ def create_visualization(timestamp, field, bbox, config_lbl='B', version='1'):
     ny, nx = bg_data.shape
     print(f"Region shape: {ny} x {nx}")
 
-    # All available property columns (exclude flabel itself from the selectable list)
-    all_prop_cols = [c for c in props_df.columns if c != 'flabel']
+    # Add normalised columns to the DataFrame so we can enumerate them
+    props_df = _add_normalized_columns(props_df.copy())
+
+    # Build the selectable property list (filtered)
+    all_prop_cols = filter_property_columns(props_df.columns)
 
     # Default display columns
-    default_cols = ['gradb2_median', 'strain_over_f']
-    # Filter to those that exist
-    default_cols = [c for c in default_cols if c in all_prop_cols or c == 'strain_over_f']
+    default_cols = ['gradb2_median', 'strain_mag_median_over_f']
+    default_cols = [c for c in default_cols if c in all_prop_cols]
 
     # Build images
     bg_grey_rgba = field_to_rgba(bg_data, cmap='grey')
@@ -297,9 +345,8 @@ def create_visualization(timestamp, field, bbox, config_lbl='B', version='1'):
     fronts_red_img = rgba_to_bokeh_image(fronts_red_rgba)
     fronts_yellow_img = rgba_to_bokeh_image(fronts_yellow_rgba)
 
-    # Build properties lookup (include all columns)
-    lookup = build_properties_lookup(
-        props_df, labeled, all_prop_cols + ['strain_over_f'])
+    # Build properties lookup (include all selectable columns)
+    lookup = build_properties_lookup(props_df, labeled, all_prop_cols)
 
     # Store labeled array as flat list for JS access
     # (labeled is int64; convert to int32 for JS)
@@ -344,7 +391,7 @@ def create_visualization(timestamp, field, bbox, config_lbl='B', version='1'):
     )
 
     # --- MultiSelect for properties ---
-    prop_options = sorted(all_prop_cols + ['strain_over_f'])
+    prop_options = sorted(all_prop_cols)
     multi_select = MultiSelect(
         title="Properties to display:",
         value=default_cols,
