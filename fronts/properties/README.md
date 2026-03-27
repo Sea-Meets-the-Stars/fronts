@@ -95,31 +95,31 @@ algorithms.colocate_fronts(
 
 Fields available via `generate_properties()`, grouped by subset as defined in `testing_global_v1.yaml`.
 
-| Field | Subset |
-|---|---|
-| `Theta` | `native_fields` |
-| `Salt` | `native_fields` |
-| `Eta` | `native_fields` |
-| `U` | `native_fields` |
-| `V` | `native_fields` |
-| `W` | `native_fields` |
-| `gradb2` | `frontal_structure` |
-| `gradsalt2` | `frontal_structure` |
-| `gradtheta2` | `frontal_structure` |
-| `gradeta2` | `frontal_structure` |
-| `relative_vorticity` | `kinematic` |
-| `strain_n` | `kinematic` |
-| `strain_s` | `kinematic` |
-| `strain_mag` | `kinematic` |
-| `divergence` | `kinematic` |
-| `coriolis_f` | `kinematic` |
-| `rossby_number` | `kinematic` |
-| `okubo_weiss` | `kinematic` |
-| `frontogenesis_tendency` | `frontogenesis` |
-| `ug` | `frontogenesis` |
-| `vg` | `frontogenesis` |
-| `frontogenesis_geo` | `frontogenesis` |
-| `frontogenesis_ageo` | `frontogenesis` |
+| Field | Subset | Units | Equation | Description |
+|---|---|---|---|---|
+| `Theta` | `native_fields` | °C | — | Potential temperature (LLC4320 native field) |
+| `Salt` | `native_fields` | PSU | — | Salinity (LLC4320 native field) |
+| `Eta` | `native_fields` | m | — | Sea surface height (LLC4320 native field) |
+| `U` | `native_fields` | m/s | — | Zonal velocity (LLC4320 native field) |
+| `V` | `native_fields` | m/s | — | Meridional velocity (LLC4320 native field) |
+| `W` | `native_fields` | m/s | — | Vertical velocity (LLC4320 native field) |
+| `gradb2` | `frontal_structure` | s⁻⁴ | \|∇b\|² = (∂b/∂x)² + (∂b/∂y)² | Squared surface buoyancy gradient magnitude |
+| `gradsalt2` | `frontal_structure` | (PSU/m)² | \|∇S\|² = (∂S/∂x)² + (∂S/∂y)² | Squared salinity gradient magnitude |
+| `gradtheta2` | `frontal_structure` | (K/m)² | \|∇θ\|² = (∂θ/∂x)² + (∂θ/∂y)² | Squared temperature gradient magnitude |
+| `gradeta2` | `frontal_structure` | (m/m)² | \|∇η\|² = (∂η/∂x)² + (∂η/∂y)² | Squared SSH gradient magnitude |
+| `relative_vorticity` | `kinematic` | s⁻¹ | ω = ∂v/∂x − ∂u/∂y | Relative vorticity |
+| `strain_n` | `kinematic` | s⁻¹ | σ_n = ∂u/∂x − ∂v/∂y | Normal (stretching) strain |
+| `strain_s` | `kinematic` | s⁻¹ | σ_s = ∂u/∂y + ∂v/∂x | Shear strain |
+| `strain_mag` | `kinematic` | s⁻¹ | \|σ\| = √(σ_n² + σ_s²) | Strain magnitude |
+| `divergence` | `kinematic` | s⁻¹ | δ = ∂u/∂x + ∂v/∂y | Horizontal velocity divergence |
+| `coriolis_f` | `kinematic` | s⁻¹ | f = 2Ω sin(φ) | Coriolis parameter |
+| `rossby_number` | `kinematic` | dimensionless | Ro = ω/f | Rossby number |
+| `okubo_weiss` | `kinematic` | s⁻² | OW = σ_n² + σ_s² − ω² | Okubo-Weiss parameter |
+| `frontogenesis_tendency` | `frontogenesis` | s⁻⁵ | F = −(∂u/∂x · b_x² + (∂u/∂y + ∂v/∂x) · b_x b_y + ∂v/∂y · b_y²) | Kinematic frontogenesis tendency |
+| `ug` | `frontogenesis` | m/s | u_g = −(g/f) ∂η/∂y | Geostrophic zonal velocity |
+| `vg` | `frontogenesis` | m/s | v_g = (g/f) ∂η/∂x | Geostrophic meridional velocity |
+| `frontogenesis_geo` | `frontogenesis` | s⁻⁵ | F(u_g, v_g) | Geostrophic frontogenesis tendency |
+| `frontogenesis_ageo` | `frontogenesis` | s⁻⁵ | F − F_geo | Ageostrophic frontogenesis tendency |
 
 ## Notebooks
 
