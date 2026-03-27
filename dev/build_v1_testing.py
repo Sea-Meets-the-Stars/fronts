@@ -1,4 +1,8 @@
-"""Test run of the build_v1 pipeline — all inputs and outputs go to TESTING_DIR."""
+"""
+Test run of the build_v1 pipeline. 
+Replaced by fronts.runs.prototypes.finding.build_v1.py
+Calls / saves all inputs and outputs in the same TESTING_DIR.
+"""
 
 import os
 import sys
