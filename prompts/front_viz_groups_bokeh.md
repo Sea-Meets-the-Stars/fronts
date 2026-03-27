@@ -32,6 +32,10 @@
  - Do not include the un-normalized strain, relative_vorticity, and divergence properties in the list of possible properties.
  - Do not include strain_n or strain_s in the list of possible properties.
 
+ ### 3
+
+ Expose the script like how front_property_viewer.py is exposed, i.e. create a file bin/front_viz_groups_bokeh that calls the script.  Note, that file need not be executable.
+
 # Prompts
 
 1. Please provide a plan for creating the Bokeh script as described in prompts/front_viz_groups_bokeh.md
@@ -43,3 +47,6 @@
 4. Please make the Updates 1 given in the Updates section.
 
 5. Please make the Updates 2 given in the Updates section.
+
+6. Please make the Updates 3 given in the Updates section.
+
