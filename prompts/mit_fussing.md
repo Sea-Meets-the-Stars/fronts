@@ -93,3 +93,5 @@ All data is lazily loaded via Dask, so selecting specific slices (face, time, de
 1. Please examine the data in the path /orcd/data/abodner/003/LLC4320 and its sub-folders.  I believe it is a zarr store.  If you wish to run python, be sure to use the "ocean13" conda environment.
 
 2. Ok, please add a summary of what you found to the summary section in the mit_fussing.md file located at /orcd/home/002/profx/Oceanography/python/fronts/prompts/mit_fussing.md.  Include instructions on how to access the data and how to run python code to examine the data.
+
+claude --resume 229a1abf-6cdf-438f-af3b-41f97724cce0
