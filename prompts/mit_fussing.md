@@ -6,11 +6,6 @@
 
 The goal is to understand the LLC4320 model data format on the MIT system.  The path to the data is /orcd/data/abodner/003/LLC4320
 
-
-### Prompts
-
-1. Please examine the data in the path /orcd/data/abodner/003/LLC4320 and its sub-folders.  I believe it is a zarr store.  If you wish to run python, be sure to use the "ocean13" conda environment.
-
 ### Summary
 
 The data at `/orcd/data/abodner/003/LLC4320` is a **Zarr v2 store** containing the full LLC4320 MITgcm high-resolution ocean simulation output. The actual store root is at `/orcd/data/abodner/003/LLC4320/LLC4320/`.
@@ -92,3 +87,9 @@ python my_script.py
 ```
 
 All data is lazily loaded via Dask, so selecting specific slices (face, time, depth) before calling `.load()` or `.values` is essential to avoid loading terabytes into memory.
+
+### Prompts
+
+1. Please examine the data in the path /orcd/data/abodner/003/LLC4320 and its sub-folders.  I believe it is a zarr store.  If you wish to run python, be sure to use the "ocean13" conda environment.
+
+2. Ok, please add a summary of what you found to the summary section in the mit_fussing.md file located at /orcd/home/002/profx/Oceanography/python/fronts/prompts/mit_fussing.md.  Include instructions on how to access the data and how to run python code to examine the data.
