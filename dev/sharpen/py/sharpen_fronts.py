@@ -320,6 +320,13 @@ def sharpen_fronts(labeled_fronts, gradb2, protect_endpoints=True,
         if sharpened_mask.sum() >= min_size:
             result[r0:r1, c0:c1][sharpened_mask] = lbl
 
+    # Final skeletonization to guarantee 1-pixel-wide fronts
+    from skimage.morphology import skeletonize
+    binary_sharp = result > 0
+    skeleton = skeletonize(binary_sharp)
+    # Zero out any pixel that didn't survive skeletonization
+    result[~skeleton] = 0
+
     return result
 
 
