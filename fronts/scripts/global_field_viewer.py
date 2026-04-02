@@ -28,6 +28,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 import pyqtgraph as pg
 
+from fronts.scripts.viz_utils import make_colormap, compute_levels, make_fronts_rgba, make_nan_rgba
+
 
 class GlobalViewer(QMainWindow):
     """Main window for field front visualization."""
@@ -172,30 +174,12 @@ class GlobalViewer(QMainWindow):
 
     def _make_colormap(self):
         """Return the appropriate colormap based on current settings."""
-        if self.divergent_checkbox.isChecked():
-            # Seismic: blue -> white -> red
-            colors = np.array([
-                [0, 0, 153],    # dark blue
-                [0, 0, 255],    # blue
-                [255, 255, 255],# white
-                [255, 0, 0],    # red
-                [153, 0, 0],    # dark red
-            ], dtype=np.ubyte)
-            pos = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
-        else:
-            # Inverted grayscale (white -> black)
-            colors = np.array([[255, 255, 255], [0, 0, 0]], dtype=np.ubyte)
-            pos = np.array([0.0, 1.0])
-        return pg.ColorMap(pos=pos, color=colors)
+        return make_colormap(divergent=self.divergent_checkbox.isChecked())
 
     def _compute_levels(self, plot_data, percentile):
         """Compute vmin/vmax, symmetric around zero if divergent."""
-        vmin = np.nanpercentile(plot_data, 100 - percentile)
-        vmax = np.nanpercentile(plot_data, percentile)
-        if self.divergent_checkbox.isChecked():
-            absmax = max(abs(vmin), abs(vmax))
-            vmin, vmax = -absmax, absmax
-        return vmin, vmax
+        return compute_levels(plot_data, percentile,
+                              divergent=self.divergent_checkbox.isChecked())
 
     def load_fronts2(self, fronts2_file, downsample=1):
         """Load and display a second fronts file (blue overlay)."""
@@ -381,48 +365,18 @@ class GlobalViewer(QMainWindow):
         self.graphics_widget.addItem(self.colorbar, row=0, col=1)
 
         # Create green overlay for NaN values (land/missing data)
-        if np.any(nan_mask):
-            # Create RGBA image for NaN overlay
-            nan_rgba = np.zeros((*self.field_data.shape, 4), dtype=np.ubyte)
-
-            # Set dark green color for land
-            nan_rgba[:, :, 0] = 0    # Red channel
-            nan_rgba[:, :, 1] = 100  # Green channel (darker green)
-            nan_rgba[:, :, 2] = 0    # Blue channel
-
-            # Set alpha: opaque where NaN, transparent elsewhere
-            nan_rgba[:, :, 3] = nan_mask.astype(np.ubyte) * 255  # Fully opaque for NaN
-
-            # Create ImageItem for NaN overlay
+        nan_rgba = make_nan_rgba(self.field_data)
+        if nan_rgba is not None:
             self.nan_image = pg.ImageItem()
-            self.nan_image.setImage(nan_rgba.transpose(1, 0, 2))  # Transpose to match orientation
-
+            self.nan_image.setImage(nan_rgba.transpose(1, 0, 2))
             self.plot_widget.addItem(self.nan_image)
 
         # Create fronts overlay (grey when divergent cmap, red otherwise)
         if self.fronts_data is not None:
-            fronts_rgba = np.zeros((*self.fronts_data.shape, 4), dtype=np.ubyte)
-
-            if self.divergent_checkbox.isChecked():
-                # Dark grey for divergent colormap
-                fronts_rgba[:, :, 0] = 60
-                fronts_rgba[:, :, 1] = 60
-                fronts_rgba[:, :, 2] = 60
-            else:
-                # Red for default colormap
-                fronts_rgba[:, :, 0] = 255
-                fronts_rgba[:, :, 1] = 0
-                fronts_rgba[:, :, 2] = 0
-
-            # Set alpha channel: transparent where no front, semi-transparent where front
-            alpha = 200 if self.divergent_checkbox.isChecked() else 120
-            fronts_rgba[:, :, 3] = (self.fronts_data > 0).astype(np.ubyte) * alpha
-
-            # Create ImageItem for fronts overlay
+            fronts_rgba = make_fronts_rgba(self.fronts_data,
+                                           divergent=self.divergent_checkbox.isChecked())
             self.fronts_image = pg.ImageItem()
-            self.fronts_image.setImage(fronts_rgba.transpose(1, 0, 2))  # Transpose to match orientation
-
-            # Add to plot
+            self.fronts_image.setImage(fronts_rgba.transpose(1, 0, 2))
             if self.show_fronts_checkbox.isChecked():
                 self.plot_widget.addItem(self.fronts_image)
 
@@ -499,7 +453,7 @@ class GlobalViewer(QMainWindow):
         x0, x1 = view_range[0]
         y0, y1 = view_range[1]
         self.plot_widget.setTitle(
-            f'Divb2 Field with Fronts'
+            f'gradb2 Field with Fronts'
             f'    |    '
             f'x [{x0:.1f}, {x1:.1f}]  '
             f'y [{y0:.1f}, {y1:.1f}]'
