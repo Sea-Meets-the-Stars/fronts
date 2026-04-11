@@ -27,13 +27,20 @@ COL_SLICE = slice(11840, 11980)
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
-def create_test_gradb2_data():
+def create_test_gradb2_data(row_slice=None, col_slice=None,
+    out_root:str='gradb2.npy'):
     """Extract and save the gradb2 subregion."""
     src_file = os.path.join(
         ogcm, "LLC", "Fronts", "derived",
         "LLC4320_2012-11-09T12_00_00_gradb2_v1.nc"
     )
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Slice
+    if row_slice is None:
+        row_slice = ROW_SLICE
+    if col_slice is None:
+        col_slice = COL_SLICE
 
     ds = xr.open_dataset(src_file)
     gradb2 = ds["gradb2"].isel(y=ROW_SLICE, x=COL_SLICE).values  # float32
@@ -42,7 +49,7 @@ def create_test_gradb2_data():
     print(f"gradb2 range: [{np.nanmin(gradb2):.4e}, {np.nanmax(gradb2):.4e}]")
     print(f"NaN fraction: {np.isnan(gradb2).mean():.3f}")
 
-    out_path = DATA_DIR / "gradb2.npy"
+    out_path = DATA_DIR / out_root
     np.save(out_path, gradb2)
     print(f"Saved to {out_path}")
 
@@ -147,4 +154,9 @@ def plot_labeled_fronts_on_gradb2():
 if __name__ == "__main__":
     #create_test_gradb2_data()
     #create_test_labeled_fronts()
-    plot_labeled_fronts_on_gradb2()
+    #plot_labeled_fronts_on_gradb2()
+
+    # Global
+    ROW_SLICE = slice(8410, 8850)
+    COL_SLICE = slice(11640, 12080)
+    create_test_gradb2_data(ROW_SLICE, COL_SLICE, out_root='gradb2_global.npy')

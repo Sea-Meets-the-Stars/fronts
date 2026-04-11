@@ -4,6 +4,8 @@
 
 When defining fronts on the LLC4320 model data, the process of (1) thresholding and (2) thinning can result in front locations that are offset from the peak in the gradb2 field used to define the fronts.  This can be a problem because the front locations are used to define the properties of the fronts.  The goal is to sharpen the fronts so that the front locations are as close as possible to the peak in the gradb2 field.
 
+This set of prompts tried to identify a local solution, i.e. front by front.
+
 ## Code
 
 Examine the modules in fronts/properties/ to understand the code that is available to you.
