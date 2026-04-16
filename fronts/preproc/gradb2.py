@@ -64,5 +64,6 @@ def generate_gradb2(timestamp: str, config_file: str, version:str=None,
     if os.path.isfile(out_file) and not clobber:
         print(f"gradb2 file {out_file} exists and clobber is False. Returning")
     else:
-        generate_global.main(config_file, subset='frontal_structure', run_id=run_id)
+        generate_global.main(config_file, subset='frontal_structure', 
+            only_these_features=['gradb2'], run_id=run_id)
         _zarr_to_nc(timestamp, config_file, 'frontal_structure', field, run_id=run_id)
