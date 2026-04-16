@@ -4,7 +4,6 @@
 import os
 import sys
 
-
 from fronts.preproc.gradb2 import generate_gradb2
 from fronts.finding.run import find_gradb2_fronts
 from fronts.properties.run import group_fronts
