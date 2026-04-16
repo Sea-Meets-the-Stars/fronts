@@ -13,6 +13,7 @@ binary:
   thin: false                     # Apply morphological thinning to fronts
   sharpen: true                   # Apply morphological thinning to fronts
   despur: true                    # Remove spurs
+  Lspur: 10                       # Maximum spur length
 
   # Optional fields
   dilate: false                   # Dilate the front (usually after thin + crop)

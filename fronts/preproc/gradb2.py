@@ -4,49 +4,11 @@ import os
 
 import yaml
 
-import dbof.dataset_creation.config as dbof_config
 from dbof.cli import generate_global
 from dbof.cli import zarr_to_netcdf
 
 from fronts.llc import io as llc_io
 
-# ---------------------------------------------------------------------------
-# Private helper
-# ---------------------------------------------------------------------------
-
-def _zarr_to_nc(timestamp: str, config_file: str, subset: str,
-                field: str = None, channels: list = None,
-                version:str='1', run_id: str = None):
-    """Write netcdf from the S3 zarr store.
-
-    Pass either `field` (single field, e.g. 'gradb2') or `channels` (list of
-    field names for multi-channel subsets). The output path is derived from
-    `field` if provided, otherwise from `subset`.
-    """
-    name = field if field is not None else subset
-    full_path = llc_io.derived_filename(timestamp, name, version=version)
-    cfg = dbof_config.load_config(config_file)
-    with open(config_file) as fh:
-        raw = yaml.safe_load(fh) or {}
-    dataset_name = (raw.get('subsets', {}).get(subset, {}).get('dataset_name')
-                    or cfg.output.dataset_name)
-    zarr_to_netcdf.main(
-        os.path.dirname(full_path),
-        output_filename=os.path.basename(full_path),
-        mode='snapshots',
-        run_id=run_id or cfg.run.run_id,
-        s3_endpoint=cfg.output.s3_endpoint,
-        bucket=cfg.output.bucket,
-        channels=[field] if field is not None else channels,
-        dates=cfg.data.date_iterations,
-        dataset_name=dataset_name,
-        folder=cfg.output.folder)
-    return full_path
-
-
-# ---------------------------------------------------------------------------
-# Pipeline steps
-# ---------------------------------------------------------------------------
 
 def generate_gradb2(timestamp: str, config_file: str, version:str=None, 
     run_id: str = None, field: str = 'gradb2', clobber: bool = False,
@@ -71,5 +33,5 @@ def generate_gradb2(timestamp: str, config_file: str, version:str=None,
             generate_global.main(config_file, subset='frontal_structure', 
                 only_these_features=['gradb2'], run_id=run_id)
         # Create the netcdf
-        _zarr_to_nc(timestamp, config_file, 'frontal_structure', 
+        llc_io.zarr_to_nc(timestamp, config_file, 'frontal_structure', 
             field, run_id=run_id, version=version)

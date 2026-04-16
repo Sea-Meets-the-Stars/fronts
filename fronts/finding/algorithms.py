@@ -11,9 +11,13 @@ from IPython import embed
 
 def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
                       rm_weak:float=None, dilate:bool=False,
-                      sharpen:bool=False, despur:bool=False,
-                      connectivity:int=2, threshold:float=90,
-                      thresh_mode:str='generic', n_workers:int=None,
+                      sharpen:bool=False, 
+                      despur:bool=False,
+                      Lspur:int=None,
+                      connectivity:int=2, 
+                      threshold:float=90,
+                      thresh_mode:str='generic', 
+                      n_workers:int=None,
                       min_size:int=7, verbose:bool=False,
                       debug:bool=False):
     """
@@ -31,6 +35,10 @@ def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
         If True, sharpens the detected fronts on gradb2 to single-pixel width.
     despur : bool, optional, default=False
         If True, removes spurs from the detected fronts.
+    Lspur : int, optional
+        Maximum spur length in pixels (measured as branch-distance).
+        Branches with distance <= Lspur are removed.
+        Passed to prune_short_spurs()
     rm_weak : float, optional, default=None
         If provided, removes weak segments where gradb2 values are below this threshold.
     dilate : bool, optional, default=False
@@ -102,6 +110,6 @@ def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
 
     # Despur?
     if despur:
-        res_frnt_crop = prune_short_spurs(res_frnt_crop)
+        res_frnt_crop = prune_short_spurs(res_frnt_crop, Lspur=Lspur)
 
     return res_frnt_crop

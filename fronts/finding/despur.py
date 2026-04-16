@@ -16,7 +16,7 @@ from skimage.morphology import skeletonize
 from skan import Skeleton, summarize
 
 
-def prune_short_spurs(binary_image, Lspur=5):
+def prune_short_spurs(binary_image, Lspur:int=None):
     """
     Remove short dangling leaf branches (spurs) from a binary skeleton
     using skan skeleton analysis.
@@ -29,7 +29,7 @@ def prune_short_spurs(binary_image, Lspur=5):
     ----------
     binary_image : 2D bool ndarray
         Binary front image (will be skeletonized if not already 1-pixel wide).
-    Lspur : int
+    Lspur : int, optional
         Maximum spur length in pixels (measured as branch-distance).
         Branches with distance <= Lspur are removed.
 
@@ -38,6 +38,10 @@ def prune_short_spurs(binary_image, Lspur=5):
     skeleton : 2D bool ndarray
         De-spurred skeleton image.
     """
+    # Default
+    if Lspur is None:
+        Lspur = 10
+
     # ensure 1-pixel-wide skeleton
     skeleton = skeletonize(binary_image > 0)
 

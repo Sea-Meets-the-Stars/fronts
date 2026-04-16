@@ -7,6 +7,7 @@ import sys
 
 from fronts.preproc.gradb2 import generate_gradb2
 from fronts.finding.run import find_gradb2_fronts
+from fronts.properties.run import group_fronts
 
 from IPython import embed
 
@@ -17,33 +18,25 @@ def main(flg: str):
 
     version = '2'
     timestamp   = '2012-11-09T12_00_00'
+    config  = 'D'
+    config_file = './testing_global_v2.yaml'
+    run_id      = 'global_20260324_020000'
 
     # Generate gradb2 as zarr → netcdf
     if flg == 1:
-        config_file = './testing_global_v2.yaml'
-        run_id      = 'global_20260324_020000'
         generate_gradb2(timestamp, config_file, version=version, run_id=run_id,
             create_zarr=False)
 
     # Find fronts -- binary pixels
     if flg == 2:
-        config  = 'D'
         find_gradb2_fronts(timestamp, config, version)
 
     # Group fronts (label + geometric properties)
     if flg == 3:
-        timestamp = '2012-11-09T12_00_00'
-        version   = '1'
-        configs   = ['A', 'B', 'C']
-        for config in configs:
-            group_fronts(timestamp, config, version)
+        group_fronts(timestamp, config, version)
 
     # Generate physical property fields → individual per-property nc files
     if flg == 4:
-        timestamp   = '2012-11-09T12_00_00'
-        config_file = './testing_global_v1.yaml'
-        run_id      = 'global_20260324_020000'
-        version     = '1'
         property_names = [
             'relative_vorticity', 'divergence', 'strain_mag',
             'frontogenesis_tendency', 'okubo_weiss','coriolis_f',
