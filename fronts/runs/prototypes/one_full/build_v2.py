@@ -22,7 +22,7 @@ def main(flg: str):
     if flg == 1:
         config_file = './testing_global_v2.yaml'
         run_id      = 'global_20260324_020000'
-        generate_gradb2(timestamp, config_file, version=version, run_id=run_id
+        generate_gradb2(timestamp, config_file, version=version, run_id=run_id,
             create_zarr=False)
 
     # Find fronts -- binary pixels
