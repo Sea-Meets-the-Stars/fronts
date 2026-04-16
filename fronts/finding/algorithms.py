@@ -5,12 +5,13 @@ from skimage import morphology
 
 from fronts.finding import pyboa
 from fronts.finding.sharpen import global_sharpen_pq
+from fronts.finding.despur import prune_short_spurs
 
 from IPython import embed
 
 def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
                       rm_weak:float=None, dilate:bool=False,
-                      sharpen:bool=False,
+                      sharpen:bool=False, despur:bool=False,
                       connectivity:int=2, threshold:float=90,
                       thresh_mode:str='generic', n_workers:int=None,
                       min_size:int=7, verbose:bool=False,
@@ -28,6 +29,8 @@ def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
         If True, thins the detected fronts to single-pixel width.
     sharpen : bool, optional, default=False
         If True, sharpens the detected fronts on gradb2 to single-pixel width.
+    despur : bool, optional, default=False
+        If True, removes spurs from the detected fronts.
     rm_weak : float, optional, default=None
         If provided, removes weak segments where gradb2 values are below this threshold.
     dilate : bool, optional, default=False
@@ -96,5 +99,9 @@ def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
         res_frnt_crop = morphology.thin(res_frnt_crop)
         if verbose:
             print(f'There are {np.sum(res_frnt_crop)} front pixels after final thinning')
+
+    # Despur?
+    if despur:
+        res_frnt_crop = prune_short_spurs(res_frnt_crop)
 
     return res_frnt_crop
