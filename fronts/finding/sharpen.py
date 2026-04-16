@@ -90,6 +90,20 @@ NEIGHBORS_8 = [
 def _encode_neighborhood(mask, r, c):
     """Encode the 8-neighborhood of (r,c) as an 8-bit integer.
 
+    Args:
+        mask : np.ndarray (bool, 2D)
+            Binary mask of a single labeled front, padded by at least 1 pixel
+            of background on all sides.
+        r : int
+            Row index of the pixel to encode.
+        c : int
+            Column index of the pixel to encode.
+
+    Returns
+    -------
+    val : int
+        The 8-bit integer encoding the neighborhood.
+
     Bit ordering matches the LUT convention:
         bit 0 = NW(-1,-1), bit 1 = N(-1,0), bit 2 = NE(-1,1),
         bit 3 = W(0,-1),   bit 4 = E(0,1),
@@ -103,7 +117,23 @@ def _encode_neighborhood(mask, r, c):
 
 
 def _is_boundary(mask, r, c):
-    """Check if foreground pixel (r,c) has at least one background 8-neighbor."""
+    """Check if foreground pixel (r,c) has at least one background 8-neighbor.
+
+    Args:
+        mask : np.ndarray (bool, 2D)
+            Binary mask of a single labeled front, padded by at least 1 pixel
+            of background on all sides.
+        r : int
+            Row index of the pixel to check.
+        c : int
+            Column index of the pixel to check.
+
+    Returns
+    -------
+    is_boundary : bool
+        True if the pixel (r,c) has at least one background 8-neighbor,
+        False otherwise.
+    """
     for dr, dc in NEIGHBORS_8:
         if not mask[r + dr, c + dc]:
             return True
@@ -111,7 +141,22 @@ def _is_boundary(mask, r, c):
 
 
 def _count_fg_neighbors(mask, r, c):
-    """Count the number of foreground 8-neighbors."""
+    """Count the number of foreground 8-neighbors.
+
+    Args:
+        mask : np.ndarray (bool, 2D)
+            Binary mask of a single labeled front, padded by at least 1 pixel
+            of background on all sides.
+        r : int
+            Row index of the pixel to count neighbors for.
+        c : int
+            Column index of the pixel to count neighbors for.
+
+    Returns
+    -------
+    count : int
+        The number of foreground 8-neighbors of the pixel (r,c).
+    """
     count = 0
     for dr, dc in NEIGHBORS_8:
         if mask[r + dr, c + dc]:
@@ -195,7 +240,7 @@ def sharpen_single_front(mask, gradb2, protect_endpoints=True):
 # ---------------------------------------------------------------
 # Wrapper: sharpen all labeled fronts
 # ---------------------------------------------------------------
-def dilate_labeled_fronts(labeled_fronts, radius=3):
+def dilate_labeled_fronts(labeled_fronts, radius:int=3):
     """Dilate each labeled front independently by a given pixel radius.
 
     Uses the distance transform to expand each front's binary mask by
@@ -205,7 +250,7 @@ def dilate_labeled_fronts(labeled_fronts, radius=3):
     ----------
     labeled_fronts : np.ndarray (int, 2D)
         Labeled front array (0 = background, >0 = front label).
-    radius : int
+    radius : int, optional
         Dilation radius in pixels.
 
     Returns
@@ -330,7 +375,34 @@ def sharpen_fronts(labeled_fronts, gradb2, protect_endpoints=True,
 
 
 def _sharpen_task(task, protect_endpoints):
-    """Worker function for a single front sharpening task."""
+    """Worker function for a single front sharpening task.
+
+    Args:
+        task : tuple
+            A tuple containing the following elements:
+            - lbl : int
+                The label of the front.
+            - r0 : int
+                The starting row index of the cutout mask.
+            - c0 : int
+                The starting column index of the cutout mask.
+            - r1 : int
+                The ending row index of the cutout mask.
+            - c1 : int
+                The ending column index of the cutout mask.
+            - cutout_mask : np.ndarray (bool, 2D)
+                The cutout mask of the front.
+            - cutout_gradb2 : np.ndarray (float, 2D)
+                The gradb2 field, same shape as cutout_mask.
+        protect_endpoints : bool
+            If True, do not remove endpoint pixels (those with exactly 1
+            foreground neighbor), preserving the extent of the front.
+
+    Returns
+    -------
+    sharpened_mask : np.ndarray (bool, 2D)
+        The sharpened 1-pixel-wide front mask.
+    """
     lbl, r0, c0, r1, c1, cutout_mask, cutout_gradb2 = task
     return sharpen_single_front(cutout_mask, cutout_gradb2,
                                 protect_endpoints=protect_endpoints)
