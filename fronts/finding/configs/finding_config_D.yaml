@@ -8,7 +8,7 @@ label: "D"                      # Config label - will be part of the output file
 binary:
   # Required
   window: 64                      # Size of the region for thresholding (pixels)
-  threshold: 80                   # Threshold for front finding
+  threshold: 85                   # Threshold for front finding
   thresh_mode: "pool"             # Mode for finding threshold [generic, vectorized, dask, pool]
   thin: false                     # Apply morphological thinning to fronts
   sharpen: true                   # Apply morphological thinning to fronts
