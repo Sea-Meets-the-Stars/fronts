@@ -61,18 +61,19 @@ def _zarr_to_nc(timestamp: str, config_file: str, subset: str,
 # Pipeline steps
 # ---------------------------------------------------------------------------
 
-def generate_gradb2(timestamp: str, config_file: str, run_id: str = None,
-                    field: str = 'gradb2', clobber: bool = False):
+def generate_gradb2(timestamp: str, config_file: str, version:str='1', 
+    run_id: str = None, field: str = 'gradb2', clobber: bool = False):
     """Generate the gradb2 field for the given config file.
 
     Args:
         timestamp (str): Timestamp of the data to process.
+        version (str): Version of the data to process.
         config_file (str): Path to the YAML config file.
         run_id (str, optional): Override the run_id in the config YAML.
         field (str): Field name to extract. Defaults to 'gradb2'.
         clobber (bool): Overwrite existing output. Defaults to False.
     """
-    out_file = llc_io.derived_filename(timestamp, field, version='1')
+    out_file = llc_io.derived_filename(timestamp, field, version=version)
     if os.path.isfile(out_file) and not clobber:
         print(f"gradb2 file {out_file} exists and clobber is False. Returning")
     else:

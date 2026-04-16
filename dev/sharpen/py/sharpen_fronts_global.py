@@ -17,118 +17,21 @@ Usage:
 import sys
 import time
 import numpy as np
-import heapq
 from pathlib import Path
 from skimage import morphology 
 
+from fronts.finding.sharpen import global_sharpen_pq
+
 # Reuse the simple-point LUT and helpers from the per-front implementation
-from sharpen_fronts import (
-    SIMPLE_POINT_LUT,
-    NEIGHBORS_8,
-    _encode_neighborhood,
-    _is_boundary,
-    _count_fg_neighbors,
-)
+#from sharpen_fronts import (
+#    SIMPLE_POINT_LUT,
+#    NEIGHBORS_8,
+#    _encode_neighborhood,
+#    _is_boundary,
+#    _count_fg_neighbors,
+#)
 
-
-# ---------------------------------------------------------------
-# Core: global priority-queue thinning (Approach G1)
-# ---------------------------------------------------------------
-def global_sharpen_pq(binary_mask, gradb2, protect_endpoints=True,
-                      min_size=7):
-    """Sharpen fronts globally via priority-queue weighted thinning.
-
-    Operates on the full binary threshold image without per-front
-    labeling.  Removes boundary pixels in ascending gradb2 order,
-    preserving topology via the simple-point LUT at every step.
-
-    Parameters
-    ----------
-    binary_mask : np.ndarray (bool, 2D)
-        Binary threshold output from front_thresh().  True = front
-        candidate pixel.
-    gradb2 : np.ndarray (float, 2D)
-        The gradb2 field, same shape as binary_mask.
-    protect_endpoints : bool
-        If True, do not remove endpoint pixels (those with exactly 1
-        foreground neighbor), preserving front extent.
-    min_size : int
-        After thinning, remove connected components smaller than this.
-
-    Returns
-    -------
-    sharpened : np.ndarray (bool, 2D)
-        Sharpened 1-pixel-wide front mask.
-    """
-    # Work on a padded copy so boundary pixels always have valid 3x3
-    # neighborhoods (the LUT reads all 8 neighbors)
-    mask = np.pad(binary_mask.astype(bool), 1, mode='constant',
-                  constant_values=False)
-    gradb2_pad = np.pad(gradb2, 1, mode='constant', constant_values=0.0)
-
-    # Track which pixels are queued to avoid duplicate insertions
-    in_queue = np.zeros_like(mask, dtype=bool)
-
-    # Initialize min-heap with all boundary pixels (lowest gradb2 first)
-    heap = []
-    rows_fg, cols_fg = np.where(mask)
-    for r, c in zip(rows_fg, cols_fg):
-        # Skip edge pixels of the padded array (row/col 0 or max)
-        if r < 1 or r >= mask.shape[0] - 1 or c < 1 or c >= mask.shape[1] - 1:
-            continue
-        if _is_boundary(mask, r, c):
-            heapq.heappush(heap, (gradb2_pad[r, c], r, c))
-            in_queue[r, c] = True
-
-    n_removed = 0
-
-    # Iterative removal: peel away low-gradb2 boundary pixels
-    while heap:
-        _g_val, r, c = heapq.heappop(heap)
-        in_queue[r, c] = False
-
-        # Skip stale entries (pixel already removed)
-        if not mask[r, c]:
-            continue
-
-        # Protect endpoints: pixels with exactly 1 foreground neighbor
-        if protect_endpoints and _count_fg_neighbors(mask, r, c) <= 1:
-            continue
-
-        # Simple-point test: only remove if topology is preserved
-        code = _encode_neighborhood(mask, r, c)
-        if not SIMPLE_POINT_LUT[code]:
-            continue
-
-        # Remove this pixel
-        mask[r, c] = False
-        n_removed += 1
-
-        # Add newly-exposed boundary neighbors to the queue
-        for dr, dc in NEIGHBORS_8:
-            nr, nc = r + dr, c + dc
-            if nr < 1 or nr >= mask.shape[0] - 1:
-                continue
-            if nc < 1 or nc >= mask.shape[1] - 1:
-                continue
-            if mask[nr, nc] and not in_queue[nr, nc]:
-                if _is_boundary(mask, nr, nc):
-                    heapq.heappush(heap, (gradb2_pad[nr, nc], nr, nc))
-                    in_queue[nr, nc] = True
-
-    # Remove padding
-    sharpened = mask[1:-1, 1:-1]
-
-    # Remove small connected components
-    if min_size > 0:
-        #from skimage.morphology import remove_small_objects
-        sharpened = morphology.remove_small_objects(sharpened, max_size=min_size,
-                                         connectivity=2)
-
-    print(f"  Removed {n_removed} pixels, {sharpened.sum()} remain")
-
-    # Thin too!
-    return morphology.thin(sharpened)
+# Code moved to fronts/finding/sharpen.py
 
 
 # ---------------------------------------------------------------
@@ -349,8 +252,8 @@ if __name__ == '__main__':
     print('\n--- Step 3: G1 global sharpening ---')
     t0 = time.time()
     sharpened = global_sharpen_pq(binary_thresh, gradb2,
-                                   protect_endpoints=True,
-                                   min_size=7)
+                                   protect_endpoints=True)
+
     t_g1 = time.time() - t0
     mean_g1 = gradb2[sharpened].mean() if sharpened.any() else 0.0
     mean_std = gradb2[standard_thinned].mean() if standard_thinned.any() else 0.0

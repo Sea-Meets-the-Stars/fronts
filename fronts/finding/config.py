@@ -17,7 +17,9 @@ finding_dmodel = {
         'thresh_mode': dict(dtype=str,
                     help='Mode for finding threshold [generic, vectorized, dask, pool]'),
         'thin': dict(dtype=bool,
-                    help='Thin?'),
+                    help='Apply morphological thinning to fronts'),
+        'sharpen': dict(dtype=bool,
+                    help='Apply morphological sharpening to fronts'),
         'dilate': dict(dtype=bool,
                     help='Dilate the front?  Usually after thin + crop'),
         'min_size': dict(dtype=(int, np.integer),
@@ -27,7 +29,7 @@ finding_dmodel = {
     },
 }
 finding_dmodel['required'] = ('window', 'threshold', 'thresh_mode', 'thin',
-        'label')
+        'sharpen', 'label')
     
 def config_filename(config_label: str, path:str=None):
     """Build the full path to a finding configuration YAML file.
