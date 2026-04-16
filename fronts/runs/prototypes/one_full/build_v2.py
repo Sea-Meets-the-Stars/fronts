@@ -2,24 +2,11 @@
 ##  e.g. threshold, window size, etc.
 
 import os
-
-import yaml
-import numpy as np
-import xarray
 import sys
 
-from dbof.cli import generate_global
-from dbof.cli import zarr_to_netcdf
-import dbof.dataset_creation.config as dbof_config
 
 from fronts.preproc.gradb2 import generate_gradb2
-from fronts.llc import io as llc_io
 from fronts.finding.run import find_gradb2_fronts
-from fronts.finding import algorithms as finding_algorithms
-from fronts.finding import config as find_config
-from fronts.finding import io as finding_io
-from fronts.properties import algorithms as prop_algorithms
-from fronts.properties import io as properties_io
 
 from IPython import embed
 
@@ -35,7 +22,8 @@ def main(flg: str):
     if flg == 1:
         config_file = './testing_global_v2.yaml'
         run_id      = 'global_20260324_020000'
-        generate_gradb2(timestamp, config_file, version=version, run_id=run_id)
+        generate_gradb2(timestamp, config_file, version=version, run_id=run_id
+            create_zarr=False)
 
     # Find fronts -- binary pixels
     if flg == 2:

@@ -50,7 +50,7 @@ def _zarr_to_nc(timestamp: str, config_file: str, subset: str,
 
 def generate_gradb2(timestamp: str, config_file: str, version:str=None, 
     run_id: str = None, field: str = 'gradb2', clobber: bool = False,
-    create_zarr: bool = False, create_netcdf: bool = True):
+    create_zarr: bool = False):
     """Generate the gradb2 field for the given config file.
 
     Args:
