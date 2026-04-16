@@ -22,12 +22,13 @@ from fronts.properties import io as properties_io
 
 from IPython import embed
 
-version = '2'
-timestamp   = '2012-11-09T12_00_00'
 
 # #######################################################
 def main(flg: str):
     flg = int(flg)
+
+    version = '2'
+    timestamp   = '2012-11-09T12_00_00'
 
     # Generate gradb2 as zarr → netcdf
     if flg == 1:
@@ -37,7 +38,7 @@ def main(flg: str):
 
     # Find fronts -- binary pixels
     if flg == 2:
-        configs   = ['A', 'B', 'C']
+        config  = 'D'
         for config in configs:
             find_fronts(timestamp, config, version)
 
