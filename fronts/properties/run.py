@@ -8,9 +8,86 @@ import xarray
 
 from dbof.cli import generate_global
 
-from fronts.properties import algorithms as prop_algorithms
 from fronts.finding import io as finding_io
 from fronts.llc import io as llc_io
+
+from fronts.properties import io as properties_io
+from fronts.properties import algorithms as prop_algorithms
+
+
+def colocate_fronts(timestamp: str, config: str, version: str,
+                    property_names: list, property_dir: str,
+                    output_dir: str = None,
+                    stats: list = None, percentiles: list = None,
+                    min_npix: int = 1, nan_policy: str = 'omit',
+                    dilation_radius: int = 1, clobber: bool = False):
+    """Co-locate labeled fronts with physical property fields.
+
+    Args:
+        timestamp (str): Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
+        config (str): Front-finding config label, e.g. 'A'.
+        version (str): Data version string.
+        property_names (list): Property field names to co-locate, e.g.
+            ['relative_vorticity', 'strain_n']. Each must match both the
+            variable name inside its .nc file and the filename pattern
+            LLC4320_{timestamp}_{property_name}_{version}.nc.
+        property_dir (str): Directory containing property .nc files.
+        output_dir (str, optional): Output directory. Defaults to the
+            standard group_fronts output directory for this version.
+        stats (list, optional): Statistics to compute per property.
+            Defaults to ['mean', 'std', 'median'].
+        percentiles (list, optional): Percentiles to compute, e.g. [10, 90].
+        min_npix (int): Minimum front size in pixels. Defaults to 1.
+        nan_policy (str): 'omit' or 'propagate' NaNs. Defaults to 'omit'.
+        dilation_radius (int): Pixels to dilate each front before stats.
+            Defaults to 0.
+        clobber (bool): Overwrite existing output. Defaults to False.
+    """
+    fronts_file = finding_io.binary_filename(timestamp, config, version)
+    group_dir   = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
+                               'group_fronts', f'v{version}')
+    if output_dir is None:
+        output_dir = group_dir
+
+    # Check if output already exists
+    time_str = timestamp.replace('_', ':')   # '2012-11-09T12:00:00'
+    run_tag  = f'v{version}_bin_{config}'    # e.g. 'v1_bin_A'
+    out_file = properties_io.get_global_front_output_path(
+        output_dir, time_str, 'properties', run_tag)
+    if os.path.isfile(out_file) and not clobber:
+        print(f"Properties file {out_file} exists and clobber is False. Returning")
+        return
+
+    # Validate all property files exist before doing any heavy work
+    missing = [
+        name for name in property_names
+        if not os.path.isfile(
+            os.path.join(property_dir, f'LLC4320_{timestamp}_{name}_v{version}.nc'))
+    ]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing property file(s) for: {missing}\n"
+            f"Run generate_properties() first for the subset containing these fields, "
+            f"or check that property_dir is correct: {property_dir}"
+        )
+
+    # Load label map
+    labeled_file = properties_io.get_global_front_output_path(
+        group_dir, time_str, 'label_map',run_tag)
+    labeled = np.load(labeled_file)
+
+    prop_algorithms.colocate_fronts(
+        labeled=labeled,
+        property_names=property_names,
+        property_dir=property_dir,
+        fronts_file=fronts_file,
+        output_dir=output_dir,
+        stats=stats,
+        percentiles=percentiles,
+        min_npix=min_npix,
+        nan_policy=nan_policy,
+        dilation_radius=dilation_radius,
+    )
 
 
 def generate_properties(timestamp: str, config_file: str, version: str,

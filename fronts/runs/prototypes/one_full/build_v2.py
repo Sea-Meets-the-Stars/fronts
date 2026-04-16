@@ -8,6 +8,8 @@ import sys
 from fronts.preproc.gradb2 import generate_gradb2
 from fronts.finding.run import find_gradb2_fronts
 from fronts.properties.run import group_fronts
+from fronts.properties.run import generate_properties
+from fronts.properties.run import colocate_fronts
 
 from IPython import embed
 
@@ -49,9 +51,6 @@ def main(flg: str):
 
     # Co-locate fronts with physical properties
     if flg == 5:
-        timestamp     = '2012-11-09T12_00_00'
-        version       = '1'
-        configs       = ['A', 'B', 'C']
         property_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'derived')
         property_names = [
             'relative_vorticity', 'divergence', 'strain_mag',
@@ -60,19 +59,9 @@ def main(flg: str):
             'rossby_number','Salt','strain_n','strain_s','Theta',
             'ug','vg','U','V','W','frontogenesis_geo','frontogenesis_ageo',
         ]
-        for config in configs:
-            colocate_fronts(timestamp, config, version,
+        colocate_fronts(timestamp, config, version,
                             property_names=property_names,
                             property_dir=property_dir)
-
-    # ###########################
-    # Testing
-
-    # Test relative vorticity zarr → netcdf
-    if flg == 102:
-        timestamp   = '2012-11-09T12_00_00'
-        config_file = './testing_global_v1.yaml'
-        _zarr_to_nc(timestamp, config_file, 'kinematic', 'relative_vorticity')
 
 
 # Command line execution
