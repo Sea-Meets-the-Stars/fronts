@@ -14,6 +14,7 @@ import dbof.dataset_creation.config as dbof_config
 
 from fronts.preproc.gradb2 import generate_gradb2
 from fronts.llc import io as llc_io
+from fronts.finding.run import find_gradb2_fronts
 from fronts.finding import algorithms as finding_algorithms
 from fronts.finding import config as find_config
 from fronts.finding import io as finding_io
@@ -39,8 +40,7 @@ def main(flg: str):
     # Find fronts -- binary pixels
     if flg == 2:
         config  = 'D'
-        for config in configs:
-            find_fronts(timestamp, config, version)
+        find_gradb2_fronts(timestamp, config, version)
 
     # Group fronts (label + geometric properties)
     if flg == 3:
