@@ -12,6 +12,7 @@ binary:
   thresh_mode: "pool"             # Mode for finding threshold [generic, vectorized, dask, pool]
   thin: false                     # Apply morphological thinning to fronts
   sharpen: true                   # Apply morphological thinning to fronts
+  despur: true                    # Remove spurs
 
   # Optional fields
   dilate: false                   # Dilate the front (usually after thin + crop)
