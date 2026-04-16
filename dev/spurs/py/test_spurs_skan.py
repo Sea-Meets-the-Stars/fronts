@@ -16,10 +16,12 @@ import matplotlib.pyplot as plt
 from skimage.morphology import skeletonize
 from scipy.ndimage import correlate
 
+from fronts.finding.despur import prune_short_spurs as skan_prune
+
 # add the parent directory so we can import our modules
 sys.path.insert(0, os.path.dirname(__file__))
-from spurs_skan import prune_short_spurs as skan_prune
 from spurs_skan import analyze_branches
+
 from matlab_port import prune_short_spurs as matlab_prune
 from matlab_port import _detect_endpoints, _detect_branchpoints
 
@@ -352,8 +354,7 @@ def plot_timing_comparison(s1_timings, s5_timings):
     plt.close()
     print(f"  Saved: {fname}")
 
-
-if __name__ == '__main__':
+def full_tests():
     # synthetic tests
     test_basic_spur()
     test_isolated_segment()
@@ -405,3 +406,35 @@ if __name__ == '__main__':
     plot_timing_comparison(s1_timings, s5_timings)
 
     print("\nAll tests complete.")
+
+
+def llc_test():
+    #### LLC test
+    from fronts.finding import io as finding_io
+
+    # Load
+    version = '2'
+    timestamp   = '2012-11-09T12_00_00'
+    config  = 'D'
+    
+    bfile = finding_io.binary_filename(timestamp, config, version)
+    print(f"Loading binary front file: {bfile}")
+    bfronts = np.load(bfile)
+
+    # Process
+    print("Processing with Lspur=10")
+    new_bfronts = skan_prune(bfronts, Lspur=10)
+    new_bfile = bfile.replace('.npy', '_skan_L10.npy')
+
+    # Save
+    print(f"Saving to: {new_bfile}")
+    np.save(new_bfile, new_bfronts)
+
+
+if __name__ == '__main__':
+
+    # Full tests
+    full_tests()
+
+    # LLC
+    #llc_test()
