@@ -29,6 +29,8 @@ Here are guidelines for the code:
 3. Proceed to generate the code according to the plan in 
 dev/properties/properties_viz_plan.md
 
+4. Generate a script in dev/properties/properties_viz_test.py that tests the code.  You can use the files in $OS_OGCM/LLC/Fronts as test data.
+
 ## Prompts
 
 ### Develop
@@ -36,3 +38,4 @@ dev/properties/properties_viz_plan.md
 1. Read this doc.  Now execute the first step listed under Development.
 2. Read this doc.  Now execute the 2nd step listed under Development.
 3. Read this doc.  Now execute the 3rd step listed under Development.
+4. Read this doc.  Now execute step 4 listed under Development.
