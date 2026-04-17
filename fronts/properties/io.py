@@ -225,6 +225,7 @@ def load_metadata(
     results_dir: Union[str, Path],
     time_str: str,
     run_tag: str = '',
+    verbose:bool=True,
 ) -> dict:
     """Load the JSON metadata file for a global front run.
 
@@ -244,6 +245,8 @@ def load_metadata(
         ``downsample_factor``).
     """
     path = get_global_front_output_path(results_dir, time_str, 'metadata', run_tag)
+    if verbose:
+        print(f"Loading metadata from {path}")
     with open(path) as f:
         return _json.load(f)
 
@@ -269,6 +272,7 @@ def load_geometry_table(
     results_dir: Union[str, Path],
     time_str: str,
     run_tag: str = '',
+    verbose:bool=True,
 ) -> pd.DataFrame:
     """Load the geometry parquet for a global front run.
 
@@ -280,6 +284,8 @@ def load_geometry_table(
         bounding-box indices, etc.
     """
     path = get_global_front_output_path(results_dir, time_str, 'geometry', run_tag)
+    if verbose:
+        print(f"Loading geometry table from {path}")
     return pd.read_parquet(path, engine='pyarrow')
 
 
@@ -287,6 +293,7 @@ def load_colocation_table(
     results_dir: Union[str, Path],
     time_str: str,
     run_tag: str = '',
+    verbose:bool=True,
 ) -> pd.DataFrame:
     """Load the colocation/properties parquet for a global front run.
 
@@ -297,6 +304,8 @@ def load_colocation_table(
         and per-property statistics (e.g. ``gradb2_median``).
     """
     path = get_global_front_output_path(results_dir, time_str, 'properties', run_tag)
+    if verbose:
+        print(f"Loading colocation table from {path}")
     return pd.read_parquet(path, engine='pyarrow')
 
 

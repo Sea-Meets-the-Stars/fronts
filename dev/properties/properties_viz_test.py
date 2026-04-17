@@ -13,8 +13,25 @@ import os
 import sys
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')  # non-interactive backend for saving PNGs
+#matplotlib.use('Agg')  # non-interactive backend for saving PNGs
 import matplotlib.pyplot as plt
+
+from fronts.properties.io import (
+    load_metadata,
+    load_labeled_array,
+    load_geometry_table,
+    load_colocation_table,
+    merge_geometry_colocation,
+    )
+from fronts.properties.io import (
+        property_file_path,
+        load_single_property,
+        load_property_arrays,
+    )
+
+from fronts.viz.properties import plot_binned_front_map
+
+from IPython import embed
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -47,13 +64,6 @@ def separator(title):
 def test_atomic_loaders():
     separator('Test 1: Atomic I/O loaders')
 
-    from fronts.properties.io import (
-        load_metadata,
-        load_labeled_array,
-        load_geometry_table,
-        load_colocation_table,
-        merge_geometry_colocation,
-    )
 
     # 1a. Metadata
     metadata = load_metadata(RESULTS_DIR, TIME_STR, RUN_TAG)
@@ -144,11 +154,6 @@ def test_coordinate_handling():
 def test_property_loading(shift):
     separator('Test 3: Property-file loading')
 
-    from fronts.properties.io import (
-        property_file_path,
-        load_single_property,
-        load_property_arrays,
-    )
 
     # 3a. Path construction
     p = property_file_path('gradb2', TIMESTAMP, VERSION)
@@ -261,7 +266,6 @@ def test_plot_global_property_map(lat, lon, props, shift):
 def test_plot_binned_front_map(df_enriched):
     separator('Test 6: plot_binned_front_map')
 
-    from fronts.viz.properties import plot_binned_front_map
 
     # Per-front median relative vorticity on a 2-deg binned map
     fig = plot_binned_front_map(
@@ -429,3 +433,23 @@ if __name__ == '__main__':
     #all_tests()
 
     # Per-front on log gradb2
+    metadata = load_metadata(RESULTS_DIR, TIME_STR, RUN_TAG)
+    df_geom = load_geometry_table(RESULTS_DIR, TIME_STR, RUN_TAG)
+    df_coloc = load_colocation_table(RESULTS_DIR, TIME_STR, RUN_TAG)
+
+    # Add log10
+    df_coloc['log10_gradb2_median'] = np.log10(df_coloc['gradb2_median'].values)
+
+    df_enriched = merge_geometry_colocation(df_geom, df_coloc)
+
+    # Per-front median gradb2 (asymmetric)
+    fig2 = plot_binned_front_map(
+        df_enriched,
+        'log10_gradb2_median',
+        statistic='mean',
+        cmap='hot_r',
+        symmetric=False,
+        title=r'Mean per-front $log10 |\nabla b|^2$ (2-deg bins)',
+        clabel=r'$log10 |\nabla b|^2$ median',
+    )
+    plt.show()
