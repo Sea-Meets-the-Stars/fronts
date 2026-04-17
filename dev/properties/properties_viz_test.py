@@ -427,29 +427,57 @@ def all_tests():
     for f in sorted(os.listdir(OUT_DIR)):
         print(f'    {f}')
 
-
-if __name__ == '__main__':
-    # All tests
-    #all_tests()
+def plot_per_front(field:str, cmap:str='hot_r', show:bool=True):
 
     # Per-front on log gradb2
-    metadata = load_metadata(RESULTS_DIR, TIME_STR, RUN_TAG)
+    #metadata = load_metadata(RESULTS_DIR, TIME_STR, RUN_TAG)
     df_geom = load_geometry_table(RESULTS_DIR, TIME_STR, RUN_TAG)
     df_coloc = load_colocation_table(RESULTS_DIR, TIME_STR, RUN_TAG)
 
-    # Add log10
-    df_coloc['log10_gradb2_median'] = np.log10(df_coloc['gradb2_median'].values)
+    if field == 'log10_gradb2':
+        df_coloc[field] = np.log10(df_coloc['gradb2_median'].values)
+        cmap='hot_r'
+    elif field == 'gradb':
+        df_coloc[field] = np.sqrt(df_coloc['gradb2_median'].values)
+        cmap='hot_r'
+    elif field == 'gradtheta':
+        df_coloc[field] = np.sqrt(df_coloc['gradtheta2_median'].values)*1e3 # K/km
+        cmap='jet'
+    elif field == 'gradsalt':
+        df_coloc[field] = np.sqrt(df_coloc['gradsalt2_median'].values)*1e3 # K/km
+        cmap='GnBu'
+    elif field == 'log10_gradsalt2':
+        df_coloc[field] = np.log10(df_coloc['gradsalt2_median'].values) 
+        cmap='GnBu'
 
+    # Merge geometry and colocation tables
     df_enriched = merge_geometry_colocation(df_geom, df_coloc)
 
     # Per-front median gradb2 (asymmetric)
     fig2 = plot_binned_front_map(
         df_enriched,
-        'log10_gradb2_median',
+        field,
         statistic='mean',
-        cmap='hot_r',
+        cmap=cmap,
         symmetric=False,
-        title=r'Mean per-front $log10 |\nabla b|^2$ (2-deg bins)',
-        clabel=r'$log10 |\nabla b|^2$ median',
+        title=f'Mean per-front {field} (2-deg bins)'+f' for {TIME_STR}',
+        clabel=field,
     )
-    plt.show()
+    if show:
+        plt.show()
+    OUT_DIR = 'test_output'
+    outfile = os.path.join(OUT_DIR, f"{field}_per_front.png")
+    fig2.savefig(outfile, dpi=200, bbox_inches='tight')
+    plt.close(fig2)
+    print(f'  Saved: {outfile}')
+
+if __name__ == '__main__':
+    # All tests
+    #all_tests()
+
+    # Figs
+    #plot_per_front('log10_gradb2')
+    #plot_per_front('gradb', show=False)
+    #plot_per_front('gradtheta', show=False)
+    #plot_per_front('gradsalt', show=False)
+    plot_per_front('log10_gradsalt2')#, show=False)
