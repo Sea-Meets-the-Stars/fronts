@@ -397,7 +397,7 @@ def test_plot_multi_timestamp(df_enriched):
 # Main
 # ===================================================================
 
-def main():
+def all_tests():
     print('='*70)
     print('  Properties Visualization Test Script')
     print('='*70)
@@ -425,4 +425,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # All tests
+    #all_tests()
+
+    # Per-front on log gradb2

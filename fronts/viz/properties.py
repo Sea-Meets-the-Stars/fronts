@@ -20,6 +20,11 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from scipy.stats import binned_statistic_2d
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import matplotlib.pyplot as plt
+
 
 # ---------------------------------------------------------------------------
 # Global property map (gridded field on Cartopy projection)
@@ -204,10 +209,6 @@ def plot_binned_front_map(
     -------
     matplotlib.figure.Figure
     """
-    from scipy.stats import binned_statistic_2d
-    import cartopy.crs as ccrs
-    import cartopy.feature as cfeature
-    import matplotlib.pyplot as plt
 
     vals = df[property_col].values
     lats = df[lat_col].values

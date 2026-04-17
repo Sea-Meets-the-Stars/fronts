@@ -19,6 +19,7 @@ Here are guidelines for the code:
 - Use methods, not classes
 - Generate viz methods in the fronts/properties/viz.py module.
 - Place I/O methods in the fronts/properties/io.py module.
+- Place import statements at the top of the file.
 
 ## Development
 

@@ -34,8 +34,10 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import xarray as xr
 from pathlib import Path
 
+from fronts.properties.colocation import _load_property_file
 
 def write_front_index(
     front_ids: Dict[int, str],
@@ -346,7 +348,6 @@ def load_llc_coords(
     lat, lon : np.ndarray
         2-D coordinate arrays.
     """
-    import xarray as xr
 
     if coords_file is None:
         coords_file = _default_ogcm_path('LLC', 'Fronts', 'coords',
@@ -472,7 +473,6 @@ def load_single_property(
     np.ndarray
         2-D property array.
     """
-    from fronts.properties.colocation import _load_property_file
 
     fpath = property_file_path(property_name, timestamp, version, properties_dir)
     # _load_property_file expects a (filepath, varname) tuple
