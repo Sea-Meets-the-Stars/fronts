@@ -4,6 +4,7 @@ import os
 import json
 import gzip
 
+
 def loadjson(filename):
     """
     Parameters

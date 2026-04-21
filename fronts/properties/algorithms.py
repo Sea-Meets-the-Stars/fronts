@@ -10,6 +10,8 @@ fronts.finding.algorithms — file I/O and path setup live in the caller
 import re
 import numpy as np
 import pandas as pd
+import xarray as xr
+
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 
@@ -250,7 +252,6 @@ def colocate_fronts(
         One row per front. Columns: flabel, npix, {prop}_{stat},
         {prop}_p{pct}. Also saved as parquet.
     """
-    import xarray as xr
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

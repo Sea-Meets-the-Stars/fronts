@@ -1,0 +1,120 @@
+function S = prune_short_spurs(BW, Lspur)
+% Remove only short dangling leaf branches from a 1-pixel skeleton.
+%
+% BW    : binary image
+% Lspur : max spur length in pixels, measured from endpoint to first junction
+%
+% Keeps true segment ends unless they terminate at a nearby junction.
+
+    BW = logical(BW);
+    S  = bwskel(BW);   % ensure 1-pixel-wide skeleton
+
+    changed = true;
+    while changed
+        changed = false;
+
+        BP = bwmorph(S, 'branchpoints');
+        EP = bwmorph(S, 'endpoints');
+
+        [rEP, cEP] = find(EP);
+        toDelete = false(size(S));
+
+        for k = 1:numel(rEP)
+            pathRC = trace_leaf_to_junction(S, BP, [rEP(k), cEP(k)], Lspur);
+
+            % If nonempty, this endpoint belongs to a short dangling leaf
+            if ~isempty(pathRC)
+                idx = sub2ind(size(S), pathRC(:,1), pathRC(:,2));
+                toDelete(idx) = true;
+            end
+        end
+
+        if any(toDelete(:))
+            S(toDelete) = false;
+            changed = true;
+        end
+    end
+end
+
+
+
+function pathRC = trace_leaf_to_junction(S, BP, startRC, Lspur)
+% Starting from an endpoint, walk inward until:
+%   - a branchpoint is reached  -> short spur candidate
+%   - no continuation exists    -> isolated segment end, keep it
+%   - length exceeds Lspur      -> too long, keep it
+%   - ambiguous branching       -> keep it
+
+    pathRC = startRC;
+    prevRC = [NaN NaN];
+    curRC  = startRC;
+
+    for step = 1:(Lspur + 1)
+
+        nbrs = get8neighbors(curRC, size(S));
+
+        % keep only skeleton neighbors
+        keep = S(sub2ind(size(S), nbrs(:,1), nbrs(:,2)));
+        nbrs = nbrs(keep, :);
+
+        % remove where we just came from
+        if ~isnan(prevRC(1))
+            samePrev = nbrs(:,1)==prevRC(1) & nbrs(:,2)==prevRC(2);
+            nbrs(samePrev,:) = [];
+        end
+
+        if isempty(nbrs)
+            % dead end without reaching a junction:
+            % this is an isolated end, not a spur attached to a junction
+            pathRC = [];
+            return
+        end
+
+        if size(nbrs,1) > 1
+            % ambiguous / branching before explicit BP map catches it
+            pathRC = [];
+            return
+        end
+
+        nextRC = nbrs(1,:);
+
+        if BP(nextRC(1), nextRC(2))
+            % reached first junction
+            if size(pathRC,1) <= Lspur
+                return   % delete path up to but not including junction
+            else
+                pathRC = [];
+                return
+            end
+        end
+
+        pathRC = [pathRC; nextRC]; %#ok<AGROW>
+
+        if size(pathRC,1) > Lspur
+            pathRC = [];
+            return
+        end
+
+        prevRC = curRC;
+        curRC  = nextRC;
+    end
+
+    pathRC = [];
+end
+
+
+
+function nbrs = get8neighbors(rc, sz)
+    r = rc(1);
+    c = rc(2);
+
+    rr = max(1,r-1):min(sz(1),r+1);
+    cc = max(1,c-1):min(sz(2),c+1);
+
+    [CC, RR] = meshgrid(cc, rr);
+    nbrs = [RR(:), CC(:)];
+
+    % remove center pixel
+    isCenter = nbrs(:,1)==r & nbrs(:,2)==c;
+    nbrs(isCenter,:) = [];
+end

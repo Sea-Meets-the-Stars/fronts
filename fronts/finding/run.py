@@ -1,7 +1,9 @@
-""" Run em """
+""" Run front finding """
+import os
 
 import numpy as np
 
+import xarray
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
@@ -9,6 +11,52 @@ from tqdm import tqdm
 from skimage import morphology
 
 from fronts.finding import algorithms
+from fronts.finding import io as finding_io
+from fronts.finding import config as find_config
+from fronts.finding import algorithms as finding_algorithms
+from fronts.llc import io as llc_io
+
+def find_gradb2_fronts(timestamp: str, config: str, version: str, 
+                clobber: bool = False):
+    """ Find us the fronts in a gradb2 field
+
+    Args:
+        timestamp (str): Timestamp of the data to process.
+        config (str): Configuration label (e.g. 'A').
+        version (str): Version of the data to use.
+        clobber (bool, optional): _description_. Defaults to False.
+    """
+
+    # Check if the binary front field exists
+    bfile = finding_io.binary_filename(timestamp, config, version)
+    if os.path.isfile(bfile) and not clobber:
+        print(f"Binary front field {bfile} exists and clobber is False. Returning")
+        return
+
+    # Load gradb2
+    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2', version=version)
+    print(f"Loading gradb2 from: {gradb2_file}")
+    gradb2 = xarray.open_dataset(gradb2_file)['gradb2'].values
+    print(f"Loaded gradb2 with shape: {gradb2.shape}")
+
+
+    # Load config
+    print(f"Processing config: {config}")
+    config_file = find_config.config_filename(config)
+    cdict = find_config.load(config_file)
+
+    # Binary parameters
+    bparam = cdict['binary']
+    bparam['n_workers'] = 10
+    bparam['verbose'] = True
+
+    # Do it
+    fronts = finding_algorithms.fronts_from_gradb2(gradb2, **bparam)
+
+    # Save em
+    finding_io.save_binary_fronts(
+        fronts, timestamp, config, version)
+
 
 def one_cutout(Divb2:np.ndarray, front_params:dict):
 

@@ -1,15 +1,23 @@
 """ Front finding algorithms """
-from fronts.finding import pyboa
 import numpy as np
 
 from skimage import morphology
+
+from fronts.finding import pyboa
+from fronts.finding.sharpen import global_sharpen_pq
+from fronts.finding.despur import prune_short_spurs
 
 from IPython import embed
 
 def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
                       rm_weak:float=None, dilate:bool=False,
-                      connectivity:int=2, threshold:float=90,
-                      thresh_mode:str='generic', n_workers:int=None,
+                      sharpen:bool=False, 
+                      despur:bool=False,
+                      Lspur:int=None,
+                      connectivity:int=2, 
+                      threshold:float=90,
+                      thresh_mode:str='generic', 
+                      n_workers:int=None,
                       min_size:int=7, verbose:bool=False,
                       debug:bool=False):
     """
@@ -23,6 +31,14 @@ def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
         The window size used for thresholding in the front detection algorithm.
     thin : bool, optional, default=False
         If True, thins the detected fronts to single-pixel width.
+    sharpen : bool, optional, default=False
+        If True, sharpens the detected fronts on gradb2 to single-pixel width.
+    despur : bool, optional, default=False
+        If True, removes spurs from the detected fronts.
+    Lspur : int, optional
+        Maximum spur length in pixels (measured as branch-distance).
+        Branches with distance <= Lspur are removed.
+        Passed to prune_short_spurs()
     rm_weak : float, optional, default=None
         If provided, removes weak segments where gradb2 values are below this threshold.
     dilate : bool, optional, default=False
@@ -55,6 +71,11 @@ def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
     if rm_weak is not None:
         res_frnt_np &= gradb2 > rm_weak
 
+    # Sharpen?
+    if sharpen:
+        res_frnt_np = global_sharpen_pq(res_frnt_np, gradb2,
+                                   protect_endpoints=True)
+
     # Thin?
     if thin:
         if verbose:
@@ -63,10 +84,6 @@ def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
         res_frnt_np = morphology.thin(res_frnt_np)
         if verbose:
             print(f'There are {np.sum(res_frnt_np)} front pixels after thinning')
-        if debug:
-            print('Thinning another time...')
-            thin_2x = morphology.thin(res_frnt_np)
-            embed(header='63 of algorithms')
     
     # Crop?
     if min_size > 0:
@@ -84,11 +101,15 @@ def fronts_from_gradb2(gradb2, window:int=40, thin:bool=False,
         res_frnt_crop = morphology.dilation(res_frnt_crop)#, morphology.square(3))
 
     # Thin a final time
-    if thin:
+    if thin or sharpen:
         if verbose:
             print('Thinning a final time...')
         res_frnt_crop = morphology.thin(res_frnt_crop)
         if verbose:
             print(f'There are {np.sum(res_frnt_crop)} front pixels after final thinning')
+
+    # Despur?
+    if despur:
+        res_frnt_crop = prune_short_spurs(res_frnt_crop, Lspur=Lspur)
 
     return res_frnt_crop
