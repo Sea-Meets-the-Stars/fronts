@@ -174,7 +174,7 @@ def group_fronts(timestamp: str, config: str, version: str,
         skip_curvature (bool): Skip curvature calculation (~50% faster).
     """
     fronts_file = finding_io.binary_filename(timestamp, config, version)
-    coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'coords', 'LLC_coords.nc')
+    coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'coords', 'LLC_coords_lat_lon.nc')
     output_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
                                'group_fronts', f'v{version}')
 

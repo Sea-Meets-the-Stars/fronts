@@ -55,7 +55,7 @@ def main(flg: str):
         property_names = [
             'relative_vorticity', 'divergence', 'strain_mag',
             'frontogenesis_tendency', 'okubo_weiss','coriolis_f',
-            'Eta','gradeta2','gradrho2','gradtheta2','gradsalt2',
+            'Eta','gradb2','gradeta2','gradrho2','gradtheta2','gradsalt2',
             'rossby_number','Salt','strain_n','strain_s','Theta',
             'ug','vg','U','V','W','frontogenesis_geo','frontogenesis_ageo',
         ]
