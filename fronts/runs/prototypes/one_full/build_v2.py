@@ -21,7 +21,7 @@ def main(flg: str):
     timestamp   = '2012-11-09T12_00_00'
     config  = 'D'
     config_file = './testing_global_v2.yaml'
-    run_id      = 'global_20260324_020000'
+    run_id      = 'global_20121109_120000'
 
     # Generate gradb2 as zarr → netcdf
     if flg == 1:
@@ -46,7 +46,8 @@ def main(flg: str):
             'ug','vg','U','V','W','frontogenesis_geo','frontogenesis_ageo',
         ]
         generate_properties(timestamp, config_file, version,
-                            property_names=property_names, run_id=run_id)
+                            property_names=property_names, run_id=run_id,
+                            create_zarr=False)
 
     # Co-locate fronts with physical properties
     if flg == 5:
@@ -54,7 +55,7 @@ def main(flg: str):
         property_names = [
             'relative_vorticity', 'divergence', 'strain_mag',
             'frontogenesis_tendency', 'okubo_weiss','coriolis_f',
-            'Eta','gradeta2','gradrho2','gradtheta2','gradsalt2',
+            'Eta','gradb2','gradeta2','gradrho2','gradtheta2','gradsalt2',
             'rossby_number','Salt','strain_n','strain_s','Theta',
             'ug','vg','U','V','W','frontogenesis_geo','frontogenesis_ageo',
         ]

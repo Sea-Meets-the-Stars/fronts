@@ -92,7 +92,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
 
 def generate_properties(timestamp: str, config_file: str, version: str,
                         property_names: list, run_id: str = None,
-                        clobber: bool = False):
+                        clobber: bool = False, create_zarr: bool = False):
     """Generate individual per-property .nc files for the requested properties.
 
     Resolves which dbof subset each property belongs to from the YAML config,
@@ -108,6 +108,8 @@ def generate_properties(timestamp: str, config_file: str, version: str,
             ['relative_vorticity', 'strain_n'].
         run_id (str, optional): Override the run_id in the config YAML.
         clobber (bool): Overwrite existing output files. Defaults to False.
+        create_zarr (bool): Create the zarr store via generate_global.
+            Defaults to False (assumes zarr already exists on S3).
     """
     with open(config_file) as fh:
         raw = yaml.safe_load(fh) or {}
@@ -151,8 +153,11 @@ def generate_properties(timestamp: str, config_file: str, version: str,
         to_generate = channels if clobber else missing
         print(f"Generating {len(to_generate)} property file(s) from subset '{subset}'")
 
-        generate_global.main(config_file, subset=subset, run_id=run_id)
+        # Create the zarr store if requested; otherwise assume it exists on S3
+        if create_zarr:
+            generate_global.main(config_file, subset=subset, run_id=run_id)
 
+        # Convert zarr → netcdf for each channel
         for channel in to_generate:
             llc_io.zarr_to_nc(timestamp, config_file, subset, field=channel,
                         version=version, run_id=run_id)
@@ -169,7 +174,7 @@ def group_fronts(timestamp: str, config: str, version: str,
         skip_curvature (bool): Skip curvature calculation (~50% faster).
     """
     fronts_file = finding_io.binary_filename(timestamp, config, version)
-    coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'coords', 'LLC_coords.nc')
+    coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'coords', 'LLC_coords_lat_lon.nc')
     output_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
                                'group_fronts', f'v{version}')
 
