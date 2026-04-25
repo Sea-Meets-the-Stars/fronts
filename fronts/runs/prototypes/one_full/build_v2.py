@@ -61,7 +61,8 @@ def main(flg: str):
         ]
         colocate_fronts(timestamp, fconfig, version,
                             property_names=property_names,
-                            property_dir=property_dir)
+                            property_dir=property_dir,
+                            clobber=True)
 
 
 # Command line execution
