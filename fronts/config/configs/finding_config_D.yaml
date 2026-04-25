@@ -21,7 +21,7 @@ binary:
   connectivity: 2                 # Connectivity for morphological operations (1=4-conn, 2=8-conn)
 
 # Calculating properties at the fronts
-colocate:
+properties:
   stats: ['mean', 'std', 'median']  # Statistics to compute per property
   percentiles: [10, 90]             # Percentiles to compute per property
   min_npix: 5                        # Minimum front size in pixels
