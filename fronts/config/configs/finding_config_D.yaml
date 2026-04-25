@@ -26,4 +26,4 @@ colocate:
   percentiles: [10, 90]             # Percentiles to compute per property
   min_npix: 5                        # Minimum front size in pixels
   nan_policy: 'omit'                 # How to handle NaN values (e.g. land pixels)
-  dilation_radius: 1                 # Pixels to dilate each front before stats
+  dilation_radius: 2                 # Pixels to dilate each front before stats
