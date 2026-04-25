@@ -4,7 +4,7 @@ import os
 from importlib import resources
 import yaml
 
-from fronts.config.dmodel import dmodel
+from fronts.config import dmodel
 
 def config_filename(config_label: str, path:str=None):
     """Build the full path to a finding configuration YAML file.
