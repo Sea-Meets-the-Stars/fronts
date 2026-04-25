@@ -12,23 +12,23 @@ from skimage import morphology
 
 from fronts.finding import algorithms
 from fronts.finding import io as finding_io
-from fronts.finding import config as find_config
+from fronts.config import io as config_io
 from fronts.finding import algorithms as finding_algorithms
 from fronts.llc import io as llc_io
 
-def find_gradb2_fronts(timestamp: str, config: str, version: str, 
+def find_gradb2_fronts(timestamp: str, fconfig: str, version: str, 
                 clobber: bool = False):
     """ Find us the fronts in a gradb2 field
 
     Args:
         timestamp (str): Timestamp of the data to process.
-        config (str): Configuration label (e.g. 'A').
+        fconfig (str): Front configuration label (e.g. 'A').
         version (str): Version of the data to use.
         clobber (bool, optional): _description_. Defaults to False.
     """
 
     # Check if the binary front field exists
-    bfile = finding_io.binary_filename(timestamp, config, version)
+    bfile = finding_io.binary_filename(timestamp, fconfig, version)
     if os.path.isfile(bfile) and not clobber:
         print(f"Binary front field {bfile} exists and clobber is False. Returning")
         return
@@ -41,9 +41,9 @@ def find_gradb2_fronts(timestamp: str, config: str, version: str,
 
 
     # Load front config file
-    print(f"Processing config: {config}")
-    config_file = find_config.config_filename(config)
-    cdict = find_config.load(config_file)
+    print(f"Processing config: {fconfig}")
+    config_file = config_io.config_filename(fconfig)
+    cdict = config_io.load(config_file)
 
     # Binary parameters
     bparam = cdict['binary']
@@ -55,7 +55,7 @@ def find_gradb2_fronts(timestamp: str, config: str, version: str,
 
     # Save em
     finding_io.save_binary_fronts(
-        fronts, timestamp, config, version)
+        fronts, timestamp, fconfig, version)
 
 
 def one_cutout(Divb2:np.ndarray, front_params:dict):
