@@ -40,7 +40,7 @@ def find_gradb2_fronts(timestamp: str, config: str, version: str,
     print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
 
-    # Load config
+    # Load front config file
     print(f"Processing config: {config}")
     config_file = find_config.config_filename(config)
     cdict = find_config.load(config_file)

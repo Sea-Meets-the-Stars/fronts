@@ -140,7 +140,7 @@ def colocate_fronts_with_properties(
     Basic usage with two property arrays: 
         -include percentiles 
         -ignore NaN (e.g. land pixels)
-        -dilate fronts by 5 pixels
+        -dilate fronts by dilation_radius pixels
 
     >>> labeled = np.load('labeled_fronts_global_20121109T12_00_00.npy')
     >>> df = colocate_fronts_with_properties(

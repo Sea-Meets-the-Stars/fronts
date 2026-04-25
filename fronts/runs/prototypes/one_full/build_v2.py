@@ -19,8 +19,8 @@ def main(flg: str):
 
     version = '2'
     timestamp   = '2012-11-09T12_00_00'
-    config  = 'D'
-    config_file = './testing_global_v2.yaml'
+    fconfig  = 'D' # Front config label
+    config_file = './testing_global_v2.yaml' # Global config file
     run_id      = 'global_20121109_120000'
 
     # Generate gradb2 as zarr → netcdf
@@ -30,11 +30,11 @@ def main(flg: str):
 
     # Find fronts -- binary pixels
     if flg == 2:
-        find_gradb2_fronts(timestamp, config, version)
+        find_gradb2_fronts(timestamp, fconfig, version)
 
     # Group fronts (label + geometric properties)
     if flg == 3:
-        group_fronts(timestamp, config, version)
+        group_fronts(timestamp, fconfig, version)
 
     # Generate physical property fields → individual per-property nc files
     if flg == 4:
@@ -59,7 +59,7 @@ def main(flg: str):
             'rossby_number','Salt','strain_n','strain_s','Theta',
             'ug','vg','U','V','W','frontogenesis_geo','frontogenesis_ageo',
         ]
-        colocate_fronts(timestamp, config, version,
+        colocate_fronts(timestamp, fconfig, version,
                             property_names=property_names,
                             property_dir=property_dir)
 
