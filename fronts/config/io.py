@@ -24,7 +24,7 @@ def config_filename(config_label: str, path:str=None):
         Full path to the configuration file.
     """
     if path is None:
-        path = os.path.join(resources.files('fronts'), 'finding', 'configs')
+        path = os.path.join(resources.files('fronts'), 'config', 'configs')
     base = f'finding_config_{config_label}.yaml'
     # Return
     return os.path.join(path, base)
