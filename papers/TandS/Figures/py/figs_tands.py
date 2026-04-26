@@ -19,6 +19,8 @@ from fronts.finding.sharpen import global_sharpen_pq
 from fronts.finding.despur import prune_short_spurs
 from fronts.config import io as config_io
 
+from fronts.viz import defs
+
 mpl.rcParams['font.family'] = 'stixgeneral'
 
 # Paths
@@ -195,33 +197,39 @@ def fig_front_definition(
     # ---- Plot 2x2 ----
     fig, axes = plt.subplots(2, 2, figsize=(12, 11))
 
-    # gradb for display — dark where values are large (gray_r)
+    # gradb for display — dark where values are large
     gradb = np.sqrt(gradb2)
     gradb_pos = np.where(gradb > 0, gradb, np.nan)
     gradb_norm = LogNorm(
         vmin=np.nanpercentile(gradb_pos, 1),
         vmax=np.nanpercentile(gradb_pos, 99))
+    gradb_cmap = defs.cmaps['gradb']
 
     # (a) gradb2 greyscale + threshold pixels in red
     ax = axes[0, 0]
-    ax.pcolormesh(lon, lat, gradb_pos, cmap='gray_r',
+    ax.pcolormesh(lon, lat, gradb_pos, cmap=gradb_cmap,
                   norm=gradb_norm, rasterized=True)
+    # Uniform light-salmon overlay for threshold pixels
+    from matplotlib.colors import ListedColormap
+    red_cmap = ListedColormap(['lightsalmon'])
     red_overlay = np.ma.masked_where(~thresh_mask, np.ones_like(gradb2))
-    ax.pcolormesh(lon, lat, red_overlay, cmap='Reds', vmin=0, vmax=1,
-                  alpha=0.3, rasterized=True)
+    ax.pcolormesh(lon, lat, red_overlay, cmap=red_cmap, vmin=0, vmax=1,
+                  alpha=0.4, rasterized=True)
     ax.set_title('(a) Threshold pixels', fontsize=12)
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
 
     # (b) gradb2 + thinned fronts in green, with colorbar for gradb
     ax = axes[0, 1]
-    im_b = ax.pcolormesh(lon, lat, gradb_pos, cmap='gray_r',
+    im_b = ax.pcolormesh(lon, lat, gradb_pos, cmap=gradb_cmap,
                          norm=gradb_norm, rasterized=True)
+    # Uniform light-green overlay for thinned fronts
+    green_cmap = ListedColormap(['lightgreen'])
     green_overlay = np.ma.masked_where(~front_mask, np.ones_like(gradb2))
-    ax.pcolormesh(lon, lat, green_overlay, cmap='Greens', vmin=0, vmax=1,
-                  alpha=0.5, rasterized=True)
+    ax.pcolormesh(lon, lat, green_overlay, cmap=green_cmap, vmin=0, vmax=1,
+                  alpha=0.7, rasterized=True)
     cb_b = plt.colorbar(im_b, ax=ax, fraction=0.046, pad=0.04)
-    cb_b.set_label(r'$|\nabla b|$  (s$^{-2}$)', fontsize=10)
+    cb_b.set_label(defs.labels['gradb'], fontsize=10)
     ax.set_title('(b) Thinned fronts', fontsize=12)
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
@@ -229,7 +237,7 @@ def fig_front_definition(
     # (c) Labeled fronts in distinct colors
     ax = axes[1, 0]
     labeled_ma = np.ma.masked_where(labeled == 0, labeled.astype(float))
-    ax.pcolormesh(lon, lat, gradb_pos, cmap='gray_r',
+    ax.pcolormesh(lon, lat, gradb_pos, cmap=gradb_cmap,
                   norm=gradb_norm, rasterized=True)
     ax.pcolormesh(lon, lat, labeled_ma, cmap='tab20',
                   alpha=0.9, rasterized=True)
@@ -251,7 +259,8 @@ def fig_front_definition(
     ax = axes[1, 1]
     field_vals = np.where(np.isfinite(panel_d_field), panel_d_field, np.nan)
     vmax_d = np.nanpercentile(np.abs(field_vals), 99)
-    im_d = ax.pcolormesh(lon, lat, field_vals, cmap='RdBu_r',
+    d_cmap = defs.cmaps.get(derived_field, 'RdBu_r')
+    im_d = ax.pcolormesh(lon, lat, field_vals, cmap=d_cmap,
                          vmin=-vmax_d, vmax=vmax_d, rasterized=True)
     # Grey overlay for dilation regions (expanded ring only)
     dilation_ring = (dilated > 0) & (labeled == 0)
@@ -275,13 +284,77 @@ def fig_front_definition(
     print(f"Saved {outpath}")
 
 
+def fig_tsr_gradb(
+    outfile: str = 'fig_tsr_gradb.png',
+    target_lat: float = 35.0,
+    target_lon: float = -65.0,
+    half_width: int = 60,
+):
+    """Four-panel figure: Theta, Salt, density, and |grad b| in a sub-region."""
+    # jmd95 density from the llc4320 preprocessing package
+    from dbof.utils.jmd95_xgcm_implementation import jmd95
+
+    # Locate the sub-region and load coords
+    row_sl, col_sl = _find_subregion(target_lat, target_lon, half_width)
+    lat, lon = _load_coords_subregion(row_sl, col_sl)
+
+    # Load the four fields
+    theta = _load_subregion('Theta', row_sl, col_sl)
+    salt = _load_subregion('Salt', row_sl, col_sl)
+    gradb2 = _load_subregion('gradb2', row_sl, col_sl)
+    # Compute density from T and S at the surface (p=0 dbar), offset from 1025
+    p_surf = np.zeros_like(theta)
+    density = jmd95(salt, theta, p_surf) - defs.RHO_REF
+    print(f'Sub-region: rows {row_sl}, cols {col_sl}, shape {theta.shape}')
+
+    # Buoyancy gradient magnitude — extended range for less contrast
+    gradb = np.sqrt(gradb2)
+    gradb_pos = np.where(gradb > 0, gradb, np.nan)
+
+    # ---- Plot 2x2 ----
+    fig, axes = plt.subplots(2, 2, figsize=(12, 11))
+
+    panels = [
+        ('Theta', theta, None),
+        ('Salt', salt, None),
+        ('density', density, None),
+        ('gradb', gradb_pos, LogNorm(
+            vmin=np.nanpercentile(gradb_pos, 0.5),
+            vmax=np.nanpercentile(gradb_pos, 99.5))),
+    ]
+    panel_labels = ['(a)', '(b)', '(c)', '(d)']
+
+    for ax, (name, field, norm), plabel in zip(
+            axes.ravel(), panels, panel_labels):
+        cmap = defs.cmaps.get(name, 'viridis')
+        if norm is not None:
+            im = ax.pcolormesh(lon, lat, field, cmap=cmap,
+                               norm=norm, rasterized=True)
+        else:
+            im = ax.pcolormesh(lon, lat, field, cmap=cmap,
+                               rasterized=True)
+        cb = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cb.set_label(defs.labels.get(name, name), fontsize=10)
+        ax.set_title(f'{plabel} {defs.labels.get(name, name)}', fontsize=12)
+        ax.set_xlabel('Longitude')
+        ax.set_ylabel('Latitude')
+
+    fig.tight_layout()
+    outpath = os.path.join(figures_dir, outfile)
+    fig.savefig(outpath, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved {outpath}")
+
+
 def main(flg):
     """Main function to generate figures."""
     flg = int(flg)
     if flg == 1:
         fig_turner_vs_gradb()
     elif flg == 2:
-        fig_front_definition()
+        fig_front_definition(derived_field='strain_mag')
+    elif flg == 3:
+        fig_tsr_gradb()
     else:
         raise ValueError(f"Invalid flag: {flg}")
 

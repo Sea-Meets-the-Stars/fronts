@@ -71,18 +71,27 @@ Here are some additional figure specifications:
 - Have the gradb2 field be dark where the values are large
 - Have the derived field ("divergence") be an option
 - Add color bars for panels (b) and (d)
+- Use lighter colors in panels (a) and (b) and higher opacity
 
 ## (3) T, S, rho and gradb
 
-Generate a figure that has 4 panels and shows the temperature (Theta), salinity (Salt), density and gradb in an ~150km x 150km region.  Choose your own lat, lon but make it an option.  Here are specifications:
+Generate a figure that has 4 panels and shows the temperature (Theta), salinity (Salt), density and gradb in an ~150km x 150km region.  Choose your the same lat, lon from Figure (2) but make it an option.  Here are more specifications:
 
 - Use the derived/ files
-- Use separate color maps for SST, Salinity and density.  Make their choices a dict in a separate module in Figures/py/defs.py
+- Use separate color maps for SST, Salinity and density.  Make their choices a dict in a separate module in Figures/py/defs.py.  Refactor Figure (2) to use the same color maps.
+- For density, use the jmd95_xgcm_implementation.py module in llc4320-native-grid-preprocessing/src/dbof/utils/ to compute density from Salt and Theta.
 - Plot gradb on a log scale
 - Include color bars for each panel
 - Label each panel
-- Plot with lat, lon;  find a way to rapidly load a portion of the coords
+- Plot with lat, lon
 - Use a 2x2 grid
+
+### Modifications
+
+- Move the defs.py module to fronts/viz/defs.py
+- Modify the gradb colorbar to have less contrast (i.e. extend it)
+- Show density offset from 1025 kg/m^3
+- Use a different color map for density
 
 # Prompts
 
@@ -90,7 +99,9 @@ Generate a figure that has 4 panels and shows the temperature (Theta), salinity 
 
 1. Read this file and generate the first figure under Figures.  
 2. Read this file and generate the second figure under Figures.
+3. Read this file and generate Figure (3) under Figures.
 
 ## Modifications
 
 1. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (2).
+2. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (3).
