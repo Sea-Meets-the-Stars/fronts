@@ -438,6 +438,111 @@ def fig_jpdf_properties(
     print(f"Saved {outpath}")
 
 
+def fig_thermal_vs_salinity(
+    outfile: str = 'fig_thermal_vs_salinity.png',
+    timestamp: str = '2012-11-09T12:00:00',
+    run_tag: str = 'v2_bin_D',
+    gradb_min: float = 1e-7,
+    tu_thermal: float = 45.0,
+    tu_salinity: float = -45.0,
+    n_bins: int = 60,
+    log_x: bool = True,
+):
+    """2x2 PDFs comparing thermal vs salinity fronts across four properties.
+
+    Panels: (a) strain_mag/f, (b) divergence/f,
+            (c) relative_vorticity/f, (d) frontogenesis_tendency.
+    Each panel shows three overlaid PDFs: all, thermal, salinity.
+    """
+    # Load front properties
+    df = prop_io.load_colocation_table(
+        results_dir, timestamp, run_tag)
+
+    # Compute Turner angle from mean gradient fields
+    tu_deg = turner_angle(
+        df['gradtheta2_mean'].values,
+        df['gradsalt2_mean'].values,
+        df['gradrho2_mean'].values,
+    )
+
+    # |grad b| and coriolis for normalization
+    gradb = np.sqrt(df['gradb2_median'].values)
+    f_abs = np.abs(df['coriolis_f_mean'].values)
+
+    # Base filter: strong fronts with finite Turner angle
+    good = (gradb > gradb_min) & np.isfinite(tu_deg)
+    mask_thermal = good & (tu_deg > tu_thermal)
+    mask_salinity = good & (tu_deg < tu_salinity)
+
+    # Four properties to plot
+    panels = [
+        ('strain_mag_f',
+         df['strain_mag_median'].values / f_abs),
+        ('divergence_f',
+         df['divergence_median'].values / f_abs),
+        ('relative_vorticity_f',
+         df['relative_vorticity_median'].values / f_abs),
+        ('frontogenesis_tendency',
+         df['frontogenesis_tendency_median'].values),
+    ]
+    panel_labels = ['(a)', '(b)', '(c)', '(d)']
+
+    # Three populations to overlay
+    populations = [
+        (good,           'All fronts',  'gray'),
+        (mask_thermal,   f'Thermal ($Tu_h > {tu_thermal:.0f}°$)',  'firebrick'),
+        (mask_salinity,  f'Salinity ($Tu_h < {tu_salinity:.0f}°$)', 'steelblue'),
+    ]
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+    for ax, (label_key, vals), plabel in zip(
+            axes.ravel(), panels, panel_labels):
+        xlabel = defs.labels.get(label_key, label_key)
+
+        # Determine whether to use log-spaced bins (only for positive-definite fields)
+        use_log = log_x and label_key == 'strain_mag_f'
+
+        # Bin range from all strong fronts
+        all_good = vals[good]
+        finite = np.isfinite(all_good)
+        if use_log:
+            pos = all_good[finite & (all_good > 0)]
+            bins = np.logspace(
+                np.log10(np.percentile(pos, 0.5)),
+                np.log10(np.percentile(pos, 99.5)),
+                n_bins + 1)
+        else:
+            bins = np.linspace(
+                float(np.percentile(all_good[finite], 1)),
+                float(np.percentile(all_good[finite], 99)),
+                n_bins + 1)
+
+        for mask, pop_label, color in populations:
+            v = vals[mask]
+            v = v[np.isfinite(v)]
+            if use_log:
+                v = v[v > 0]
+            ax.hist(v, bins=bins, density=True, histtype='step',
+                    linewidth=1.6, color=color, label=pop_label)
+
+        if use_log:
+            ax.set_xscale('log')
+        ax.set_xlabel(xlabel, fontsize=11)
+        ax.set_ylabel('Probability density', fontsize=11)
+        ax.set_title(f'{plabel} {xlabel}', fontsize=12)
+        ax.legend(fontsize=9)
+
+    fig.suptitle(
+        rf'Thermal vs. salinity fronts  ($|\nabla b| > {gradb_min:.0e}$  s$^{{-2}}$)',
+        fontsize=14, y=1.01)
+    fig.tight_layout()
+    outpath = os.path.join(figures_dir, outfile)
+    fig.savefig(outpath, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved {outpath}")
+
+
 def main(flg):
     """Main function to generate figures."""
     flg = int(flg)
@@ -449,6 +554,8 @@ def main(flg):
         fig_tsr_gradb()
     elif flg == 4:
         fig_jpdf_properties()
+    elif flg == 5:
+        fig_thermal_vs_salinity()
     else:
         raise ValueError(f"Invalid flag: {flg}")
 

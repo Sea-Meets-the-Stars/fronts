@@ -114,6 +114,22 @@ Here are additional specifications:
 - Put gradb on the x-axis
 - Show gradb to 1e-5 s^-2
 
+## (5) Explore thermal vs. salinity fronts
+
+Compare the normalized PDFs of strain_mag/f values for fronts with gradb > 1e-7 (make this value optional) and for thermal (turner angle > 45 degrees; also optional) and salinity (turner angle < -45 degrees) fronts.
+
+Here are some additional specifications:
+
+- Show each PDF on the same axis
+- Use a different color for each PDF
+- Label each PDF
+
+### Modifications
+
+- Show strain_mag/f on a log-scale (optional)
+- Add divergence/f, relative vorticity/f, and frontogensis on a 2x2 grid
+
+
 # Prompts
 
 ## Generate
@@ -122,6 +138,7 @@ Here are additional specifications:
 2. Read this file and generate the second figure under Figures.
 3. Read this file and generate Figure (3) under Figures.
 4. Read this file and generate Figure (4) under Figures.
+5. Read this file and generate Figure (5) under Figures.
 
 ## Modifications
 
@@ -129,3 +146,4 @@ Here are additional specifications:
 2. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (3).
 3. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (1).
 4. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (4).
+5. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (5).
