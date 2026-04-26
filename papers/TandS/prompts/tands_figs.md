@@ -46,6 +46,10 @@ For the first figure, let's generate a 2D histogram of Turner angle vs. gradb fo
 - Include a labeled color bar
 - Use a variable number of bins for the histogram; start with 50
 
+### Modifications
+
+- Label the x-axis from -pi/2 to pi/2
+
 ## (2) Front definition example
 
 Generate a figure that describes how the fronts are defined and their properties measured.  It should run steps in fronts.finding.algorithms.fronts_from_gradb2() as needed.
@@ -93,6 +97,23 @@ Generate a figure that has 4 panels and shows the temperature (Theta), salinity 
 - Show density offset from 1025 kg/m^3
 - Use a different color map for density
 
+## (4) Joint PDFs
+
+Generate a figure that shows a series of Joint PDFs (2D histograms) of the front properties vs gradb.  Show these properties: strain_mag normalized by coriolis, divergence normalized by coriolis, relative vorticity normalized by coriolis, and frontogenesis_tendency.
+
+Here are additional specifications:
+
+- Use a 2x2 grid
+- Use a different color map for each property (use fronts/viz/defs.py)
+- Include a color bar for each panel
+- Label each panel
+- Plot with lat, lon
+
+### Modifications
+
+- Put gradb on the x-axis
+- Show gradb to 1e-5 s^-2
+
 # Prompts
 
 ## Generate
@@ -100,8 +121,11 @@ Generate a figure that has 4 panels and shows the temperature (Theta), salinity 
 1. Read this file and generate the first figure under Figures.  
 2. Read this file and generate the second figure under Figures.
 3. Read this file and generate Figure (3) under Figures.
+4. Read this file and generate Figure (4) under Figures.
 
 ## Modifications
 
 1. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (2).
 2. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (3).
+3. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (1).
+4. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (4).

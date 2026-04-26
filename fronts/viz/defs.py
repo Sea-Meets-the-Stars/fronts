@@ -8,6 +8,11 @@ cmaps = dict(
     gradb='gray_r',          # Buoyancy gradient: dark = strong
     divergence='RdBu_r',     # Divergence: red/blue symmetric
     strain_mag='RdBu_r',     # Strain magnitude
+    # JPDF colormaps (one per property panel)
+    jpdf_strain='Oranges',
+    jpdf_divergence='Purples',
+    jpdf_vorticity='Greens',
+    jpdf_frontogenesis='Reds',
 )
 
 # Labels for axis / colorbar annotation
@@ -16,6 +21,10 @@ labels = dict(
     Salt='Salinity  (PSU)',
     density=r'$\rho - 1025$  (kg m$^{-3}$)',
     gradb=r'$|\nabla b|$  (s$^{-2}$)',
+    strain_mag_f=r'$|\mathbf{S}| / f$',
+    divergence_f=r'$\delta / f$',
+    relative_vorticity_f=r'$\zeta / f$',
+    frontogenesis_tendency=r'$F_s$  (s$^{-3}$)',
 )
 
 # Reference density for offset display

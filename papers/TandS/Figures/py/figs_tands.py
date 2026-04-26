@@ -107,10 +107,17 @@ def fig_turner_vs_gradb(
         cfsz=13,
         y_log=True,
         cmap='Blues',
-        xlabel=r'Turner angle  $Tu_h$  (deg)',
+        xlabel=r'Turner angle  $Tu_h$',
         ylabel=r'$|\nabla b|$  (s$^{-2}$)',
         title='Turner angle vs. buoyancy gradient  (2012-11-09)',
     )
+
+    # Label x-axis with multiples of pi
+    ax = fig.axes[0]
+    ax.set_xticks([-90, -45, 0, 45, 90])
+    ax.set_xticklabels(
+        [r'$-\pi/2$', r'$-\pi/4$', r'$0$', r'$\pi/4$', r'$\pi/2$'])
+    ax.grid()     
 
     # Save
     outpath = os.path.join(figures_dir, outfile)
@@ -346,6 +353,91 @@ def fig_tsr_gradb(
     print(f"Saved {outpath}")
 
 
+def fig_jpdf_properties(
+    outfile: str = 'fig_jpdf_properties.png',
+    timestamp: str = '2012-11-09T12:00:00',
+    run_tag: str = 'v2_bin_D',
+    n_bins: int = 80,
+    gradb_max: float = 1e-5,
+):
+    """2x2 Joint PDFs of |grad b| (x, log) vs front properties (y, linear).
+
+    Panels: (a) strain_mag/f, (b) divergence/f,
+            (c) relative_vorticity/f, (d) frontogenesis_tendency.
+    """
+    # Load the front properties table
+    df = prop_io.load_colocation_table(
+        results_dir, timestamp, run_tag)
+
+    # x-axis: median |grad b| in log10 for uniform log-spaced bins
+    gradb = np.sqrt(df['gradb2_median'].values)
+    log_gradb = np.log10(np.where(gradb > 0, gradb, np.nan))
+
+    # Coriolis parameter (mean per front) for normalization
+    f_abs = np.abs(df['coriolis_f_mean'].values)
+
+    # log10 x-range: auto lower bound, upper bound at gradb_max
+    valid_lg = np.isfinite(log_gradb)
+    lg_lo = float(np.percentile(log_gradb[valid_lg], 0.5))
+    lg_hi = np.log10(gradb_max)
+
+    # Define the four panels: (label_key, y_values, jpdf_cmap_key)
+    panels = [
+        ('strain_mag_f',
+         df['strain_mag_median'].values / f_abs,
+         'jpdf_strain'),
+        ('divergence_f',
+         df['divergence_median'].values / f_abs,
+         'jpdf_divergence'),
+        ('relative_vorticity_f',
+         df['relative_vorticity_median'].values / f_abs,
+         'jpdf_vorticity'),
+        ('frontogenesis_tendency',
+         df['frontogenesis_tendency_median'].values,
+         'jpdf_frontogenesis'),
+    ]
+    panel_labels = ['(a)', '(b)', '(c)', '(d)']
+
+    fig, axes = plt.subplots(2, 2, figsize=(13, 11))
+
+    for ax, (label_key, y_vals, cmap_key), plabel in zip(
+            axes.ravel(), panels, panel_labels):
+        cmap = defs.cmaps.get(cmap_key, 'Blues')
+        ylabel = defs.labels.get(label_key, label_key)
+
+        # Clip y-range to [P1, P99] so outliers don't dominate
+        valid = np.isfinite(y_vals)
+        y_lo = float(np.percentile(y_vals[valid], 1))
+        y_hi = float(np.percentile(y_vals[valid], 99))
+
+        # gradb (log10) on x, property on y (linear)
+        plot_property_jpdf(
+            log_gradb, y_vals,
+            n_x_bins=n_bins,
+            n_y_bins=n_bins,
+            x_range=(lg_lo, lg_hi),
+            y_range=(y_lo, y_hi),
+            y_log=False,
+            cmap=cmap,
+            xlabel=defs.labels['gradb'],
+            ylabel=ylabel,
+            title=f'{plabel} {ylabel}',
+            ax=ax,
+        )
+
+        # Relabel x-ticks as powers of 10
+        import matplotlib.ticker as mticker
+        tick_vals = np.arange(np.ceil(lg_lo), np.floor(lg_hi) + 1)
+        ax.set_xticks(tick_vals)
+        ax.set_xticklabels([f'$10^{{{int(t)}}}$' for t in tick_vals])
+
+    fig.tight_layout()
+    outpath = os.path.join(figures_dir, outfile)
+    fig.savefig(outpath, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved {outpath}")
+
+
 def main(flg):
     """Main function to generate figures."""
     flg = int(flg)
@@ -355,6 +447,8 @@ def main(flg):
         fig_front_definition(derived_field='strain_mag')
     elif flg == 3:
         fig_tsr_gradb()
+    elif flg == 4:
+        fig_jpdf_properties()
     else:
         raise ValueError(f"Invalid flag: {flg}")
 
