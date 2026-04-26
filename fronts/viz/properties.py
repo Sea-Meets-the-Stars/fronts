@@ -25,6 +25,7 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
 
+from fronts.viz.utils import set_fontsize
 
 # ---------------------------------------------------------------------------
 # Global property map (gridded field on Cartopy projection)
@@ -44,6 +45,7 @@ def plot_global_property_map(
     mask_seams: bool = True,
     title: Optional[str] = None,
     clabel: Optional[str] = None,
+    fontsize: float = None,
     figsize: Tuple[float, float] = (18, 9),
     ax=None,
 ):
@@ -74,6 +76,8 @@ def plot_global_property_map(
         Plot title.
     clabel : str, optional
         Colorbar label.
+    fontsize : float, optional
+        Font size for the plot.
     figsize : tuple
         Figure size in inches (only used when *ax* is None).
     ax : cartopy.mpl.geoaxes.GeoAxes, optional
@@ -149,6 +153,9 @@ def plot_global_property_map(
         draw_labels=False, linewidth=0.3, color='gray',
         alpha=0.5, linestyle='--',
     )
+
+    if fontsize is not None:
+        set_fontsize(ax, fontsize)
 
     if title is not None:
         ax.set_title(title, fontsize=11, pad=10)
@@ -303,7 +310,10 @@ def plot_property_jpdf(
     y_range: Optional[Tuple[float, float]] = None,
     y_log: bool = True,
     y_pct: float = 1.0,
+    fontsize: float = None,
     cmap: str = 'Reds',
+    clabel: Optional[str] = None,
+    cfsz: float = None,
     xlabel: Optional[str] = None,
     ylabel: Optional[str] = None,
     title: Optional[str] = None,
@@ -329,6 +339,8 @@ def plot_property_jpdf(
     cmap : str
         Colormap for the PDF.
     xlabel, ylabel, title : str, optional
+    fontsize : float, optional
+        Font size for the plot.
     annotations : list of dict, optional
         Each dict may contain:
         - ``x`` (float): x-position for a vertical reference line
@@ -394,7 +406,13 @@ def plot_property_jpdf(
         norm=LogNorm(vmin=pmin, vmax=pdf.max()),
         cmap=cmap, rasterized=True,
     )
-    plt.colorbar(pm, ax=ax, fraction=0.046, pad=0.04)
+
+    # Colorbar
+    cbar = plt.colorbar(pm, ax=ax, fraction=0.046, pad=0.04)
+    if clabel is not None:
+        cbar.set_label(clabel, fontsize=16)
+    if cfsz is not None:
+        cbar.ax.tick_params(labelsize=cfsz)
 
     if y_log:
         ax.set_yscale('log')
@@ -424,6 +442,9 @@ def plot_property_jpdf(
                     color=color, fontsize=9,
                     ha='center', va='center', alpha=0.8,
                 )
+
+    if fontsize is not None:
+        set_fontsize(ax, fontsize)
 
     if created_fig:
         fig.tight_layout()
