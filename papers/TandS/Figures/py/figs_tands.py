@@ -20,6 +20,7 @@ from fronts.finding.despur import prune_short_spurs
 from fronts.config import io as config_io
 
 from fronts.viz import defs
+from fronts.viz import utils as viz_utils
 
 mpl.rcParams['font.family'] = 'stixgeneral'
 
@@ -132,16 +133,22 @@ def fig_front_definition(
     target_lon: float = -65.0,
     half_width: int = 60,
     config_file: str = None,
+    fsz: float = 14,
     derived_field: str = 'divergence',
+    gradb_log: bool = False,
 ):
     """Four-panel figure illustrating how fronts are defined and measured.
 
     Parameters
     ----------
     config_file : str, optional
-        Path to a finding_config YAML.  Defaults to finding_config_A.yaml.
+        Path to a finding_config YAML.  Defaults to finding_config_D.yaml.
     derived_field : str, optional
         Derived field for panel (d) background.  Default 'divergence'.
+    fsz : float, optional
+        Font size for the figure.  Defaults to 14.
+    gradb_log : bool, optional
+        If True, use LogNorm for the gradb greyscale.  Default False (linear).
     """
     from skimage import morphology
     from skimage.measure import regionprops
@@ -207,9 +214,15 @@ def fig_front_definition(
     # gradb for display — dark where values are large
     gradb = np.sqrt(gradb2)
     gradb_pos = np.where(gradb > 0, gradb, np.nan)
-    gradb_norm = LogNorm(
-        vmin=np.nanpercentile(gradb_pos, 1),
-        vmax=np.nanpercentile(gradb_pos, 99))
+    if gradb_log:
+        gradb_norm = LogNorm(
+            vmin=np.nanpercentile(gradb_pos, 1),
+            vmax=np.nanpercentile(gradb_pos, 99))
+    else:
+        from matplotlib.colors import Normalize
+        gradb_norm = Normalize(
+            vmin=np.nanpercentile(gradb_pos, 1),
+            vmax=np.nanpercentile(gradb_pos, 99))
     gradb_cmap = defs.cmaps['gradb']
 
     # (a) gradb2 greyscale + threshold pixels in red
@@ -225,6 +238,7 @@ def fig_front_definition(
     ax.set_title('(a) Threshold pixels', fontsize=12)
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
+    viz_utils.set_fontsize(ax, fsz)
 
     # (b) gradb2 + thinned fronts in green, with colorbar for gradb
     ax = axes[0, 1]
@@ -240,6 +254,7 @@ def fig_front_definition(
     ax.set_title('(b) Thinned fronts', fontsize=12)
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
+    viz_utils.set_fontsize(ax, fsz)
 
     # (c) Labeled fronts in distinct colors
     ax = axes[1, 0]
@@ -261,14 +276,19 @@ def fig_front_definition(
     ax.set_title('(c) Labeled fronts', fontsize=12)
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
+    viz_utils.set_fontsize(ax, fsz)
 
     # (d) Derived field + dilated regions in grey, with colorbar
     ax = axes[1, 1]
     field_vals = np.where(np.isfinite(panel_d_field), panel_d_field, np.nan)
     vmax_d = np.nanpercentile(np.abs(field_vals), 99)
     d_cmap = defs.cmaps.get(derived_field, 'RdBu_r')
+    if derived_field in ['strain_mag']:
+        vmin = 0.
+    else:
+        vmin = -vmax_d
     im_d = ax.pcolormesh(lon, lat, field_vals, cmap=d_cmap,
-                         vmin=-vmax_d, vmax=vmax_d, rasterized=True)
+                         vmin=vmin, vmax=vmax_d, rasterized=True)
     # Grey overlay for dilation regions (expanded ring only)
     dilation_ring = (dilated > 0) & (labeled == 0)
     ring_overlay = np.ma.masked_where(~dilation_ring, np.ones_like(gradb2))
@@ -283,6 +303,7 @@ def fig_front_definition(
     ax.set_title(f'(d) Dilation region ({derived_field})', fontsize=12)
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
+    viz_utils.set_fontsize(ax, fsz)
 
     fig.tight_layout()
     outpath = os.path.join(figures_dir, outfile)
@@ -341,10 +362,11 @@ def fig_tsr_gradb(
             im = ax.pcolormesh(lon, lat, field, cmap=cmap,
                                rasterized=True)
         cb = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cb.set_label(defs.labels.get(name, name), fontsize=10)
+        cb.set_label(defs.labels.get(name, name), fontsize=12)
         ax.set_title(f'{plabel} {defs.labels.get(name, name)}', fontsize=12)
         ax.set_xlabel('Longitude')
         ax.set_ylabel('Latitude')
+        viz_utils.set_fontsize(ax, 14)
 
     fig.tight_layout()
     outpath = os.path.join(figures_dir, outfile)
@@ -426,10 +448,10 @@ def fig_jpdf_properties(
         )
 
         # Relabel x-ticks as powers of 10
-        import matplotlib.ticker as mticker
         tick_vals = np.arange(np.ceil(lg_lo), np.floor(lg_hi) + 1)
         ax.set_xticks(tick_vals)
         ax.set_xticklabels([f'$10^{{{int(t)}}}$' for t in tick_vals])
+        viz_utils.set_fontsize(ax, 14)
 
     fig.tight_layout()
     outpath = os.path.join(figures_dir, outfile)
@@ -532,6 +554,7 @@ def fig_thermal_vs_salinity(
         ax.set_ylabel('Probability density', fontsize=11)
         ax.set_title(f'{plabel} {xlabel}', fontsize=12)
         ax.legend(fontsize=9)
+        viz_utils.set_fontsize(ax, 14.)
 
     fig.suptitle(
         rf'Thermal vs. salinity fronts  ($|\nabla b| > {gradb_min:.0e}$  s$^{{-2}}$)',

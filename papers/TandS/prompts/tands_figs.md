@@ -76,6 +76,7 @@ Here are some additional figure specifications:
 - Have the derived field ("divergence") be an option
 - Add color bars for panels (b) and (d)
 - Use lighter colors in panels (a) and (b) and higher opacity
+- Modify the gradb normalization to be linear instead of log.  Make this optional.
 
 ## (3) T, S, rho and gradb
 
@@ -147,3 +148,4 @@ Here are some additional specifications:
 3. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (1).
 4. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (4).
 5. Re-read this file.  Perform the modifications described in the "Modifications" section of Figure (5).
+6. Re-read this file.  Perform the new modification described in the "Modifications" section of Figure (2).

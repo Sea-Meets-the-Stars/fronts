@@ -7,7 +7,7 @@ cmaps = dict(
     density='cividis',       # Density: colorblind-friendly sequential
     gradb='gray_r',          # Buoyancy gradient: dark = strong
     divergence='RdBu_r',     # Divergence: red/blue symmetric
-    strain_mag='RdBu_r',     # Strain magnitude
+    strain_mag='Reds',       # Strain magnitude
     # JPDF colormaps (one per property panel)
     jpdf_strain='Oranges',
     jpdf_divergence='Purples',
