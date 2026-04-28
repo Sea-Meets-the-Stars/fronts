@@ -553,7 +553,7 @@ def fig_thermal_vs_salinity(
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel('Probability density', fontsize=11)
         ax.set_title(f'{plabel} {xlabel}', fontsize=12)
-        ax.legend(fontsize=9)
+        ax.legend(fontsize=12)
         viz_utils.set_fontsize(ax, 14.)
 
     fig.suptitle(
