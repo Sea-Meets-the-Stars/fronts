@@ -20,7 +20,8 @@ def colocate_fronts(timestamp: str, config: str, version: str,
                     output_dir: str = None,
                     stats: list = None, percentiles: list = None,
                     min_npix: int = 1, nan_policy: str = 'omit',
-                    dilation_radius: int = 1, clobber: bool = False):
+                    dilation_radius: int = 1, clobber: bool = False,
+                    binary_path: str = None, group_dir: str = None):
     """Co-locate labeled fronts with physical property fields.
 
     Args:
@@ -42,10 +43,14 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         dilation_radius (int): Pixels to dilate each front before stats.
             Defaults to 0.
         clobber (bool): Overwrite existing output. Defaults to False.
+        binary_path (str, optional): Directory for binary front .npy files.
+        group_dir (str, optional): Directory containing group_fronts outputs
+            (label maps). Defaults to ``$OS_OGCM/LLC/Fronts/group_fronts/v{version}``.
     """
-    fronts_file = finding_io.binary_filename(timestamp, config, version)
-    group_dir   = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
-                               'group_fronts', f'v{version}')
+    fronts_file = finding_io.binary_filename(timestamp, config, version, path=binary_path)
+    if group_dir is None:
+        group_dir = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
+                                 'group_fronts', f'v{version}')
     if output_dir is None:
         output_dir = group_dir
 
@@ -92,7 +97,8 @@ def colocate_fronts(timestamp: str, config: str, version: str,
 
 def generate_properties(timestamp: str, config_file: str, version: str,
                         property_names: list, run_id: str = None,
-                        clobber: bool = False, create_zarr: bool = False):
+                        clobber: bool = False, create_zarr: bool = False,
+                        derived_path: str = None):
     """Generate individual per-property .nc files for the requested properties.
 
     Resolves which dbof subset each property belongs to from the YAML config,
@@ -110,6 +116,8 @@ def generate_properties(timestamp: str, config_file: str, version: str,
         clobber (bool): Overwrite existing output files. Defaults to False.
         create_zarr (bool): Create the zarr store via generate_global.
             Defaults to False (assumes zarr already exists on S3).
+        derived_path (str, optional): Override the output directory for
+            derived .nc files.  Defaults to ``$OS_OGCM/LLC/Fronts/derived``.
     """
     with open(config_file) as fh:
         raw = yaml.safe_load(fh) or {}
@@ -143,7 +151,7 @@ def generate_properties(timestamp: str, config_file: str, version: str,
     # Process each subset
     for subset, channels in subset_to_channels.items():
         missing = [ch for ch in channels
-                   if not os.path.isfile(llc_io.derived_filename(timestamp, ch, version=version))]
+                   if not os.path.isfile(llc_io.derived_filename(timestamp, ch, version=version, path=derived_path))]
 
         if not missing and not clobber:
             print(f"All {len(channels)} property file(s) for subset '{subset}' exist "
@@ -160,10 +168,11 @@ def generate_properties(timestamp: str, config_file: str, version: str,
         # Convert zarr → netcdf for each channel
         for channel in to_generate:
             llc_io.zarr_to_nc(timestamp, config_file, subset, field=channel,
-                        version=version, run_id=run_id)
+                        version=version, run_id=run_id, path=derived_path)
 
 def group_fronts(timestamp: str, config: str, version: str,
-                 n_workers: int = None, skip_curvature: bool = False):
+                 n_workers: int = None, skip_curvature: bool = False,
+                 binary_path: str = None, output_dir: str = None):
     """Label connected front components and compute geometric properties globally.
 
     Args:
@@ -172,11 +181,14 @@ def group_fronts(timestamp: str, config: str, version: str,
         version (str): Data version string.
         n_workers (int, optional): Parallel workers. Defaults to CPU count.
         skip_curvature (bool): Skip curvature calculation (~50% faster).
+        binary_path (str, optional): Directory for binary front .npy files.
+        output_dir (str, optional): Output directory for group_fronts results.
     """
-    fronts_file = finding_io.binary_filename(timestamp, config, version)
+    fronts_file = finding_io.binary_filename(timestamp, config, version, path=binary_path)
     coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'coords', 'LLC_coords_lat_lon.nc')
-    output_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
-                               'group_fronts', f'v{version}')
+    if output_dir is None:
+        output_dir = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
+                                  'group_fronts', f'v{version}')
 
     # Load
     fronts_binary = np.load(fronts_file)

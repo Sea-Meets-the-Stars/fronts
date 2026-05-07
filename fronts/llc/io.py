@@ -225,15 +225,20 @@ def grab_velocity(cutout:pandas.core.series.Series, ds=None,
 
 def zarr_to_nc(timestamp: str, config_file: str, subset: str,
                 field: str = None, channels: list = None,
-                version: str = '1', run_id: str = None):
+                version: str = '1', run_id: str = None,
+                path: str = None):
     """Write netcdf from the S3 zarr store.
 
     Pass either `field` (single field, e.g. 'gradb2') or `channels` (list of
     field names for multi-channel subsets). The output path is derived from
     `field` if provided, otherwise from `subset`.
+
+    Args:
+        path (str, optional): Override the output directory.  Defaults to
+            ``$OS_OGCM/LLC/Fronts/derived``.
     """
     name = field if field is not None else subset
-    full_path = derived_filename(timestamp, name, version=version)
+    full_path = derived_filename(timestamp, name, version=version, path=path)
     cfg = dbof_config.load_config(config_file)
     with open(config_file) as fh:
         raw = yaml.safe_load(fh) or {}

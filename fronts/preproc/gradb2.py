@@ -10,9 +10,9 @@ from dbof.cli import zarr_to_netcdf
 from fronts.llc import io as llc_io
 
 
-def generate_gradb2(timestamp: str, config_file: str, version:str=None, 
+def generate_gradb2(timestamp: str, config_file: str, version:str=None,
     run_id: str = None, field: str = 'gradb2', clobber: bool = False,
-    create_zarr: bool = False):
+    create_zarr: bool = False, path: str = None):
     """Generate the gradb2 field for the given config file.
 
     Args:
@@ -23,15 +23,16 @@ def generate_gradb2(timestamp: str, config_file: str, version:str=None,
         field (str): Field name to extract. Defaults to 'gradb2'.
         create_zarr (bool): Create the zarr store. Defaults to False.
         clobber (bool): Overwrite existing output. Defaults to False.
+        path (str, optional): Override the output directory for derived files.
     """
-    out_file = llc_io.derived_filename(timestamp, field, version=version)
+    out_file = llc_io.derived_filename(timestamp, field, version=version, path=path)
     if os.path.isfile(out_file) and not clobber:
         print(f"gradb2 file {out_file} exists and clobber is False. Returning")
     else:
         # Create the zarr
         if create_zarr:
-            generate_global.main(config_file, subset='frontal_structure', 
+            generate_global.main(config_file, subset='frontal_structure',
                 only_these_features=['gradb2'], run_id=run_id)
         # Create the netcdf
-        llc_io.zarr_to_nc(timestamp, config_file, 'frontal_structure', 
-            field, run_id=run_id, version=version)
+        llc_io.zarr_to_nc(timestamp, config_file, 'frontal_structure',
+            field, run_id=run_id, version=version, path=path)
