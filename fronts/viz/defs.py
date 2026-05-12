@@ -8,6 +8,7 @@ cmaps = dict(
     gradb='gray_r',          # Buoyancy gradient: dark = strong
     divergence='RdBu_r',     # Divergence: red/blue symmetric
     strain_mag='Reds',       # Strain magnitude
+    mld='viridis',
     # JPDF colormaps (one per property panel)
     jpdf_strain='Oranges',
     jpdf_divergence='Purples',
@@ -25,6 +26,7 @@ labels = dict(
     divergence_f=r'$\delta / f$',
     relative_vorticity_f=r'$\zeta / f$',
     frontogenesis_tendency=r'$F_s$  (s$^{-3}$)',
+    mld='MLD (m)',
 )
 
 # Reference density for offset display

@@ -320,6 +320,7 @@ class FrontPropertyViewer(QMainWindow):
         divergent = self.panel_titles[idx] in self._DIVERGENT_FIELDS
         colormap = make_colormap(divergent=divergent)
         vmin, vmax = compute_levels(data, percentile, divergent=divergent)
+        print(f"vmin: {vmin}, vmax: {vmax}")
 
         # Main image
         img_item = pg.ImageItem()
@@ -450,3 +451,5 @@ def main(args):
     )
     viewer.show()
     sys.exit(app.exec())
+
+# fronts_property_viewer 2012-11-09T12_00_00 --fields mld strain_mag relative_vorticity --bbox 16200 4900 16800 5700 --version 2 --config_lbl D

@@ -346,9 +346,9 @@ def fig_tsr_gradb(
         ('Theta', theta, None),
         ('Salt', salt, None),
         ('density', density, None),
-        ('gradb', gradb_pos, LogNorm(
-            vmin=np.nanpercentile(gradb_pos, 0.5),
-            vmax=np.nanpercentile(gradb_pos, 99.5))),
+        ('gradb', gradb_pos, None), #LogNorm(
+            #vmin=np.nanpercentile(gradb_pos, 0.5),
+            #vmax=np.nanpercentile(gradb_pos, 99.5))),
     ]
     panel_labels = ['(a)', '(b)', '(c)', '(d)']
 
