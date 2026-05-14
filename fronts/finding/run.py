@@ -17,8 +17,7 @@ from fronts.finding import algorithms as finding_algorithms
 from fronts.llc import io as llc_io
 
 def find_gradb2_fronts(timestamp: str, config: str, version: str,
-                clobber: bool = False,
-                derived_path: str = None, output_path: str = None):
+                clobber: bool = False):
     """ Find us the fronts in a gradb2 field
 
     Args:
@@ -26,18 +25,16 @@ def find_gradb2_fronts(timestamp: str, config: str, version: str,
         config (str): Configuration label (e.g. 'A').
         version (str): Version of the data to use.
         clobber (bool, optional): _description_. Defaults to False.
-        derived_path (str, optional): Directory for derived .nc files.
-        output_path (str, optional): Directory for binary front .npy files.
     """
 
     # Check if the binary front field exists
-    bfile = finding_io.binary_filename(timestamp, config, version, path=output_path)
+    bfile = finding_io.binary_filename(timestamp, config, version)
     if os.path.isfile(bfile) and not clobber:
         print(f"Binary front field {bfile} exists and clobber is False. Returning")
         return
 
     # Load gradb2
-    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2', version=version, path=derived_path)
+    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2', version=version)
     print(f"Loading gradb2 from: {gradb2_file}")
     gradb2 = xarray.open_dataset(gradb2_file)['gradb2'].values
     print(f"Loaded gradb2 with shape: {gradb2.shape}")
@@ -58,7 +55,7 @@ def find_gradb2_fronts(timestamp: str, config: str, version: str,
 
     # Save em
     finding_io.save_binary_fronts(
-        fronts, timestamp, config, version, path=output_path)
+        fronts, timestamp, config, version)
 
 
 def one_cutout(Divb2:np.ndarray, front_params:dict):

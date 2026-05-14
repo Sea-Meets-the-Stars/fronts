@@ -1,7 +1,7 @@
 """
 Test script for the front-weighted property visualization code.
 
-Exercises the I/O loaders in fronts.properties.io and the visualization
+Exercises the loaders in fronts.properties.viz_loaders and the visualization
 methods in fronts.viz.properties using the v1_bin_A global front results
 under $OS_OGCM/LLC/Fronts.
 
@@ -16,14 +16,14 @@ import matplotlib
 #matplotlib.use('Agg')  # non-interactive backend for saving PNGs
 import matplotlib.pyplot as plt
 
-from fronts.properties.io import (
+from fronts.properties.viz_loaders import (
     load_metadata,
     load_labeled_array,
     load_geometry_table,
     load_colocation_table,
     merge_geometry_colocation,
     )
-from fronts.properties.io import (
+from fronts.properties.viz_loaders import (
         property_file_path,
         load_single_property,
         load_property_arrays,
@@ -111,7 +111,7 @@ def test_atomic_loaders():
 def test_coordinate_handling():
     separator('Test 2: Coordinate handling')
 
-    from fronts.properties.io import (
+    from fronts.properties.viz_loaders import (
         load_llc_coords,
         compute_longitude_shift,
         roll_to_pm180,
@@ -187,7 +187,7 @@ def test_property_loading(shift):
 def test_orchestrator():
     separator('Test 4: Orchestrator — load_global_front_results')
 
-    from fronts.properties.io import load_global_front_results
+    from fronts.properties.viz_loaders import load_global_front_results
 
     result = load_global_front_results(RESULTS_DIR, TIME_STR, RUN_TAG)
 
@@ -213,14 +213,14 @@ def test_orchestrator():
 def test_plot_global_property_map(lat, lon, props, shift):
     separator('Test 5: plot_global_property_map')
 
-    from fronts.properties.io import roll_to_pm180
+    from fronts.properties.viz_loaders import roll_to_pm180
     from fronts.viz.properties import plot_global_property_map
 
     # Use full-res coords rolled to -180..+180
     lon_r, lat_r = roll_to_pm180(lon, lat, shift=shift)
 
     # Load a full-res property and roll it too
-    from fronts.properties.io import load_single_property
+    from fronts.properties.viz_loaders import load_single_property
     vort = load_single_property('relative_vorticity', TIMESTAMP, VERSION)
     vort_r = roll_to_pm180(vort, shift=shift)
 

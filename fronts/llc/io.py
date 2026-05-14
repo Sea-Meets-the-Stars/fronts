@@ -18,6 +18,80 @@ if os.getenv('LLC_DATA') is not None:
     local_llc_files_path = os.path.join(os.getenv('LLC_DATA'), 'ThetaUVSalt')
 s3_llc_files_path = 's3://llc/ThetaUVSalt'
 
+# ---------------------------------------------------------------------------
+# Module-level configurable root path for all Fronts I/O
+# ---------------------------------------------------------------------------
+_fronts_root = None
+
+def set_fronts_path(path: str):
+    """Set the root directory for all Fronts I/O products.
+
+    All output files are organised as::
+
+        PATH / V{version} / YYYYMMDD_HHMMSS / <filename>
+
+    Call once at the start of a script, e.g.::
+
+        from fronts.llc import io as llc_io
+        llc_io.set_fronts_path('/mnt/tank/Oceanography/data/OGCM/LLC/Fronts')
+
+    Parameters
+    ----------
+    path : str
+        Root directory for Fronts products (the ``PATH`` component).
+    """
+    global _fronts_root
+    _fronts_root = path
+
+def get_fronts_path() -> str:
+    """Return the current Fronts root directory.
+
+    Falls back to ``$OS_OGCM/LLC/Fronts`` when no override has been
+    set via :func:`set_fronts_path`.
+    """
+    if _fronts_root is not None:
+        return _fronts_root
+    return os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts')
+
+
+def _format_timestamp(timestamp: str) -> str:
+    """Convert a timestamp string to the directory-name format YYYYMMDD_HHMMSS.
+
+    Accepts formats like '2012-11-09T12_00_00' or '2012-11-09T12:00:00'.
+
+    Examples
+    --------
+    >>> _format_timestamp('2012-11-09T12_00_00')
+    '20121109_120000'
+    """
+    # Strip dashes and the 'T' separator
+    s = timestamp.replace('-', '').replace('T', '_')
+    # At this point we have e.g. '20121109_12_00_00'; collapse to YYYYMMDD_HHMMSS
+    parts = s.split('_')
+    # parts[0] = YYYYMMDD, rest = HH, MM, SS  (or already HHMMSS)
+    date_part = parts[0]
+    time_part = ''.join(parts[1:]).replace(':', '')
+    return f'{date_part}_{time_part}'
+
+
+def fronts_dir(version: str, timestamp: str) -> str:
+    """Build the versioned + timestamped output directory.
+
+    Returns ``PATH / V{version} / YYYYMMDD_HHMMSS`` and creates it if
+    it does not exist.
+
+    Parameters
+    ----------
+    version : str
+        Version string (e.g. '3').  Prefixed with ``V``.
+    timestamp : str
+        Snapshot timestamp (e.g. '2012-11-09T12_00_00').
+    """
+    ts_dir = _format_timestamp(timestamp)
+    d = os.path.join(get_fronts_path(), f'V{version}', ts_dir)
+    os.makedirs(d, exist_ok=True)
+    return d
+
 def load_coords(verbose=True):
     """Load LLC coordinates
 
@@ -34,9 +108,11 @@ def load_coords(verbose=True):
     return coord_ds
 
 def derived_filename(timestamp:str, field:str,
-                 root:str='LLC4320', path:str=None,
-                 version:str='1'):
-    """Generate filename of derived field from LLC 
+                 root:str='LLC4320',
+                 version:str=None):
+    """Generate filename of derived field from LLC.
+
+    The file is placed under ``PATH/V{version}/YYYYMMDD_HHMMSS/``.
 
     Args:
         timestamp: str
@@ -46,18 +122,13 @@ def derived_filename(timestamp:str, field:str,
             Field to be loaded, e.g. 'gradb2'
         root: str
             Root of the filename.  Defaults to 'LLC4320'.
-        path: str
-            Path to the data.  If None, will use $OS_OGCM/LLC/Fronts/derived.
         version: str
-            Version of the algorithm to use.  Defaults to '1'.
+            Version of the algorithm to use.  Required.
 
     Returns:
         filename: str
     """
-    # Path
-    if path is None:
-        path = os.path.join(os.getenv('OS_OGCM'),
-            'LLC', 'Fronts', 'derived')
+    path = fronts_dir(version, timestamp)
 
     # Generate base
     basefile = f'{root}_{timestamp}_{field}_v{version}.nc'
@@ -161,7 +232,7 @@ def grab_cutout(data_var, row, col, field_size=None, fixed_km=None,
 
     # Return
     return cut_data
-                    
+
 def grab_image(args):
     warnings.warn('Use grab_image() in utils.image_utils',
                   DeprecationWarning)
@@ -221,24 +292,19 @@ def grab_velocity(cutout:pandas.core.series.Series, ds=None,
 
     # Return
     return output
-
-
+                    
 def zarr_to_nc(timestamp: str, config_file: str, subset: str,
                 field: str = None, channels: list = None,
-                version: str = '1', run_id: str = None,
-                path: str = None):
+                version: str = None, run_id: str = None):
     """Write netcdf from the S3 zarr store.
 
     Pass either `field` (single field, e.g. 'gradb2') or `channels` (list of
-    field names for multi-channel subsets). The output path is derived from
-    `field` if provided, otherwise from `subset`.
-
-    Args:
-        path (str, optional): Override the output directory.  Defaults to
-            ``$OS_OGCM/LLC/Fronts/derived``.
+    field names for multi-channel subsets). The output path is placed under
+    ``PATH/V{version}/YYYYMMDD_HHMMSS/``.  Use :func:`set_fronts_path` to
+    override the root directory.
     """
     name = field if field is not None else subset
-    full_path = derived_filename(timestamp, name, version=version, path=path)
+    full_path = derived_filename(timestamp, name, version=version)
     cfg = dbof_config.load_config(config_file)
     with open(config_file) as fh:
         raw = yaml.safe_load(fh) or {}
