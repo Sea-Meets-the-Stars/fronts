@@ -16,7 +16,7 @@ from fronts.config import io as config_io
 from fronts.finding import algorithms as finding_algorithms
 from fronts.llc import io as llc_io
 
-def find_gradb2_fronts(timestamp: str, fconfig: str, version: str, 
+def find_gradb2_fronts(timestamp: str, fconfig: str, version: str,
                 clobber: bool = False):
     """ Find us the fronts in a gradb2 field
 
@@ -24,7 +24,7 @@ def find_gradb2_fronts(timestamp: str, fconfig: str, version: str,
         timestamp (str): Timestamp of the data to process.
         fconfig (str): Front configuration label (e.g. 'A').
         version (str): Version of the data to use.
-        clobber (bool, optional): _description_. Defaults to False.
+        clobber (bool, optional): Overwrite existing output. Defaults to False.
     """
 
     # Check if the binary front field exists
