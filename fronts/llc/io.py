@@ -22,8 +22,10 @@ s3_llc_files_path = 's3://llc/ThetaUVSalt'
 # Module-level configurable root path for all Fronts I/O
 # ---------------------------------------------------------------------------
 _fronts_root = None
+if os.getenv('OS_OGCM') is not None:
+    _fronts_root = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts')
 
-def set_fronts_path(path: str):
+def set_fronts_path(path:str):
     """Set the root directory for all Fronts I/O products.
 
     All output files are organised as::
@@ -74,7 +76,7 @@ def _format_timestamp(timestamp: str) -> str:
     return f'{date_part}_{time_part}'
 
 
-def fronts_dir(version: str, timestamp: str) -> str:
+def fronts_dir(version: str, timestamp: str, generate: bool = False) -> str:
     """Build the versioned + timestamped output directory.
 
     Returns ``PATH / V{version} / YYYYMMDD_HHMMSS`` and creates it if
@@ -86,10 +88,18 @@ def fronts_dir(version: str, timestamp: str) -> str:
         Version string (e.g. '3').  Prefixed with ``V``.
     timestamp : str
         Snapshot timestamp (e.g. '2012-11-09T12_00_00').
+    generate : bool, optional
+        Generate the directory if it does not exist. Defaults to False.
+    
+    Returns:
+    --------
+        str: The path to the directory.
     """
     ts_dir = _format_timestamp(timestamp)
     d = os.path.join(get_fronts_path(), f'V{version}', ts_dir)
-    os.makedirs(d, exist_ok=True)
+    if generate:
+        os.makedirs(d, exist_ok=True)
+    # Return
     return d
 
 def load_coords(verbose=True):
