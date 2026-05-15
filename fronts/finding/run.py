@@ -16,7 +16,7 @@ from fronts.finding import config as find_config
 from fronts.finding import algorithms as finding_algorithms
 from fronts.llc import io as llc_io
 
-def find_gradb2_fronts(timestamp: str, config: str, version: str, 
+def find_gradb2_fronts(timestamp: str, config: str, version: str,
                 clobber: bool = False):
     """ Find us the fronts in a gradb2 field
 

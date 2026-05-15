@@ -1,0 +1,101 @@
+run:
+  run_id: "global_test00"
+  log_dir: "./logs/"
+
+data:
+  sampling_step: 168      # hours between snapshots (168 = weekly)
+  start_record: 1180
+  timestep_hours: 168     # total hours to process; overridden by date_iterations if set
+
+  date_iterations:        # YYYY-MM-DD HH:MM:SS (ISO) format
+    - '2012-11-09 12:00:00'
+  # If set, date_iterations overrides sampling_step / start_record / timestep_hours.
+
+sampling:
+  # not used by the global script but config.py still requires the section
+  bias_to_high_gradients: 1.0
+  sample_points_per_snapshot: 1
+
+output:
+  target_km_res: 150      # not used in the global script; kept for config compatibility
+  down_sample_res: 64     # not used in the global script; kept for config compatibility
+  s3_endpoint: "https://s3-west.nrp-nautilus.io"
+  bucket: "dbof/"
+  folder: "native_grid_dbof_training_data/"
+  dataset_name: "global.zarr"  # overridden per-subset (see subsets below)
+
+features:
+  # Required by load_config / FeaturesConfig — overwritten at runtime by the
+  # selected subset's values below; do not edit manually.
+  model_data_feature_channels: []
+  compute_features_channels: []
+
+runtime:
+  zarr_async_concurrency: 128
+
+# ---------------------------------------------------------------------------
+# S3 source: location of the transferred LLC4320 timestep stores.
+# Needed for native_fields variables not in the kerchunk endpoint
+# (oceTAUX, oceTAUY, SIarea).
+# ---------------------------------------------------------------------------
+s3_source:
+  s3_endpoint: "https://s3-west.nrp-nautilus.io"
+  bucket: "dbof/"
+  folder: "LLC4320"
+
+# ---------------------------------------------------------------------------
+# Combined-script configuration
+# ---------------------------------------------------------------------------
+# active_subset: default subset when --subset is not passed on the CLI.
+#   One of: native_fields | frontal_structure | kinematic | frontogenesis
+active_subset: frontal_structure
+
+subsets:
+
+  native_fields:
+    dataset_name: "native_fields.zarr"
+    model_data_feature_channels:
+      - Theta
+      - Salt
+      - Eta
+      - U
+      - V
+      - W
+      - oceTAUX
+      - oceTAUY
+      - SIarea
+    compute_features_channels: []
+
+  frontal_structure:
+    dataset_name: "frontal_structure.zarr"
+    model_data_feature_channels: []
+    compute_features_channels:
+      - gradb2
+      - gradsalt2
+      - gradtheta2
+      - gradeta2
+      - gradrho2
+      - turner_angle
+
+  kinematic:
+    dataset_name: "kinematic.zarr"
+    model_data_feature_channels: []
+    compute_features_channels:
+      - relative_vorticity
+      - strain_n
+      - strain_s
+      - strain_mag
+      - divergence
+      - coriolis_f
+      - rossby_number
+      - okubo_weiss
+
+  frontogenesis:
+    dataset_name: "frontogenesis.zarr"
+    model_data_feature_channels: []
+    compute_features_channels:
+      - frontogenesis_tendency
+      - ug
+      - vg
+      - frontogenesis_geo
+      - frontogenesis_ageo

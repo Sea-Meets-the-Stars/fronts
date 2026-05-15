@@ -16,12 +16,15 @@ from fronts.properties import algorithms as prop_algorithms
 
 
 def colocate_fronts(timestamp: str, config: str, version: str,
-                    property_names: list, property_dir: str,
+                    property_names: list,
                     output_dir: str = None,
                     stats: list = None, percentiles: list = None,
                     min_npix: int = 1, nan_policy: str = 'omit',
                     dilation_radius: int = 1, clobber: bool = False):
     """Co-locate labeled fronts with physical property fields.
+
+    All paths are resolved from ``PATH/V{version}/YYYYMMDD_HHMMSS/``
+    via :func:`fronts.llc.io.set_fronts_path`.
 
     Args:
         timestamp (str): Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
@@ -31,9 +34,8 @@ def colocate_fronts(timestamp: str, config: str, version: str,
             ['relative_vorticity', 'strain_n']. Each must match both the
             variable name inside its .nc file and the filename pattern
             LLC4320_{timestamp}_{property_name}_{version}.nc.
-        property_dir (str): Directory containing property .nc files.
         output_dir (str, optional): Output directory. Defaults to the
-            standard group_fronts output directory for this version.
+            standard fronts directory for this version + timestamp.
         stats (list, optional): Statistics to compute per property.
             Defaults to ['mean', 'std', 'median'].
         percentiles (list, optional): Percentiles to compute, e.g. [10, 90].
@@ -43,11 +45,11 @@ def colocate_fronts(timestamp: str, config: str, version: str,
             Defaults to 0.
         clobber (bool): Overwrite existing output. Defaults to False.
     """
+    fdir = llc_io.fronts_dir(version, timestamp)
     fronts_file = finding_io.binary_filename(timestamp, config, version)
-    group_dir   = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
-                               'group_fronts', f'v{version}')
+    property_dir = fdir
     if output_dir is None:
-        output_dir = group_dir
+        output_dir = fdir
 
     # Check if output already exists
     time_str = timestamp.replace('_', ':')   # '2012-11-09T12:00:00'
@@ -73,7 +75,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
 
     # Load label map
     labeled_file = properties_io.get_global_front_output_path(
-        group_dir, time_str, 'label_map',run_tag)
+        fdir, time_str, 'label_map', run_tag)
     labeled = np.load(labeled_file)
 
     prop_algorithms.colocate_fronts(
@@ -99,6 +101,9 @@ def generate_properties(timestamp: str, config_file: str, version: str,
     then writes one LLC4320_{timestamp}_{property}_v{version}.nc file per
     property — the format expected by colocate_fronts(). Existing files are
     skipped unless clobber=True.
+
+    Use :func:`fronts.llc.io.set_fronts_path` to override the root
+    directory.  Files land under ``PATH/V{version}/YYYYMMDD_HHMMSS/``.
 
     Args:
         timestamp (str): Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
@@ -166,6 +171,9 @@ def group_fronts(timestamp: str, config: str, version: str,
                  n_workers: int = None, skip_curvature: bool = False):
     """Label connected front components and compute geometric properties globally.
 
+    All paths are resolved from ``PATH/V{version}/YYYYMMDD_HHMMSS/``
+    via :func:`fronts.llc.io.set_fronts_path`.
+
     Args:
         timestamp (str): Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
         config (str): Front-finding config label, e.g. 'A'.
@@ -175,8 +183,7 @@ def group_fronts(timestamp: str, config: str, version: str,
     """
     fronts_file = finding_io.binary_filename(timestamp, config, version)
     coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'coords', 'LLC_coords_lat_lon.nc')
-    output_dir  = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
-                               'group_fronts', f'v{version}')
+    output_dir = llc_io.fronts_dir(version, timestamp)
 
     # Load
     fronts_binary = np.load(fronts_file)

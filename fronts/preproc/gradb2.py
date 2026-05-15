@@ -10,7 +10,7 @@ from dbof.cli import zarr_to_netcdf
 from fronts.llc import io as llc_io
 
 
-def generate_gradb2(timestamp: str, config_file: str, version:str=None, 
+def generate_gradb2(timestamp: str, config_file: str, version:str=None,
     run_id: str = None, field: str = 'gradb2', clobber: bool = False,
     create_zarr: bool = False):
     """Generate the gradb2 field for the given config file.
@@ -30,8 +30,8 @@ def generate_gradb2(timestamp: str, config_file: str, version:str=None,
     else:
         # Create the zarr
         if create_zarr:
-            generate_global.main(config_file, subset='frontal_structure', 
+            generate_global.main(config_file, subset='frontal_structure',
                 only_these_features=['gradb2'], run_id=run_id)
         # Create the netcdf
-        llc_io.zarr_to_nc(timestamp, config_file, 'frontal_structure', 
+        llc_io.zarr_to_nc(timestamp, config_file, 'frontal_structure',
             field, run_id=run_id, version=version)

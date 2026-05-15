@@ -3,9 +3,14 @@
 import os
 import numpy as np
 
+from fronts.llc import io as llc_io
+
+
 def binary_filename(timestamp:str, config_lbl:str, version:str,
-                    root:str='LLC4320', path:str=None):
+                    root:str='LLC4320'):
     """Build the filename for a binary-front .npy file.
+
+    The file is placed under ``PATH/V{version}/YYYYMMDD_HHMMSS/``.
 
     Parameters
     ----------
@@ -17,19 +22,14 @@ def binary_filename(timestamp:str, config_lbl:str, version:str,
         Version of the data to use.
     root : str, optional
         Dataset root name. Default is 'LLC4320'.
-    path : str, optional
-        Output directory.  Defaults to ``$OS_OGCM/LLC/Fronts/outputs``.
 
     Returns
     -------
     str
         Full path of the form ``{path}/{root}_{timestamp}_bin_{config_lbl}.npy``.
     """
-    # Path
-    if path is None:
-        path = os.path.join(os.getenv('OS_OGCM'),
-            'LLC', 'Fronts', 'outputs')
-    
+    path = llc_io.fronts_dir(version, timestamp)
+
     # Generate base
     basefile = f'{root}_{timestamp}_v{version}_bin_{config_lbl}.npy'
 
@@ -46,7 +46,7 @@ def load_binary_fronts(timestamp:str, config_lbl:str, version:str, **kwargs):
     config_lbl : str
         Configuration label used when the file was saved.
     **kwargs
-        Passed to :func:`binary_filename` (``root``, ``path``).
+        Passed to :func:`binary_filename` (``root``).
 
     Returns
     -------
@@ -80,7 +80,7 @@ def save_binary_fronts(fronts:np.ndarray, timestamp:str, config_lbl:str,
     version : str
         Version of the data to use.
     **kwargs
-        Passed to :func:`binary_filename` (``root``, ``path``).
+        Passed to :func:`binary_filename` (``root``).
     """
     # Grab filename
     b_file = binary_filename(timestamp, config_lbl, version, **kwargs)
