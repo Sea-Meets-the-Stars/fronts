@@ -24,17 +24,20 @@
 
 ### Default okubo_weiss to use the divergent colormap centered on zero.  And make the fronts grey when using the divergent colormap.
 
+# Modifications
+
+
 # Prompts
 
-## Please read the file fronts/prompts/front_multi_viewer.md and generate a plan to implement the GUI.
+1. Please read the file fronts/prompts/front_property_viewer.md and generate a plan to implement the GUI.
 
-## I have updated the md file.  Please re-review and modify your plan.
+2. I have updated the md file.  Please re-review and modify your plan.
 
-## That looks great.  Please implement the GUI.
+3. That looks great.  Please implement the GUI.
 
-## I have modified the code so that it can be called from the fronts_property_viewer script I added to bin/.  When I run the code with -h, it crashes because the bbox_group is required.  Please fix this.  If you need to run Python, use the "ocean14" conda environment.
+4. I have modified the code so that it can be called from the fronts_property_viewer script I added to bin/.  When I run the code with -h, it crashes because the bbox_group is required.  Please fix this.  If you need to run Python, use the "ocean14" conda environment.
 
-## I am running the script with the following command:
+5. I am running the script with the following command:
 
 ```
 fronts_property_viewer 2012-11-09T12_00_00 --fields okubo_weiss strain_mag rossby_number --bbox 10000 10200 8000 8200
@@ -51,6 +54,8 @@ fronts_property_viewer 2012-11-09T12_00_00 --fields okubo_weiss strain_mag rossb
 ValueError: zero-size array to reduction operation fmin which has no identity
 ```
 
-## Please fix this.  If you need to run Python, use the "ocean14" conda environment.
+Please fix this.  If you need to run Python, use the "ocean14" conda environment.
 
-## Can you figure out why the two panels on the right show larger views?  They are supposed to be the same size and aspect ratio.
+6. Re-read this file.  Can you figure out why the two panels on the right show larger views?  They are supposed to be the same size and aspect ratio.
+
+7. Re-read this file.  Actually the new modification appears to have made the issue worse.  Please continue to modify the code to fix this.

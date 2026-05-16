@@ -195,21 +195,33 @@ class FrontPropertyViewer(QMainWindow):
         self.graphics_widget = pg.GraphicsLayoutWidget()
         self.graphics_widget.setBackground('w')
 
+        # Fixed widths/heights for axis areas so every panel reserves the
+        # SAME space for axis decorations. Without this, hiding the y-axis
+        # (or even just hiding its tick values) on right-column panels lets
+        # those panels expand into the freed space and render larger than
+        # the left-column panels.
+        Y_AXIS_WIDTH = 60
+        X_AXIS_HEIGHT = 30
+
         for i, (row, dcol, _cbarcol) in enumerate(self._PANEL_GRID):
             panel = self.graphics_widget.addPlot(row=row, col=dcol)
             panel.showGrid(x=False, y=False)
             panel.setLabel('bottom', 'i (pixel)')
             panel.setTitle(self.panel_titles[i])
-            # Show y-axis label only on left-column panels (cols 0,1)
+
+            left_axis = panel.getAxis('left')
             if dcol == 0:
                 panel.setLabel('left', 'j (pixel)')
             else:
-                panel.hideAxis('left')
-            self.panels.append(panel)
+                left_axis.setStyle(showValues=False)
+            left_axis.setWidth(Y_AXIS_WIDTH)
+            panel.getAxis('bottom').setHeight(X_AXIS_HEIGHT)
 
-        # Only panel 0 locks aspect (controls zoom behaviour);
-        # panels 1-3 accept panel 0's range without fighting it.
-        self.panels[0].setAspectLocked(True)
+            # Aspect-lock every panel so the data ratio is the same in all
+            # four panels; linking still keeps pan/zoom in sync.
+            panel.setAspectLocked(True)
+
+            self.panels.append(panel)
 
         # Link all panel axes to panel 0 so pan/zoom stays in sync
         for panel in self.panels[1:]:
