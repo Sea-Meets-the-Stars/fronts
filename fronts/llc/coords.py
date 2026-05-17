@@ -67,10 +67,68 @@ def ij_to_latlon(i, j, coord_ds=None):
     return lat, lon
 
 
+def latlon_to_ij(lat, lon, coord_ds=None):
+    """Convert (lat, lon) in degrees to nearest LLC pixel (i, j) indices.
+
+    The LLC global grid is indexed as ``(row, col) == (j, i)``.  This is the
+    inverse of :func:`ij_to_latlon` and uses a simple Euclidean distance in
+    degree-space to pick the nearest grid point.
+
+    Parameters
+    ----------
+    lat : float or array-like
+        Latitude(s) in degrees.
+    lon : float or array-like
+        Longitude(s) in degrees.  Any convention is accepted; longitudes are
+        wrapped to ``[-180, 180]`` internally to match the grid.
+    coord_ds : xarray.Dataset, optional
+        Pre-loaded LLC coordinate dataset (as returned by
+        :func:`load_coords`).  Loaded on demand when ``None``.
+
+    Returns
+    -------
+    tuple
+        ``(i, j)`` pixel indices.  Scalars in -> ``int`` out; arrays in ->
+        ``np.ndarray`` out (of the broadcast shape).
+    """
+    if coord_ds is None:
+        coord_ds = load_coords()
+
+    grid_lat = coord_ds.lat.values                              # (ny, nx)
+    grid_lon = ((coord_ds.lon.values + 180) % 360) - 180        # wrap to [-180, 180]
+
+    lat_in = np.asarray(lat, dtype=float)
+    lon_in = np.asarray(lon, dtype=float)
+    # Track whether the caller passed plain scalars so we can return ints
+    scalar = lat_in.ndim == 0 and lon_in.ndim == 0
+
+    # Broadcast lat/lon so we can iterate paired queries with one shape
+    lat_b, lon_b = np.broadcast_arrays(lat_in, lon_in)
+
+    i_out = np.empty(lat_b.shape, dtype=int)
+    j_out = np.empty(lat_b.shape, dtype=int)
+    i_flat = i_out.ravel()
+    j_flat = j_out.ravel()
+
+    # One nearest-pixel search per query point.  Cheap for small K (e.g. the
+    # two corners passed by latlon_to_pixel_bbox); a broadcasted distance
+    # tensor would blow up memory on the full LLC grid for large K.
+    for k, (la, lo) in enumerate(zip(lat_b.ravel(), lon_b.ravel())):
+        dist = (grid_lat - la) ** 2 + (grid_lon - lo) ** 2
+        ridx = np.unravel_index(np.argmin(dist), dist.shape)
+        j_flat[k] = int(ridx[0])  # row = j = y
+        i_flat[k] = int(ridx[1])  # col = i = x
+
+    if scalar:
+        return int(i_out.item()), int(j_out.item())
+    return i_out, j_out
+
+
 def latlon_to_pixel_bbox(lat0, lon0, lat1, lon1):
     """Convert a lat/lon bounding box to pixel (x,y) indices.
 
-    Uses the LLC coordinate file loaded via :func:`fronts.llc.io.load_coords`.
+    Uses the LLC coordinate file loaded via :func:`load_coords` and delegates
+    the per-corner nearest-pixel lookup to :func:`latlon_to_ij`.
 
     Parameters
     ----------
@@ -86,21 +144,12 @@ def latlon_to_pixel_bbox(lat0, lon0, lat1, lon1):
     """
     print("Loading LLC coords for lat/lon -> pixel conversion...")
     coord_ds = load_coords()
-    lat = coord_ds.lat.values  # shape (ny, nx)
-    lon = coord_ds.lon.values
 
-    # Wrap lon to [-180, 180] to match convention
-    lon = ((lon + 180) % 360) - 180
+    # Reuse latlon_to_ij so the nearest-pixel logic lives in one place
+    i0, j0 = latlon_to_ij(lat0, lon0, coord_ds=coord_ds)
+    i1, j1 = latlon_to_ij(lat1, lon1, coord_ds=coord_ds)
 
-    # Distance metric to find the nearest pixel for each corner
-    def nearest(lat_val, lon_val):
-        dist = (lat - lat_val) ** 2 + (lon - lon_val) ** 2
-        idx = np.unravel_index(np.argmin(dist), dist.shape)
-        return idx  # (row, col) = (y, x)
-
-    r0, c0 = nearest(lat0, lon0)
-    r1, c1 = nearest(lat1, lon1)
-
-    x0, y0 = int(min(c0, c1)), int(min(r0, r1))
-    x1, y1 = int(max(c0, c1)), int(max(r0, r1))
+    # Normalise into (min, max) corners regardless of input ordering
+    x0, y0 = min(i0, i1), min(j0, j1)
+    x1, y1 = max(i0, i1), max(j0, j1)
     return x0, y0, x1, y1

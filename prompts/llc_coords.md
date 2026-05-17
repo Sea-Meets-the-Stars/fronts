@@ -28,6 +28,16 @@ We will generate a simple script to input i,j coordinates and output the lat, lo
 2. Put the primary code in fronts/llc/coords.py
 3. Follow the pargs, main and script call as done for front_property_viewer.py
 
+## lat, lon to i, j
+
+We will generate a simple script to input lat, lon coordinates and output the i, j coordinates.  Here are some guidelines:
+
+1. Put the script in fronts/scripts/llc_latlon_ij.py
+2. Put the primary code in fronts/llc/coords.py
+3. Refactor the latlon_to_pixel_bbox function to use the new function.
+4. Follow the pargs, main and script call as done for llc_ij_latlon.py
+5. Be sure to add a file in fronts/bin named llc_latlon_ij that calls the script.
+
 ## Planning
 
 ## Testing
@@ -37,3 +47,5 @@ We will generate a simple script to input i,j coordinates and output the lat, lo
 ## Prompts
 
 1. Read this document.  Generate the code for the Coord script described in its section above.
+
+2. Read this document.  Generate the code for lat, lon to i, j script described in its section above.

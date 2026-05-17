@@ -1,0 +1,15 @@
+#!/usr/bin/env python
+#
+# See top-level LICENSE file for Copyright information
+#
+# -*- coding: utf-8 -*-
+
+"""
+This script converts (lat, lon) degrees to nearest LLC pixel (i, j) indices.
+"""
+
+from fronts.scripts import llc_latlon_ij
+
+if __name__ == '__main__':
+    args = llc_latlon_ij.parser()
+    llc_latlon_ij.main(args)
