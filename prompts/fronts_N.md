@@ -41,6 +41,14 @@ If you need to run Python, use the "ocean14" conda environment.
 
 3. The code should be in a script named plot_top_N_density_profiles.py in the dev/rho_and_N folder
 
+4. Have the gradb3 figure show lat,lon on the axes in addition to i,j.
+
+5. Only plot to a depth of 500 meters.
+
+6. Show minor tick marks on the depth plot.
+
+7. Have the gradb2 colorbar truncate at a minmum value of -16.
+
 ## Planning
 
 ### Plan
@@ -255,3 +263,5 @@ Use those fronts, but only compute the peak over the in-tile portion.
 5. Re-read this document.  Run the first test under the Tests section.
 
 6. Re-read this document.  Add notes on the Parameters and Returns to the docstrings for every function in the code.  Also, provide me a command to run the code with the test data.
+
+7. Re-read this document.  Implement the modifications 4-7.

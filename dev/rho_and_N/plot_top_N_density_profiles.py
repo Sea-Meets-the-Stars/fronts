@@ -724,10 +724,12 @@ def _plot_density_profiles(
         ax.plot(profile, Z, color=colors[n], label=str(row["name"]))
     ax.set_xlabel(r"$\sigma_0$ [kg m$^{-3}$]")
     ax.set_ylabel("depth Z [m]")
-    # Z is negative downward in the LLC4320 grid, so the natural orientation
-    # already puts the surface at the top -- no axis inversion required, but
-    # set the ylim explicitly so all plots are directly comparable.
-    ax.set_ylim(Z.min(), 0)
+    # Z is negative downward; Modification 5 caps the view at 500 m depth so
+    # the upper-ocean structure (mixed layer + pycnocline) fills the panel.
+    ax.set_ylim(-500, 0)
+    # Modification 6: minor tick marks on both axes for finer reading.
+    ax.minorticks_on()
+    ax.tick_params(which="minor", length=3)
     ax.set_title(
         f"Tile {tile_index}  {timestamp}\n"
         f"Top-{len(peaks)} fronts by {strength_col}"
@@ -737,7 +739,8 @@ def _plot_density_profiles(
         loc="upper left", bbox_to_anchor=(1.02, 1.0),
         fontsize="x-small", borderaxespad=0.0,
     )
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, which="major", alpha=0.3)
+    ax.grid(True, which="minor", alpha=0.1)
     fig.tight_layout()
     fig.savefig(out_path, dpi=140, bbox_inches="tight")
     plt.close(fig)
@@ -749,9 +752,16 @@ def _plot_gradb2_overlay(
     colors: np.ndarray,
     tile_index: int,
     timestamp: str,
+    XC: np.ndarray,
+    YC: np.ndarray,
+    j_tile_lookup: np.ndarray,
+    i_tile_lookup: np.ndarray,
     out_path: Path,
 ) -> None:
     """Plot log10(gradb2) of the tile with the N peak positions overlaid.
+
+    Implements Modifications 4 + 7: secondary lon/lat axes (sampled at the
+    middle row/column of the tile) and a colorbar truncated at ``-16``.
 
     Parameters
     ----------
@@ -767,6 +777,12 @@ def _plot_gradb2_overlay(
         Tile index used in the panel title.
     timestamp : str
         Timestamp used in the panel title.
+    XC, YC : numpy.ndarray
+        ``(TILE_SIZE, TILE_SIZE)`` longitude/latitude arrays from the density
+        tile (face-local frame).
+    j_tile_lookup, i_tile_lookup : numpy.ndarray
+        Tile-local face-index lookups returned by :func:`_build_tile_lookup`;
+        used to map rect-grid pixels into the density-tile's lon/lat arrays.
     out_path : pathlib.Path
         Path to save the PNG.
 
@@ -779,13 +795,18 @@ def _plot_gradb2_overlay(
     positive = gradb2_tile[gradb2_tile > 0]
     floor = float(positive.min()) if positive.size else 1e-30
     safe = np.where(gradb2_tile > 0, gradb2_tile, floor)
+    log_gradb2 = np.log10(safe)
 
-    fig, ax = plt.subplots(figsize=(8, 7))
+    fig, ax = plt.subplots(figsize=(11, 8))
     # Rect-grid tile-local frame: origin='lower' so j (row) increases upward,
-    # matching the dot coordinates (i_local, j_local).
+    # matching the dot coordinates (i_local, j_local).  Modification 7:
+    # vmin=-16 truncates the colorbar at the low end; extend='min' marks the
+    # under-range chunk on the colorbar.
     im = ax.imshow(
-        np.log10(safe), origin="lower", cmap="magma",
+        log_gradb2, origin="lower", cmap="magma",
         extent=(0, TILE_SIZE, 0, TILE_SIZE),
+        vmin=-16, vmax=float(np.nanmax(log_gradb2)),
+        aspect="auto",  # required so twiny/twinx (shared axes) can coexist
     )
     # Scatter the N peaks in the same colour cycle used by Plot 1.
     ax.scatter(
@@ -800,8 +821,53 @@ def _plot_gradb2_overlay(
         f"Tile {tile_index}  {timestamp}\n"
         f"log10(gradb2) with top-{len(peaks)} peaks"
     )
-    fig.colorbar(im, ax=ax, label=r"$\log_{10}(\nabla b^2)$")
-    fig.tight_layout()
+
+    # ---- Modification 4: secondary lon/lat axes. --------------------------
+    # The lookups give the face-local (j_tile, i_tile) for each rect-grid
+    # tile-local pixel; XC/YC at those positions give lon/lat in the rect
+    # frame.  Because the face can be rotated relative to the rect grid, lon
+    # generally varies with both i_local and j_local; we sample at the mid-row
+    # (resp. mid-column) so the secondary tick labels reflect the centre of
+    # the panel.
+    mid_j = TILE_SIZE // 2
+    mid_i = TILE_SIZE // 2
+    lon_along_i = XC[
+        j_tile_lookup[mid_j, :], i_tile_lookup[mid_j, :],
+    ]  # length TILE_SIZE
+    lat_along_j = YC[
+        j_tile_lookup[:, mid_i], i_tile_lookup[:, mid_i],
+    ]  # length TILE_SIZE
+
+    # Match the secondary axes' tick positions to the primary axes' ticks so
+    # the two label rows line up.  Label each tick with the lon/lat at the
+    # midpoint of the panel (rounded to 2 decimals).
+    ax_lon = ax.twiny()
+    ax_lon.set_xlim(ax.get_xlim())
+    i_ticks = [t for t in ax.get_xticks() if 0 <= t <= TILE_SIZE]
+    ax_lon.set_xticks(i_ticks)
+    ax_lon.set_xticklabels(
+        [f"{float(lon_along_i[min(int(t), TILE_SIZE - 1)]):.2f}" for t in i_ticks]
+    )
+    ax_lon.set_xlabel("longitude (mid-row sample)")
+
+    ax_lat = ax.twinx()
+    ax_lat.set_ylim(ax.get_ylim())
+    j_ticks = [t for t in ax.get_yticks() if 0 <= t <= TILE_SIZE]
+    ax_lat.set_yticks(j_ticks)
+    ax_lat.set_yticklabels(
+        [f"{float(lat_along_j[min(int(t), TILE_SIZE - 1)]):.2f}" for t in j_ticks]
+    )
+    ax_lat.set_ylabel("latitude (mid-column sample)")
+
+    # Place the colorbar past the latitude axis on the right so they don't
+    # overlap.  Anchor the colorbar to ax_lat (the rightmost twin axis) and
+    # widen the pad so the lat tick labels have room.
+    fig.colorbar(
+        im, ax=ax_lat,
+        label=r"$\log_{10}(\nabla b^2)$",
+        extend="min",  # signal that values below vmin=-16 are clipped
+        pad=0.10, fraction=0.05,
+    )
     fig.savefig(out_path, dpi=140, bbox_inches="tight")
     plt.close(fig)
 
@@ -941,10 +1007,14 @@ def run(
         peaks.to_csv(csv_path, index=False)
         logging.info(f"Wrote peaks CSV: {csv_path}")
 
-    # If we short-circuited, we still need gradb2_tile for Plot 2.
+    # If we short-circuited, build the lookup + gradb2_tile that the overlay
+    # plot needs (Modification 4 reads lon/lat off these).
     if cached_csv is not None:
-        logging.info("Loading gradb2 tile for the overlay plot")
+        logging.info("Loading gradb2 tile + tile lookup for the overlay plot")
         gradb2_tile = _load_gradb2_tile(gradb2_path, rect_j_slice, rect_i_slice)
+        j_tile_lookup, i_tile_lookup = _build_tile_lookup(
+            rect_i_start, rect_j_start, face_index,
+        )
 
     # ---- Steps 10-11: render the two PNGs. --------------------------------
     colors = _make_color_cycle(len(peaks))
@@ -962,6 +1032,8 @@ def run(
     _plot_gradb2_overlay(
         peaks=peaks, gradb2_tile=gradb2_tile, colors=colors,
         tile_index=tile_index, timestamp=timestamp,
+        XC=XC, YC=YC,
+        j_tile_lookup=j_tile_lookup, i_tile_lookup=i_tile_lookup,
         out_path=overlay_png,
     )
     logging.info(f"Wrote gradb2 overlay plot: {overlay_png}")
