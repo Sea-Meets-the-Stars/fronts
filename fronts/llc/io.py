@@ -102,21 +102,6 @@ def fronts_dir(version: str, timestamp: str, generate: bool = False) -> str:
     # Return
     return d
 
-def load_coords(verbose=True):
-    """Load LLC coordinates
-
-    Args:
-        verbose (bool, optional): [description]. Defaults to True.
-
-    Returns:
-        xarray.DataSet: contains the LLC coordinates
-    """
-    coord_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'LLC_coords.nc')
-    if verbose:
-        print("Loading LLC coords from {}".format(coord_file))
-    coord_ds = xr.load_dataset(coord_file, engine='h5netcdf')
-    return coord_ds
-
 def derived_filename(timestamp:str, field:str,
                  root:str='LLC4320',
                  version:str=None):

@@ -35,53 +35,11 @@ from PyQt6.QtCore import Qt
 import pyqtgraph as pg
 
 from fronts.llc import io as llc_io
+from fronts.coords import latlon_to_pixel_bbox
 from fronts.finding import io as finding_io
 from fronts.scripts.viz_utils import (
     make_colormap, compute_levels, make_fronts_rgba, make_nan_rgba,
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def latlon_to_pixel_bbox(lat0, lon0, lat1, lon1):
-    """Convert a lat/lon bounding box to pixel (x,y) indices.
-
-    Uses the LLC coordinate file loaded via :func:`fronts.llc.io.load_coords`.
-
-    Parameters
-    ----------
-    lat0, lon0 : float
-        Lower-left corner (degrees).
-    lat1, lon1 : float
-        Upper-right corner (degrees).
-
-    Returns
-    -------
-    tuple[int, int, int, int]
-        (x0, y0, x1, y1) pixel indices into the LLC global grid.
-    """
-    print("Loading LLC coords for lat/lon -> pixel conversion...")
-    coord_ds = llc_io.load_coords()
-    lat = coord_ds.lat.values  # shape (ny, nx)
-    lon = coord_ds.lon.values
-
-    # Wrap lon to [-180, 180] to match convention
-    lon = ((lon + 180) % 360) - 180
-
-    # Distance metric to find the nearest pixel for each corner
-    def nearest(lat_val, lon_val):
-        dist = (lat - lat_val) ** 2 + (lon - lon_val) ** 2
-        idx = np.unravel_index(np.argmin(dist), dist.shape)
-        return idx  # (row, col) = (y, x)
-
-    r0, c0 = nearest(lat0, lon0)
-    r1, c1 = nearest(lat1, lon1)
-
-    x0, y0 = int(min(c0, c1)), int(min(r0, r1))
-    x1, y1 = int(max(c0, c1)), int(max(r0, r1))
-    return x0, y0, x1, y1
-
 
 # ---------------------------------------------------------------------------
 # Main Window

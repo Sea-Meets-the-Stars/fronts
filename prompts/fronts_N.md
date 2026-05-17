@@ -1,0 +1,180 @@
+# Examine N for fronts
+
+## Goals
+
+Explore the density profiles at fronts in a single tile of the LLC4320 grid.  Also consider calculations of the bouyancy frequency.
+
+## Context
+
+Examine the code in fronts/scripts
+
+## Coding
+
+Follow these guidelines:
+
+- Use inline comments to explain the code.
+- Use matplotlib
+- Use dask when useful
+- Code in Python
+- Place imports at the top of modules
+- Reuse any code in this repository to help you
+
+## Testing
+
+If you need to run Python, use the "ocean14" conda environment.
+
+## Functionality
+
+- The user will specify the i,j coordinates. The code will then identify the tile to generate the density grid for.
+- The user will specify the timestamp of the data to use.
+- The user will specify the output file name.
+- The code will generate the density grid for the specified tile and timestamp.
+- The code will save the density grid to the specified output file.
+
+## Planning
+
+### Plan
+
+**Target script**: `dev/generate_tile_density.py` (single-file, callable from CLI and importable).
+
+**Scope** (per the clarification answers):
+
+- Output a **3D potential-density tile** of shape `(k=51, j=720, i=720)` — one on-disk zarr chunk in spatial extent, all 51 k-levels.
+- "Potential density" → use `jmd95` with `p = 0` at every k-level, then `sigma0 = rho − 1000`. Only `sigma0` is written (not in-situ density).
+- Read tracers from the S3 timestep stores (the same source used by `generate_global_depth_dask.py`).
+
+**Re-used building blocks already in the repo**:
+
+- `dbof.utils.jmd95_xgcm_implementation.jmd95(salt, theta, p)` — JMD95 EOS, numpy-based.
+- `dbof.utils.physical_calculations.density_of_field(ds)` — wraps `jmd95` in `xr.apply_ufunc(..., dask="parallelized")` with `p=0`. Works on any (face, k, j, i) subset, so we apply it directly to the tile after slicing — that gives **potential density at every k-level** with no extra code.
+- `dbof.llc4320_ingestion.get_raw_data.get_s3_timestep_data(...)` — opens the full timestep store **lazily** with native zarr chunks `{face:1, k:51, j:720, i:720}`. Slicing one `(face, k=all, j=720, i=720)` block before `.compute()` triggers exactly one S3 GET per variable per chunk — the natural unit for a one-tile job.
+- `dbof.llc4320_ingestion.get_raw_data.get_s3_gridfile(...)` — loads `grid.zarr`.
+- `dbof.preprocessing.preproc_llc_core_data.process_llc4320_3d_grid(...)` — extracts `XC`, `YC`, `Z`, `hFacC`, etc.
+- `generate_global_depth_dask._date_to_iteration` — already converts `'YYYY-MM-DD HH:MM:SS'` → iteration count; imported, not duplicated.
+- S3 endpoint / bucket / folder defaults pulled from `configs/global_depth.yaml` (`s3_source` block).
+
+**Tile geometry** (tiles are identified on the **rectangular grid**, per round-2 answer #2):
+
+- Global rectangular grid: `H = 3·4320 = 12960`, `W = 4·4320 = 17280`.
+- Tile = a 720×720 spatial block on the rect grid × 51 k-levels (one native chunk).
+- The rect grid has `n_tile_j = 18` rows × `n_tile_i = 24` cols = **432 tiles total**, indexed flat in row-major order: `tile_idx = tile_j_rect * 24 + tile_i_rect`, range `0..431`.
+- Any rect pixel `(i_rect, j_rect)` floors to its enclosing tile: `tile_j_rect = j_rect // 720`, `tile_i_rect = i_rect // 720`. Every pixel inside a tile maps to the same `tile_idx` — so the user can pass *any* point inside the desired tile.
+- Because rect tiles align to face-chunk boundaries and each face is 6×6 tiles, a single rect tile is guaranteed to live entirely on one face (possibly with a per-face rotation that swaps/reverses the face-local j and i ranges).
+
+**Helper to build**: `rect_ij_to_tile(i_rect, j_rect) → dict(tile_idx, tile_j_rect, tile_i_rect, rect_j_slice, rect_i_slice, face_idx, j_face_slice, i_face_slice)`.
+
+- Step A — rect-tile math (no I/O, no xmitgcm): `tile_j_rect = j_rect // 720`, `tile_i_rect = i_rect // 720`, `tile_idx = tile_j_rect * 24 + tile_i_rect`, `rect_j_slice = slice(tile_j_rect*720, (tile_j_rect+1)*720)`, likewise for `i`.
+- Step B — face mapping: synthesize a small `xr.Dataset` with three int arrays `face_id`, `j_face`, `i_face` of dims `(face, j, i)` filled with the face index and face-local j/i values, then run them through `dbof.utils.faces_to_latlon.faces_dataset_to_latlon` once per invocation. Sample those three arrays over the tile's rect slice. The unique value of `face_id` gives `face_idx`; the min/max of `j_face` and `i_face` inside the tile give `j_face_slice` and `i_face_slice` — this handles any per-face rotation automatically.
+- Step C — sanity check: assert `face_id` is constant across the 720×720 rect tile (it must be, given chunk alignment) and that both face-local slices span exactly 720 pixels.
+- The lookup arrays are tiny (`face_id` int8, `j_face`/`i_face` int16) and only built once per invocation.
+
+**Pipeline (per invocation)**:
+
+1. **Parse inputs** — CLI args:
+   - `--i` (int, required) — rect-grid i coord, `0..17279`. Any pixel inside the desired tile is accepted.
+   - `--j` (int, required) — rect-grid j coord, `0..12959`.
+   - `--timestamp` (str, required) — `'YYYY-MM-DD HH:MM:SS'`.
+   - `--output` (str, optional) — defaults to `./density_tile{tile_idx:03d}_{YYYYMMDDTHH}.nc` where `tile_idx` is the flat rect-grid tile index `0..431` (round-2 answer #1). If the user passes a directory, the same convention is applied inside it.
+   - `--s3-config` (path, optional) — defaults to `configs/global_depth.yaml`.
+2. **Resolve tile** — call `rect_ij_to_tile(i, j)`; log `tile_idx`, `tile_j_rect`, `tile_i_rect`, `face_idx`, and both face-local and rect slices. Validate that the tile is not entirely land by inspecting the surface `hFacC` across the tile (see step 7) — abort with a clear error if every cell is land.
+3. **Load grid (one face)** — `get_s3_gridfile(...)` → `process_llc4320_3d_grid(...)` → `.isel(face=[face_idx], j=j_face_slice, i=i_face_slice).compute()`. We end up with `XC`, `YC`, `Z`, `hFacC` for just the tile. Negligible memory.
+4. **Lazy-open the timestep store** — `get_s3_timestep_data(s3_endpoint, bucket, folder, date_str, face_range=[face_idx], vars_requested=['Theta','Salt'])`. Result is dask-backed with native chunks.
+5. **Slice the tile** — `ds_tile = ds.isel(face=[0], j=j_face_slice, i=i_face_slice)`. Still lazy. Shape `(face=1, k=51, j=720, i=720)` per variable.
+6. **Compute potential density** — call `density_of_field(ds_tile)`. Since `density_of_field` passes `p = zeros_like(Theta)` into `jmd95`, this yields **potential density referenced to the surface at every k-level** — exactly what was requested. Then `sigma0 = rho - 1000.0`. Trigger materialization with one `.compute()` (using `ProgressBar`).
+7. **Apply land mask** — use **surface `hFacC` only** (round-2 answer #4): build `land2d = (ds_grid_tile.hFacC.isel(k=0) == 0)` of shape `(j=720, i=720)` and broadcast across all 51 k-levels: `sigma0 = sigma0.where(~land2d)`. Whole water column is NaN wherever the surface cell is land.
+8. **Assemble output `xr.Dataset`** with:
+   - data var `sigma0` (`[kg m⁻³]`, dtype float32),
+   - dims `(k, j, i)` of size `(51, 720, 720)` — `j`, `i` are face-local indices,
+   - coords `XC(j, i)`, `YC(j, i)` (2D lon/lat per round-2 answer #3), `Z(k)`, plus scalar coords `tile_index`, `face_index`, `rect_i_start`, `rect_j_start`,
+   - attrs: `timestamp`, `iteration`, `tile_index`, `tile_j_rect`, `tile_i_rect`, `face_index`, `rect_i_user`, `rect_j_user`, `eos="JMD95"`, `reference_pressure_dbar=0`, `source_script`, `git_commit` (via `subprocess` `git rev-parse HEAD` if available).
+9. **Save** — build output path: if `--output` is omitted use `./density_tile{tile_idx:03d}_{YYYYMMDDTHH}.nc`; if a directory is supplied apply the same convention inside it; else use the path verbatim. Then `ds_out.to_netcdf(output_path, engine='h5netcdf', encoding={'sigma0': {'zlib': True, 'complevel': 4, 'dtype': 'float32'}})`.
+10. **QA plot** — matplotlib `pcolormesh` of `sigma0.isel(k=0)` saved as `<output_stem>.png` next to the NetCDF; uses `XC`, `YC` as the axes so the panel is geographic-looking (surface panel only, per round-2 answer #5).
+
+**Dask use**:
+
+- The tile holds `2 vars × 51 k × 720² × 4 B ≈ 210 MB` lazy → trivial in memory.
+- Per-variable, S3 reads one chunk (`face=1, k=51, j=720, i=720` ≈ 100 MB compressed). The `density_of_field` `apply_ufunc(..., dask="parallelized")` path keeps the computation lazy until step 6's single `.compute()`.
+- No `dask.distributed.Client` — the default threaded scheduler is sufficient.
+
+**Reusability**: import `_date_to_iteration` and `LLC_FACES` from `generate_global_depth_dask.py`; import `LOCAL_CACHE_DIR` only if we add a caching flag later (not in v1).
+
+**Testing**: add `tests/test_generate_tile_density.py` with:
+
+- A unit test for the **flat tile-index math**: assert `tile_idx == tile_j_rect * 24 + tile_i_rect` for a spread of (i_rect, j_rect) values, including off-boundary pixels that must floor to the same tile, and the corner cases `(0, 0) → 0` and `(17279, 12959) → 431`.
+- A unit test for `rect_ij_to_tile`'s face-mapping step: known (rect_i, rect_j) → expected (face_idx, face-local slices) on a few representative tiles, including at least one tile on a face that the xmitgcm stitch rotates.
+- A round-trip test that monkey-patches `get_s3_timestep_data` and `get_s3_gridfile` to return small synthetic in-memory zarr-like datasets, runs the main entrypoint, and checks the output NetCDF has the expected dims, the surface-`hFacC` mask propagated to all 51 k-levels, the filename matches `density_tile{NNN}_{YYYYMMDDTHH}.nc`, and a known `sigma0` value (`jmd95(35.5, 3., 0.) - 1000 ≈ 28.1`).
+- Run with the `ocean14` conda env (`conda run -n ocean14 pytest tests/test_generate_tile_density.py`).
+
+### Clarification
+
+1. **No `Analysis/py` exists** in this repo. The prompt's coding guideline "Use the modules in Analysis/py to load any data" appears to be a template leftover. Plan substitutes `dbof.llc4320_ingestion.get_raw_data` and `dbof.preprocessing.preproc_llc_core_data` for data loading — please confirm.
+
+That is correct. I have removed the reference to Analysis/py.
+
+2. **Interpretation of (i, j)**: I'm assuming `(i, j)` are pixel coordinates on the *global rectangular* stitched grid (range `0..17279` for `i`, `0..12959` for `j`), and the code resolves the face index from the xmitgcm tile layout. Alternatives the user might mean: (a) native (face, j, i) where i, j are already face-local — in which case we also need an explicit `--face` arg; or (b) lon/lat to be looked up via `XC`, `YC`. Which convention is intended?
+
+That is correct. i,j are on the global rectangular grid.  
+
+3. **Surface or 3D**: should the output be a 2D surface density grid (faster, ~150 MB) or a full 3D depth-resolved density (51 levels, ~7.5 GB float32)? Default in the plan is surface; happy to flip.
+
+The output should be the full 3D density grid.  However, instead of a full face, just write out one tile (720x720).  This means the code must use i,j to find the tile and not the face.
+
+4. **In-situ vs. potential density**: include `sigma0 = jmd95(S, T, p=0) - 1000` as an extra variable, or stick with in-situ `rho` only?
+
+Calculate only the potential density, not in-situ.
+
+5. **Data source**: read from the S3 timestep stores (matching `generate_global_depth_dask.py`'s `s3_source`) or from a local cached zarr under `LOCAL_CACHE_DIR` / a user-supplied path?
+
+Read from the S3 timestep stores.
+
+6. **Output filename rule** — interpret `--output` as a full path the user provides verbatim, or apply a convention like `density_tile{F}_{YYYYMMDDTHH}.nc` if a directory is given?
+
+Have the output filename be optional.  It should default to `density_tile{F}_{YYYYMMDDTHH}.nc` in the current directory.
+
+### Additional Clarifications (round 2)
+
+These are new questions raised by the round-2 plan; the original 1–6 above are answered and untouched.
+
+1. **What does `{F}` stand for in the default filename `density_tile{F}_{YYYYMMDDTHH}.nc`?** Three plausible interpretations:
+   (a) the face index alone (0–12) — ambiguous since a face contains 36 tiles;
+   (b) a flat global tile index (0–431) over the rectangular grid;
+   (c) a composite like `f{face}_j{tile_j}_i{tile_i}` (e.g., `f5_j2_i4`).
+   I lean toward (c) because it uniquely identifies the tile and is human-readable. Confirm?
+
+Please use option (b).  The face index is not needed because the code will use i,j to find the tile.
+
+2. **Are the user-supplied `(i, j)` required to be tile-aligned** (i.e., multiples of 720 in face-local coordinates), or should the code accept any pixel inside the desired tile and floor down to the enclosing tile boundary? My plan does the latter; please confirm.
+
+The user supplied i,j are on the global rectangular grid.  The code must figure out which tile they are in and then process that entire tile.
+
+3. **Output coordinate convention**: keep the spatial dims named `j, i` (face-local indices, 0–719) and carry `XC(j,i)`, `YC(j,i)` as 2D lon/lat coords, or rename the dims to `j_rect, i_rect` with the rectangular-grid integer indices? Current plan uses face-local for the dim names and exposes the rect-grid start as scalar attrs — please confirm.
+
+Carry the XC, YC coordinates as 2D lon/lat coords.
+
+4. **`hFacC` masking**: should the land mask use only the surface `hFacC` (mask whole water column where surface is land), or per-level `hFacC` (so partially-filled bottom cells stay valid above and become NaN below)? Current plan uses per-level — confirm.
+
+Use only the surface hFacC.
+
+5. **QA plot scope**: is one `pcolormesh` of the surface `sigma0(k=0)` enough, or would you prefer additional panels (e.g., a vertical section at the tile midline)? Current plan: just the surface panel.
+
+The surface panel is enough.
+
+## Testing
+
+1. Generate a test opens the zarr store and confirms that the logic for i,j to tile index is correct.  Put it in tests/test_generate_tile_density.py as a unit test.
+
+## Docs
+
+1. Add notes on the Parameters and Returns to the docstrings for every function in the code.  
+
+## Prompts
+
+1. Read this document.  Plan the code to implement the functionality.  Update this document with your plan under the Planning section.  If you have any questions, put them under the Clarification section.
+
+2. Re-read this document.  Note the answers to the clarification section.  Update the Planning section with your plan.  If you have any additioal questions, add them in the Clarification section after the existing ones. Leave those untouched.
+
+3. Re-read this document.  Note the answers to the round 2 clarification section.  Update the Planning section with your plan. 
+
+4. Generate the code to implement the plan.  Place the modules in dev/pot_density/
+
+5. Re-read this document.  Generate the first test under the Testing section.
