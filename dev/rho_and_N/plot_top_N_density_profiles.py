@@ -999,7 +999,7 @@ def _plot_n2_profiles(
     for n, row in peaks.reset_index(drop=True).iterrows():
         sigma0_profile = sigma0[:, int(row["j_tile"]), int(row["i_tile"])]
         n2 = _n2_profile(sigma0_profile, Z)
-        embed(header="n2 1002")
+        #embed(header="n2 1002")
         ax.plot(n2, Z, color=colors[n], label=str(row["name"]))
         # Open circle at the MLD, consistent with the density-profile plot.
         z_mld = _mixed_layer_depth(sigma0_profile, Z)
