@@ -69,6 +69,8 @@ if str(_TILE_MAPPING_DIR) not in sys.path:
     sys.path.insert(0, str(_TILE_MAPPING_DIR))
 import tile_mapping  # noqa: E402
 
+from IPython import embed
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -98,6 +100,12 @@ CSV_FIXED_COLUMNS = [
 # in the supplied properties parquet.  gradb2_p90 is the spec'd column;
 # gradb2_median / _mean are reasonable fallbacks.
 STRENGTH_FALLBACKS = ("gradb2_p90", "gradb2_mean", "gradb2_median")
+
+# Mixed-layer-depth threshold: the depth at which sigma0 exceeds the surface
+# value by this amount marks the bottom of the mixed layer (see the
+# Definitions section in prompts/fronts_N.md).
+MLD_DELTA_SIGMA0 = 0.03  # kg m^-3
+MLD_REFERENCE_DEPTH_M = 10.0  # metres — Bodner et al. reference depth (≈ 9.66 m)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +151,115 @@ def _build_stem(tile_index: int, timestamp: str, N: int) -> str:
         f"density_profiles_tile{tile_index:03d}_"
         f"{_timestamp_to_stamp(timestamp)}_topN{N}"
     )
+
+
+def _mixed_layer_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | None:
+    """Mixed-layer depth from a single sigma0(z) profile.
+
+    Definition (matches prompts/fronts_N.md): the depth at which
+    ``sigma0(z) - sigma0(z=0) >= MLD_DELTA_SIGMA0`` (0.03 kg m^-3).  The depth
+    is linearly interpolated between the two bracketing model levels for
+    sub-grid accuracy.
+
+    Parameters
+    ----------
+    sigma0_profile : numpy.ndarray
+        1-D potential density column, length ``K``, in kg m^-3.  NaNs are
+        treated as ``-inf`` (i.e. ignored) when searching for the threshold
+        crossing.
+    Z : numpy.ndarray
+        1-D depth array, length ``K``, in metres.  Convention: negative
+        downward (matches LLC4320), with the surface as ``Z[0]`` (largest).
+
+    Returns
+    -------
+    float or None
+        Depth of the mixed-layer base in metres (negative downward), or
+        ``None`` if the threshold is never crossed (water column too weakly
+        stratified, or profile entirely NaN).
+    """
+    if sigma0_profile.size == 0:
+        return None
+    # Density at reference depth
+    k_10m = int(np.abs(np.abs(Z) - float(MLD_REFERENCE_DEPTH_M)).argmin())
+    #embed(header="mixed_layer_depth 184")
+    surface = float(sigma0_profile[k_10m])
+    if not np.isfinite(surface):
+        return None
+
+    delta = sigma0_profile - surface
+    # Find the first index whose sigma0 exceeds the threshold.  np.argmax on
+    # a boolean array returns the first True (or 0 if there are no Trues, so
+    # we guard with .any()).
+    crossed = (delta >= MLD_DELTA_SIGMA0) & (Z <= -1*MLD_REFERENCE_DEPTH_M)
+    if not np.any(crossed):
+        return None
+    k = int(np.argmax(crossed))
+    if k == 0:
+        # Threshold already met at the surface -- nominally zero MLD.
+        return float(Z[0])
+    # Linear interpolation in (delta, z) between levels k-1 and k.
+    d0, d1 = float(delta[k - 1]), float(delta[k])
+    z0, z1 = float(Z[k - 1]), float(Z[k])
+    if d1 == d0:
+        return z1
+    frac = (MLD_DELTA_SIGMA0 - d0) / (d1 - d0)
+    return z0 + frac * (z1 - z0)
+
+
+def _resolve_subregion(
+    i_rect_range: tuple[int, int] | None,
+    j_rect_range: tuple[int, int] | None,
+    rect_i_start: int,
+    rect_j_start: int,
+) -> tuple[int, int, int, int]:
+    """Convert optional user rect-grid ranges to tile-local pixel bounds.
+
+    The returned bounds are inclusive on both ends and clipped to the tile.
+
+    Parameters
+    ----------
+    i_rect_range : tuple of (int, int) or None
+        Optional ``(i_min, i_max)`` in global rect-grid columns; if ``None``,
+        the i-axis is unconstrained (covers the full tile width).
+    j_rect_range : tuple of (int, int) or None
+        Optional ``(j_min, j_max)`` in global rect-grid rows; if ``None``,
+        the j-axis is unconstrained.
+    rect_i_start, rect_j_start : int
+        Tile origin on the global rect grid.
+
+    Returns
+    -------
+    tuple of (int, int, int, int)
+        ``(i_lo, i_hi, j_lo, j_hi)`` tile-local pixel bounds, inclusive, with
+        each coord in ``[0, TILE_SIZE - 1]``.  When a range is unconstrained
+        the corresponding bound spans the full tile.
+
+    Raises
+    ------
+    ValueError
+        If a supplied range is degenerate (min > max) or lies entirely
+        outside the tile.
+    """
+    def _clip_range(rng, start):
+        if rng is None:
+            return 0, TILE_SIZE - 1
+        lo_global, hi_global = rng
+        if lo_global > hi_global:
+            raise ValueError(
+                f"Range ({lo_global}, {hi_global}) is degenerate (min > max)."
+            )
+        lo = max(0, lo_global - start)
+        hi = min(TILE_SIZE - 1, hi_global - start)
+        if lo > hi:
+            raise ValueError(
+                f"Range ({lo_global}, {hi_global}) lies outside the tile "
+                f"(tile origin {start}, size {TILE_SIZE})."
+            )
+        return lo, hi
+    i_lo, i_hi = _clip_range(i_rect_range, rect_i_start)
+    j_lo, j_hi = _clip_range(j_rect_range, rect_j_start)
+    return i_lo, i_hi, j_lo, j_hi
 
 
 def _make_color_cycle(N: int) -> np.ndarray:
@@ -376,13 +493,15 @@ def _join_index_and_properties(
 def _filter_overlapping_fronts(
     fronts: pd.DataFrame,
     rect_i_start: int, rect_j_start: int,
+    sub_i_lo: int = 0, sub_i_hi: int = TILE_SIZE - 1,
+    sub_j_lo: int = 0, sub_j_hi: int = TILE_SIZE - 1,
 ) -> pd.DataFrame:
-    """Keep fronts whose bbox (x0, y0, x1, y1) intersects the tile's rect window.
+    """Keep fronts whose bbox intersects the (possibly restricted) tile window.
 
-    Bboxes follow the half-open convention used by
-    ``fronts.properties.io.write_front_index`` (min_col, min_row, max_col, max_row).
-    A front overlaps the tile iff its bbox and the tile's [i0, i1) x [j0, j1)
-    have non-empty intersection.
+    Bboxes follow the convention used by
+    ``fronts.properties.io.write_front_index`` (min_col, min_row, max_col, max_row),
+    which are inclusive both ends.  A front overlaps the window iff the two
+    inclusive boxes share at least one pixel.
 
     Parameters
     ----------
@@ -392,20 +511,27 @@ def _filter_overlapping_fronts(
         Column origin of the tile on the global rect grid.
     rect_j_start : int
         Row origin of the tile on the global rect grid.
+    sub_i_lo, sub_i_hi : int, optional
+        Tile-local inclusive sub-region in i (default: full tile width).
+    sub_j_lo, sub_j_hi : int, optional
+        Tile-local inclusive sub-region in j (default: full tile height).
 
     Returns
     -------
     pandas.DataFrame
-        Copy of ``fronts`` filtered to rows whose bbox overlaps the
-        ``TILE_SIZE``-by-``TILE_SIZE`` window starting at
-        ``(rect_j_start, rect_i_start)``.
+        Copy of ``fronts`` filtered to rows whose bbox overlaps the window
+        ``[rect_i_start + sub_i_lo, rect_i_start + sub_i_hi]`` x
+        ``[rect_j_start + sub_j_lo, rect_j_start + sub_j_hi]``.
     """
-    i0, i1 = rect_i_start, rect_i_start + TILE_SIZE
-    j0, j1 = rect_j_start, rect_j_start + TILE_SIZE
-    # Note: x0/x1 are columns (i-axis), y0/y1 are rows (j-axis).
+    i0 = rect_i_start + sub_i_lo
+    i1 = rect_i_start + sub_i_hi
+    j0 = rect_j_start + sub_j_lo
+    j1 = rect_j_start + sub_j_hi
+    # Note: x0/x1 are columns (i-axis), y0/y1 are rows (j-axis).  Bboxes are
+    # inclusive, so use <= on both ends.
     mask = (
-        (fronts["x0"] < i1) & (fronts["x1"] >= i0) &
-        (fronts["y0"] < j1) & (fronts["y1"] >= j0)
+        (fronts["x0"] <= i1) & (fronts["x1"] >= i0) &
+        (fronts["y0"] <= j1) & (fronts["y1"] >= j0)
     )
     return fronts.loc[mask].copy()
 
@@ -487,6 +613,10 @@ def _find_top_n_peaks(
     rect_j_start: int,
     N: int,
     strength_col: str,
+    sub_i_lo: int = 0,
+    sub_i_hi: int = TILE_SIZE - 1,
+    sub_j_lo: int = 0,
+    sub_j_hi: int = TILE_SIZE - 1,
 ) -> pd.DataFrame:
     """Walk strength-sorted candidates; pick the first N with in-tile pixels.
 
@@ -520,6 +650,11 @@ def _find_top_n_peaks(
     strength_col : str
         Column name carrying the per-front strength metric; copied through
         onto each accepted row.
+    sub_i_lo, sub_i_hi, sub_j_lo, sub_j_hi : int, optional
+        Inclusive tile-local pixel bounds.  When supplied, both the label
+        mask and the gradb2 peak search are restricted to this box, so the
+        accepted fronts are the strongest within the sub-region
+        (Modification 9).
 
     Returns
     -------
@@ -530,17 +665,25 @@ def _find_top_n_peaks(
     Raises
     ------
     RuntimeError
-        If no candidate has any in-tile pixels.
+        If no candidate has any pixels inside the (possibly restricted)
+        search window.
     """
+    # Build the sub-region mask once (cheap: a single bool array slice op).
+    sub_mask = np.zeros_like(labels_tile, dtype=bool)
+    sub_mask[sub_j_lo:sub_j_hi + 1, sub_i_lo:sub_i_hi + 1] = True
+
     accepted_rows = []
     for _, row in candidates.iterrows():
         label = int(row["label"])
-        mask = labels_tile == label
+        # Intersect label mask with the sub-region so the peak can only land
+        # inside the user-specified window (full tile by default).
+        mask = (labels_tile == label) & sub_mask
         if not mask.any():
-            # bbox overlapped but no pixels inside the tile -- promote the next.
+            # bbox overlapped but no pixels inside the (sub-)tile -- promote
+            # the next-strongest candidate.
             warnings.warn(
-                f"Front label={label} has bbox overlapping the tile but no "
-                "pixels inside it; skipping."
+                f"Front label={label} has bbox overlapping the search window "
+                "but no label pixels inside it; skipping."
             )
             continue
         # argmax over the masked gradb2: replace background with -inf so the
@@ -690,6 +833,9 @@ def _plot_density_profiles(
 ) -> None:
     """Plot sigma0(z) for each accepted front in a single panel.
 
+    Modification 8: an open circle of the matching colour is drawn on each
+    profile at the mixed-layer depth (sigma0 threshold = MLD_DELTA_SIGMA0).
+
     Parameters
     ----------
     peaks : pandas.DataFrame
@@ -722,6 +868,22 @@ def _plot_density_profiles(
         # front's peak gradb2 location, using the density tile's face-local axes.
         profile = sigma0[:, int(row["j_tile"]), int(row["i_tile"])]
         ax.plot(profile, Z, color=colors[n], label=str(row["name"]))
+        # Modification 8: open circle at the mixed-layer depth.  The marker
+        # is plotted at (sigma0(z_mld), z_mld) on the same line so it sits
+        # right on the profile; facecolor='none' makes it open, with the
+        # edge in the matching colour.
+        z_mld = _mixed_layer_depth(profile, Z)
+        #embed(header="z_mld 876")
+        if z_mld is not None:
+            # Pick the sigma0 value matching the MLD by linear interp in z.
+            sigma0_at_mld = float(np.interp(z_mld, Z[::-1], profile[::-1]))
+            ax.plot(
+                sigma0_at_mld, z_mld,
+                marker="o", markersize=4,
+                markerfacecolor="none",
+                markeredgecolor=colors[n], markeredgewidth=1.5,
+                linestyle="none",
+            )
     ax.set_xlabel(r"$\sigma_0$ [kg m$^{-3}$]")
     ax.set_ylabel("depth Z [m]")
     # Z is negative downward; Modification 5 caps the view at 500 m depth so
@@ -757,6 +919,7 @@ def _plot_gradb2_overlay(
     j_tile_lookup: np.ndarray,
     i_tile_lookup: np.ndarray,
     out_path: Path,
+    subregion: tuple[int, int, int, int] | None = None,
 ) -> None:
     """Plot log10(gradb2) of the tile with the N peak positions overlaid.
 
@@ -785,6 +948,10 @@ def _plot_gradb2_overlay(
         used to map rect-grid pixels into the density-tile's lon/lat arrays.
     out_path : pathlib.Path
         Path to save the PNG.
+    subregion : tuple of (int, int, int, int) or None, optional
+        Inclusive tile-local bounds ``(i_lo, i_hi, j_lo, j_hi)``.  When
+        supplied (Modification 9), the search window is drawn as a dashed
+        white rectangle so the user can see what was actually scanned.
 
     Returns
     -------
@@ -815,6 +982,14 @@ def _plot_gradb2_overlay(
         c=colors[: len(peaks)], s=60,
         edgecolor="white", linewidth=1.2, zorder=3,
     )
+    # Modification 9: outline the user-specified search window when present.
+    if subregion is not None:
+        i_lo, i_hi, j_lo, j_hi = subregion
+        ax.add_patch(plt.Rectangle(
+            (i_lo, j_lo), (i_hi - i_lo + 1), (j_hi - j_lo + 1),
+            fill=False, edgecolor="white", linestyle="--", linewidth=1.5,
+            zorder=4,
+        ))
     ax.set_xlabel("i (rect-grid tile-local)")
     ax.set_ylabel("j (rect-grid tile-local)")
     ax.set_title(
@@ -886,6 +1061,8 @@ def run(
     outdir: Path,
     top_fronts_csv: Path | None,
     strength_col: str,
+    i_rect_range: tuple[int, int] | None = None,
+    j_rect_range: tuple[int, int] | None = None,
 ) -> None:
     """End-to-end: load tile -> resolve N peaks -> write CSV -> render plots.
 
@@ -913,18 +1090,23 @@ def run(
     strength_col : str
         Column to rank fronts by; subject to the fallback chain in
         :func:`_resolve_strength_col`.
+    i_rect_range : tuple of (int, int) or None, optional
+        Inclusive global rect-grid column bounds restricting the search
+        sub-region (Modification 9).  ``None`` means use the full tile.
+    j_rect_range : tuple of (int, int) or None, optional
+        Inclusive global rect-grid row bounds (see ``i_rect_range``).
 
     Returns
     -------
     None
         Writes ``{outdir}/{stem}.csv``, ``{outdir}/{stem}.png`` and
         ``{outdir}/{stem}_gradb2map.png`` where ``stem`` is built by
-        :func:`_build_stem`.
+        :func:`_build_stem` (with a sub-region suffix when one is supplied).
 
     Raises
     ------
     RuntimeError
-        If no fronts overlap the tile bbox.
+        If no fronts overlap the search window.
     """
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -935,8 +1117,29 @@ def run(
     rect_i_start = int(_tile_scalar(ds, "rect_i_start"))
     rect_j_start = int(_tile_scalar(ds, "rect_j_start"))
     timestamp    = str(_tile_scalar(ds, "timestamp"))
-    stem = _build_stem(tile_index, timestamp, N)
+
+    # Modification 9: resolve the optional sub-region into tile-local pixel
+    # bounds and append it to the output stem so cached CSVs from different
+    # sub-regions don't collide.
+    sub_i_lo, sub_i_hi, sub_j_lo, sub_j_hi = _resolve_subregion(
+        i_rect_range, j_rect_range, rect_i_start, rect_j_start,
+    )
+    has_subregion = (i_rect_range is not None) or (j_rect_range is not None)
+    base_stem = _build_stem(tile_index, timestamp, N)
+    if has_subregion:
+        i0g = rect_i_start + sub_i_lo
+        i1g = rect_i_start + sub_i_hi
+        j0g = rect_j_start + sub_j_lo
+        j1g = rect_j_start + sub_j_hi
+        stem = f"{base_stem}_i{i0g}-{i1g}_j{j0g}-{j1g}"
+    else:
+        stem = base_stem
     logging.info(f"Output stem: {stem}")
+    if has_subregion:
+        logging.info(
+            f"Sub-region (tile-local) i=[{sub_i_lo}, {sub_i_hi}], "
+            f"j=[{sub_j_lo}, {sub_j_hi}]"
+        )
 
     # sigma0 is small (51 * 720 * 720 * 4 ~= 53 MB float32) so load eagerly.
     sigma0 = ds["sigma0"].values
@@ -964,10 +1167,12 @@ def run(
         joined = _join_index_and_properties(index_df, props_df, strength_col)
         overlapping = _filter_overlapping_fronts(
             joined, rect_i_start, rect_j_start,
+            sub_i_lo=sub_i_lo, sub_i_hi=sub_i_hi,
+            sub_j_lo=sub_j_lo, sub_j_hi=sub_j_hi,
         )
         if overlapping.empty:
             raise RuntimeError(
-                "No fronts in the index overlap the tile bbox -- nothing to plot."
+                "No fronts in the index overlap the search window -- nothing to plot."
             )
         candidates = overlapping.sort_values(
             strength_col, ascending=False,
@@ -1000,6 +1205,8 @@ def run(
             rect_j_start=rect_j_start,
             N=N,
             strength_col=strength_col,
+            sub_i_lo=sub_i_lo, sub_i_hi=sub_i_hi,
+            sub_j_lo=sub_j_lo, sub_j_hi=sub_j_hi,
         )
 
         # ---- Step 8: write CSV. --------------------------------------------
@@ -1035,6 +1242,7 @@ def run(
         XC=XC, YC=YC,
         j_tile_lookup=j_tile_lookup, i_tile_lookup=i_tile_lookup,
         out_path=overlay_png,
+        subregion=(sub_i_lo, sub_i_hi, sub_j_lo, sub_j_hi) if has_subregion else None,
     )
     logging.info(f"Wrote gradb2 overlay plot: {overlay_png}")
 
@@ -1088,6 +1296,19 @@ def _parse_args(argv=None) -> argparse.Namespace:
                        f"{STRENGTH_FALLBACKS[1:]} if the requested column is "
                        "absent."
                    ))
+    p.add_argument("--i-rect-range",      type=int, nargs=2, default=None,
+                   metavar=("I_MIN", "I_MAX"),
+                   help=(
+                       "Optional inclusive global rect-grid column bounds "
+                       "(Modification 9). When supplied, the N strongest "
+                       "fronts are chosen from within this sub-region only."
+                   ))
+    p.add_argument("--j-rect-range",      type=int, nargs=2, default=None,
+                   metavar=("J_MIN", "J_MAX"),
+                   help=(
+                       "Optional inclusive global rect-grid row bounds. "
+                       "Combines with --i-rect-range; either may be omitted."
+                   ))
     return p.parse_args(argv)
 
 
@@ -1120,6 +1341,8 @@ def main(argv=None) -> None:
         outdir=args.outdir,
         top_fronts_csv=args.top_fronts_csv,
         strength_col=args.strength_col,
+        i_rect_range=tuple(args.i_rect_range) if args.i_rect_range else None,
+        j_rect_range=tuple(args.j_rect_range) if args.j_rect_range else None,
     )
 
 

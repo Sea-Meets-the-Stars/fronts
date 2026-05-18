@@ -54,7 +54,7 @@ If you need to run Python, use the "ocean14" conda environment.
 
 8. Plot an open circle of the same color as the density lines at the depth of the mixed layer.  See above for its definition.
 
-9. Allow the user to specify a portion of the tile by inputting pairs of i_rect and/or j_rect.  If provided, the code should only plot the density lines for the N fronts that are within the specified portion of the tile.
+9. Allow the user to specify a portion of the tile by inputting pairs of i_rect and/or j_rect.  If provided, the code should choose the N strongest fronts from within this region. 
 
 ## Planning
 
