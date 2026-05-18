@@ -200,6 +200,9 @@ def _mixed_layer_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | Non
 
     #mld = z_masked.max(dim=zdim, skipna=True)
 
+    # THE CODE BELOW MAY BE USED SOMEDAY.  SAVING IT FOR NOW
+
+    '''
     # Find the first index whose sigma0 exceeds the threshold.  np.argmax on
     # a boolean array returns the first True (or 0 if there are no Trues, so
     # we guard with .any()).
@@ -217,6 +220,7 @@ def _mixed_layer_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | Non
         return z1
     frac = (MLD_DELTA_SIGMA0 - d0) / (d1 - d0)
     return z0 + frac * (z1 - z0)
+    '''
 
 
 def _resolve_subregion(
