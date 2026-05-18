@@ -107,6 +107,10 @@ STRENGTH_FALLBACKS = ("gradb2_p90", "gradb2_mean", "gradb2_median")
 MLD_DELTA_SIGMA0 = 0.03  # kg m^-3
 MLD_REFERENCE_DEPTH_M = 10.0  # metres — Bodner et al. reference depth (≈ 9.66 m)
 
+# Buoyancy-frequency constants for Modification 10.
+G_GRAV   = 9.81     # m s^-2
+RHO_REF  = 1027.0   # kg m^-3  (reference seawater density for sigma0)
+
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -917,6 +921,120 @@ def _plot_density_profiles(
     plt.close(fig)
 
 
+def _n2_profile(sigma0_profile: np.ndarray, Z: np.ndarray) -> np.ndarray:
+    """Squared buoyancy frequency N^2(z) from a sigma0 column.
+
+    Computed from the hydrostatic stratification formula
+    ``N^2 = -(g / rho_ref) * d(sigma0)/dz``.
+
+    ``np.gradient`` handles the irregular LLC4320 Z spacing automatically;
+    it returns a finite-difference derivative with one value per input depth.
+    The minus sign converts depth-increasing sigma0 (downward) into a
+    positive N^2 (stable stratification).
+
+    Parameters
+    ----------
+    sigma0_profile : numpy.ndarray
+        1-D potential density column, length ``K``, kg m^-3.
+    Z : numpy.ndarray
+        1-D depth array, length ``K``, in metres (negative downward).
+
+    Returns
+    -------
+    numpy.ndarray
+        N^2 in s^-2, same length as the input profile.
+    """
+    # np.gradient(f, x) returns df/dx using centred differences in the
+    # interior and one-sided at the endpoints; works with Z's non-uniform
+    # spacing.  Z is negative downward, so dsigma0/dZ is negative for a
+    # stably stratified column -- the leading minus restores N^2 > 0.
+    dsig_dz = np.gradient(sigma0_profile, Z)
+    return -(G_GRAV / RHO_REF) * dsig_dz
+
+
+def _plot_n2_profiles(
+    peaks: pd.DataFrame,
+    sigma0: np.ndarray,
+    Z: np.ndarray,
+    colors: np.ndarray,
+    tile_index: int,
+    timestamp: str,
+    strength_col: str,
+    out_path: Path,
+) -> None:
+    """Plot N^2(z) for each accepted front in a single panel (Modification 10).
+
+    Mirrors :func:`_plot_density_profiles` -- same colour cycle, same depth
+    range, same MLD open circle -- but the x-axis is squared buoyancy
+    frequency instead of potential density.
+
+    Parameters
+    ----------
+    peaks : pandas.DataFrame
+        Output of :func:`_find_top_n_peaks` (or the cached CSV); each row is
+        one accepted front.
+    sigma0 : numpy.ndarray
+        Potential density, shape ``(K, TILE_SIZE, TILE_SIZE)``, indexed by
+        depth-level then face-local ``(j_tile, i_tile)``.
+    Z : numpy.ndarray
+        1-D depth array (m, negative downward), length ``K``.
+    colors : numpy.ndarray
+        RGBA array of shape ``(N, 4)`` from :func:`_make_color_cycle`; matched
+        with the density-profile plot.
+    tile_index : int
+        Tile index used in the panel title.
+    timestamp : str
+        Timestamp used in the panel title.
+    strength_col : str
+        Strength column name used in the title.
+    out_path : pathlib.Path
+        Path to save the PNG (caller is responsible for the ``N2_`` prefix).
+
+    Returns
+    -------
+    None
+        The figure is written to ``out_path`` and closed.
+    """
+    fig, ax = plt.subplots(figsize=(7, 8))
+    for n, row in peaks.reset_index(drop=True).iterrows():
+        sigma0_profile = sigma0[:, int(row["j_tile"]), int(row["i_tile"])]
+        n2 = _n2_profile(sigma0_profile, Z)
+        ax.plot(n2, Z, color=colors[n], label=str(row["name"]))
+        # Open circle at the MLD, consistent with the density-profile plot.
+        z_mld = _mixed_layer_depth(sigma0_profile, Z)
+        if z_mld is not None:
+            n2_at_mld = float(np.interp(z_mld, Z[::-1], n2[::-1]))
+            ax.plot(
+                n2_at_mld, z_mld,
+                marker="o", markersize=4,
+                markerfacecolor="none",
+                markeredgecolor=colors[n], markeredgewidth=1.5,
+                linestyle="none",
+            )
+    ax.set_xlabel(r"$N^2$ [s$^{-2}$]")
+    ax.set_ylabel("depth Z [m]")
+    # Mod 5: cap at 500 m to match the density plot.
+    ax.set_ylim(-500, 0)
+    # Mod 6: minor tick marks on both axes.
+    ax.minorticks_on()
+    ax.tick_params(which="minor", length=3)
+    # Scientific-notation x-axis -- N^2 is tiny (~1e-4 in the pycnocline).
+    ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
+    ax.set_title(
+        f"Tile {tile_index}  {timestamp}\n"
+        f"Top-{len(peaks)} fronts by {strength_col}  --  N$^2$ profiles"
+    )
+    ax.legend(
+        loc="upper left", bbox_to_anchor=(1.02, 1.0),
+        fontsize="x-small", borderaxespad=0.0,
+    )
+    ax.grid(True, which="major", alpha=0.3)
+    ax.grid(True, which="minor", alpha=0.1)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _plot_gradb2_overlay(
     peaks: pd.DataFrame,
     gradb2_tile: np.ndarray,
@@ -1250,6 +1368,16 @@ def run(
         out_path=profiles_png,
     )
     logging.info(f"Wrote density-profile plot: {profiles_png}")
+
+    # Modification 10: companion N^2 plot, "N2_" prefix on the filename.
+    n2_png = outdir / f"N2_{stem}.png"
+    _plot_n2_profiles(
+        peaks=peaks, sigma0=sigma0, Z=Z, colors=colors,
+        tile_index=tile_index, timestamp=timestamp,
+        strength_col=strength_col,
+        out_path=n2_png,
+    )
+    logging.info(f"Wrote N^2 profile plot: {n2_png}")
 
     overlay_png = outdir / f"{stem}_gradb2map.png"
     _plot_gradb2_overlay(

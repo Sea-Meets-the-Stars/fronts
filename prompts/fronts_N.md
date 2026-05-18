@@ -10,6 +10,8 @@ Explore the density profiles at fronts in a single tile of the LLC4320 grid.  Al
 
 - Mixed layer depth: the depth to the bottom of the mixed layer.  It is defined as the depth where the potential density is 0.03 kg m^-3 greater than the potential density at the surface.
 
+- Buoyancy frequency_squared: N² = (g/ρ₀) dρ/dz, with g = 9.81 m/s^2 and ρ₀ = 1025 kg/m^3.
+
 ## Coding
 
 Follow these guidelines:
@@ -55,6 +57,8 @@ If you need to run Python, use the "ocean14" conda environment.
 8. Plot an open circle of the same color as the density lines at the depth of the mixed layer.  See above for its definition.
 
 9. Allow the user to specify a portion of the tile by inputting pairs of i_rect and/or j_rect.  If provided, the code should choose the N strongest fronts from within this region. 
+
+10. Plot the buoyancy frequency_squared profile for each of the N fronts.  This should be a separate plot with prefix "N2_" in the filename.
 
 ## Planning
 
@@ -274,3 +278,5 @@ Use those fronts, but only compute the peak over the in-tile portion.
 7. Re-read this document.  Implement the modifications 4-7.
 
 8. Re-read this document.  Implement the modifications 8-9.
+
+9. Re-read this document.  Implement the modification 10.
