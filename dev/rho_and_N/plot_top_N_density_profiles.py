@@ -188,6 +188,14 @@ def _mixed_layer_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | Non
         return None
 
     delta = sigma0_profile - surface
+
+    #embed(header="mixed_layer_depth 192")
+    z_masked = np.where(delta <= MLD_DELTA_SIGMA0)
+    mld = Z[z_masked].min()
+    return mld
+
+    #mld = z_masked.max(dim=zdim, skipna=True)
+
     # Find the first index whose sigma0 exceeds the threshold.  np.argmax on
     # a boolean array returns the first True (or 0 if there are no Trues, so
     # we guard with .any()).
@@ -873,6 +881,7 @@ def _plot_density_profiles(
         # right on the profile; facecolor='none' makes it open, with the
         # edge in the matching colour.
         z_mld = _mixed_layer_depth(profile, Z)
+        #z_mld = row["z_mld"]
         #embed(header="z_mld 876")
         if z_mld is not None:
             # Pick the sigma0 value matching the MLD by linear interp in z.
@@ -1209,7 +1218,14 @@ def run(
             sub_j_lo=sub_j_lo, sub_j_hi=sub_j_hi,
         )
 
-        # ---- Step 8: write CSV. --------------------------------------------
+        # ---- Step 8: compute the mixed-layer depth for each front. ---------
+        mlds = []
+        for n, row in peaks.reset_index(drop=True).iterrows():
+            profile = sigma0[:, int(row["j_tile"]), int(row["i_tile"])]
+            mlds.append(_mixed_layer_depth(profile, Z))
+        peaks["z_mld"] = np.abs(mlds)
+
+        # ---- Step 9: write CSV. --------------------------------------------
         csv_path = outdir / f"{stem}.csv"
         peaks.to_csv(csv_path, index=False)
         logging.info(f"Wrote peaks CSV: {csv_path}")
