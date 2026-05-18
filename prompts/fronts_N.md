@@ -6,6 +6,9 @@ Explore the density profiles at fronts in a single tile of the LLC4320 grid.  Al
 
 ## Context
 
+## Definitions
+
+- Mixed layer depth: the depth to the bottom of the mixed layer.  It is defined as the depth where the potential density is 0.03 kg m^-3 greater than the potential density at the surface.
 
 ## Coding
 
@@ -48,6 +51,10 @@ If you need to run Python, use the "ocean14" conda environment.
 6. Show minor tick marks on the depth plot.
 
 7. Have the gradb2 colorbar truncate at a minmum value of -16.
+
+8. Plot an open circle of the same color as the density lines at the depth of the mixed layer.  See above for its definition.
+
+9. Allow the user to specify a portion of the tile by inputting pairs of i_rect and/or j_rect.  If provided, the code should only plot the density lines for the N fronts that are within the specified portion of the tile.
 
 ## Planning
 
@@ -265,3 +272,5 @@ Use those fronts, but only compute the peak over the in-tile portion.
 6. Re-read this document.  Add notes on the Parameters and Returns to the docstrings for every function in the code.  Also, provide me a command to run the code with the test data.
 
 7. Re-read this document.  Implement the modifications 4-7.
+
+8. Re-read this document.  Implement the modifications 8-9.

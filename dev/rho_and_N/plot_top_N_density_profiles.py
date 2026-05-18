@@ -97,7 +97,7 @@ CSV_FIXED_COLUMNS = [
 # Strength-column candidates tried in order if --strength-col is not present
 # in the supplied properties parquet.  gradb2_p90 is the spec'd column;
 # gradb2_median / _mean are reasonable fallbacks.
-STRENGTH_FALLBACKS = ("gradb2_p90", "gradb2_median", "gradb2_mean")
+STRENGTH_FALLBACKS = ("gradb2_p90", "gradb2_mean", "gradb2_median")
 
 
 # ---------------------------------------------------------------------------
