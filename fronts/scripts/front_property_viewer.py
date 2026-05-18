@@ -120,7 +120,7 @@ class FrontPropertyViewer(QMainWindow):
 
         # Fields that use a divergent (blue-white-red) colormap centered on 0
         self._DIVERGENT_FIELDS = {'okubo_weiss', 'vorticity', 'divergence', 'frontogenesis_tendency',
-            'relative_vorticity'}
+            'relative_vorticity', 'N2_z25m'}
 
         # Data arrays (loaded later)
         self.panel_data = [None, None, None, None]
