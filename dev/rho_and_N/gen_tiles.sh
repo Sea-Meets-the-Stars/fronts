@@ -9,7 +9,12 @@ GEN_FIGS=false
 
 if $RUN_TP; then
     # Density
+    #python ../../../llc4320-native-grid-preprocessing/dev/tiles/generate_tile.py \
+    #    --i 9800 --j 9000 --timestamp '2012-11-09 12:00:00' \
+    #    --output $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles
+    # Temperature
     python ../../../llc4320-native-grid-preprocessing/dev/tiles/generate_tile.py \
+        --property temperature \
         --i 9800 --j 9000 --timestamp '2012-11-09 12:00:00' \
         --output $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles
 fi
