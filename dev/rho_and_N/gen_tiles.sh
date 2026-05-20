@@ -2,12 +2,15 @@
 
 ## Tropical Pacific
 
-RUN_TP=true
-GEN_FIGS=false
+RUN_GS=false # Gulf Stream
+RUN_TP=true # Tropical Pacific
+GEN_TILES=false
+GEN_FIGS=true
+
+## Tropical Pacific
 
 ## Tiles
-
-if $RUN_TP; then
+if $RUN_TP && $GEN_TILES; then
     # Density
     #python ../../../llc4320-native-grid-preprocessing/dev/tiles/generate_tile.py \
     #    --i 9800 --j 9000 --timestamp '2012-11-09 12:00:00' \
@@ -22,7 +25,8 @@ fi
 ### Figures
 if $RUN_TP && $GEN_FIGS; then
     python /home/xavier/Oceanography/python/fronts/dev/rho_and_N/plot_top_N_density_profiles.py \
-        --density-tile     $OS_OGCM/LLC/Fronts/V3/20121109_120000/density_tile301_20121109T12.nc \
+        --density-tile     $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles/density_tile301_20121109T12.nc \
+        --theta            $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles/theta_tile301_20121109T12.nc \
         --gradb2           $OS_OGCM/LLC/Fronts/V3/20121109_120000/LLC4320_2012-11-09T12_00_00_gradb2_v3.nc \
         --labels           $OS_OGCM/LLC/Fronts/V3/20121109_120000/labeled_fronts_global_20121109T12_00_00_v3_bin_D.npy \
         --front-index      $OS_OGCM/LLC/Fronts/V3/20121109_120000/front_index_20121109T12_00_00_v3_bin_D.parquet \
@@ -30,5 +34,17 @@ if $RUN_TP && $GEN_FIGS; then
         --N 10 \
         --i-rect-range 9600 9950 \
         --j-rect-range 8950 9200 \
-        --outdir .
+        --outdir $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles
+fi
+
+if $RUN_GS && $GEN_TILES; then
+    # Density
+    python ../../../llc4320-native-grid-preprocessing/dev/tiles/generate_tile.py \
+        --i 16170 --j 9950 --timestamp '2012-11-09 12:00:00' \
+        --output $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles
+    # Temperature
+    python ../../../llc4320-native-grid-preprocessing/dev/tiles/generate_tile.py \
+        --property temperature \
+        --i 9800 --j 9000 --timestamp '2012-11-09 12:00:00' \
+        --output $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles
 fi
