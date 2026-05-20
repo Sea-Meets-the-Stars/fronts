@@ -2,7 +2,7 @@
 
 ## Tropical Pacific
 
-RUN_GS=false # Gulf Stream
+RUN_GS=true # Gulf Stream
 RUN_TP=true # Tropical Pacific
 GEN_TILES=false
 GEN_FIGS=true
@@ -47,4 +47,19 @@ if $RUN_GS && $GEN_TILES; then
         --property temperature \
         --i 9800 --j 9000 --timestamp '2012-11-09 12:00:00' \
         --output $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles
+fi
+
+### Figures
+if $RUN_GS && $GEN_FIGS; then
+    python /home/xavier/Oceanography/python/fronts/dev/rho_and_N/plot_top_N_density_profiles.py \
+        --density-tile     $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles/density_tile334_20121109T12.nc \
+        --theta            $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles/theta_tile334_20121109T12.nc \
+        --gradb2           $OS_OGCM/LLC/Fronts/V3/20121109_120000/LLC4320_2012-11-09T12_00_00_gradb2_v3.nc \
+        --labels           $OS_OGCM/LLC/Fronts/V3/20121109_120000/labeled_fronts_global_20121109T12_00_00_v3_bin_D.npy \
+        --front-index      $OS_OGCM/LLC/Fronts/V3/20121109_120000/front_index_20121109T12_00_00_v3_bin_D.parquet \
+        --front-properties $OS_OGCM/LLC/Fronts/V3/20121109_120000/front_properties_20121109T12_00_00_v3_bin_D.parquet \
+        --N 10 \
+        --outdir $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles \
+        --i-rect-range 16200 16450 \
+        --j-rect-range 9850 10050
 fi

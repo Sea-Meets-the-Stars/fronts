@@ -73,6 +73,8 @@ If you need to run Python, use the "ocean14" conda environment.
 - Note that the code will now need to input a tile of temperature data; use --theta as an optional argument.  If it is not provided, do not generate this plot.
 - Have the x-axis extend only to the maximum density in the plot window
 - Have the figure size be wider than tall.
+
+12. Add a density profile to the MLD plot that is the median density profile of the entire tile or the sub-region within the tile.  This should be a solid black line in the color of the tile.  Also show the mixed layer depth, isopycnal depth, and temperature mixed layer depth for the median density profile.
  
 ## Planning
 
@@ -298,3 +300,5 @@ Use those fronts, but only compute the peak over the in-tile portion.
 10. Re-read this document.  Implement the modification 11.
 
 11. Re-read this document.  Implement modification 11 which has new functionality added.
+
+11. Re-read this document.  Implement modification 12.

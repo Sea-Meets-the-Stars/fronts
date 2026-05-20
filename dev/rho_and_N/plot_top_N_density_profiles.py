@@ -1183,6 +1183,11 @@ def _plot_mld_diagnostics(
     timestamp: str,
     strength_col: str,
     out_path: Path,
+    sub_i_lo: int = 0,
+    sub_i_hi: int = TILE_SIZE - 1,
+    sub_j_lo: int = 0,
+    sub_j_hi: int = TILE_SIZE - 1,
+    has_subregion: bool = False,
 ) -> None:
     """Plot density profiles + three MLD diagnostics zoomed on the upper ocean.
 
@@ -1222,20 +1227,32 @@ def _plot_mld_diagnostics(
         Strength column name used in the title (for traceability).
     out_path : pathlib.Path
         Path to save the PNG (caller is responsible for the ``MLD_`` prefix).
+    sub_i_lo, sub_i_hi, sub_j_lo, sub_j_hi : int, optional
+        Inclusive tile-local pixel bounds used by Modification 12 when
+        computing the median density profile across the tile (or sub-region).
+        Default: full tile.
+    has_subregion : bool, optional
+        Pass-through flag controlling only the legend label of the median
+        line (``"median (sub-region)"`` vs ``"median (tile)"``).
 
     Returns
     -------
     None
         The figure is written to ``out_path`` and closed.
     """
-    fig, ax = plt.subplots(figsize=(7, 8))
+    # Wider-than-tall figure per the updated Modification 11 spec; the wider
+    # aspect leaves more room for the two side-by-side legends.
+    fig, ax = plt.subplots(figsize=(12, 7))
     # Track the deepest diagnostic depth across all fronts so the y-axis can
-    # auto-zoom on the upper ocean.
+    # auto-zoom on the upper ocean; also collect every sigma0 profile so we
+    # can tighten the x-axis to the data range that survives the y-zoom.
     deepest = 0.0  # most negative depth seen
+    sigma0_profiles: list[np.ndarray] = []
     for n, row in peaks.reset_index(drop=True).iterrows():
         j_t, i_t = int(row["j_tile"]), int(row["i_tile"])
         sigma0_profile = sigma0[:, j_t, i_t]
         theta_profile  = theta[:, j_t, i_t]
+        sigma0_profiles.append(sigma0_profile)
         line, = ax.plot(
             sigma0_profile, Z, color=colors[n], label=str(row["name"]),
         )
@@ -1262,12 +1279,70 @@ def _plot_mld_diagnostics(
             )
             if z_def < deepest:
                 deepest = z_def
+
+    # ---- Modification 12: median sigma0/theta profile over the (sub-)tile.
+    # Slice both 3D arrays to the requested window and take the median across
+    # the spatial axes for every depth level.  Using nanmedian shields us from
+    # the rare NaN that creeps in from masked/land cells, though the LLC tiles
+    # are typically ocean-only.
+    j_slice = slice(sub_j_lo, sub_j_hi + 1)
+    i_slice = slice(sub_i_lo, sub_i_hi + 1)
+    sigma0_median = np.nanmedian(sigma0[:, j_slice, i_slice], axis=(1, 2))
+    theta_median  = np.nanmedian(theta[:, j_slice, i_slice], axis=(1, 2))
+    sigma0_profiles.append(sigma0_median)  # feed into the x-axis tightening below
+    median_label = (
+        "median (sub-region)" if has_subregion else "median (tile)"
+    )
+    # Solid black line, slightly thicker than the per-front lines so it stays
+    # readable against the colourful background; high zorder keeps it on top.
+    ax.plot(
+        sigma0_median, Z,
+        color="black", linewidth=2.2, linestyle="-",
+        label=median_label, zorder=5,
+    )
+    # Filled black markers for the median's three MLD diagnostics -- the
+    # filled face distinguishes them from the open per-front markers.
+    z_mld_med  = _mixed_layer_depth(sigma0_median, Z)
+    z_iso_med  = _isopycnal_depth(sigma0_median, Z)
+    z_tmld_med = _temperature_mld(theta_median, Z)
+    for z_def, marker in (
+        (z_mld_med,  "o"),
+        (z_iso_med,  "s"),
+        (z_tmld_med, "^"),
+    ):
+        if z_def is None:
+            continue
+        sigma0_at = float(np.interp(z_def, Z[::-1], sigma0_median[::-1]))
+        ax.plot(
+            sigma0_at, z_def,
+            marker=marker, markersize=10,
+            markerfacecolor="black", markeredgecolor="black",
+            markeredgewidth=1.5, linestyle="none",
+            zorder=6,
+        )
+        if z_def < deepest:
+            deepest = z_def
+
     ax.set_xlabel(r"$\sigma_0$ [kg m$^{-3}$]")
     ax.set_ylabel("depth Z [m]")
     # Auto-zoom: 1.5x the deepest diagnostic, clamped to [-500, 0] so we never
     # extend past the rest of the plots' depth range.
     y_bot = max(-500.0, 1.5 * float(deepest)) if deepest < 0 else -200.0
     ax.set_ylim(y_bot, 0)
+    # Modification 11 update: x-axis stops at the max sigma0 in the visible
+    # depth window so the panel isn't padded by deep-water densities.
+    in_window = (Z >= y_bot) & (Z <= 0)
+    if np.any(in_window):
+        sigma0_window = np.concatenate(
+            [p[in_window] for p in sigma0_profiles]
+        )
+        sigma0_window = sigma0_window[np.isfinite(sigma0_window)]
+        if sigma0_window.size:
+            x_min = float(np.min(sigma0_window))
+            x_max = float(np.max(sigma0_window))
+            # Tiny pad on the left so markers near x_min aren't clipped.
+            pad = 0.02 * (x_max - x_min) if x_max > x_min else 0.05
+            ax.set_xlim(x_min - pad, x_max)
     # Minor ticks for finer reading (consistent with the other depth plots).
     ax.minorticks_on()
     ax.tick_params(which="minor", length=3)
@@ -1296,8 +1371,8 @@ def _plot_mld_diagnostics(
         )
     ]
     symbol_legend = ax.legend(
-        handles=symbol_handles, loc="lower right",
-        fontsize="small", title="definition",
+        handles=symbol_handles, loc="upper right",
+        fontsize="medium", title="definition",
     )
     ax.grid(True, which="major", alpha=0.3)
     ax.grid(True, which="minor", alpha=0.1)
@@ -1674,6 +1749,9 @@ def run(
             tile_index=tile_index, timestamp=timestamp,
             strength_col=strength_col,
             out_path=mld_png,
+            sub_i_lo=sub_i_lo, sub_i_hi=sub_i_hi,
+            sub_j_lo=sub_j_lo, sub_j_hi=sub_j_hi,
+            has_subregion=has_subregion,
         )
         logging.info(f"Wrote MLD diagnostics plot: {mld_png}")
     else:
