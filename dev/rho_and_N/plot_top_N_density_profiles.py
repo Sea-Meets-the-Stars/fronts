@@ -59,24 +59,26 @@ from matplotlib import cm  # noqa: E402
 # repo helpers ------------------------------------------------------------
 from fronts.properties.io import load_front_index
 
-# tile_mapping lives next to generate_tile_density.py in a sibling repo.
-# We mirror the sys.path trick used by generate_tile_density.py itself.
-_TILE_MAPPING_DIR = Path(
-    "/home/xavier/Oceanography/python/llc4320-native-grid-preprocessing/"
-    "dev/tiles"
+# Shared utilities (formerly inlined here) live in density_utils.py next to
+# this script.  Make sure that directory is importable regardless of how the
+# script is invoked, then pull in the helpers under the underscore-prefixed
+# names the rest of this module already uses.
+_THIS_DIR = Path(__file__).resolve().parent
+if str(_THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(_THIS_DIR))
+from density_utils import (  # noqa: E402
+    TILE_SIZE,
+    DATE_FMT,
+    timestamp_to_stamp as _timestamp_to_stamp,
+    load_density_tile as _load_density_tile,
+    tile_scalar as _tile_scalar,
+    build_tile_lookup as _build_tile_lookup,
+    filter_overlapping_fronts as _filter_overlapping_fronts,
+    load_gradb2_tile as _load_gradb2_tile,
+    attach_lonlat_twins as _attach_lonlat_twins,
 )
-if str(_TILE_MAPPING_DIR) not in sys.path:
-    sys.path.insert(0, str(_TILE_MAPPING_DIR))
-import tile_mapping  # noqa: E402
 
 from IPython import embed
-
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-TILE_SIZE = tile_mapping.TILE_SIZE  # 720
-DATE_FMT  = "%Y-%m-%d %H:%M:%S"
 
 # Columns we write to (and read back from) the cached CSV.
 # The fixed columns; the last column carries the chosen strength metric
@@ -120,22 +122,6 @@ TMLD_DELTA_THETA       = 0.2    # K (positive: theta drops by this much)
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
-
-def _timestamp_to_stamp(timestamp: str) -> str:
-    """Convert 'YYYY-MM-DD HH:MM:SS' -> 'YYYYMMDDTHH' for filenames.
-
-    Parameters
-    ----------
-    timestamp : str
-        Timestamp string matching ``DATE_FMT`` ('YYYY-MM-DD HH:MM:SS').
-
-    Returns
-    -------
-    str
-        Compact filename-safe stamp of the form ``'YYYYMMDDTHH'``.
-    """
-    return datetime.strptime(timestamp, DATE_FMT).strftime("%Y%m%dT%H")
-
 
 def _build_stem(tile_index: int, timestamp: str, N: int) -> str:
     """Standardised output filename stem shared by CSV + PNGs.
@@ -374,98 +360,8 @@ def _make_color_cycle(N: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Density-tile + global file loading
+# Temperature-tile loading (kept here -- specific to this script)
 # ---------------------------------------------------------------------------
-
-def _load_gradb2_tile(
-    path: Path, rect_j_slice: slice, rect_i_slice: slice,
-) -> np.ndarray:
-    """Load just the tile window of the global gradb2 field.
-
-    Supports two file formats:
-      * ``.npy`` -- memory-mapped, sliced directly.
-      * ``.nc`` / ``.nc4`` -- opened lazily with xarray and sliced. The
-        variable name is auto-detected (first 2D variable, preferring one
-        called 'gradb2').
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Path to the global gradb2 file (``.npy``, ``.nc`` or ``.nc4``).
-    rect_j_slice : slice
-        Row (j-axis) slice on the global rect grid, length ``TILE_SIZE``.
-    rect_i_slice : slice
-        Column (i-axis) slice on the global rect grid, length ``TILE_SIZE``.
-
-    Returns
-    -------
-    numpy.ndarray
-        In-RAM float array of shape ``(TILE_SIZE, TILE_SIZE)`` holding the
-        gradb2 values inside the tile window.
-
-    Raises
-    ------
-    ValueError
-        If the file extension is unsupported or no usable 2D variable is
-        found in the NetCDF.
-    """
-    suf = path.suffix.lower()
-    if suf == ".npy":
-        arr = np.load(path, mmap_mode="r")
-        return np.array(arr[rect_j_slice, rect_i_slice])
-    if suf in (".nc", ".nc4", ".netcdf"):
-        ds = xr.open_dataset(path)
-        var_name = "gradb2" if "gradb2" in ds.data_vars else next(
-            (v for v in ds.data_vars if ds[v].ndim == 2), None,
-        )
-        if var_name is None:
-            raise ValueError(
-                f"Could not find a 2D variable in {path} "
-                f"(data_vars={list(ds.data_vars)})."
-            )
-        # xarray uses (y, x) dim names per the NetCDF; slice with isel by
-        # position so we don't have to guess the dim name.
-        da = ds[var_name]
-        dim_y, dim_x = da.dims
-        return da.isel({dim_y: rect_j_slice, dim_x: rect_i_slice}).values
-    raise ValueError(f"Unsupported gradb2 file extension: {path.suffix}")
-
-
-def _load_density_tile(path: Path) -> xr.Dataset:
-    """Open the density-tile NetCDF and assert the bits we depend on are present.
-
-    ``generate_tile_density.py`` writes some provenance as attrs and some as
-    scalar coords; we accept either location.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Path to the density-tile NetCDF produced by ``generate_tile_density.py``.
-
-    Returns
-    -------
-    xarray.Dataset
-        Lazy dataset holding ``sigma0(k, j, i)``, plus the ``XC``, ``YC``,
-        ``Z`` coordinates and the ``tile_index``/``face_index``/
-        ``rect_i_start``/``rect_j_start``/``timestamp`` provenance fields.
-
-    Raises
-    ------
-    KeyError
-        If a required provenance field or the ``sigma0`` variable is absent.
-    """
-    ds = xr.open_dataset(path)
-    for key in ("tile_index", "face_index", "rect_i_start", "rect_j_start",
-                "timestamp"):
-        if key not in ds.attrs and key not in ds.coords:
-            raise KeyError(
-                f"Density tile {path} missing required field '{key}' "
-                "(checked attrs and coords)."
-            )
-    if "sigma0" not in ds.data_vars:
-        raise KeyError(f"Density tile {path} has no 'sigma0' variable.")
-    return ds
-
 
 def _load_theta_tile(
     path: Path, tile_index: int, rect_i_start: int, rect_j_start: int,
@@ -514,27 +410,6 @@ def _load_theta_tile(
             f"tile_index={tile_index} rect_i={rect_i_start} rect_j={rect_j_start}."
         )
     return ds["Theta"].values
-
-
-def _tile_scalar(ds: xr.Dataset, key: str):
-    """Lift a scalar-valued provenance field from attrs or coords.
-
-    Parameters
-    ----------
-    ds : xarray.Dataset
-        The density-tile dataset returned by :func:`_load_density_tile`.
-    key : str
-        Name of the scalar field to retrieve.
-
-    Returns
-    -------
-    object
-        Native Python value of the field: ``ds.attrs[key]`` if present,
-        otherwise ``ds.coords[key].values.item()``.
-    """
-    if key in ds.attrs:
-        return ds.attrs[key]
-    return ds.coords[key].values.item()
 
 
 def _resolve_strength_col(
@@ -627,113 +502,6 @@ def _join_index_and_properties(
     joined = index_df.merge(props_slim, on="label", how="inner")
     joined = joined.dropna(subset=[strength_col])
     return joined
-
-
-def _filter_overlapping_fronts(
-    fronts: pd.DataFrame,
-    rect_i_start: int, rect_j_start: int,
-    sub_i_lo: int = 0, sub_i_hi: int = TILE_SIZE - 1,
-    sub_j_lo: int = 0, sub_j_hi: int = TILE_SIZE - 1,
-) -> pd.DataFrame:
-    """Keep fronts whose bbox intersects the (possibly restricted) tile window.
-
-    Bboxes follow the convention used by
-    ``fronts.properties.io.write_front_index`` (min_col, min_row, max_col, max_row),
-    which are inclusive both ends.  A front overlaps the window iff the two
-    inclusive boxes share at least one pixel.
-
-    Parameters
-    ----------
-    fronts : pandas.DataFrame
-        Frame with columns ``x0, y0, x1, y1`` (bbox in rect-grid pixel indices).
-    rect_i_start : int
-        Column origin of the tile on the global rect grid.
-    rect_j_start : int
-        Row origin of the tile on the global rect grid.
-    sub_i_lo, sub_i_hi : int, optional
-        Tile-local inclusive sub-region in i (default: full tile width).
-    sub_j_lo, sub_j_hi : int, optional
-        Tile-local inclusive sub-region in j (default: full tile height).
-
-    Returns
-    -------
-    pandas.DataFrame
-        Copy of ``fronts`` filtered to rows whose bbox overlaps the window
-        ``[rect_i_start + sub_i_lo, rect_i_start + sub_i_hi]`` x
-        ``[rect_j_start + sub_j_lo, rect_j_start + sub_j_hi]``.
-    """
-    i0 = rect_i_start + sub_i_lo
-    i1 = rect_i_start + sub_i_hi
-    j0 = rect_j_start + sub_j_lo
-    j1 = rect_j_start + sub_j_hi
-    # Note: x0/x1 are columns (i-axis), y0/y1 are rows (j-axis).  Bboxes are
-    # inclusive, so use <= on both ends.
-    mask = (
-        (fronts["x0"] <= i1) & (fronts["x1"] >= i0) &
-        (fronts["y0"] <= j1) & (fronts["y1"] >= j0)
-    )
-    return fronts.loc[mask].copy()
-
-
-# ---------------------------------------------------------------------------
-# Rect -> face-local lookup, restricted to the tile
-# ---------------------------------------------------------------------------
-
-def _build_tile_lookup(
-    rect_i_start: int, rect_j_start: int, expected_face: int,
-):
-    """Return tile-local face-index lookup maps (range 0..719).
-
-    The raw lookup returns *full-face* indices (0..4319); we subtract the
-    tile's face offset so the result indexes the density tile's
-    ``(j, i)`` axes directly.  A sanity check confirms every pixel of the
-    rect tile lives on the expected face (chunk alignment guarantees this).
-
-    Parameters
-    ----------
-    rect_i_start : int
-        Column origin of the tile on the global rect grid.
-    rect_j_start : int
-        Row origin of the tile on the global rect grid.
-    expected_face : int
-        Face index (0..12) the tile must lie on, taken from the density-tile
-        provenance.
-
-    Returns
-    -------
-    j_tile_lookup : numpy.ndarray
-        ``int16`` array of shape ``(TILE_SIZE, TILE_SIZE)`` mapping each
-        rect-grid tile-local pixel to its face-local j (0..719).
-    i_tile_lookup : numpy.ndarray
-        ``int16`` array of shape ``(TILE_SIZE, TILE_SIZE)`` mapping each
-        rect-grid tile-local pixel to its face-local i (0..719).
-
-    Raises
-    ------
-    RuntimeError
-        If the tile spans multiple faces, or if the face it lives on differs
-        from ``expected_face``.
-    """
-    face_id_map, j_face_map, i_face_map = tile_mapping._get_lookup_arrays()
-    rect_j_slice = slice(rect_j_start, rect_j_start + TILE_SIZE)
-    rect_i_slice = slice(rect_i_start, rect_i_start + TILE_SIZE)
-    face_id_tile = face_id_map[rect_j_slice, rect_i_slice]
-    j_face_full  = j_face_map[rect_j_slice, rect_i_slice]
-    i_face_full  = i_face_map[rect_j_slice, rect_i_slice]
-    unique_faces = np.unique(face_id_tile)
-    if unique_faces.size != 1 or int(unique_faces[0]) != int(expected_face):
-        raise RuntimeError(
-            f"Tile at rect (j={rect_j_start}, i={rect_i_start}) maps to faces "
-            f"{unique_faces.tolist()}, expected face_index={expected_face} "
-            "from the density tile attrs."
-        )
-    # The tile is 720x720 on the face, so the min over the lookup gives the
-    # tile's offset within the face.  Subtract to get tile-local (0..719).
-    j_face_offset = int(j_face_full.min())
-    i_face_offset = int(i_face_full.min())
-    j_tile_lookup = (j_face_full - j_face_offset).astype(np.int16)
-    i_tile_lookup = (i_face_full - i_face_offset).astype(np.int16)
-    return j_tile_lookup, i_tile_lookup
 
 
 # ---------------------------------------------------------------------------
@@ -1476,42 +1244,8 @@ def _plot_gradb2_overlay(
         f"log10(gradb2) with top-{len(peaks)} peaks"
     )
 
-    # ---- Modification 4: secondary lon/lat axes. --------------------------
-    # The lookups give the face-local (j_tile, i_tile) for each rect-grid
-    # tile-local pixel; XC/YC at those positions give lon/lat in the rect
-    # frame.  Because the face can be rotated relative to the rect grid, lon
-    # generally varies with both i_local and j_local; we sample at the mid-row
-    # (resp. mid-column) so the secondary tick labels reflect the centre of
-    # the panel.
-    mid_j = TILE_SIZE // 2
-    mid_i = TILE_SIZE // 2
-    lon_along_i = XC[
-        j_tile_lookup[mid_j, :], i_tile_lookup[mid_j, :],
-    ]  # length TILE_SIZE
-    lat_along_j = YC[
-        j_tile_lookup[:, mid_i], i_tile_lookup[:, mid_i],
-    ]  # length TILE_SIZE
-
-    # Match the secondary axes' tick positions to the primary axes' ticks so
-    # the two label rows line up.  Label each tick with the lon/lat at the
-    # midpoint of the panel (rounded to 2 decimals).
-    ax_lon = ax.twiny()
-    ax_lon.set_xlim(ax.get_xlim())
-    i_ticks = [t for t in ax.get_xticks() if 0 <= t <= TILE_SIZE]
-    ax_lon.set_xticks(i_ticks)
-    ax_lon.set_xticklabels(
-        [f"{float(lon_along_i[min(int(t), TILE_SIZE - 1)]):.2f}" for t in i_ticks]
-    )
-    ax_lon.set_xlabel("longitude (mid-row sample)")
-
-    ax_lat = ax.twinx()
-    ax_lat.set_ylim(ax.get_ylim())
-    j_ticks = [t for t in ax.get_yticks() if 0 <= t <= TILE_SIZE]
-    ax_lat.set_yticks(j_ticks)
-    ax_lat.set_yticklabels(
-        [f"{float(lat_along_j[min(int(t), TILE_SIZE - 1)]):.2f}" for t in j_ticks]
-    )
-    ax_lat.set_ylabel("latitude (mid-column sample)")
+    # Modification 4: secondary lon/lat axes -- shared helper in density_utils.
+    _, ax_lat = _attach_lonlat_twins(ax, j_tile_lookup, i_tile_lookup, XC, YC)
 
     # Place the colorbar past the latitude axis on the right so they don't
     # overlap.  Anchor the colorbar to ax_lat (the rightmost twin axis) and
