@@ -71,6 +71,8 @@ If you need to run Python, use the "ocean14" conda environment.
 - It should show mark the 3 definitions of the MLD provided above (Mixed Layer Depth, Isopycnal Depth, and Temperature Mixed Layer Depth) with different symbols.  
 - Plot the density profiles for each of the N fronts on the same plot.  
 - Note that the code will now need to input a tile of temperature data; use --theta as an optional argument.  If it is not provided, do not generate this plot.
+- Have the x-axis extend only to the maximum density in the plot window
+- Have the figure size be wider than tall.
  
 ## Planning
 
@@ -294,3 +296,5 @@ Use those fronts, but only compute the peak over the in-tile portion.
 9. Re-read this document.  Implement the modification 10.
 
 10. Re-read this document.  Implement the modification 11.
+
+11. Re-read this document.  Implement modification 11 which has new functionality added.
