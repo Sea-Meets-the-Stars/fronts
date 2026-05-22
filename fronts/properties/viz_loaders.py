@@ -132,6 +132,17 @@ def load_colocation_table(
 ) -> pd.DataFrame:
     """Load the colocation/properties parquet for a global front run.
 
+    Parameters
+    ----------
+    results_dir : str or Path
+        Directory containing the run outputs.
+    time_str : str
+        ISO 8601 timestamp (e.g. '2012-11-09T12:00:00').
+    run_tag : str, optional
+        Run identifier suffix (e.g. 'v1_bin_A').
+    verbose : bool, optional
+        Whether to print progress messages.
+
     Returns
     -------
     pd.DataFrame

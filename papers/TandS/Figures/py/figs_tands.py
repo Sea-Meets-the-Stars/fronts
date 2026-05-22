@@ -12,6 +12,7 @@ from scipy.ndimage import distance_transform_edt
 from skimage.measure import label as sklabel
 
 from fronts.properties import io as prop_io
+from fronts.properties import viz_loaders 
 from fronts.properties.characteristics import turner_angle
 from fronts.viz.properties import plot_property_jpdf
 from fronts.finding import pyboa
@@ -26,8 +27,8 @@ mpl.rcParams['font.family'] = 'stixgeneral'
 
 # Paths
 ogcm = os.getenv('OS_OGCM')
-results_dir = os.path.join(ogcm, 'LLC', 'Fronts', 'group_fronts', 'v2')
-derived_dir = os.path.join(ogcm, 'LLC', 'Fronts', 'derived')
+results_dir = os.path.join(ogcm, 'LLC', 'Fronts', 'V3', '20121109_120000')
+#derived_dir = os.path.join(ogcm, 'LLC', 'Fronts', 'derived')
 coords_file = os.path.join(ogcm, 'LLC', 'Fronts', 'coords',
                            'LLC_coords_lat_lon.nc')
 figures_dir = os.path.join(
@@ -42,7 +43,7 @@ def _load_subregion(field_name, row_slice, col_slice,
                     version=VERSION):
     """Load a sub-region of a derived field via xarray slicing."""
     fpath = os.path.join(
-        derived_dir,
+        results_dir,
         f'LLC4320_{TIMESTAMP}_{field_name}_v{version}.nc')
     with xr.open_dataset(fpath) as ds:
         return ds[field_name].isel(
@@ -84,7 +85,7 @@ def fig_turner_vs_gradb(
     and the median of sqrt(gradb2).
     """
     # Load the front properties table
-    df = prop_io.load_colocation_table(
+    df = viz_loaders.load_colocation_table(
         results_dir, timestamp, run_tag)
 
     # Compute Turner angle from the mean gradient fields
@@ -95,8 +96,10 @@ def fig_turner_vs_gradb(
     )
 
     # Median of sqrt(gradb2) = median of |grad b|
-    #gradb = np.sqrt(df['gradb2_median'].values)
-    gradb = np.sqrt(df['gradb2_p90'].values)
+    if 'gradb2_p90' in df.columns:
+        gradb = np.sqrt(df['gradb2_p90'].values)
+    else:
+        gradb = np.sqrt(df['gradb2_mean'].values)
 
     # Build the 2D histogram using the existing JPDF plotter
     fig = plot_property_jpdf(

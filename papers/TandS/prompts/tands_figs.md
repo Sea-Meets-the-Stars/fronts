@@ -26,9 +26,9 @@ Here are guidelines for writing code:
 The analysis will use v2 outputs, unless otherwise specified.
 The key data files are:
 
-1. Global derived files for single timestamps are in: $OS_OGCM/LLC/Fronts/derived/ with extension _v2.nc
-2. The binary front files for single timestamps are in: $OS_OGCM/LLC/Fronts/outputs/.  Use "v2_bin_D" unless otherwise specified.
-3. The parquet tables of fronts and their properties are in: $OS_OGCM/LLC/Fronts/group_fronts/.  Use folder v2/ unless otherwise specified and the v2_bin_D files.  
+1. Global derived files for single timestamps are in: $OS_OGCM/LLC/Fronts/V3/20121109_120000
+2. The binary front files for single timestamps are in: $OS_OGCM/LLC/Fronts/V3/20121109_120000
+3. The parquet tables of fronts and their properties are in: $OS_OGCM/LLC/Fronts/V3/20121109_120000
 4. Coordinates are in $OS_OGCM/LLC/Fronts/coords/LLC_coords_lat_lon.nc
 
 # Figures
@@ -37,7 +37,7 @@ The key data files are:
 
 For the first figure, let's generate a 2D histogram of Turner angle vs. gradb for the individual fronts in the "2012-11-09T12_00_00" timestamp.  Here are specifications:
 
-- Use the v2_bin_D binary front files
+- Use the v3_bin_D binary front files
 - Use the mean of the Turner angle
 - Use the median of the sqrt(gradb2)
 - Plot gradb on a log scale
@@ -125,7 +125,15 @@ Here are some additional specifications:
 - Use a different color for each PDF
 - Label each PDF
 
-## (6) Turner angle / geographic
+## (6) Geographic view of fronts
+
+Generate a figure that shows the geographic location of the fronts on a global map.  Plot the fronts as  
+
+Here are some additional specifications:
+
+- Show land in grey
+
+## (7) Turner angle / geographic
 
 Given a range of Turner angle and grad b values, show the geographic location of the fronts on a global map.  Place a marker at the lat, lon of each front.
 
