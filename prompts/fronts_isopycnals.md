@@ -37,6 +37,8 @@ If you need to run Python, use the "ocean14" conda environment.
 
 
 ## Modifications
+
+1. The plot appears rotated 90 degrees counter-clockwise.  Please check and fix as necessary.
  
 ## Planning
 
@@ -171,3 +173,5 @@ No for now.
 2. Re-read this document.  Note the answers to the clarification questions.  Update the Planning section accordingly.
 
 3. Re-read this document.  Generate the code to implement the plan.  Place the modules in dev/rho_and_N/
+
+4. Re-read this document.  Work on modification 1.

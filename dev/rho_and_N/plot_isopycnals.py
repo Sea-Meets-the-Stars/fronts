@@ -304,44 +304,43 @@ def read_isopycnal_nc(
 # Plot
 # ---------------------------------------------------------------------------
 
-def _remap_labels_to_face(
-    labels_rect_local: np.ndarray,
+def _remap_field_to_rect(
+    field_face: np.ndarray,
     j_tile_lookup: np.ndarray,
     i_tile_lookup: np.ndarray,
 ) -> np.ndarray:
-    """Re-index the rect-grid-local labels mask onto the face-local frame.
+    """Gather a face-local 2D field onto the rect-grid tile-local frame.
 
     The density tile (and thus ``z_iso``, ``XC``, ``YC``) lives on face-local
-    ``(j_tile, i_tile)`` axes, but the labeled-fronts mask was sliced from
-    the rect grid.  ``j_tile_lookup``/``i_tile_lookup`` tell us, for every
-    rect-grid tile-local pixel, where it lands in the face frame; we use
-    those as fancy-index targets to scatter the labels.
+    ``(j_tile, i_tile)`` axes, but the labels mask and the lon/lat helper
+    (:func:`attach_lonlat_twins`) operate in the rect-grid tile-local frame.
+    Plotting ``z_iso`` directly therefore renders the tile rotated for the
+    LLC4320 faces whose face-local axes are rotated relative to the rect grid
+    (faces 7..12).  This helper pulls every face-local value into the matching
+    rect-grid tile-local cell so the imshow, labels overlay and twin axes all
+    share one orientation.
 
     Parameters
     ----------
-    labels_rect_local : numpy.ndarray
-        ``(TILE_SIZE, TILE_SIZE)`` integer label mask in the rect-grid
-        tile-local frame.
+    field_face : numpy.ndarray
+        ``(TILE_SIZE, TILE_SIZE)`` field on the face-local frame (e.g.
+        ``z_iso`` straight out of :func:`compute_isopycnal_depth`).
     j_tile_lookup, i_tile_lookup : numpy.ndarray
         Tile-local face-index lookups from :func:`build_tile_lookup`.
 
     Returns
     -------
     numpy.ndarray
-        ``(TILE_SIZE, TILE_SIZE)`` integer label mask in the face-local
-        frame (same dtype as the input).
+        ``(TILE_SIZE, TILE_SIZE)`` field on the rect-grid tile-local frame
+        (same dtype as the input).
     """
-    out = np.zeros_like(labels_rect_local)
-    # Scatter: face[j_lookup[r], i_lookup[r]] = labels[r]
-    # Flatten so we can do a one-shot vectorised assign.
-    out[j_tile_lookup.ravel(), i_tile_lookup.ravel()] = \
-        labels_rect_local.ravel()
-    return out
+    # Fancy-indexing gather: rect[r, c] = face[j_lookup[r, c], i_lookup[r, c]].
+    return field_face[j_tile_lookup, i_tile_lookup]
 
 
 def plot_isopycnal_depth(
-    z_iso: np.ndarray,
-    labels_face: np.ndarray,
+    z_iso_rect: np.ndarray,
+    labels_rect: np.ndarray,
     front_labels: np.ndarray,
     XC: np.ndarray,
     YC: np.ndarray,
@@ -354,23 +353,31 @@ def plot_isopycnal_depth(
 ) -> None:
     """Render the isopycnal-depth map with one white outline per front.
 
+    Both inputs live in the **rect-grid tile-local** frame so the imshow, the
+    labels contour overlay and the lon/lat twin axes share one orientation.
+    Plotting the face-local field directly would rotate the map for LLC4320
+    faces whose face-local axes are rotated relative to the rect grid (see
+    Modification 1 in ``prompts/fronts_isopycnals.md``).
+
     Parameters
     ----------
-    z_iso : numpy.ndarray
+    z_iso_rect : numpy.ndarray
         ``(TILE_SIZE, TILE_SIZE)`` isopycnal-depth field in metres
-        (negative downward; NaN where the isopycnal is out of range).
-    labels_face : numpy.ndarray
-        ``(TILE_SIZE, TILE_SIZE)`` integer label mask on the face-local
-        frame (output of :func:`_remap_labels_to_face`).
+        (negative downward; NaN where the isopycnal is out of range), already
+        remapped to the rect-grid tile-local frame via
+        :func:`_remap_field_to_rect`.
+    labels_rect : numpy.ndarray
+        ``(TILE_SIZE, TILE_SIZE)`` integer label mask in the rect-grid
+        tile-local frame (the natural frame of the global labels file).
     front_labels : numpy.ndarray
         1-D array of front labels whose bbox overlaps the tile (one outline
         is drawn per element).
     XC, YC : numpy.ndarray
         ``(TILE_SIZE, TILE_SIZE)`` longitude/latitude arrays from the
-        density tile.
+        density tile (face-local frame -- consumed only via the lookups).
     j_tile_lookup, i_tile_lookup : numpy.ndarray
-        Tile-local face-index lookups; only used here to draw the secondary
-        lon/lat twin axes (the imshow is already in the face-local frame).
+        Tile-local face-index lookups; used to draw the secondary lon/lat
+        twin axes (helper expects rect-grid axes).
     target : float
         Target potential density (kg m^-3), used in the title.
     tile_index : int
@@ -395,7 +402,7 @@ def plot_isopycnal_depth(
 
     # Mask NaNs so the bad-colour applies.  vmin/vmax left to auto so the
     # colorbar tracks the in-range data.
-    z_masked = np.ma.masked_invalid(z_iso)
+    z_masked = np.ma.masked_invalid(z_iso_rect)
 
     im = ax.imshow(
         z_masked,
@@ -413,7 +420,7 @@ def plot_isopycnal_depth(
     for label in front_labels:
         if label == 0:
             continue  # background label -- skip if it sneaks into the list
-        mask = (labels_face == int(label)).astype(np.uint8)
+        mask = (labels_rect == int(label)).astype(np.uint8)
         if not mask.any():
             # bbox overlapped but no actual pixels inside the tile -- rare.
             continue
@@ -426,8 +433,8 @@ def plot_isopycnal_depth(
             origin="lower",
         )
 
-    ax.set_xlabel("i (face-local)")
-    ax.set_ylabel("j (face-local)")
+    ax.set_xlabel("i (rect-grid tile-local)")
+    ax.set_ylabel("j (rect-grid tile-local)")
     ax.set_title(
         f"Tile {tile_index}  {timestamp}\n"
         f"isopycnal depth at sigma0 = {target:.3f} kg m$^{{-3}}$"
@@ -566,7 +573,7 @@ def run(
     )
     logging.info(f"{len(overlapping)} fronts have bbox overlapping the tile")
 
-    # ---- Step 4: load the labels tile window + remap to face-local. -------
+    # ---- Step 4: load the labels tile window (already rect-grid). ---------
     rect_j_slice = slice(rect_j_start, rect_j_start + TILE_SIZE)
     rect_i_slice = slice(rect_i_start, rect_i_start + TILE_SIZE)
     labels_rect = load_labels_tile(labels_path, rect_j_slice, rect_i_slice)
@@ -574,9 +581,12 @@ def run(
     j_tile_lookup, i_tile_lookup = build_tile_lookup(
         rect_i_start, rect_j_start, face_index,
     )
-    labels_face = _remap_labels_to_face(
-        labels_rect, j_tile_lookup, i_tile_lookup,
-    )
+
+    # Modification 1: the imshow, labels overlay and lon/lat twin axes must
+    # share one frame, otherwise rotated faces render the tile 90 deg off.
+    # z_iso is in face-local coords (sigma0 is), so gather it onto the
+    # rect-grid tile-local frame the rest of the plot lives in.
+    z_iso_rect = _remap_field_to_rect(z_iso, j_tile_lookup, i_tile_lookup)
 
     # ---- Step 5: render the PNG. ------------------------------------------
     png_name = (
@@ -586,8 +596,8 @@ def run(
     png_path = outdir / png_name
     logging.info(f"Rendering isopycnal depth plot: {png_path}")
     plot_isopycnal_depth(
-        z_iso=z_iso,
-        labels_face=labels_face,
+        z_iso_rect=z_iso_rect,
+        labels_rect=labels_rect,
         front_labels=overlapping["label"].values,
         XC=XC, YC=YC,
         j_tile_lookup=j_tile_lookup, i_tile_lookup=i_tile_lookup,
