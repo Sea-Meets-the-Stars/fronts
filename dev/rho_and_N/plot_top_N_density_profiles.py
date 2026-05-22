@@ -59,24 +59,26 @@ from matplotlib import cm  # noqa: E402
 # repo helpers ------------------------------------------------------------
 from fronts.properties.io import load_front_index
 
-# tile_mapping lives next to generate_tile_density.py in a sibling repo.
-# We mirror the sys.path trick used by generate_tile_density.py itself.
-_TILE_MAPPING_DIR = Path(
-    "/home/xavier/Oceanography/python/llc4320-native-grid-preprocessing/"
-    "dev/pot_density"
+# Shared utilities (formerly inlined here) live in density_utils.py next to
+# this script.  Make sure that directory is importable regardless of how the
+# script is invoked, then pull in the helpers under the underscore-prefixed
+# names the rest of this module already uses.
+_THIS_DIR = Path(__file__).resolve().parent
+if str(_THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(_THIS_DIR))
+from density_utils import (  # noqa: E402
+    TILE_SIZE,
+    DATE_FMT,
+    timestamp_to_stamp as _timestamp_to_stamp,
+    load_density_tile as _load_density_tile,
+    tile_scalar as _tile_scalar,
+    build_tile_lookup as _build_tile_lookup,
+    filter_overlapping_fronts as _filter_overlapping_fronts,
+    load_gradb2_tile as _load_gradb2_tile,
+    attach_lonlat_twins as _attach_lonlat_twins,
 )
-if str(_TILE_MAPPING_DIR) not in sys.path:
-    sys.path.insert(0, str(_TILE_MAPPING_DIR))
-import tile_mapping  # noqa: E402
 
 from IPython import embed
-
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-TILE_SIZE = tile_mapping.TILE_SIZE  # 720
-DATE_FMT  = "%Y-%m-%d %H:%M:%S"
 
 # Columns we write to (and read back from) the cached CSV.
 # The fixed columns; the last column carries the chosen strength metric
@@ -111,26 +113,15 @@ MLD_REFERENCE_DEPTH_M = 10.0  # metres — Bodner et al. reference depth (≈ 9.
 G_GRAV   = 9.81     # m s^-2
 RHO_REF  = 1027.0   # kg m^-3  (reference seawater density for sigma0)
 
+# Isopycnal-depth threshold and temperature-MLD threshold for Modification 11
+# (definitions copied verbatim from prompts/fronts_N.md).
+ISOPYCNAL_DELTA_SIGMA0 = 0.125  # kg m^-3 above 10 m density
+TMLD_DELTA_THETA       = 0.2    # K (positive: theta drops by this much)
+
 
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
-
-def _timestamp_to_stamp(timestamp: str) -> str:
-    """Convert 'YYYY-MM-DD HH:MM:SS' -> 'YYYYMMDDTHH' for filenames.
-
-    Parameters
-    ----------
-    timestamp : str
-        Timestamp string matching ``DATE_FMT`` ('YYYY-MM-DD HH:MM:SS').
-
-    Returns
-    -------
-    str
-        Compact filename-safe stamp of the form ``'YYYYMMDDTHH'``.
-    """
-    return datetime.strptime(timestamp, DATE_FMT).strftime("%Y%m%dT%H")
-
 
 def _build_stem(tile_index: int, timestamp: str, N: int) -> str:
     """Standardised output filename stem shared by CSV + PNGs.
@@ -223,6 +214,75 @@ def _mixed_layer_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | Non
     '''
 
 
+def _isopycnal_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | None:
+    """Isopycnal-depth diagnostic (Modification 11, Definition 2).
+
+    Same convention as :func:`_mixed_layer_depth` but using the larger
+    ``ISOPYCNAL_DELTA_SIGMA0`` (0.125 kg m^-3) threshold above the 10 m
+    reference density.  Returns the deepest LLC level where the sigma0
+    deviation from the 10 m value has not yet exceeded the threshold.
+
+    Parameters
+    ----------
+    sigma0_profile : numpy.ndarray
+        1-D potential density column, length ``K``, in kg m^-3.
+    Z : numpy.ndarray
+        1-D depth array, length ``K``, in metres (negative downward).
+
+    Returns
+    -------
+    float or None
+        Depth in metres (negative downward) of the deepest level still on the
+        well-mixed side of the threshold, or ``None`` if the profile is empty
+        or all-NaN at the reference depth.
+    """
+    if sigma0_profile.size == 0:
+        return None
+    k_10m = int(np.abs(np.abs(Z) - float(MLD_REFERENCE_DEPTH_M)).argmin())
+    surface = float(sigma0_profile[k_10m])
+    if not np.isfinite(surface):
+        return None
+    delta = sigma0_profile - surface
+    z_masked = np.where(delta <= ISOPYCNAL_DELTA_SIGMA0)
+    return float(Z[z_masked].min())
+
+
+def _temperature_mld(theta_profile: np.ndarray, Z: np.ndarray) -> float | None:
+    """Temperature mixed-layer depth (Modification 11, Definition 3).
+
+    Same convention as :func:`_mixed_layer_depth` but using a temperature
+    decrease of ``TMLD_DELTA_THETA`` (0.2 K) relative to the 10 m theta value.
+    Returns the deepest LLC level where the temperature has not yet dropped
+    by the threshold amount.
+
+    Parameters
+    ----------
+    theta_profile : numpy.ndarray
+        1-D potential temperature column, length ``K``, in K or degC (only
+        the difference matters).
+    Z : numpy.ndarray
+        1-D depth array, length ``K``, in metres (negative downward).
+
+    Returns
+    -------
+    float or None
+        Depth in metres (negative downward) of the deepest level still within
+        ``TMLD_DELTA_THETA`` of the 10 m temperature, or ``None`` if the
+        profile is empty or all-NaN at the reference depth.
+    """
+    if theta_profile.size == 0:
+        return None
+    k_10m = int(np.abs(np.abs(Z) - float(MLD_REFERENCE_DEPTH_M)).argmin())
+    theta_ref = float(theta_profile[k_10m])
+    if not np.isfinite(theta_ref):
+        return None
+    # theta typically decreases with depth in a stable column; the mixed layer
+    # is where theta_ref - theta <= 0.2.
+    delta_t = theta_ref - theta_profile
+    z_masked = np.where(delta_t <= TMLD_DELTA_THETA)
+    return float(Z[z_masked].min())
+
+
 def _resolve_subregion(
     i_rect_range: tuple[int, int] | None,
     j_rect_range: tuple[int, int] | None,
@@ -300,118 +360,56 @@ def _make_color_cycle(N: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Density-tile + global file loading
+# Temperature-tile loading (kept here -- specific to this script)
 # ---------------------------------------------------------------------------
 
-def _load_gradb2_tile(
-    path: Path, rect_j_slice: slice, rect_i_slice: slice,
+def _load_theta_tile(
+    path: Path, tile_index: int, rect_i_start: int, rect_j_start: int,
 ) -> np.ndarray:
-    """Load just the tile window of the global gradb2 field.
+    """Open the temperature tile NetCDF and return its ``Theta(k, j, i)`` array.
 
-    Supports two file formats:
-      * ``.npy`` -- memory-mapped, sliced directly.
-      * ``.nc`` / ``.nc4`` -- opened lazily with xarray and sliced. The
-        variable name is auto-detected (first 2D variable, preferring one
-        called 'gradb2').
+    Used only by Modification 11 (the MLD diagnostics plot).  The theta tile
+    must describe the same LLC4320 tile as the density tile; the function
+    cross-checks ``tile_index`` plus the rect-grid origin to catch mismatched
+    file pairs.
 
     Parameters
     ----------
     path : pathlib.Path
-        Path to the global gradb2 file (``.npy``, ``.nc`` or ``.nc4``).
-    rect_j_slice : slice
-        Row (j-axis) slice on the global rect grid, length ``TILE_SIZE``.
-    rect_i_slice : slice
-        Column (i-axis) slice on the global rect grid, length ``TILE_SIZE``.
+        Path to the temperature-tile NetCDF (produced by ``generate_tile.py``).
+    tile_index : int
+        Tile index from the density tile -- the theta tile must match.
+    rect_i_start, rect_j_start : int
+        Rect-grid origin from the density tile -- the theta tile must match.
 
     Returns
     -------
     numpy.ndarray
-        In-RAM float array of shape ``(TILE_SIZE, TILE_SIZE)`` holding the
-        gradb2 values inside the tile window.
-
-    Raises
-    ------
-    ValueError
-        If the file extension is unsupported or no usable 2D variable is
-        found in the NetCDF.
-    """
-    suf = path.suffix.lower()
-    if suf == ".npy":
-        arr = np.load(path, mmap_mode="r")
-        return np.array(arr[rect_j_slice, rect_i_slice])
-    if suf in (".nc", ".nc4", ".netcdf"):
-        ds = xr.open_dataset(path)
-        var_name = "gradb2" if "gradb2" in ds.data_vars else next(
-            (v for v in ds.data_vars if ds[v].ndim == 2), None,
-        )
-        if var_name is None:
-            raise ValueError(
-                f"Could not find a 2D variable in {path} "
-                f"(data_vars={list(ds.data_vars)})."
-            )
-        # xarray uses (y, x) dim names per the NetCDF; slice with isel by
-        # position so we don't have to guess the dim name.
-        da = ds[var_name]
-        dim_y, dim_x = da.dims
-        return da.isel({dim_y: rect_j_slice, dim_x: rect_i_slice}).values
-    raise ValueError(f"Unsupported gradb2 file extension: {path.suffix}")
-
-
-def _load_density_tile(path: Path) -> xr.Dataset:
-    """Open the density-tile NetCDF and assert the bits we depend on are present.
-
-    ``generate_tile_density.py`` writes some provenance as attrs and some as
-    scalar coords; we accept either location.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Path to the density-tile NetCDF produced by ``generate_tile_density.py``.
-
-    Returns
-    -------
-    xarray.Dataset
-        Lazy dataset holding ``sigma0(k, j, i)``, plus the ``XC``, ``YC``,
-        ``Z`` coordinates and the ``tile_index``/``face_index``/
-        ``rect_i_start``/``rect_j_start``/``timestamp`` provenance fields.
+        Float array of shape ``(K, TILE_SIZE, TILE_SIZE)`` holding theta in
+        the same face-local ``(j, i)`` frame as ``sigma0``.
 
     Raises
     ------
     KeyError
-        If a required provenance field or the ``sigma0`` variable is absent.
+        If the file lacks a ``Theta`` variable.
+    RuntimeError
+        If the theta tile describes a different tile than the density tile.
     """
     ds = xr.open_dataset(path)
-    for key in ("tile_index", "face_index", "rect_i_start", "rect_j_start",
-                "timestamp"):
-        if key not in ds.attrs and key not in ds.coords:
-            raise KeyError(
-                f"Density tile {path} missing required field '{key}' "
-                "(checked attrs and coords)."
-            )
-    if "sigma0" not in ds.data_vars:
-        raise KeyError(f"Density tile {path} has no 'sigma0' variable.")
-    return ds
-
-
-def _tile_scalar(ds: xr.Dataset, key: str):
-    """Lift a scalar-valued provenance field from attrs or coords.
-
-    Parameters
-    ----------
-    ds : xarray.Dataset
-        The density-tile dataset returned by :func:`_load_density_tile`.
-    key : str
-        Name of the scalar field to retrieve.
-
-    Returns
-    -------
-    object
-        Native Python value of the field: ``ds.attrs[key]`` if present,
-        otherwise ``ds.coords[key].values.item()``.
-    """
-    if key in ds.attrs:
-        return ds.attrs[key]
-    return ds.coords[key].values.item()
+    if "Theta" not in ds.data_vars:
+        raise KeyError(f"Theta tile {path} has no 'Theta' variable.")
+    theta_tile_idx = int(_tile_scalar(ds, "tile_index"))
+    theta_i0       = int(_tile_scalar(ds, "rect_i_start"))
+    theta_j0       = int(_tile_scalar(ds, "rect_j_start"))
+    if (theta_tile_idx != tile_index
+            or theta_i0 != rect_i_start
+            or theta_j0 != rect_j_start):
+        raise RuntimeError(
+            f"Theta tile mismatch: theta has tile_index={theta_tile_idx} "
+            f"rect_i={theta_i0} rect_j={theta_j0}; density has "
+            f"tile_index={tile_index} rect_i={rect_i_start} rect_j={rect_j_start}."
+        )
+    return ds["Theta"].values
 
 
 def _resolve_strength_col(
@@ -504,113 +502,6 @@ def _join_index_and_properties(
     joined = index_df.merge(props_slim, on="label", how="inner")
     joined = joined.dropna(subset=[strength_col])
     return joined
-
-
-def _filter_overlapping_fronts(
-    fronts: pd.DataFrame,
-    rect_i_start: int, rect_j_start: int,
-    sub_i_lo: int = 0, sub_i_hi: int = TILE_SIZE - 1,
-    sub_j_lo: int = 0, sub_j_hi: int = TILE_SIZE - 1,
-) -> pd.DataFrame:
-    """Keep fronts whose bbox intersects the (possibly restricted) tile window.
-
-    Bboxes follow the convention used by
-    ``fronts.properties.io.write_front_index`` (min_col, min_row, max_col, max_row),
-    which are inclusive both ends.  A front overlaps the window iff the two
-    inclusive boxes share at least one pixel.
-
-    Parameters
-    ----------
-    fronts : pandas.DataFrame
-        Frame with columns ``x0, y0, x1, y1`` (bbox in rect-grid pixel indices).
-    rect_i_start : int
-        Column origin of the tile on the global rect grid.
-    rect_j_start : int
-        Row origin of the tile on the global rect grid.
-    sub_i_lo, sub_i_hi : int, optional
-        Tile-local inclusive sub-region in i (default: full tile width).
-    sub_j_lo, sub_j_hi : int, optional
-        Tile-local inclusive sub-region in j (default: full tile height).
-
-    Returns
-    -------
-    pandas.DataFrame
-        Copy of ``fronts`` filtered to rows whose bbox overlaps the window
-        ``[rect_i_start + sub_i_lo, rect_i_start + sub_i_hi]`` x
-        ``[rect_j_start + sub_j_lo, rect_j_start + sub_j_hi]``.
-    """
-    i0 = rect_i_start + sub_i_lo
-    i1 = rect_i_start + sub_i_hi
-    j0 = rect_j_start + sub_j_lo
-    j1 = rect_j_start + sub_j_hi
-    # Note: x0/x1 are columns (i-axis), y0/y1 are rows (j-axis).  Bboxes are
-    # inclusive, so use <= on both ends.
-    mask = (
-        (fronts["x0"] <= i1) & (fronts["x1"] >= i0) &
-        (fronts["y0"] <= j1) & (fronts["y1"] >= j0)
-    )
-    return fronts.loc[mask].copy()
-
-
-# ---------------------------------------------------------------------------
-# Rect -> face-local lookup, restricted to the tile
-# ---------------------------------------------------------------------------
-
-def _build_tile_lookup(
-    rect_i_start: int, rect_j_start: int, expected_face: int,
-):
-    """Return tile-local face-index lookup maps (range 0..719).
-
-    The raw lookup returns *full-face* indices (0..4319); we subtract the
-    tile's face offset so the result indexes the density tile's
-    ``(j, i)`` axes directly.  A sanity check confirms every pixel of the
-    rect tile lives on the expected face (chunk alignment guarantees this).
-
-    Parameters
-    ----------
-    rect_i_start : int
-        Column origin of the tile on the global rect grid.
-    rect_j_start : int
-        Row origin of the tile on the global rect grid.
-    expected_face : int
-        Face index (0..12) the tile must lie on, taken from the density-tile
-        provenance.
-
-    Returns
-    -------
-    j_tile_lookup : numpy.ndarray
-        ``int16`` array of shape ``(TILE_SIZE, TILE_SIZE)`` mapping each
-        rect-grid tile-local pixel to its face-local j (0..719).
-    i_tile_lookup : numpy.ndarray
-        ``int16`` array of shape ``(TILE_SIZE, TILE_SIZE)`` mapping each
-        rect-grid tile-local pixel to its face-local i (0..719).
-
-    Raises
-    ------
-    RuntimeError
-        If the tile spans multiple faces, or if the face it lives on differs
-        from ``expected_face``.
-    """
-    face_id_map, j_face_map, i_face_map = tile_mapping._get_lookup_arrays()
-    rect_j_slice = slice(rect_j_start, rect_j_start + TILE_SIZE)
-    rect_i_slice = slice(rect_i_start, rect_i_start + TILE_SIZE)
-    face_id_tile = face_id_map[rect_j_slice, rect_i_slice]
-    j_face_full  = j_face_map[rect_j_slice, rect_i_slice]
-    i_face_full  = i_face_map[rect_j_slice, rect_i_slice]
-    unique_faces = np.unique(face_id_tile)
-    if unique_faces.size != 1 or int(unique_faces[0]) != int(expected_face):
-        raise RuntimeError(
-            f"Tile at rect (j={rect_j_start}, i={rect_i_start}) maps to faces "
-            f"{unique_faces.tolist()}, expected face_index={expected_face} "
-            "from the density tile attrs."
-        )
-    # The tile is 720x720 on the face, so the min over the lookup gives the
-    # tile's offset within the face.  Subtract to get tile-local (0..719).
-    j_face_offset = int(j_face_full.min())
-    i_face_offset = int(i_face_full.min())
-    j_tile_lookup = (j_face_full - j_face_offset).astype(np.int16)
-    i_tile_lookup = (i_face_full - i_face_offset).astype(np.int16)
-    return j_tile_lookup, i_tile_lookup
 
 
 # ---------------------------------------------------------------------------
@@ -809,7 +700,7 @@ def _load_cached_csv(path: Path, N: int) -> tuple[pd.DataFrame, str]:
     ------
     ValueError
         If any fixed column is missing, the row count differs from ``N``, or
-        the CSV does not contain exactly one extra (strength) column.
+        no strength-style column is present alongside the fixed set.
     """
     df = pd.read_csv(path)
     missing = [c for c in CSV_FIXED_COLUMNS if c not in df.columns]
@@ -824,13 +715,21 @@ def _load_cached_csv(path: Path, N: int) -> tuple[pd.DataFrame, str]:
             "Delete or rename the stale CSV (or pass --N to match)."
         )
     extra = [c for c in df.columns if c not in CSV_FIXED_COLUMNS]
-    if len(extra) != 1:
+    # The strength column is whichever extra starts with 'gradb2_' (the spec'd
+    # families: gradb2_p90 / _median / _mean / ...).  Any other extras (e.g.
+    # 'z_mld' added by a downstream step) are passed through unchanged so the
+    # cached CSV remains forward-compatible.
+    strength_candidates = [c for c in extra if c.startswith("gradb2_")]
+    if not strength_candidates:
         raise ValueError(
-            f"Cached CSV {path} should have exactly one strength column "
-            f"alongside the fixed set; found extras {extra}."
+            f"Cached CSV {path} has no strength column starting with "
+            f"'gradb2_' alongside the fixed set; extras={extra}."
         )
-    strength_col = extra[0]
-    return df[CSV_FIXED_COLUMNS + [strength_col]], strength_col
+    strength_col = strength_candidates[0]
+    # Preserve fixed columns first, then strength, then any other extras the
+    # CSV happened to carry, so downstream plots can read columns like z_mld.
+    other_extras = [c for c in extra if c != strength_col]
+    return df[CSV_FIXED_COLUMNS + [strength_col] + other_extras], strength_col
 
 
 # ---------------------------------------------------------------------------
@@ -1042,6 +941,220 @@ def _plot_n2_profiles(
     plt.close(fig)
 
 
+def _plot_mld_diagnostics(
+    peaks: pd.DataFrame,
+    sigma0: np.ndarray,
+    theta: np.ndarray,
+    Z: np.ndarray,
+    colors: np.ndarray,
+    tile_index: int,
+    timestamp: str,
+    strength_col: str,
+    out_path: Path,
+    sub_i_lo: int = 0,
+    sub_i_hi: int = TILE_SIZE - 1,
+    sub_j_lo: int = 0,
+    sub_j_hi: int = TILE_SIZE - 1,
+    has_subregion: bool = False,
+) -> None:
+    """Plot density profiles + three MLD diagnostics zoomed on the upper ocean.
+
+    Modification 11.  For each accepted front this draws the sigma0(z) line
+    (same colour as the main density-profile plot) and three markers at the
+    depths returned by
+
+        * :func:`_mixed_layer_depth`  -- circle      ('o', delta sigma = 0.03)
+        * :func:`_isopycnal_depth`    -- square      ('s', delta sigma = 0.125)
+        * :func:`_temperature_mld`    -- triangle    ('^', delta theta = 0.2 K)
+
+    Markers are open (facecolor='none') in the front's colour so the underlying
+    line is visible.  The y-axis is auto-zoomed to ~1.5x the deepest of the
+    three depths across all fronts so the upper-ocean structure fills the
+    panel.
+
+    Parameters
+    ----------
+    peaks : pandas.DataFrame
+        Output of :func:`_find_top_n_peaks` (or the cached CSV); each row is
+        one accepted front.  ``j_tile`` and ``i_tile`` columns are required.
+    sigma0 : numpy.ndarray
+        Potential density, shape ``(K, TILE_SIZE, TILE_SIZE)``.
+    theta : numpy.ndarray
+        Potential temperature, shape ``(K, TILE_SIZE, TILE_SIZE)``, on the
+        same grid as ``sigma0``.
+    Z : numpy.ndarray
+        1-D depth array (m, negative downward), length ``K``.
+    colors : numpy.ndarray
+        RGBA array of shape ``(N, 4)`` from :func:`_make_color_cycle`; matched
+        with the density-profile plot.
+    tile_index : int
+        Tile index used in the panel title.
+    timestamp : str
+        Timestamp used in the panel title.
+    strength_col : str
+        Strength column name used in the title (for traceability).
+    out_path : pathlib.Path
+        Path to save the PNG (caller is responsible for the ``MLD_`` prefix).
+    sub_i_lo, sub_i_hi, sub_j_lo, sub_j_hi : int, optional
+        Inclusive tile-local pixel bounds used by Modification 12 when
+        computing the median density profile across the tile (or sub-region).
+        Default: full tile.
+    has_subregion : bool, optional
+        Pass-through flag controlling only the legend label of the median
+        line (``"median (sub-region)"`` vs ``"median (tile)"``).
+
+    Returns
+    -------
+    None
+        The figure is written to ``out_path`` and closed.
+    """
+    # Wider-than-tall figure per the updated Modification 11 spec; the wider
+    # aspect leaves more room for the two side-by-side legends.
+    fig, ax = plt.subplots(figsize=(12, 7))
+    # Track the deepest diagnostic depth across all fronts so the y-axis can
+    # auto-zoom on the upper ocean; also collect every sigma0 profile so we
+    # can tighten the x-axis to the data range that survives the y-zoom.
+    deepest = 0.0  # most negative depth seen
+    sigma0_profiles: list[np.ndarray] = []
+    for n, row in peaks.reset_index(drop=True).iterrows():
+        j_t, i_t = int(row["j_tile"]), int(row["i_tile"])
+        sigma0_profile = sigma0[:, j_t, i_t]
+        theta_profile  = theta[:, j_t, i_t]
+        sigma0_profiles.append(sigma0_profile)
+        line, = ax.plot(
+            sigma0_profile, Z, color=colors[n], label=str(row["name"]),
+        )
+        # Compute the three diagnostic depths.  Each returns None when the
+        # column never crosses the threshold (rare for an LLC profile).
+        z_mld  = _mixed_layer_depth(sigma0_profile, Z)
+        z_iso  = _isopycnal_depth(sigma0_profile, Z)
+        z_tmld = _temperature_mld(theta_profile, Z)
+        # Plot markers at (sigma0_at_z, z) for each defined diagnostic.
+        for z_def, marker in (
+            (z_mld,  "o"),
+            (z_iso,  "s"),
+            (z_tmld, "^"),
+        ):
+            if z_def is None:
+                continue
+            sigma0_at = float(np.interp(z_def, Z[::-1], sigma0_profile[::-1]))
+            ax.plot(
+                sigma0_at, z_def,
+                marker=marker, markersize=8,
+                markerfacecolor="none",
+                markeredgecolor=colors[n], markeredgewidth=1.5,
+                linestyle="none",
+            )
+            if z_def < deepest:
+                deepest = z_def
+
+    # ---- Modification 12: median sigma0/theta profile over the (sub-)tile.
+    # Slice both 3D arrays to the requested window and take the median across
+    # the spatial axes for every depth level.  Using nanmedian shields us from
+    # the rare NaN that creeps in from masked/land cells, though the LLC tiles
+    # are typically ocean-only.
+    j_slice = slice(sub_j_lo, sub_j_hi + 1)
+    i_slice = slice(sub_i_lo, sub_i_hi + 1)
+    sigma0_median = np.nanmedian(sigma0[:, j_slice, i_slice], axis=(1, 2))
+    theta_median  = np.nanmedian(theta[:, j_slice, i_slice], axis=(1, 2))
+    sigma0_profiles.append(sigma0_median)  # feed into the x-axis tightening below
+    median_label = (
+        "median (sub-region)" if has_subregion else "median (tile)"
+    )
+    # Solid black line, slightly thicker than the per-front lines so it stays
+    # readable against the colourful background; high zorder keeps it on top.
+    ax.plot(
+        sigma0_median, Z,
+        color="black", linewidth=2.2, linestyle="-",
+        label=median_label, zorder=5,
+    )
+    # Filled black markers for the median's three MLD diagnostics -- the
+    # filled face distinguishes them from the open per-front markers.
+    z_mld_med  = _mixed_layer_depth(sigma0_median, Z)
+    z_iso_med  = _isopycnal_depth(sigma0_median, Z)
+    z_tmld_med = _temperature_mld(theta_median, Z)
+    for z_def, marker in (
+        (z_mld_med,  "o"),
+        (z_iso_med,  "s"),
+        (z_tmld_med, "^"),
+    ):
+        if z_def is None:
+            continue
+        sigma0_at = float(np.interp(z_def, Z[::-1], sigma0_median[::-1]))
+        ax.plot(
+            sigma0_at, z_def,
+            marker=marker, markersize=10,
+            markerfacecolor="black", markeredgecolor="black",
+            markeredgewidth=1.5, linestyle="none",
+            zorder=6,
+        )
+        if z_def < deepest:
+            deepest = z_def
+
+    ax.set_xlabel(r"$\sigma_0$ [kg m$^{-3}$]")
+    ax.set_ylabel("depth Z [m]")
+    # Auto-zoom: 1.5x the deepest diagnostic, clamped to [-500, 0] so we never
+    # extend past the rest of the plots' depth range.
+    y_bot = max(-500.0, 1.5 * float(deepest)) if deepest < 0 else -200.0
+    ax.set_ylim(y_bot, 0)
+    # Modification 11 update: x-axis stops at the max sigma0 in the visible
+    # depth window so the panel isn't padded by deep-water densities.
+    in_window = (Z >= y_bot) & (Z <= 0)
+    if np.any(in_window):
+        sigma0_window = np.concatenate(
+            [p[in_window] for p in sigma0_profiles]
+        )
+        sigma0_window = sigma0_window[np.isfinite(sigma0_window)]
+        if sigma0_window.size:
+            x_min = float(np.min(sigma0_window))
+            x_max = float(np.max(sigma0_window))
+            # Tiny pad on the left so markers near x_min aren't clipped.
+            pad = 0.02 * (x_max - x_min) if x_max > x_min else 0.05
+            ax.set_xlim(x_min - pad, x_max)
+    # Minor ticks for finer reading (consistent with the other depth plots).
+    ax.minorticks_on()
+    ax.tick_params(which="minor", length=3)
+    ax.set_title(
+        f"Tile {tile_index}  {timestamp}\n"
+        f"MLD diagnostics  --  top-{len(peaks)} fronts by {strength_col}"
+    )
+    # Build a legend with two parts: the per-front colour list, and a
+    # symbol-key explaining the three definitions.  The colour legend goes
+    # outside-right; the symbol-key is in-panel.
+    front_legend = ax.legend(
+        loc="upper left", bbox_to_anchor=(1.02, 1.0),
+        fontsize="x-small", borderaxespad=0.0, title="front",
+    )
+    ax.add_artist(front_legend)  # keep when we add a second legend below
+    symbol_handles = [
+        plt.Line2D(
+            [0], [0], marker=m, markersize=8, linestyle="none",
+            markerfacecolor="none", markeredgecolor="black",
+            markeredgewidth=1.5, label=lab,
+        )
+        for m, lab in (
+            ("o", f"MLD (Δσ₀ ≥ {MLD_DELTA_SIGMA0})"),
+            ("s", f"Isopycnal depth (Δσ₀ ≥ {ISOPYCNAL_DELTA_SIGMA0})"),
+            ("^", f"T-MLD (Δθ ≥ {TMLD_DELTA_THETA} K)"),
+        )
+    ]
+    symbol_legend = ax.legend(
+        handles=symbol_handles, loc="upper right",
+        fontsize="medium", title="definition",
+    )
+    ax.grid(True, which="major", alpha=0.3)
+    ax.grid(True, which="minor", alpha=0.1)
+    fig.tight_layout()
+    # Both legends are persisted as separate artists; pass them as
+    # bbox_extra_artists so bbox_inches='tight' makes room for the per-front
+    # legend (which sits outside the axes on the right).
+    fig.savefig(
+        out_path, dpi=140, bbox_inches="tight",
+        bbox_extra_artists=(front_legend, symbol_legend),
+    )
+    plt.close(fig)
+
+
 def _plot_gradb2_overlay(
     peaks: pd.DataFrame,
     gradb2_tile: np.ndarray,
@@ -1131,42 +1244,8 @@ def _plot_gradb2_overlay(
         f"log10(gradb2) with top-{len(peaks)} peaks"
     )
 
-    # ---- Modification 4: secondary lon/lat axes. --------------------------
-    # The lookups give the face-local (j_tile, i_tile) for each rect-grid
-    # tile-local pixel; XC/YC at those positions give lon/lat in the rect
-    # frame.  Because the face can be rotated relative to the rect grid, lon
-    # generally varies with both i_local and j_local; we sample at the mid-row
-    # (resp. mid-column) so the secondary tick labels reflect the centre of
-    # the panel.
-    mid_j = TILE_SIZE // 2
-    mid_i = TILE_SIZE // 2
-    lon_along_i = XC[
-        j_tile_lookup[mid_j, :], i_tile_lookup[mid_j, :],
-    ]  # length TILE_SIZE
-    lat_along_j = YC[
-        j_tile_lookup[:, mid_i], i_tile_lookup[:, mid_i],
-    ]  # length TILE_SIZE
-
-    # Match the secondary axes' tick positions to the primary axes' ticks so
-    # the two label rows line up.  Label each tick with the lon/lat at the
-    # midpoint of the panel (rounded to 2 decimals).
-    ax_lon = ax.twiny()
-    ax_lon.set_xlim(ax.get_xlim())
-    i_ticks = [t for t in ax.get_xticks() if 0 <= t <= TILE_SIZE]
-    ax_lon.set_xticks(i_ticks)
-    ax_lon.set_xticklabels(
-        [f"{float(lon_along_i[min(int(t), TILE_SIZE - 1)]):.2f}" for t in i_ticks]
-    )
-    ax_lon.set_xlabel("longitude (mid-row sample)")
-
-    ax_lat = ax.twinx()
-    ax_lat.set_ylim(ax.get_ylim())
-    j_ticks = [t for t in ax.get_yticks() if 0 <= t <= TILE_SIZE]
-    ax_lat.set_yticks(j_ticks)
-    ax_lat.set_yticklabels(
-        [f"{float(lat_along_j[min(int(t), TILE_SIZE - 1)]):.2f}" for t in j_ticks]
-    )
-    ax_lat.set_ylabel("latitude (mid-column sample)")
+    # Modification 4: secondary lon/lat axes -- shared helper in density_utils.
+    _, ax_lat = _attach_lonlat_twins(ax, j_tile_lookup, i_tile_lookup, XC, YC)
 
     # Place the colorbar past the latitude axis on the right so they don't
     # overlap.  Anchor the colorbar to ax_lat (the rightmost twin axis) and
@@ -1197,6 +1276,7 @@ def run(
     strength_col: str,
     i_rect_range: tuple[int, int] | None = None,
     j_rect_range: tuple[int, int] | None = None,
+    theta_path: Path | None = None,
 ) -> None:
     """End-to-end: load tile -> resolve N peaks -> write CSV -> render plots.
 
@@ -1229,6 +1309,10 @@ def run(
         sub-region (Modification 9).  ``None`` means use the full tile.
     j_rect_range : tuple of (int, int) or None, optional
         Inclusive global rect-grid row bounds (see ``i_rect_range``).
+    theta_path : pathlib.Path or None, optional
+        Path to a temperature tile NetCDF.  When supplied (Modification 11)
+        an extra ``MLD_{stem}.png`` is written with three MLD diagnostics
+        per front; when omitted, that figure is skipped.
 
     Returns
     -------
@@ -1386,6 +1470,27 @@ def run(
     )
     logging.info(f"Wrote N^2 profile plot: {n2_png}")
 
+    # Modification 11: optional MLD-diagnostics plot.  Only generated when the
+    # caller passed a theta tile; otherwise we log a one-liner and move on.
+    if theta_path is not None:
+        logging.info(f"Loading theta tile: {theta_path}")
+        theta = _load_theta_tile(
+            theta_path, tile_index, rect_i_start, rect_j_start,
+        )
+        mld_png = outdir / f"MLD_{stem}.png"
+        _plot_mld_diagnostics(
+            peaks=peaks, sigma0=sigma0, theta=theta, Z=Z, colors=colors,
+            tile_index=tile_index, timestamp=timestamp,
+            strength_col=strength_col,
+            out_path=mld_png,
+            sub_i_lo=sub_i_lo, sub_i_hi=sub_i_hi,
+            sub_j_lo=sub_j_lo, sub_j_hi=sub_j_hi,
+            has_subregion=has_subregion,
+        )
+        logging.info(f"Wrote MLD diagnostics plot: {mld_png}")
+    else:
+        logging.info("No --theta given; skipping MLD diagnostics plot.")
+
     overlay_png = outdir / f"{stem}_gradb2map.png"
     _plot_gradb2_overlay(
         peaks=peaks, gradb2_tile=gradb2_tile, colors=colors,
@@ -1460,6 +1565,15 @@ def _parse_args(argv=None) -> argparse.Namespace:
                        "Optional inclusive global rect-grid row bounds. "
                        "Combines with --i-rect-range; either may be omitted."
                    ))
+    p.add_argument("--theta",             type=Path, default=None,
+                   help=(
+                       "Optional path to a temperature tile NetCDF "
+                       "(Modification 11). When supplied, an extra "
+                       "MLD_<stem>.png is written that compares the three "
+                       "MLD definitions (Mixed Layer, Isopycnal, "
+                       "Temperature MLD) per front. When omitted, the "
+                       "MLD diagnostics plot is skipped."
+                   ))
     return p.parse_args(argv)
 
 
@@ -1494,6 +1608,7 @@ def main(argv=None) -> None:
         strength_col=args.strength_col,
         i_rect_range=tuple(args.i_rect_range) if args.i_rect_range else None,
         j_rect_range=tuple(args.j_rect_range) if args.j_rect_range else None,
+        theta_path=args.theta,
     )
 
 
