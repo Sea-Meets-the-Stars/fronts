@@ -125,6 +125,16 @@ Here are some additional specifications:
 - Use a different color for each PDF
 - Label each PDF
 
+## (6) Turner angle / geographic
+
+Given a range of Turner angle and grad b values, show the geographic location of the fronts on a global map.  Place a marker at the lat, lon of each front.
+
+Here are some additional specifications:
+
+- Show land in grey
+- Calculate Turner angle from the mean gradient fields
+- Calculate gradb from the p90 of the gradb2 field, if it exists otherwise use the mean
+
 ### Modifications
 
 - Show strain_mag/f on a log-scale (optional)

@@ -35,10 +35,11 @@ figures_dir = os.path.join(
 
 # Timestamp used across figures
 TIMESTAMP = '2012-11-09T12_00_00'
-
+RUN_TAG = 'v3_bin_D'
+VERSION = '3'
 
 def _load_subregion(field_name, row_slice, col_slice,
-                    version='2'):
+                    version=VERSION):
     """Load a sub-region of a derived field via xarray slicing."""
     fpath = os.path.join(
         derived_dir,
@@ -73,8 +74,8 @@ def _find_subregion(target_lat, target_lon, half_width=60):
 
 def fig_turner_vs_gradb(
     outfile: str = 'fig_turner_vs_gradb.png',
-    timestamp: str = '2012-11-09T12:00:00',
-    run_tag: str = 'v2_bin_D',
+    timestamp: str = TIMESTAMP,
+    run_tag: str = RUN_TAG,
     n_bins: int = 100,
 ):
     """2D histogram of Turner angle vs sqrt(gradb2) for individual fronts.
@@ -377,8 +378,8 @@ def fig_tsr_gradb(
 
 def fig_jpdf_properties(
     outfile: str = 'fig_jpdf_properties.png',
-    timestamp: str = '2012-11-09T12:00:00',
-    run_tag: str = 'v2_bin_D',
+    timestamp: str = TIMESTAMP,
+    run_tag: str = RUN_TAG,
     n_bins: int = 80,
     gradb_max: float = 1e-5,
 ):
@@ -462,8 +463,8 @@ def fig_jpdf_properties(
 
 def fig_thermal_vs_salinity(
     outfile: str = 'fig_thermal_vs_salinity.png',
-    timestamp: str = '2012-11-09T12:00:00',
-    run_tag: str = 'v2_bin_D',
+    timestamp: str = TIMESTAMP,
+    run_tag: str = RUN_TAG,
     gradb_min: float = 1e-7,
     tu_thermal: float = 45.0,
     tu_salinity: float = -45.0,
