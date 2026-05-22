@@ -10,6 +10,7 @@ Here are guidelines for writing code:
 
 - Use Python
 - If you need to run Python code, use the "ocean14" environment of conda.
+- Place imports at the top of the file.
 - Add inline comments to explain the effort
 - Reuse existing code when possible, throughout this fronts repository
 - Use exisisting I/O methods when possible, throughout this fronts repository.  These are in a number of io.py modules.
@@ -127,13 +128,15 @@ Here are some additional specifications:
 
 ## (6) Geographic view of fronts
 
-Generate a figure that shows the geographic location of the fronts on a global map.  Plot the fronts as  
+Generate a figure that shows the geographic location of the fronts on a global map.  Plot the fronts colored by its gradb2_mean value. 
 
 Here are some additional specifications:
 
+- See code in dev/rho_and_N/ for how to read in the front files.
 - Show land in grey
+- Include a color bar for the gradb2_mean values
 
-## (7) Turner angle / geographic
+## (7) Turner angle cut + geographic
 
 Given a range of Turner angle and grad b values, show the geographic location of the fronts on a global map.  Place a marker at the lat, lon of each front.
 
@@ -142,6 +145,7 @@ Here are some additional specifications:
 - Show land in grey
 - Calculate Turner angle from the mean gradient fields
 - Calculate gradb from the p90 of the gradb2 field, if it exists otherwise use the mean
+- For the defaults use Tu = [-50, -42]deg and gradb = [1e-6, 1e-4] s^-2
 
 ### Modifications
 
@@ -158,6 +162,8 @@ Here are some additional specifications:
 3. Read this file and generate Figure (3) under Figures.
 4. Read this file and generate Figure (4) under Figures.
 5. Read this file and generate Figure (5) under Figures.
+6. Read this file and generate Figure (6) under Figures.
+7. Read this file and generate Figure (7) under Figures.
 
 ## Modifications
 

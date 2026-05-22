@@ -2,6 +2,7 @@
 
 import os
 import numpy as np
+import pandas as pd
 
 from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm
@@ -11,9 +12,13 @@ import xarray as xr
 from scipy.ndimage import distance_transform_edt
 from skimage.measure import label as sklabel
 
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+
 from fronts.properties import io as prop_io
-from fronts.properties import viz_loaders 
+from fronts.properties import viz_loaders
 from fronts.properties.characteristics import turner_angle
+from fronts.properties.io import load_front_index, get_global_front_output_path
 from fronts.viz.properties import plot_property_jpdf
 from fronts.finding import pyboa
 from fronts.finding.sharpen import global_sharpen_pq
@@ -78,6 +83,7 @@ def fig_turner_vs_gradb(
     timestamp: str = TIMESTAMP,
     run_tag: str = RUN_TAG,
     n_bins: int = 100,
+    xreg:tuple=None,
 ):
     """2D histogram of Turner angle vs sqrt(gradb2) for individual fronts.
 
@@ -123,6 +129,11 @@ def fig_turner_vs_gradb(
     ax.set_xticklabels(
         [r'$-\pi/2$', r'$-\pi/4$', r'$0$', r'$\pi/4$', r'$\pi/2$'])
     ax.grid()     
+
+    # Show xreg?
+    if xreg is not None:
+        ax.axvline(x=xreg[0], color='red', linestyle='--')
+        ax.axvline(x=xreg[1], color='red', linestyle='--')
 
     # Save
     outpath = os.path.join(figures_dir, outfile)
@@ -570,11 +581,231 @@ def fig_thermal_vs_salinity(
     print(f"Saved {outpath}")
 
 
+def fig_geographic_fronts(
+    outfile: str = 'fig_geographic_fronts.png',
+    timestamp: str = TIMESTAMP,
+    run_tag: str = RUN_TAG,
+    projection: str = 'Mollweide',
+    marker_size: float = 0.5,
+    min_npix: int = 0,
+):
+    """Global map of front centroids coloured by gradb2_mean.
+
+    Front centroids are computed from the bounding-box midpoints in the
+    front-index parquet (label, name, x0, y0, x1, y1) and looked up against
+    the LLC coordinate file.  The colour scale is log of gradb2_mean.
+
+    Parameters
+    ----------
+    projection : str, optional
+        Cartopy global projection: 'Mollweide' (default) or 'PlateCarree'.
+    marker_size : float, optional
+        Scatter point size; defaults to 0.5 since there are ~135k fronts.
+    min_npix : int, optional
+        Optional filter to drop very small fronts.
+    """
+
+    # ---- Load the front tables (front index + properties parquets) ----
+    # The dev/rho_and_N scripts load these via load_front_index + the
+    # properties parquet directly; we do the same here.
+    index_path = get_global_front_output_path(
+        results_dir, timestamp, 'front_index', run_tag)
+    props_path = get_global_front_output_path(
+        results_dir, timestamp, 'properties', run_tag)
+    idx = load_front_index(index_path)
+    props = pd.read_parquet(props_path, engine='pyarrow')
+    # The properties table keys on 'flabel'; rename to merge cleanly.
+    props = props.rename(columns={'flabel': 'label'})
+    df = idx.merge(
+        props[['label', 'gradb2_mean', 'npix']], on='label', how='inner')
+    if min_npix > 0:
+        df = df[df['npix'] >= min_npix]
+    print(f'{len(df)} fronts to plot')
+
+    # ---- Centroid pixel coords from bbox midpoints ----
+    # x = column = longitude axis, y = row = latitude axis (per io.py).
+    cx = ((df['x0'].values + df['x1'].values) // 2).astype(int)
+    cy = ((df['y0'].values + df['y1'].values) // 2).astype(int)
+
+    # ---- Map pixel coords → lat/lon via the LLC coord file ----
+    # Coord file dims: x (12960, the 'row' axis), y (17280, the 'col' axis).
+    with xr.open_dataset(coords_file) as ds:
+        lat_arr = ds['lat'].values  # shape (12960, 17280) == (row, col)
+        lon_arr = ds['lon'].values
+    # Clip to be safe against any off-by-one bbox quirks.
+    cy = np.clip(cy, 0, lat_arr.shape[0] - 1)
+    cx = np.clip(cx, 0, lat_arr.shape[1] - 1)
+    lat = lat_arr[cy, cx]
+    lon = lon_arr[cy, cx]
+
+    # gradb2_mean spans many decades → log normalisation for the colour.
+    gradb2 = df['gradb2_mean'].values
+    valid = np.isfinite(gradb2) & (gradb2 > 0) & np.isfinite(lat) & np.isfinite(lon)
+    lat, lon, gradb2 = lat[valid], lon[valid], gradb2[valid]
+    vmin = float(np.nanpercentile(gradb2, 1))
+    vmax = float(np.nanpercentile(gradb2, 99.5))
+
+    # ---- Plot ----
+    if projection.lower() == 'platecarree':
+        proj = ccrs.PlateCarree()
+    else:
+        proj = ccrs.Mollweide()
+    fig = plt.figure(figsize=(14, 8))
+    ax = plt.axes(projection=proj)
+    ax.set_global()
+    # Land in grey, ocean default; coastlines on top.
+    ax.add_feature(cfeature.LAND, facecolor='lightgrey', zorder=1)
+    ax.coastlines(linewidth=0.4, zorder=2)
+
+    # Sort by gradb2 so strong fronts get plotted last (on top).
+    order = np.argsort(gradb2)
+    img = ax.scatter(
+        lon[order], lat[order], c=gradb2[order],
+        s=marker_size, cmap='magma',
+        norm=LogNorm(vmin=vmin, vmax=vmax),
+        transform=ccrs.PlateCarree(),
+        zorder=3, linewidths=0,
+    )
+    # Light gridlines for context.
+    ax.gridlines(crs=ccrs.PlateCarree(), linewidth=0.4,
+                 color='black', alpha=0.3, linestyle=':')
+
+    cb = plt.colorbar(img, ax=ax, orientation='horizontal',
+                      fraction=0.04, pad=0.04, extend='both')
+    cb.set_label(r'$\langle |\nabla b|^2 \rangle$  (s$^{-4}$)', fontsize=13)
+    cb.ax.tick_params(labelsize=11)
+
+    ax.set_title(f'Front locations coloured by gradb2_mean  ({timestamp})',
+                 fontsize=13)
+
+    outpath = os.path.join(figures_dir, outfile)
+    fig.savefig(outpath, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved {outpath}")
+
+
+def fig_geographic_turner_cut(
+    outfile: str = 'fig_geographic_turner_cut.png',
+    timestamp: str = TIMESTAMP,
+    run_tag: str = RUN_TAG,
+    tu_range: tuple = (-50.0, -42.0),
+    gradb_range: tuple = (1e-6, 1e-4),
+    projection: str = 'Mollweide',
+    marker_size: float = 4.0,
+    marker_color: str = 'firebrick',
+):
+    """Global map of fronts whose Turner angle and |grad b| fall in given ranges.
+
+    Turner angle is computed from the mean gradient fields stored in the
+    properties parquet.  |grad b| uses sqrt(gradb2_p90) when that column is
+    available (V3 ships only _mean/_std/_median, so we fall back to
+    sqrt(gradb2_mean)).
+
+    Parameters
+    ----------
+    tu_range : (float, float), optional
+        Inclusive Turner-angle band in degrees.  Default (-50, -42) selects
+        strongly salinity-dominated fronts.
+    gradb_range : (float, float), optional
+        Inclusive |grad b| band in s^-2.  Default (1e-6, 1e-4) selects
+        moderate-to-strong fronts.
+    """
+    # ---- Load front index + properties ----
+    index_path = get_global_front_output_path(
+        results_dir, timestamp, 'front_index', run_tag)
+    props_path = get_global_front_output_path(
+        results_dir, timestamp, 'properties', run_tag)
+    idx = load_front_index(index_path)
+    props = pd.read_parquet(props_path, engine='pyarrow')
+    props = props.rename(columns={'flabel': 'label'})
+
+    # Turner angle from the mean gradient fields.
+    tu_deg = turner_angle(
+        props['gradtheta2_mean'].values,
+        props['gradsalt2_mean'].values,
+        props['gradrho2_mean'].values,
+    )
+    props['turner_deg'] = tu_deg
+
+    # |grad b| = sqrt(gradb2_p90) when available, else sqrt(gradb2_mean).
+    if 'gradb2_p90' in props.columns:
+        gradb = np.sqrt(props['gradb2_p90'].values)
+        gradb_src = 'p90'
+    else:
+        gradb = np.sqrt(props['gradb2_mean'].values)
+        gradb_src = 'mean'
+    props['gradb'] = gradb
+
+    # Merge with the index to get bounding boxes for centroid lookup.
+    df = idx.merge(
+        props[['label', 'turner_deg', 'gradb']], on='label', how='inner')
+
+    # Apply the Turner + gradb cuts.
+    tu_lo, tu_hi = tu_range
+    gb_lo, gb_hi = gradb_range
+    sel = (
+        np.isfinite(df['turner_deg'].values)
+        & np.isfinite(df['gradb'].values)
+        & (df['turner_deg'].values >= tu_lo)
+        & (df['turner_deg'].values <= tu_hi)
+        & (df['gradb'].values >= gb_lo)
+        & (df['gradb'].values <= gb_hi)
+    )
+    df_sel = df[sel]
+    print(f'{len(df_sel)} fronts in Tu=[{tu_lo},{tu_hi}], '
+          f'|grad b|=[{gb_lo:.0e},{gb_hi:.0e}]  (gradb source: {gradb_src})')
+
+    # ---- Centroid pixel coords → lat/lon via the LLC coord file ----
+    cx = ((df_sel['x0'].values + df_sel['x1'].values) // 2).astype(int)
+    cy = ((df_sel['y0'].values + df_sel['y1'].values) // 2).astype(int)
+    with xr.open_dataset(coords_file) as ds:
+        lat_arr = ds['lat'].values  # (row, col) == (x_dim, y_dim) per io.py
+        lon_arr = ds['lon'].values
+    cy = np.clip(cy, 0, lat_arr.shape[0] - 1)
+    cx = np.clip(cx, 0, lat_arr.shape[1] - 1)
+    lat = lat_arr[cy, cx]
+    lon = lon_arr[cy, cx]
+    finite = np.isfinite(lat) & np.isfinite(lon)
+    lat, lon = lat[finite], lon[finite]
+
+    # ---- Plot ----
+    if projection.lower() == 'platecarree':
+        proj = ccrs.PlateCarree()
+    else:
+        proj = ccrs.Mollweide()
+    fig = plt.figure(figsize=(14, 8))
+    ax = plt.axes(projection=proj)
+    ax.set_global()
+    ax.add_feature(cfeature.LAND, facecolor='lightgrey', zorder=1)
+    ax.coastlines(linewidth=0.4, zorder=2)
+    ax.gridlines(crs=ccrs.PlateCarree(), linewidth=0.4,
+                 color='black', alpha=0.3, linestyle=':')
+
+    ax.scatter(
+        lon, lat,
+        s=marker_size, c=marker_color, marker='o',
+        edgecolors='black', linewidths=0.2,
+        alpha=0.8,
+        transform=ccrs.PlateCarree(),
+        zorder=3,
+    )
+
+    title = (rf'Fronts with $Tu_h \in [{tu_lo:g}, {tu_hi:g}]^\circ$  and  '
+             rf'$|\nabla b| \in [{gb_lo:g}, {gb_hi:g}]$ s$^{{-2}}$'
+             f'\n({len(lat)} fronts; {timestamp})')
+    ax.set_title(title, fontsize=12)
+
+    outpath = os.path.join(figures_dir, outfile)
+    fig.savefig(outpath, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved {outpath}")
+
+
 def main(flg):
     """Main function to generate figures."""
     flg = int(flg)
     if flg == 1:
-        fig_turner_vs_gradb()
+        fig_turner_vs_gradb(xreg=(-50, -42))
     elif flg == 2:
         fig_front_definition(derived_field='strain_mag')
     elif flg == 3:
@@ -583,6 +814,10 @@ def main(flg):
         fig_jpdf_properties()
     elif flg == 5:
         fig_thermal_vs_salinity()
+    elif flg == 6:
+        fig_geographic_fronts()
+    elif flg == 7:
+        fig_geographic_turner_cut()
     else:
         raise ValueError(f"Invalid flag: {flg}")
 
