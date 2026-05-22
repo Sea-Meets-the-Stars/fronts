@@ -39,7 +39,13 @@ If you need to run Python, use the "ocean14" conda environment.
 ## Modifications
 
 1. The plot appears rotated 90 degrees counter-clockwise.  Please check and fix as necessary.
+
+2. If the user provides --show-density, have the fronts be colored by their density value.  This should use a different color map than the isopycnal depth map.  The colorbar should be on the left of the figure.  
  
+3. The show-density option worked well, but the original color bar is now on top of the main figure.  Please move it off to the right.
+ 
+4. That worked, but can you preserve the view of the tile (the main figure) as a square?  You can resize the overall figure as needed.
+
 ## Planning
 
 ### Plan
@@ -175,3 +181,9 @@ No for now.
 3. Re-read this document.  Generate the code to implement the plan.  Place the modules in dev/rho_and_N/
 
 4. Re-read this document.  Work on modification 1.
+
+5. Re-read this document.  Work on modification 2.
+
+6. Re-read this document.  Work on modification 3.
+
+7. Re-read this document.  Work on modification 4.

@@ -67,6 +67,13 @@ from density_utils import (  # noqa: E402
 )
 
 
+# Modification 2: when colouring fronts by density we sample sigma0 at the
+# surface depth level (k=0).  Defined here as a single named constant so the
+# meaning is explicit and so any later change (e.g. switch to k_10m) lives in
+# one place.
+_SURFACE_K = 0
+
+
 # ---------------------------------------------------------------------------
 # Isopycnal-depth field computation
 # ---------------------------------------------------------------------------
@@ -338,6 +345,54 @@ def _remap_field_to_rect(
     return field_face[j_tile_lookup, i_tile_lookup]
 
 
+def _compute_front_densities(
+    sigma0_surface_rect: np.ndarray,
+    labels_rect: np.ndarray,
+    front_labels: np.ndarray,
+) -> np.ndarray:
+    """Median surface sigma0 across each front's pixels (rect-grid frame).
+
+    Used by Modification 2 to assign one density value per front for
+    colouring the contour overlay.  The median is computed across all
+    pixels in the tile that carry a given front's label; NaNs (e.g. land
+    masks) are ignored.  Fronts with no in-tile pixels or only NaN samples
+    are returned as NaN so the caller can mask them out before normalising.
+
+    Parameters
+    ----------
+    sigma0_surface_rect : numpy.ndarray
+        ``(TILE_SIZE, TILE_SIZE)`` surface sigma0 (k=0) already remapped to
+        the rect-grid tile-local frame via :func:`_remap_field_to_rect`.
+    labels_rect : numpy.ndarray
+        ``(TILE_SIZE, TILE_SIZE)`` integer label mask in the rect-grid
+        tile-local frame.
+    front_labels : numpy.ndarray
+        1-D array of front labels whose bbox overlaps the tile (same
+        ordering as is later passed to :func:`plot_isopycnal_depth`).
+
+    Returns
+    -------
+    numpy.ndarray
+        Float64 array, length ``len(front_labels)``, holding the median
+        surface sigma0 per front (NaN where the front has no usable
+        pixels inside the tile).
+    """
+    out = np.full(len(front_labels), np.nan, dtype=np.float64)
+    for n, label in enumerate(front_labels):
+        if label == 0:
+            continue  # background sentinel -- skip just in case
+        mask = labels_rect == int(label)
+        if not mask.any():
+            continue
+        # Pull every surface-sigma0 value tagged with this label; drop NaNs
+        # (rare for an ocean-only tile but cheap to guard against).
+        vals = sigma0_surface_rect[mask]
+        vals = vals[np.isfinite(vals)]
+        if vals.size:
+            out[n] = float(np.median(vals))
+    return out
+
+
 def plot_isopycnal_depth(
     z_iso_rect: np.ndarray,
     labels_rect: np.ndarray,
@@ -350,6 +405,7 @@ def plot_isopycnal_depth(
     tile_index: int,
     timestamp: str,
     out_path: Path,
+    front_density: np.ndarray | None = None,
 ) -> None:
     """Render the isopycnal-depth map with one white outline per front.
 
@@ -386,19 +442,48 @@ def plot_isopycnal_depth(
         Timestamp used in the title.
     out_path : pathlib.Path
         Path to save the PNG.
+    front_density : numpy.ndarray or None, optional
+        Modification 2: per-front surface sigma0 (kg m^-3), aligned with
+        ``front_labels``.  When supplied, each front outline is coloured by
+        its density via a ``plasma`` colormap (deliberately different from
+        the ``viridis_r`` used for the depth field) and an extra colorbar
+        is drawn on the **left** of the figure.  When ``None`` (default),
+        every outline is white and only the depth colorbar is drawn.
 
     Returns
     -------
     None
         The figure is written to ``out_path`` and closed.
     """
-    fig, ax = plt.subplots(figsize=(11, 8))
+    # Modification 4: widen the figure so the now-square main axes (see
+    # set_box_aspect call below) has room next to the two side colorbars
+    # and the top-lon / right-lat twin tick labels.  Height is unchanged;
+    # the extra width is consumed by the colorbar slots, not the data area.
+    fig, ax = plt.subplots(figsize=(14, 9))
 
     # cmap='viridis_r' so deeper isopycnals render darker -- depth reads
     # intuitively as "more pigment = more water above".  set_bad gives NaN
     # cells a distinct neutral grey so out-of-range pixels are obvious.
     cmap = plt.get_cmap("viridis_r").copy()
     cmap.set_bad(color="lightgrey")
+
+    # Modification 2: per-front colouring.  We need a Normalize backed by
+    # the finite density values so we can both colour the contours and
+    # back the left-side colorbar with a ScalarMappable.
+    cmap_density = None
+    density_norm = None
+    if front_density is not None:
+        finite = front_density[np.isfinite(front_density)]
+        if finite.size:
+            cmap_density = plt.get_cmap("plasma")
+            # If every front happens to have an identical density the
+            # default min==max would make Normalize degenerate; widen by a
+            # token amount so matplotlib still renders something sensible.
+            vmin = float(finite.min())
+            vmax = float(finite.max())
+            if vmax == vmin:
+                vmax = vmin + 1e-6
+            density_norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
 
     # Mask NaNs so the bad-colour applies.  vmin/vmax left to auto so the
     # colorbar tracks the in-range data.
@@ -413,22 +498,32 @@ def plot_isopycnal_depth(
         interpolation="nearest",
     )
 
-    # Overlay one white contour per front.  contour(labels == label, [0.5])
+    # Overlay one contour per front.  contour(labels == label, [0.5])
     # produces a single closed outline around each front's pixel set without
-    # merging into neighbouring fronts.  linewidths kept thin so dense
-    # tiles don't end up dominated by overlay ink.
-    for label in front_labels:
+    # merging into neighbouring fronts.  When per-front densities are
+    # supplied (Modification 2) the outline is coloured via the plasma
+    # cmap; otherwise we fall back to plain white.  Slightly thicker lines
+    # in colour mode so the cmap is actually legible against viridis_r.
+    for n, label in enumerate(front_labels):
         if label == 0:
             continue  # background label -- skip if it sneaks into the list
         mask = (labels_rect == int(label)).astype(np.uint8)
         if not mask.any():
             # bbox overlapped but no actual pixels inside the tile -- rare.
             continue
+        if density_norm is not None and np.isfinite(front_density[n]):
+            color = cmap_density(density_norm(float(front_density[n])))
+            linewidth = 1.1
+        else:
+            # Either show-density was off or this front has no finite density
+            # samples -- fall back to white so the front is still visible.
+            color = "white"
+            linewidth = 0.7
         ax.contour(
             mask,
             levels=[0.5],
-            colors="white",
-            linewidths=0.7,
+            colors=[color],
+            linewidths=linewidth,
             extent=(0, TILE_SIZE, 0, TILE_SIZE),
             origin="lower",
         )
@@ -441,16 +536,48 @@ def plot_isopycnal_depth(
     )
 
     # Secondary lon/lat axes (shared helper) -- anchor the colorbar to the
-    # rightmost twin axis so it doesn't fight the lat tick labels.
-    _, ax_lat = attach_lonlat_twins(
+    # rightmost twin axis so it doesn't fight the lat tick labels.  Both
+    # twins are captured for Modification 4 (box-aspect propagation).
+    ax_lon, ax_lat = attach_lonlat_twins(
         ax, j_tile_lookup, i_tile_lookup, XC, YC,
     )
 
+    # Modification 3: anchor the depth colorbar to BOTH ax and ax_lat (a
+    # list) with an explicit location='right'.  When only the left-side
+    # density colorbar steals space from ax, the depth bar -- if attached to
+    # ax_lat alone -- ends up positioned against the pre-shrink layout and
+    # collides with the main imshow.  Passing both axes lets matplotlib's
+    # gridspec splitter shrink ax and ax_lat together, so the bar lands
+    # clear of the imshow regardless of whether the left bar is present.
     fig.colorbar(
-        im, ax=ax_lat,
+        im, ax=[ax, ax_lat],
+        location="right",
         label="isopycnal depth [m]",
         pad=0.10, fraction=0.05,
     )
+
+    # Modification 2: second colorbar on the LEFT for the per-front density
+    # cmap.  We back it with a ScalarMappable using the same norm + cmap as
+    # the contour colours so the legend is honest.  Anchored to the same
+    # [ax, ax_lat] pair as the depth bar above so the two share one layout
+    # context and matplotlib reserves space symmetrically (Modification 3).
+    if density_norm is not None:
+        sm = plt.cm.ScalarMappable(cmap=cmap_density, norm=density_norm)
+        sm.set_array([])  # required for older matplotlib to render the bar
+        fig.colorbar(
+            sm, ax=[ax, ax_lat],
+            location="left",
+            label=r"front surface $\sigma_0$ [kg m$^{-3}$]",
+            pad=0.10, fraction=0.05,
+        )
+
+    # Modification 4: lock the main axes (and its twins) to a 1:1 box
+    # aspect so the 720x720 tile renders as a perfect square regardless of
+    # how the side colorbars + twin tick labels have shrunk the gridspec
+    # cell.  set_box_aspect does not propagate through twiny/twinx, so we
+    # apply it to all three axes explicitly.
+    for axes in (ax, ax_lon, ax_lat):
+        axes.set_box_aspect(1)
 
     fig.savefig(out_path, dpi=140, bbox_inches="tight")
     plt.close(fig)
@@ -468,6 +595,7 @@ def run(
     outdir: Path,
     isopycnal_nc: Path | None,
     write_nc: bool,
+    show_density: bool = False,
 ) -> None:
     """End-to-end: load tile -> compute or read z_iso -> write NetCDF -> plot.
 
@@ -490,6 +618,11 @@ def run(
     write_nc : bool
         When True (and ``isopycnal_nc`` was not used), write ``z_iso`` to
         ``{outdir}/isopycnal_depth_tile{idx:03d}_{stamp}.nc``.
+    show_density : bool, optional
+        Modification 2: when True, each front outline is coloured by its
+        median surface sigma0 (k=0) over the front's pixels, and a second
+        colorbar is added on the left of the figure.  Default False (white
+        outlines, only the depth colorbar).
 
     Returns
     -------
@@ -530,6 +663,11 @@ def run(
             )
         cache_path = isopycnal_nc
 
+    # Surface sigma0 slice -- only loaded if --show-density is set.  We
+    # keep it as a face-local 2D array here; the rect-grid remap happens
+    # alongside z_iso below so both fields share one orientation.
+    sigma0_surface_face: np.ndarray | None = None
+
     if cache_path is not None:
         logging.info(f"Reading precomputed isopycnal NetCDF: {cache_path}")
         z_iso = read_isopycnal_nc(
@@ -539,6 +677,12 @@ def run(
             rect_j_start=rect_j_start,
             target=target_sigma0,
         )
+        if show_density:
+            # Cache path didn't pull sigma0 from the tile; fetch just the
+            # surface slice (one (720, 720) float32 page) so we can colour
+            # the fronts.
+            logging.info("Loading surface sigma0 slice for --show-density")
+            sigma0_surface_face = ds["sigma0"].isel(k=_SURFACE_K).values
     else:
         # Load sigma0 + Z eagerly -- sigma0 is ~50 MB at float32 and we'll
         # touch every column once.  No win to be had from dask here.
@@ -555,6 +699,9 @@ def run(
             f"z_iso computed: {n_valid}/{z_iso.size} columns crossed the "
             f"target ({100.0 * n_valid / z_iso.size:.1f}%)"
         )
+        if show_density:
+            # sigma0 is already in RAM, so picking k=0 is free.
+            sigma0_surface_face = sigma0[_SURFACE_K]
         if write_nc:
             logging.info(f"Writing isopycnal-depth NetCDF: {nc_path}")
             write_isopycnal_nc(
@@ -588,6 +735,26 @@ def run(
     # rect-grid tile-local frame the rest of the plot lives in.
     z_iso_rect = _remap_field_to_rect(z_iso, j_tile_lookup, i_tile_lookup)
 
+    # Modification 2: per-front surface densities (only when requested).
+    # sigma0_surface_face was loaded above on either code path; remap to
+    # the same rect-grid frame as the labels so the label mask indexes the
+    # right pixels.
+    front_density: np.ndarray | None = None
+    if show_density:
+        sigma0_surface_rect = _remap_field_to_rect(
+            sigma0_surface_face, j_tile_lookup, i_tile_lookup,
+        )
+        front_density = _compute_front_densities(
+            sigma0_surface_rect,
+            labels_rect,
+            overlapping["label"].values,
+        )
+        n_finite = int(np.sum(np.isfinite(front_density)))
+        logging.info(
+            f"Per-front surface sigma0 computed for "
+            f"{n_finite}/{len(front_density)} fronts"
+        )
+
     # ---- Step 5: render the PNG. ------------------------------------------
     png_name = (
         f"isopycnal_depth_tile{tile_index:03d}_{stamp}"
@@ -604,6 +771,7 @@ def run(
         target=target_sigma0,
         tile_index=tile_index, timestamp=timestamp,
         out_path=png_path,
+        front_density=front_density,
     )
     logging.info("Done.")
 
@@ -653,6 +821,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
                        "isopycnal_depth_tile{idx:03d}_{YYYYMMDDTHH}.nc inside "
                        "--outdir.  Ignored when --isopycnal-nc is used."
                    ))
+    p.add_argument("--show-density",  action="store_true",
+                   help=(
+                       "Colour each front outline by its median surface "
+                       "sigma0 (k=0) using a 'plasma' cmap, and add a "
+                       "second colorbar on the left of the figure."
+                   ))
     return p.parse_args(argv)
 
 
@@ -683,6 +857,7 @@ def main(argv=None) -> None:
         outdir=args.outdir,
         isopycnal_nc=args.isopycnal_nc,
         write_nc=args.write_nc,
+        show_density=args.show_density,
     )
 
 

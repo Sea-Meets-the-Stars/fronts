@@ -15,5 +15,6 @@ if $RUN_TP && $GEN_FIGS; then
         --labels           $OS_OGCM/LLC/Fronts/V3/20121109_120000/labeled_fronts_global_20121109T12_00_00_v3_bin_D.npy \
         --front-index      $OS_OGCM/LLC/Fronts/V3/20121109_120000/front_index_20121109T12_00_00_v3_bin_D.parquet \
         --sigma0           22.6 \
+        --show-density     \
         --outdir $OS_OGCM/LLC/Fronts/V3/20121109_120000/tiles
 fi
