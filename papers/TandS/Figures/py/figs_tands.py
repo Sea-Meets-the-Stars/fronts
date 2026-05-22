@@ -805,7 +805,8 @@ def main(flg):
     """Main function to generate figures."""
     flg = int(flg)
     if flg == 1:
-        fig_turner_vs_gradb(xreg=(-50, -42))
+        #fig_turner_vs_gradb(xreg=(-50, -42))
+        fig_turner_vs_gradb(xreg=(-42,-39)) # Bad region
     elif flg == 2:
         fig_front_definition(derived_field='strain_mag')
     elif flg == 3:
@@ -817,7 +818,18 @@ def main(flg):
     elif flg == 6:
         fig_geographic_fronts()
     elif flg == 7:
-        fig_geographic_turner_cut()
+        #fig_geographic_turner_cut()
+        #fig_geographic_turner_cut(tu_range=(-80, -50), 
+        #                          gradb_range=(2e-7, 1e-4),
+        #                          outfile='fig_geographic_turner_cut_salty.png')
+        #
+        #fig_geographic_turner_cut(tu_range=(75, 90), 
+        #                          gradb_range=(2e-8, 2e-7),
+        #                          outfile='fig_geographic_turner_cut_highTu.png')
+        #
+        fig_geographic_turner_cut(tu_range=(-42, -39), 
+                                  gradb_range=(2e-8, 2e-3),
+                                  outfile='fig_geographic_turner_cut_bad.png')
     else:
         raise ValueError(f"Invalid flag: {flg}")
 
