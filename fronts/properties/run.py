@@ -84,11 +84,11 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         property_dir=property_dir,
         fronts_file=fronts_file,
         output_dir=output_dir,
-        stats=stats,
-        percentiles=percentiles,
-        min_npix=min_npix,
-        nan_policy=nan_policy,
-        dilation_radius=dilation_radius,
+        stats=cdict['properties']['stats'],
+        percentiles=cdict['properties']['percentiles'],
+        min_npix=cdict['properties']['min_npix'],
+        nan_policy=cdict['properties']['nan_policy'],
+        dilation_radius=cdict['properties']['dilation_radius'],
     )
 
 

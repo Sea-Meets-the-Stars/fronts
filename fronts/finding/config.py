@@ -31,9 +31,22 @@ finding_dmodel = {
         'connectivity': dict(dtype=(int, np.integer),
                     help='??'),
     },
+    'properties': {
+        'stats': dict(dtype=list,
+                    help='Statistics to compute per property'),
+        'percentiles': dict(dtype=list,
+                    help='Percentiles to compute per property'),
+        'min_npix': dict(dtype=(int, np.integer),
+                    help='Minimum front size in pixels'),
+        'nan_policy': dict(dtype=str,
+                    help='How to handle NaN values (e.g. land pixels)'),
+        'dilation_radius': dict(dtype=(int, np.integer),
+                    help='Pixels to dilate each front before stats'),
+    },
 }
 finding_dmodel['required'] = ('window', 'threshold', 'thresh_mode', 'thin',
-        'sharpen', 'despur', 'label')
+        'sharpen', 'despur', 'label', 'stats', 'percentiles', 'min_npix', 
+        'nan_policy', 'dilation_radius')
     
 def config_filename(config_label: str, path:str=None):
     """Build the full path to a finding configuration YAML file.
