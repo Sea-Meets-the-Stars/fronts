@@ -1,37 +1,30 @@
+version: "3"  # Even though this is 3b, we are using the existing v3
+
 run:
-  run_id: "global_test00"
+  run_id: "global_20121109_120000_v3"
   log_dir: "./logs/"
 
 data:
-  sampling_step: 168      # hours between snapshots (168 = weekly)
-  start_record: 1180
-  timestep_hours: 168     # total hours to process; overridden by date_iterations if set
-
   date_iterations:        # YYYY-MM-DD HH:MM:SS (ISO) format
     - '2012-11-09 12:00:00'
   # If set, date_iterations overrides sampling_step / start_record / timestep_hours.
 
-sampling:
-  # not used by the global script but config.py still requires the section
-  bias_to_high_gradients: 1.0
-  sample_points_per_snapshot: 1
 
 output:
-  target_km_res: 150      # not used in the global script; kept for config compatibility
-  down_sample_res: 64     # not used in the global script; kept for config compatibility
   s3_endpoint: "https://s3-west.nrp-nautilus.io"
   bucket: "dbof/"
   folder: "native_grid_dbof_training_data/"
   dataset_name: "global.zarr"  # overridden per-subset (see subsets below)
 
-features:
-  # Required by load_config / FeaturesConfig — overwritten at runtime by the
-  # selected subset's values below; do not edit manually.
-  model_data_feature_channels: []
-  compute_features_channels: []
-
 runtime:
-  zarr_async_concurrency: 128
+  zarr_async_concurrency: 8
+  # The Nautilus NRP S3 endpoint intermittently serves corrupt bytes.
+  # The distributed scheduler retries failed tasks (retries=10 in
+  # calculated_fields_at_depth.py).  Keep n_workers × threads moderate.
+  dask_scheduler: "distributed"
+  dask_n_workers: 4
+  dask_threads_per_worker: 4
+
 
 # ---------------------------------------------------------------------------
 # S3 source: location of the transferred LLC4320 timestep stores.
@@ -41,71 +34,20 @@ runtime:
 s3_source:
   s3_endpoint: "https://s3-west.nrp-nautilus.io"
   bucket: "dbof/"
-  folder: "LLC4320"
+  folder: "LLC4320_v1"
+  # Grid store lives in the original (non-corrupt) transfer location.
+  # If grid_folder is set, grid.zarr is read from here instead of folder.
+  grid_folder: "LLC4320"
+
 
 # ---------------------------------------------------------------------------
 # Combined-script configuration
 # ---------------------------------------------------------------------------
-# active_subset: default subset when --subset is not passed on the CLI.
-#   One of: native_fields | frontal_structure | kinematic | frontogenesis
-active_subset: frontal_structure
-
-subsets:
-
-  native_fields:
-    dataset_name: "native_fields.zarr"
-    model_data_feature_channels:
-      - Theta
-      - Salt
-      - Eta
-      - U
-      - V
-      - W
-      - oceTAUX
-      - oceTAUY
-      - SIarea
-    compute_features_channels: []
-
-  frontal_structure:
-    dataset_name: "frontal_structure.zarr"
-    model_data_feature_channels: []
-    compute_features_channels:
-      - gradb2
-      - gradsalt2
-      - gradtheta2
-      - gradeta2
-      - gradrho2
-      - turner_angle
-
-  kinematic:
-    dataset_name: "kinematic.zarr"
-    model_data_feature_channels: []
-    compute_features_channels:
-      - relative_vorticity
-      - strain_n
-      - strain_s
-      - strain_mag
-      - divergence
-      - coriolis_f
-      - rossby_number
-      - okubo_weiss
-
-  frontogenesis:
-    dataset_name: "frontogenesis.zarr"
-    model_data_feature_channels: []
-    compute_features_channels:
-      - frontogenesis_tendency
-      - ug
-      - vg
-      - frontogenesis_geo
-      - frontogenesis_ageo
 
 fronts:
 
-  label: "D"                      # Config label - will be part of the output filename
-
-  # Binary parameters
-  binary:
+  # Finding parameters
+  finding:
     # Required
     window: 64                      # Size of the region for thresholding (pixels)
     threshold: 85                   # Threshold for front finding
@@ -128,3 +70,174 @@ fronts:
     min_npix: 5                        # Minimum front size in pixels
     nan_policy: 'omit'                 # How to handle NaN values (e.g. land pixels)
     dilation_radius: 2                 # Pixels to dilate each front before stats
+
+subsets:
+
+  # ===========================================================================
+  # Depth-resolved diagnostic subsets
+  # (depth -> compute -> reduce -> save; full water column used lazily)
+  #
+  # Each subset lists base channel names in compute_features_channels and
+  # the desired depth variants in depth_suffixes.  The pipeline expands
+  # every base × suffix combination at load time:
+  #
+  #   compute_features_channels: [N2]
+  #   depth_suffixes: [sfc, mld]
+  #   →  N2_sfc, N2_mld
+  #
+  # Available depth suffixes:
+  #   sfc      z = 0 (surface, k=0)
+  #   z25m     z = 25 m (fixed depth, ~k=3)
+  #   mld      interpolated to the mixed-layer depth
+  #   mld_mean thickness-weighted mean over 0 <= z <= MLD
+  #
+  # Standalone diagnostics that have no depth variants (e.g.
+  # mixed_layer_depth, ml_heat_content) go in extra_channels.
+  # ===========================================================================
+
+  stratification:
+    dataset_name: "stratification.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - N2
+    depth_suffixes: [sfc, z25m, mld, mld_mean]
+    extra_channels:
+      - mixed_layer_depth
+      - ml_heat_content
+
+  vertical_shear:
+    dataset_name: "vertical_shear.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - vertical_shear
+      - Ri
+    # Available: sfc, z25m, mld, mld_mean
+    depth_suffixes: [mld]
+
+  mixing_parameters:
+    dataset_name: "mixing_parameters.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - Fr
+      - Ro
+      - Bu
+    # Available: sfc, z25m, mld, mld_mean
+    depth_suffixes: [mld]
+
+  ertel_pv:
+    dataset_name: "ertel_pv.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - ertel_pv
+      - ertel_pv_vertical
+      - ertel_pv_tilt
+    # Available: sfc, z25m, mld, mld_mean
+    depth_suffixes: [mld]
+
+  buoyancy_fluxes:
+    dataset_name: "buoyancy_fluxes.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - uB
+      - vB
+      - wB
+    # Available: sfc, z25m, mld, mld_mean
+    depth_suffixes: [mld]
+
+  surface_wind:
+    dataset_name: "surface_wind.zarr"
+    surface_only: true
+    model_data_feature_channels:
+      - oceTAUX
+      - oceTAUY
+      - oceQnet
+    compute_features_channels:
+      - wind_stress_curl
+      - ekman_pumping
+      - u_ekman
+      - v_ekman
+
+  energetics:
+    dataset_name: "energetics.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - KE
+    depth_suffixes: [sfc, z25m, mld, mld_mean]
+
+  frontal_structure:
+    dataset_name: "frontal_structure.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - gradb2
+      - gradtheta2
+      - gradsalt2
+      - gradrho2
+      - gradeta2
+      - turner_angle
+    # Available: sfc, z25m, mld, mld_mean
+    depth_suffixes: [sfc]
+
+  kinematic:
+    dataset_name: "kinematic.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - relative_vorticity
+      - strain_n
+      - strain_s
+      - strain_mag
+      - divergence
+      - okubo_weiss
+    # Available: sfc, z25m, mld, mld_mean
+    depth_suffixes: [sfc]
+
+  frontogenesis:
+    dataset_name: "frontogenesis.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - frontogenesis_tendency
+      - frontogenesis_geo
+      - frontogenesis_ageo
+      - ug
+      - vg
+    # Available: sfc, z25m, mld, mld_mean
+    depth_suffixes: [sfc]
+
+  # ===========================================================================
+  # Native model fields at depth
+  # (raw tracers/velocities through the depth-strategy machinery)
+  # ===========================================================================
+
+  native_fields:
+    dataset_name: "native_fields.zarr"
+    surface_only: false
+    model_data_feature_channels: []
+    compute_features_channels:
+      - Theta
+      - Salt
+      - Eta
+      - U
+      - V
+      - W
+    # Available: sfc, z25m, mld, mld_mean
+    depth_suffixes: [sfc]
+
+  # ===========================================================================
+  # Surface-only subsets
+  # (read from the same S3 timestep stores but only use surface data)
+  # ===========================================================================
+
+  icearea:
+    dataset_name: "icearea.zarr"
+    surface_only: true
+    model_data_feature_channels:
+      - SIarea
+    compute_features_channels: []

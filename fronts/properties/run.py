@@ -92,8 +92,8 @@ def colocate_fronts(timestamp: str, config: str, version: str,
     )
 
 
-def generate_properties(timestamp: str, config_file: str, version: str,
-                        property_names: list, run_id: str = None,
+def generate_properties(timestamp: str, config_file: str, 
+                        property_names: list, 
                         clobber: bool = False, create_zarr: bool = False):
     """Generate individual per-property .nc files for the requested properties.
 
@@ -111,7 +111,6 @@ def generate_properties(timestamp: str, config_file: str, version: str,
         version (str): Data version string.
         property_names (list): Property/channel names to generate, e.g.
             ['relative_vorticity', 'strain_n'].
-        run_id (str, optional): Override the run_id in the config YAML.
         clobber (bool): Overwrite existing output files. Defaults to False.
         create_zarr (bool): Create the zarr store via generate_global.
             Defaults to False (assumes zarr already exists on S3).
@@ -148,7 +147,8 @@ def generate_properties(timestamp: str, config_file: str, version: str,
     # Process each subset
     for subset, channels in subset_to_channels.items():
         missing = [ch for ch in channels
-                   if not os.path.isfile(llc_io.derived_filename(timestamp, ch, version=version))]
+                   if not os.path.isfile(llc_io.derived_filename(
+                       timestamp, ch, version=raw.get('version')))]
 
         if not missing and not clobber:
             print(f"All {len(channels)} property file(s) for subset '{subset}' exist "
@@ -160,12 +160,13 @@ def generate_properties(timestamp: str, config_file: str, version: str,
 
         # Create the zarr store if requested; otherwise assume it exists on S3
         if create_zarr:
-            generate_global.main(config_file, subset=subset, run_id=run_id)
+            generate_global.main(config_file, subset=subset, 
+                                 run_id=raw['run']['run_id'])
 
         # Convert zarr → netcdf for each channel
         for channel in to_generate:
             llc_io.zarr_to_nc(timestamp, config_file, subset, field=channel,
-                        version=version, run_id=run_id)
+                        version=raw['version'], run_id=raw['run']['run_id'])
 
 def group_fronts(timestamp: str, config: str, version: str,
                  n_workers: int = None, skip_curvature: bool = False):

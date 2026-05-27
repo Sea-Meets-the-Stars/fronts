@@ -1,13 +1,13 @@
 # Module for I/O of finding fronts
 
 import os
+import yaml
 import numpy as np
 
 from fronts.llc import io as llc_io
 
 
-def binary_filename(timestamp:str, config_lbl:str, version:str,
-                    root:str='LLC4320'):
+def binary_filename(timestamp:str, version:str, root:str='LLC4320'):
     """Build the filename for a binary-front .npy file.
 
     The file is placed under ``PATH/V{version}/YYYYMMDD_HHMMSS/``.
@@ -16,8 +16,6 @@ def binary_filename(timestamp:str, config_lbl:str, version:str,
     ----------
     timestamp : str
         Timestamp string for the snapshot (e.g. '2012-11-09T12_00_00').
-    config_lbl : str
-        Configuration label (e.g. 'A') appended to the filename.
     version : str
         Version of the data to use.
     root : str, optional
@@ -31,20 +29,20 @@ def binary_filename(timestamp:str, config_lbl:str, version:str,
     path = llc_io.fronts_dir(version, timestamp)
 
     # Generate base
-    basefile = f'{root}_{timestamp}_v{version}_bin_{config_lbl}.npy'
+    basefile = f'{root}_{timestamp}_v{version}_bfronts.npy'
 
     # Join and return
     return os.path.join(path, basefile)
 
-def load_binary_fronts(timestamp:str, config_lbl:str, version:str, **kwargs):
+def load_binary_fronts(timestamp:str, version:str, **kwargs):
     """Load a binary-front array from a .npy file.
 
     Parameters
     ----------
     timestamp : str
         Timestamp string for the snapshot.
-    config_lbl : str
-        Configuration label used when the file was saved.
+    version : str
+        Version of the data to use.
     **kwargs
         Passed to :func:`binary_filename` (``root``).
 
@@ -54,7 +52,7 @@ def load_binary_fronts(timestamp:str, config_lbl:str, version:str, **kwargs):
         Binary front array.
     """
     # Grab filename
-    b_file = binary_filename(timestamp, config_lbl, version, **kwargs)
+    b_file = binary_filename(timestamp, version, **kwargs)
     print(f"Loading binary front field from {b_file}")
 
     # Open
@@ -63,8 +61,8 @@ def load_binary_fronts(timestamp:str, config_lbl:str, version:str, **kwargs):
     # Return
     return binary_fronts
 
-def save_binary_fronts(fronts:np.ndarray, timestamp:str, config_lbl:str, 
-    version:str, **kwargs):
+def save_binary_fronts(fronts:np.ndarray, timestamp:str, 
+                       version:str, **kwargs):
     """Save a binary-front array to a .npy file.
 
     Creates the output directory if it does not already exist.
@@ -75,15 +73,13 @@ def save_binary_fronts(fronts:np.ndarray, timestamp:str, config_lbl:str,
         Binary front array to save.
     timestamp : str
         Timestamp string for the snapshot.
-    config_lbl : str
-        Configuration label appended to the filename.
     version : str
         Version of the data to use.
     **kwargs
         Passed to :func:`binary_filename` (``root``).
     """
     # Grab filename
-    b_file = binary_filename(timestamp, config_lbl, version, **kwargs)
+    b_file = binary_filename(timestamp, version, **kwargs)
 
     # Generate directory if it doesn't exist
     os.makedirs(os.path.dirname(b_file), exist_ok=True)
