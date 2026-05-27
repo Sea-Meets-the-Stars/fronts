@@ -21,8 +21,10 @@ def main(flg):
     # Generate tiles
     if flg == 1:
         timestamp = '2012-11-09 12:00:00'
-        output = os.path.join(os.getenv('OS_OGCM'), 'LLC',
+        output_path = os.path.join(os.getenv('OS_OGCM'), 'LLC',
             'Fronts', 'V4', '20121109_120000', 'tiles')
+        # Generate folder
+        os.makedirs(output_path, exist_ok=True)
 
         properties = ['density', 'temperature']
         regions = ['tropical_pacific']
@@ -35,7 +37,7 @@ def main(flg):
                     j_rect=MLD_DEFS[region]['i_j'][1],
                     timestamp=timestamp,
                     property=prop,
-                    output=output)
+                    output=output_path)
 
 # Command line
 if __name__ == '__main__':
