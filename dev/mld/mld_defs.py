@@ -45,7 +45,7 @@ gs_north_atlantic = {
     'i_j': (16590, 10350),
     'i_range': (),
     'j_range': (),
-    'tile': 999
+    'tile': 359
 }
 
 # Kuroshio
@@ -54,7 +54,7 @@ kuroshio = {
     'i_j': (8880, 9870),
     'i_range': (),
     'j_range': (),
-    'tile': 999
+    'tile': 359
 }
 
 # Slurp em

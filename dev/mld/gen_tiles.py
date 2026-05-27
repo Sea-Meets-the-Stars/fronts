@@ -28,10 +28,14 @@ def main(flg):
 
         properties = ['density', 'temperature']
         regions = ['tropical_pacific', 'gs_central', 
-                   'gs_nc_1', 'gs_nc_2', 'gs_north_atlantic']
+                   'gs_nc_1', 'gs_nc_2', 'gs_north_atlantic', 
+                   'kuroshio']
 
         # Loop me
         for region in regions:
+            print('--------------------------------')
+            print(f"Processing region: {region}")
+            print('--------------------------------')
             for prop in properties:
                 tile_utils.run(
                     i_rect=MLD_DEFS[region]['i_j'][0],
