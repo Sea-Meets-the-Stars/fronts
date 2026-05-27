@@ -2,11 +2,18 @@
 
 import sys
 import os
+import logging
 
 # locals
 from mld_defs import MLD_DEFS
 
 from dbof.tiles import tile_utils
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    stream=sys.stdout,
+)
 
 def main(flg):
     flg = int(flg)
@@ -29,11 +36,6 @@ def main(flg):
                     timestamp=timestamp,
                     property=prop,
                     output=output)
-
-    # Fit the lowest-bbp synthetic PACE spectrum with BING
-    if flg == 2:
-        fit_lowest_bbp()
-
 
 # Command line
 if __name__ == '__main__':
