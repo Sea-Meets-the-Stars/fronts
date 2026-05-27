@@ -27,7 +27,7 @@ gs_north_carolina_1 = {
     'i_j': (15600, 9800),
     'i_range': (),
     'j_range': (),
-    'tile': 999
+    'tile': 333
 }
 
 # GS North Carolina 2
@@ -36,7 +36,7 @@ gs_north_carolina_2 = {
     'i_j': (15760, 10060),
     'i_range': (),
     'j_range': (),
-    'tile': 999
+    'tile': 333
 }
 
 # GS North Atlantic
@@ -54,7 +54,16 @@ kuroshio = {
     'i_j': (8880, 9870),
     'i_range': (),
     'j_range': (),
-    'tile': 359
+    'tile': 324
+}
+
+# California Current
+california_current = {
+    'name': 'california_current',
+    'i_j': (13170, 9950),
+    'i_range': (),
+    'j_range': (),
+    'tile': 999
 }
 
 # Slurp em

@@ -29,7 +29,7 @@ def main(flg):
         properties = ['density', 'temperature']
         regions = ['tropical_pacific', 'gs_central', 
                    'gs_nc_1', 'gs_nc_2', 'gs_north_atlantic', 
-                   'kuroshio']
+                   'kuroshio', 'california_current']
 
         # Loop me
         for region in regions:
