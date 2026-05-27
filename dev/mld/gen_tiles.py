@@ -27,7 +27,8 @@ def main(flg):
         os.makedirs(output_path, exist_ok=True)
 
         properties = ['density', 'temperature']
-        regions = ['tropical_pacific']
+        regions = ['tropical_pacific', 'gs_central', 
+                   'gs_nc_1', 'gs_nc_2', 'gs_north_atlantic']
 
         # Loop me
         for region in regions:
