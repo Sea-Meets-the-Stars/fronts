@@ -73,3 +73,4 @@ MLD_DEFS['gs_nc_1'] = gs_north_carolina_1
 MLD_DEFS['gs_nc_2'] = gs_north_carolina_2
 MLD_DEFS['gs_north_atlantic'] = gs_north_atlantic
 MLD_DEFS['kuroshio'] = kuroshio
+MLD_DEFS['california_current'] = california_current
