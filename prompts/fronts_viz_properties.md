@@ -44,6 +44,10 @@ dev/properties/properties_viz_plan.md
 - Allow the user to set the display levels (vmin, vmax) for any given field by setting --vl0 vmin,vmax --vl1 vmin,vmax, etc.
 - Allow the user to choose different colormaps (blue, green, red) for a given field with, e.g. -cl0 blue
 
+1. Make these changes to the front_property_viewer.py module and other related code:
+
+- Make all of the fonts black and/or bold (i.e. easier to read)
+
 
 ## Docs
 
