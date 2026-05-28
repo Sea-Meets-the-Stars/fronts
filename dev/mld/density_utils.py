@@ -33,7 +33,7 @@ import xarray as xr
 # anyone importing this module gets the lookup available immediately.
 _TILE_MAPPING_DIR = Path(
     "/home/xavier/Oceanography/python/llc4320-native-grid-preprocessing/"
-    "dev/tiles"
+    "src/dbof/tiles"
 )
 if str(_TILE_MAPPING_DIR) not in sys.path:
     sys.path.insert(0, str(_TILE_MAPPING_DIR))

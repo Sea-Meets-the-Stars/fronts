@@ -123,7 +123,7 @@ TMLD_DELTA_THETA       = 0.2    # K (positive: theta drops by this much)
 # Small helpers
 # ---------------------------------------------------------------------------
 
-def _build_stem(tile_index: int, timestamp: str, N: int) -> str:
+def _build_stem(tile_index: int, timestamp: str, N: int, region_name: str | None = None) -> str:
     """Standardised output filename stem shared by CSV + PNGs.
 
     Parameters
@@ -143,7 +143,7 @@ def _build_stem(tile_index: int, timestamp: str, N: int) -> str:
         overlay PNG.
     """
     return (
-        f"density_profiles_tile{tile_index:03d}_"
+        f"density_profiles_{region_name}_tile{tile_index:03d}_"
         f"{_timestamp_to_stamp(timestamp)}_topN{N}"
     )
 
@@ -1274,6 +1274,7 @@ def run(
     outdir: Path,
     top_fronts_csv: Path | None,
     strength_col: str,
+    region_name: str, 
     i_rect_range: tuple[int, int] | None = None,
     j_rect_range: tuple[int, int] | None = None,
     theta_path: Path | None = None,
@@ -1313,6 +1314,8 @@ def run(
         Path to a temperature tile NetCDF.  When supplied (Modification 11)
         an extra ``MLD_{stem}.png`` is written with three MLD diagnostics
         per front; when omitted, that figure is skipped.
+    region_name : str or None, optional
+        Region name used in the panel title.
 
     Returns
     -------
@@ -1343,7 +1346,7 @@ def run(
         i_rect_range, j_rect_range, rect_i_start, rect_j_start,
     )
     has_subregion = (i_rect_range is not None) or (j_rect_range is not None)
-    base_stem = _build_stem(tile_index, timestamp, N)
+    base_stem = _build_stem(tile_index, timestamp, N, region_name)
     if has_subregion:
         i0g = rect_i_start + sub_i_lo
         i1g = rect_i_start + sub_i_hi

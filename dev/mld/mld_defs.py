@@ -1,5 +1,6 @@
 # Define locations and the like for MLD investigation
 
+import os
 
 MLD_DEFS = {}
 
@@ -25,8 +26,8 @@ gs_central = {
 gs_north_carolina_1 = {
     'name': 'gs_nc_1',
     'i_j': (15600, 9800),
-    'i_range': (),
-    'j_range': (),
+    'i_range': (15525, 15725),
+    'j_range': (9700, 9900),
     'tile': 333
 }
 
@@ -43,8 +44,8 @@ gs_north_carolina_2 = {
 gs_north_atlantic = {
     'name': 'gs_north_atlantic',
     'i_j': (16590, 10350),
-    'i_range': (),
-    'j_range': (),
+    'i_range': (16550, 16750),
+    'j_range': (10180, 10380),
     'tile': 359
 }
 
@@ -52,8 +53,8 @@ gs_north_atlantic = {
 kuroshio = {
     'name': 'kuroshio',
     'i_j': (8880, 9870),
-    'i_range': (),
-    'j_range': (),
+    'i_range': (8700, 8900),
+    'j_range': (9700, 9900),
     'tile': 324
 }
 
@@ -61,9 +62,9 @@ kuroshio = {
 california_current = {
     'name': 'california_current',
     'i_j': (13170, 9950),
-    'i_range': (),
-    'j_range': (),
-    'tile': 999
+    'i_range': (13000, 13250),
+    'j_range': (9800, 10000),
+    'tile': 330
 }
 
 # Slurp em
@@ -74,3 +75,19 @@ MLD_DEFS['gs_nc_2'] = gs_north_carolina_2
 MLD_DEFS['gs_north_atlantic'] = gs_north_atlantic
 MLD_DEFS['kuroshio'] = kuroshio
 MLD_DEFS['california_current'] = california_current
+
+for region in MLD_DEFS.keys():
+    MLD_DEFS[region]['density_tile'] = os.path.join(os.getenv('OS_OGCM'), 'LLC',
+        'Fronts', 'V4', '20121109_120000', 'tiles', 
+        f'density_tile{MLD_DEFS[region]['tile']}_20121109T12.nc')
+    MLD_DEFS[region]['theta_tile'] = os.path.join(os.getenv('OS_OGCM'), 'LLC',
+        'Fronts', 'V4', '20121109_120000', 'tiles', 
+        f'theta_tile{MLD_DEFS[region]['tile']}_20121109T12.nc')
+    MLD_DEFS[region]['gradb2'] = os.path.join(os.getenv('OS_OGCM'), 'LLC',
+        'Fronts', 'V3', '20121109_120000', 'LLC4320_2012-11-09T12_00_00_gradb2_v3.nc')
+    MLD_DEFS[region]['labels'] = os.path.join(os.getenv('OS_OGCM'), 'LLC',
+        'Fronts', 'V3', '20121109_120000', 'labeled_fronts_global_20121109T12_00_00_v3_bin_D.npy')
+    MLD_DEFS[region]['front_index'] = os.path.join(os.getenv('OS_OGCM'), 'LLC',
+        'Fronts', 'V3', '20121109_120000', 'front_index_20121109T12_00_00_v3_bin_D.parquet')
+    MLD_DEFS[region]['front_properties'] = os.path.join(os.getenv('OS_OGCM'), 'LLC',
+        'Fronts', 'V3', '20121109_120000', 'front_properties_20121109T12_00_00_v3_bin_D.parquet')
