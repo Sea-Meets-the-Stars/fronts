@@ -35,9 +35,9 @@ from PyQt6.QtCore import Qt
 import pyqtgraph as pg
 
 from fronts.llc import io as llc_io
-from fronts.coords import latlon_to_pixel_bbox
+from fronts.llc.coords import latlon_to_pixel_bbox
 from fronts.finding import io as finding_io
-from fronts.scripts.viz_utils import (
+from fronts.viz.viz_utils import (
     make_colormap, compute_levels, make_fronts_rgba, make_nan_rgba,
 )
 
@@ -51,7 +51,8 @@ class FrontPropertyViewer(QMainWindow):
     # Grid layout positions for the 4 panels: (row, data_col, cbar_col)
     _PANEL_GRID = [(0, 0, 1), (0, 2, 3), (1, 0, 1), (1, 2, 3)]
 
-    def __init__(self, timestamp, bbox, fields, config_lbl='A', version='1'):
+    def __init__(self, timestamp, bbox, fields, config_lbl='A', version='1',
+                 levels=None, cmap_names=None):
         """
         Parameters
         ----------
@@ -65,6 +66,12 @@ class FrontPropertyViewer(QMainWindow):
             Config label for the binary fronts file (e.g. 'A').
         version : str
             Data version string (e.g. '1').
+        levels : list of (vmin, vmax) or None, length 4
+            Optional per-panel explicit display levels. None entries fall
+            back to percentile-based auto levels (contrast slider).
+        cmap_names : list of str or None, length 4
+            Optional per-panel colormap names ('blue', 'green', 'red').
+            None entries use the default (divergent or grayscale).
         """
         super().__init__()
         self.timestamp = timestamp
@@ -72,6 +79,11 @@ class FrontPropertyViewer(QMainWindow):
         self.fields = fields      # list of 3 field names
         self.config_lbl = config_lbl
         self.version = version
+        # Per-panel overrides (length 4; None means "use defaults")
+        self.user_levels = list(levels) if levels is not None else [None] * 4
+        self.user_cmap_names = (
+            list(cmap_names) if cmap_names is not None else [None] * 4
+        )
 
         # Panel titles: panel 0 always 'gradb2'
         self.panel_titles = ['gradb2'] + list(fields)
@@ -204,7 +216,7 @@ class FrontPropertyViewer(QMainWindow):
 
         # --- gradb2 ---
         try:
-            fname = llc_io.derived_filename(self.timestamp, 'gradb2',
+            fname = llc_io.derived_filename(self.timestamp, 'gradb2_sfc',
                                             version=self.version)
             print(f"Loading gradb2 from: {fname}")
             ds = xr.open_dataset(fname)
@@ -276,8 +288,14 @@ class FrontPropertyViewer(QMainWindow):
 
         percentile = self.contrast_slider.value()
         divergent = self.panel_titles[idx] in self._DIVERGENT_FIELDS
-        colormap = make_colormap(divergent=divergent)
-        vmin, vmax = compute_levels(data, percentile, divergent=divergent)
+        # Named single-hue colormap takes precedence over divergent default
+        cmap_name = self.user_cmap_names[idx]
+        colormap = make_colormap(divergent=divergent, name=cmap_name)
+        # Explicit user-supplied levels override percentile-based ones
+        if self.user_levels[idx] is not None:
+            vmin, vmax = self.user_levels[idx]
+        else:
+            vmin, vmax = compute_levels(data, percentile, divergent=divergent)
 
         # Main image
         img_item = pg.ImageItem()
@@ -326,6 +344,9 @@ class FrontPropertyViewer(QMainWindow):
             data = self.panel_data[idx]
             if data is None or self.image_items[idx] is None:
                 continue
+            # Skip panels whose levels were pinned by the user via --vlN
+            if self.user_levels[idx] is not None:
+                continue
             divergent = self.panel_titles[idx] in self._DIVERGENT_FIELDS
             vmin, vmax = compute_levels(data, value, divergent=divergent)
             self.image_items[idx].setLevels([vmin, vmax])
@@ -362,10 +383,23 @@ def parser():
     p.add_argument('--fields', type=str, nargs=3, required=False,
                    metavar=('F1', 'F2', 'F3'),
                    help='Three derived field names for panels 1-3')
-    p.add_argument('--config_lbl', type=str, default='B',
-                   help='Config label for binary fronts file (e.g. A)')
-    p.add_argument('--version', type=str, default='1',
+    p.add_argument('--version', type=str, default='4',
                    help='Data version string')
+
+    # Per-panel display levels (vmin,vmax) and colormap overrides.
+    # Panel 0 is gradb2; panels 1-3 follow --fields in order.
+    for i in range(4):
+        p.add_argument(
+            f'--vl{i}', type=str, default=None, metavar='VMIN,VMAX',
+            help=f'Display levels for panel {i} as "vmin,vmax" '
+                 f'(overrides contrast slider for this panel)',
+        )
+        p.add_argument(
+            f'-cl{i}', f'--cl{i}', type=str, default=None,
+            choices=['blue', 'green', 'red'],
+            help=f'Colormap for panel {i} (single-hue ramp). '
+                 f'Overrides default grayscale/divergent choice.',
+        )
 
     # Bounding box: pixel or lat/lon (one required at runtime)
     bbox_group = p.add_mutually_exclusive_group(required=False)
@@ -397,14 +431,32 @@ def main(args):
         bbox = latlon_to_pixel_bbox(lat0, lon0, lat1, lon1)
         print(f"Lat/lon bbox converted to pixel bbox: {bbox}")
 
+    # Parse per-panel display level and colormap overrides
+    levels = []
+    cmaps = []
+    for i in range(4):
+        raw = getattr(args, f'vl{i}')
+        if raw is None:
+            levels.append(None)
+        else:
+            try:
+                vmin_s, vmax_s = raw.split(',')
+                levels.append((float(vmin_s), float(vmax_s)))
+            except ValueError:
+                print(f"error: --vl{i} must be 'vmin,vmax' (got {raw!r})",
+                      file=sys.stderr)
+                sys.exit(2)
+        cmaps.append(getattr(args, f'cl{i}'))
+
     app = QApplication(sys.argv)
 
     viewer = FrontPropertyViewer(
         timestamp=args.timestamp,
         bbox=bbox,
         fields=args.fields,
-        config_lbl=args.config_lbl,
         version=args.version,
+        levels=levels,
+        cmap_names=cmaps,
     )
     viewer.show()
     sys.exit(app.exec())
