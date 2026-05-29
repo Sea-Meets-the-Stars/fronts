@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QSlider, QCheckBox, QStatusBar,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 import pyqtgraph as pg
 
 from fronts.llc import io as llc_io
@@ -90,7 +91,8 @@ class FrontPropertyViewer(QMainWindow):
 
         # Fields that use a divergent (blue-white-red) colormap centered on 0
         self._DIVERGENT_FIELDS = {'okubo_weiss', 'vorticity', 'divergence', 'frontogenesis_tendency',
-            'relative_vorticity', 'ertel_pv_mld'}
+            'relative_vorticity', 'ertel_pv_mld',  'ertel_pv_mld_mean',
+            'turner_angle_sfc'}
 
         # Data arrays (loaded later)
         self.panel_data = [None, None, None, None]
@@ -117,6 +119,13 @@ class FrontPropertyViewer(QMainWindow):
 
         central = QWidget()
         self.setCentralWidget(central)
+        # Bold-black text for all Qt control widgets (labels, checkbox,
+        # buttons, status bar) so they remain easy to read.
+        central.setStyleSheet(
+            "QLabel { color: black; font-weight: bold; }"
+            "QCheckBox { color: black; font-weight: bold; }"
+            "QPushButton { color: black; font-weight: bold; }"
+        )
         main_layout = QVBoxLayout(central)
 
         # --- Control bar ---
@@ -165,16 +174,31 @@ class FrontPropertyViewer(QMainWindow):
         self.graphics_widget = pg.GraphicsLayoutWidget()
         self.graphics_widget.setBackground('w')
 
+        # Bold font shared by axis tick labels across all panels and the
+        # colorbar — stored on self so _render_panel can reuse it.
+        tick_font = QFont()
+        tick_font.setBold(True)
+        self._tick_font = tick_font
+        # CSS kwargs reused for pyqtgraph titles / axis labels
+        label_css = {'color': 'k', 'size': '11pt', 'bold': True}
+        self._label_css = label_css
+
         for i, (row, dcol, _cbarcol) in enumerate(self._PANEL_GRID):
             panel = self.graphics_widget.addPlot(row=row, col=dcol)
             panel.showGrid(x=False, y=False)
-            panel.setLabel('bottom', 'i (pixel)')
-            panel.setTitle(self.panel_titles[i])
+            panel.setLabel('bottom', 'i (pixel)', **label_css)
+            panel.setTitle(self.panel_titles[i], **label_css)
             # Show y-axis label only on left-column panels (cols 0,1)
             if dcol == 0:
-                panel.setLabel('left', 'j (pixel)')
+                panel.setLabel('left', 'j (pixel)', **label_css)
             else:
                 panel.hideAxis('left')
+            # Black bold tick labels on visible axes
+            for axis_name in ('bottom', 'left'):
+                ax = panel.getAxis(axis_name)
+                ax.setTextPen('k')
+                ax.setPen('k')
+                ax.setStyle(tickFont=tick_font)
             self.panels.append(panel)
 
         # Only panel 0 locks aspect (controls zoom behaviour);
@@ -283,7 +307,10 @@ class FrontPropertyViewer(QMainWindow):
             self.cbar_items[idx] = None
 
         if data is None:
-            panel.setTitle(f'{self.panel_titles[idx]}  [NO DATA]')
+            panel.setTitle(
+                f'{self.panel_titles[idx]}  [NO DATA]',
+                **self._label_css,
+            )
             return
 
         percentile = self.contrast_slider.value()
@@ -305,16 +332,29 @@ class FrontPropertyViewer(QMainWindow):
         panel.addItem(img_item)
         self.image_items[idx] = img_item
 
-        # Colorbar
+        # Colorbar — wrap label in HTML so the title renders bold/black,
+        # and force the tick axis pen/font to match the panel axes.
+        bold_label = (
+            f'<span style="color:#000;font-weight:bold;font-size:11pt">'
+            f'{self.panel_titles[idx]}</span>'
+        )
         cbar = pg.ColorBarItem(
             values=(vmin, vmax),
             colorMap=colormap,
-            label=self.panel_titles[idx],
+            label=bold_label,
             interactive=False,
             width=15,
         )
         cbar.setImageItem(img_item)
         self.graphics_widget.addItem(cbar, row=row, col=cbarcol)
+        # Style the colorbar's value axis to match (black, bold ticks)
+        try:
+            cbar_ax = cbar.getAxis('right')
+            cbar_ax.setTextPen('k')
+            cbar_ax.setPen('k')
+            cbar_ax.setStyle(tickFont=self._tick_font)
+        except Exception:
+            pass
         self.cbar_items[idx] = cbar
 
         # NaN overlay (dark green)

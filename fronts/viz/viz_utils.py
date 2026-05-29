@@ -91,16 +91,18 @@ def make_fronts_rgba(fronts_data, divergent=False):
         Shape (rows, cols, 4), dtype uint8.
     """
     rgba = np.zeros((*fronts_data.shape, 4), dtype=np.ubyte)
+    # Lowered alpha values so the drawn fronts no longer obscure the
+    # underlying field — they should read as a light tint, not a wash.
     if divergent:
         rgba[:, :, 0] = 255
         rgba[:, :, 1] = 255
         rgba[:, :, 2] = 0
-        alpha = 200
+        alpha = 110
     else:
         rgba[:, :, 0] = 255
         rgba[:, :, 1] = 0
         rgba[:, :, 2] = 0
-        alpha = 120
+        alpha = 70
     rgba[:, :, 3] = (fronts_data > 0).astype(np.ubyte) * alpha
     return rgba
 
