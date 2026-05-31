@@ -35,7 +35,7 @@ class GlobalViewer(QMainWindow):
     """Main window for field front visualization."""
 
     def __init__(self, data_file=None, fronts_file=None, fronts2_file=None,
-        downsample=1, field='gradb2', divergent=False):
+        downsample=1, field='gradb2_sfc', divergent=False):
         super().__init__()
 
         self.data_file = data_file
@@ -522,7 +522,7 @@ def parser():
                         help='Path to fronts .npy file (1=front, 0=no front)')
     pparser.add_argument('--fronts2', type=str, default=None,
                         help='Path to second fronts .npy file (displayed in blue)')
-    pparser.add_argument('--field', type=str, default='gradb2',
+    pparser.add_argument('--field', type=str, default='gradb2_sfc',
                         help='Field to display')
 
     pparser.add_argument('--divergent', action='store_true', default=False,
