@@ -139,10 +139,34 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--clim", type=float, nargs=2, default=None,
                    metavar=("LO", "HI"),
                    help="sigma0 colour limits (default 2/98 percentile).")
-    p.add_argument("--cmap-volume", type=str, default="viridis",
-                   help="Colormap for the volume/isopycnal background.")
+    p.add_argument(
+        "--cmap-volume", type=str, default="viridis",
+        help=(
+            "Colormap for the volume/isopycnal background.  Suggestions "
+            "where DENSER water is DARKER (more natural for sigma0): "
+            "dense, deep, gray (cmocean, bare names accepted by PyVista), "
+            "Blues, bone, viridis_r, cividis_r, magma_r, plasma_r.  "
+            "Default 'viridis' (denser=lighter)."
+        ),
+    )
     p.add_argument("--cmap-curtain", type=str, default="magma",
                    help="Colormap for the front curtain.")
+    p.add_argument(
+        "--font-size", type=int, default=None,
+        help=(
+            "Override the renderer's bounds-axis font size.  When "
+            "unset, the scene defaults defined in render_3d are used "
+            "(currently 56)."
+        ),
+    )
+    p.add_argument(
+        "--title-font-size", type=int, default=None,
+        help="Override the scalar-bar title font size (renderer default 60).",
+    )
+    p.add_argument(
+        "--label-font-size", type=int, default=None,
+        help="Override the scalar-bar tick label font size (renderer default 44).",
+    )
     p.add_argument("--zscale", type=float, default=50.0,
                    help="Vertical exaggeration of the depth axis.")
     p.add_argument("--margin", type=int, default=50,
@@ -440,10 +464,22 @@ def main(argv=None) -> None:
         front_mask_cropped, sigma0_clipped, Z_clipped,
         j_slice, i_slice, zscale=args.zscale,
     )
+    # Smaller tube + lower default opacity in render_3d so the surface
+    # marker is identifiable without dominating the iso-surface tilt.
     top_marker = build_front_top_marker(
         curtain, Z_clipped, j_slice, i_slice,
-        zscale=args.zscale, tube_radius=1.5,
+        zscale=args.zscale, tube_radius=0.8,
     )
+
+    # Only pass font overrides when the user supplied them; otherwise let
+    # render_3d use its baked-in defaults.
+    font_kwargs = {}
+    if args.font_size is not None:
+        font_kwargs["font_size"] = args.font_size
+    if args.title_font_size is not None:
+        font_kwargs["title_font_size"] = args.title_font_size
+    if args.label_font_size is not None:
+        font_kwargs["label_font_size"] = args.label_font_size
 
     pl = render_3d(
         grid, curtain, levels,
@@ -452,12 +488,18 @@ def main(argv=None) -> None:
         opacity=args.opacity, zscale=args.zscale, show=args.show,
         top_marker=top_marker,
         front_iso=front_iso,
+        **font_kwargs,
     )
 
     # ---------- Save PNG + HTML ----------
-    cpos_in = None
+    # render_3d sets a south-east elevated camera so i increases L->R
+    # and j increases bottom->top.  save_with_rst will fall back to the
+    # default isometric if `cpos` is None, so capture the current camera
+    # explicitly and pass it through unless the user supplied --cpos.
     if args.cpos:
         cpos_in = json.loads(args.cpos)
+    else:
+        cpos_in = list(pl.camera_position)
     html_path = args.interactive_html
     if html_path is None:
         html_path = args.output.with_suffix(".html")

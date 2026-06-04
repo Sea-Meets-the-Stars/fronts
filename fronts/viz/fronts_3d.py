@@ -779,13 +779,14 @@ def render_3d(
     show: bool = False,
     top_marker: pv.MultiBlock | None = None,
     top_marker_color: str = "red",
+    top_marker_opacity: float = 0.6,
     front_iso: pv.PolyData | None = None,
     front_iso_color: str = "orange",
     front_iso_opacity: float = 0.95,
     draw_curtain: bool = False,
-    font_size: int = 40,
-    title_font_size: int = 44,
-    label_font_size: int = 32,
+    font_size: int = 56,
+    title_font_size: int = 60,
+    label_font_size: int = 44,
 ) -> pv.Plotter:
     """Assemble the 3-D scene: isopycnals / volume + curtain + top marker + axes.
 
@@ -847,10 +848,14 @@ def render_3d(
             float(np.nanpercentile(scalars, 98)),
         )
 
-    # Shared scalar-bar styling.  Vertical bars positioned on the right
-    # side, so multiple bars stack without overlapping their tick labels.
-    # `position_x` is the bar's left edge in normalised viewport coords
-    # (0 = left, 1 = right); `position_y` is the bottom edge.
+    # Shared scalar-bar styling.  Vertical bar positioned on the right
+    # side: wider and taller than the v1.5 default so the bar AND its
+    # label text are easy to read in a printed/projected figure, with
+    # enough margin from the viewport edge that the title text
+    # (rendered to the right of the bar) doesn't clip at large font
+    # sizes.  `position_x` is the bar's left edge in normalised
+    # viewport coords (0 = left, 1 = right); `position_y` is the bottom
+    # edge.
     def _sb_args(title, position_y):
         return dict(
             title=title,
@@ -860,10 +865,13 @@ def render_3d(
             label_font_size=label_font_size,
             shadow=False,
             vertical=True,
-            position_x=0.86,
+            position_x=0.74,
             position_y=position_y,
-            width=0.06,
-            height=0.40,
+            width=0.08,
+            # height capped so position_y + height <= ~0.88 leaves
+            # ~12% of the viewport above the bar for the title text
+            # at title_font_size=60 without clipping it off the top.
+            height=0.50,
         )
 
     if mode == "isopycnals":
@@ -877,7 +885,7 @@ def render_3d(
                 opacity=0.6,
                 smooth_shading=True,
                 scalar_bar_args=_sb_args(
-                    "sigma0 [kg/m^3]", position_y=0.55,
+                    "sigma0 [kg/m^3]", position_y=0.30,
                 ),
             )
     elif mode == "volume":
@@ -940,7 +948,9 @@ def render_3d(
         )
 
     # Top-layer marker (optional).  Drawn in a single bright fixed colour
-    # so the front's lateral position is unambiguous in plan view.
+    # so the front's lateral position is identifiable in plan view, but
+    # toned down (lower opacity) so it doesn't overwhelm the iso-surface
+    # tilt structure underneath.
     if top_marker is not None and len(top_marker.keys()) > 0:
         for name in top_marker.keys():
             mesh = top_marker[name]
@@ -949,6 +959,7 @@ def render_3d(
             pl.add_mesh(
                 mesh,
                 color=top_marker_color,
+                opacity=top_marker_opacity,
                 show_scalar_bar=False,
                 smooth_shading=True,
             )
@@ -963,4 +974,29 @@ def render_3d(
         ticks="both",
         font_size=font_size,
     )
+
+    # Default camera: south-east elevated isometric.
+    # VTK's view_isometric() places the camera at (1,1,1)*scale, which
+    # puts +x (i) screen-LEFTWARD and +y (j) screen-RIGHTWARD.  We want
+    # the more conventional "map" orientation: i increases left -> right
+    # and j increases bottom -> top.  Placing the camera at
+    # (+dx, -dy, +dz) (south-east elevated) and looking at the bbox
+    # centre with up=z gives a view where the "screen right" cross
+    # product R = V x U has +x and +y components, i.e. both axes
+    # increase rightward AND upward, matching the user's expected
+    # convention.
+    bounds = grid.bounds  # [xmin, xmax, ymin, ymax, zmin, zmax]
+    cx = 0.5 * (bounds[0] + bounds[1])
+    cy = 0.5 * (bounds[2] + bounds[3])
+    cz = 0.5 * (bounds[4] + bounds[5])
+    dx = 0.5 * (bounds[1] - bounds[0])
+    dy = 0.5 * (bounds[3] - bounds[2])
+    dz = 0.5 * (bounds[5] - bounds[4])
+    span = float(max(dx, dy, dz))
+    distance = 3.0 * span
+    pl.camera_position = [
+        (cx + distance, cy - distance, cz + distance),  # SE-up corner
+        (cx, cy, cz),                                    # focal point
+        (0.0, 0.0, 1.0),                                 # up = +z
+    ]
     return pl

@@ -340,6 +340,8 @@ No other dependencies were missing in the `ocean14` env: `scipy.ndimage`, `xarra
 
 1. Generate one or more markdown files that describe the code and its functionality.  While you are at it, do the same for all of the other viz scripts in the fronts repository.  Place these in docs/
 
+2. Update the documentation for this script.
+
 ## Modifications
 
 1. Make these modifications to the code:
@@ -420,6 +422,104 @@ Implementation notes:
 - The front iso-surface contour is taken from the *unmasked* grid, so it can extend through whatever portion of the bbox the median-sigma0 surface occupies — this naturally captures any cross-front isopycnal slope without being truncated to the front's narrow column.
 - `dilate_front_mask` and `front_volume_clim` remain wired up but unused in the default path; they're available if a future iteration wants a front-restricted clim again.
 
+### Fourth set of modifications
+
+Please make these changes:
+
+- Flip the directions of the i,j axes in the 3D rendering  so that they increase bottom to top and left to right
+- Try one more time to increase the font sizes in the 3D rendering
+- Make the graphic marking the front location at the surface less visible.  Either lower its opacity or its size.  Or both
+
+### v1.5 (axis flip + bigger fonts + toned-down surface marker)
+
+All three items implemented and verified on both example commands.
+
+- **Camera-based axis flip ([fronts/viz/fronts_3d.py](../fronts/viz/fronts_3d.py))**: `render_3d` now sets an explicit camera position at the **south-east elevated** corner (`(cx + 3*span, cy - 3*span, cz + 3*span)`, looking at the bbox centre with `up=(0, 0, 1)`). Mathematically, the screen-right cross product `R = V × U` then has components `(+1, +1, 0)` in data coordinates, so both `i` and `j` increase rightward/upward across the screen rather than leftward as in VTK's default `(1, 1, 1)` isometric. The script captures `pl.camera_position` after `render_3d` returns and passes it through to `save_with_rst` so the default isometric override inside `save_figure` doesn't undo it.
+- **Toned-down surface marker**:
+    - Tube radius reduced from `1.5` to `0.8` pixels in the script call to `build_front_top_marker`.
+    - New `top_marker_opacity` parameter on `render_3d` (default `0.6` — was implicitly `1.0`). The red surface trace is now identifiable but no longer dominates the iso-surface tilt structure underneath.
+- **Fonts bumped one more time**: `render_3d` defaults raised from `40/44/32` to `56/60/44` (axes / scalar-bar title / scalar-bar tick labels). Scalar-bar `position_x` shifted from `0.86` to `0.78` and `width` from `0.06` to `0.05` so the now-larger title text doesn't clip at the right viewport edge.
+
+Verified on both Examples-section commands:
+1. **California Current** (`density_tile330`, `--i 13142 --j 9956 --clim 24.4 25.0`): selects label 111425 at lon=−124.20, lat=36.38. i tick labels (96–258) increase left→right along the bottom-front edge; j tick labels (504–704) increase along the back-right edge running upper-right; orange iso-surface clearly tilts across the front with the red surface marker visible but subtle.
+2. **Gulf Stream central** (`density_tile334`, `--i 16347 --j 9998`): selects label 111387. i labels (354–558) and j labels (558–719.8) follow the same orientation convention; iso-surface tilt characteristic of the Gulf Stream front clearly visible.
+
+Open items / not addressed in v1.5:
+- Some axis tick labels overlap at the back corners of the bbox (e.g. the `i` and `j` labels along the same edge crowd each other). Could be addressed by toggling `ticks="outside"` or by passing `n_xlabels`/`n_ylabels`/`n_zlabels` to `show_bounds` to thin the tick density. Not part of this round.
+- The Gulf Stream example uses the *default* `--clim` (mixed-layer 2/98 percentile = 24.1–25.1 here) which gives a slightly washed-out top portion of the orange iso-surface; passing a manual `--clim` like the California Current example tightens the contrast as expected.
+
+## Examples
+
+1.  python -m fronts.scripts.fronts_viz_3d     --density-tile "$OS_OGCM/LLC/Fronts/V4/20121109_120000/tiles/density_tile330_20121109T12.nc"     --labels       "$OS_OGCM/LLC/Fronts/V4/20121109_120000/labeled_fronts_global_20121109T12_00_00_V4.npy"     --i 13142 --j 9956     --zscale 1.0     --output fronts_viz_3d_calcurrent.png --clim 24.4 25.0 # Coastal cali
+
+2.  python -m fronts.scripts.fronts_viz_3d     --density-tile "$OS_OGCM/LLC/Fronts/V4/20121109_120000/tiles/density_tile334_20121109T12.nc"     --labels       "$OS_OGCM/LLC/Fronts/V4/20121109_120000/labeled_fronts_global_20121109T12_00_00_V4.npy"     --i 16347 --j 9998     --zscale 1.0     --output fronts_viz_3d_gs_central.png   # GS central  
+
+## Polishing
+
+1. Here are some smaller items:
+
+- Please suggest other color maps for the volume rendering.  In particular those that would have denser water be darker.  
+- Can you explain why the font size for the 3D viz is fixed (and so small)?
+- Can you make the color bar a bit larger (and its text)?
+
+### v1.6 (polish: cmap suggestions, CLI font knobs, larger color bar)
+
+#### Colormap suggestions (denser water = darker)
+
+`viridis` (the default) maps higher σ₀ to *lighter* (yellow), which is backwards if you want "dense = dark." Options where denser water is darker, all accepted by the `--cmap-volume` CLI flag:
+
+| Colormap | Family | Notes |
+|---|---|---|
+| `dense` | cmocean | Purpose-built for ocean density. Cream → dark purple. Perceptually uniform. **Recommended default for σ₀.** |
+| `deep` | cmocean | Light yellow → deep blue. Perceptually uniform; reads as "depth/density." |
+| `gray` | cmocean | Perceptually-uniform monochrome. White → black. Good for grayscale print. |
+| `Blues` | matplotlib | Light blue → dark blue. Familiar, single-hue. |
+| `bone` | matplotlib | Bluish-white → black. Classic publication look. |
+| `viridis_r` | matplotlib | Reversed viridis: yellow → dark purple. Keeps viridis's perceptual properties. |
+| `cividis_r` | matplotlib | Reversed cividis; colorblind-safe. |
+| `magma_r` / `plasma_r` / `inferno_r` | matplotlib | Reversed sequential, dark = high. |
+| `Greys` / `gray_r` | matplotlib | Pure grayscale, light → dark. |
+
+PyVista's `get_cmap_safe` accepts the bare cmocean names (`dense`, `deep`, `gray`) — not `cmo.dense`. Example: `--cmap-volume dense`.
+
+A re-run of the California Current example with `--cmap-volume dense` confirms the change: the right edge of the bbox (denser deep water) now reads as dark purple, the top (lighter surface water) as cream/yellow, with the orange front iso-surface still standing out against this background.
+
+#### Why the 3-D font sizes looked "fixed and small"
+
+The fonts weren't truly fixed — `render_3d` has always exposed `font_size`, `title_font_size`, and `label_font_size` parameters. But the **script** was hardcoding their values at the call site (or letting `render_3d` use its baked-in defaults), so from the CLI's point of view they were not configurable. Two compounding factors made them look small:
+
+1. **PyVista doesn't auto-scale fonts with the rendered image size.** The off-screen window size set by `pv_helpers.new_plotter` is `(1600, 1200)` and the screenshot is supersampled at `scale=2`, so the final PNG is `3200 x 2400`. A "font size 20" rendered at 14 px ends up as ~14 px in the 1600-wide window, then is supersampled to ~28 px in the 3200-wide PNG — small relative to the bbox.
+2. **The camera framing was wider than the bbox**, leaving a lot of whitespace around the volume, so labels at the bbox edges occupied a smaller fraction of the image than expected.
+
+The fix in v1.6 is to (a) raise the **default** font sizes inside `render_3d` (now 56 / 60 / 44), and (b) expose them as CLI overrides so the user can dial up further without editing source:
+
+```
+--font-size INT          override bounds-axis font size (default 56)
+--title-font-size INT    override scalar-bar title font size (default 60)
+--label-font-size INT    override scalar-bar tick label font size (default 44)
+```
+
+The script only forwards each value to `render_3d` when the user supplies it, otherwise the renderer's baked-in defaults apply — so the CLI defaults match the v1.6 baked-in defaults but can still be tuned per-run.
+
+#### Larger color bar (and text)
+
+Changes to the `_sb_args(...)` helper inside `render_3d`:
+
+| Property | v1.5 | v1.6 |
+|---|---|---|
+| `position_x` | 0.78 | 0.74 |
+| `width` | 0.05 | 0.08 |
+| `height` | 0.42 | 0.50 |
+| `position_y` (single bar) | 0.55 | 0.30 |
+
+The combined effect is a bar that's noticeably wider, taller, and shifted left enough that its title (rendered to the right of the bar in vertical mode) doesn't run off the right viewport edge. `position_y` was lowered from 0.55 → 0.30 because the bar-top-plus-title text was clipping above the top of the viewport at 60 pt title font; centring the bar vertically (0.30 to 0.80) leaves ~15 % of the viewport above the bar for the title.
+
+Verified on the California Current example with `--cmap-volume dense`: the bar fills more of the right margin, the title `sigma0 (kg/m^3)` is fully readable, and tick labels (24.4 → 25) are visible at the bar's left edge.
+
+Open items for a future round:
+- The curtain-on case still uses `position_y=0.10` for its scalar bar; if `--curtain` is opted into, the two bars would overlap at the new height of 0.50. Trivially fixable by passing a smaller height when two bars are active, but not pursued because `--draw-curtain` is off by default in v1.4+.
+- The CLI doesn't yet expose `--top-marker-opacity` or `--front-iso-opacity` — also low-effort follow-ups.
+
 ## Prompts
 
 ### Planning
@@ -436,9 +536,15 @@ Implementation notes:
 ### Document
 
 1. Read this doc.  Now execute the first step listed under Docs.
+2. Re-read this doc.  Execute the 2nd step listed under Docs.
 
 ### Modify
 
 1. Read this doc.  Now execute the first step listed under Modifications.
 2. Read this doc.  Now execute the second set of modifications listed under Modifications.
 3. Re-read this doc.  Now execute the Third set of modifications listed under Modifications.
+4. Re-read this doc.  Now execute the Fourth set of modifications listed under Modifications.
+
+### Polish
+
+1. Read this doc.  Now execute the first step listed under Polishing.
