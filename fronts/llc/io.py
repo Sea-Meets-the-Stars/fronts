@@ -126,7 +126,7 @@ def derived_filename(timestamp:str, field:str,
     path = fronts_dir(version, timestamp)
 
     # Generate base
-    basefile = f'{root}_{timestamp}_{field}_v{version}.nc'
+    basefile = f'{root}_{timestamp}_{field}_V{version}.nc'
 
     # Join and return
     return os.path.join(path, basefile)

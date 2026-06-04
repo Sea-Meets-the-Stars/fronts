@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 import pyqtgraph as pg
 
-from fronts.scripts.viz_utils import make_colormap, compute_levels, make_fronts_rgba, make_nan_rgba
+from fronts.viz.viz_utils import make_colormap, compute_levels, make_fronts_rgba, make_nan_rgba
 
 
 class GlobalViewer(QMainWindow):
