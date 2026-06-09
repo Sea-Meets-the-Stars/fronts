@@ -89,6 +89,11 @@ PROPERTY_ROOTS = [
 # Front-finding uses the SURFACE gradb2 field.
 GRADB2_FIELD = 'gradb2_sfc'
 
+# Percentiles to co-locate per property, in addition to the default
+# mean/std/median.  e.g. [90] -> a '{property}_p90' column per channel.
+# Set to None to skip percentile columns.
+PERCENTILES = [25, 75, 90]
+
 # Set True to NaN-mask ice-covered points during the NetCDF export.
 ICE_MASK = False
 
@@ -150,7 +155,9 @@ def main(flg: str):
         if flg == 4:
             colocate_fronts(timestamp, config, run_id,
                             property_names=property_names,
-                            skip_missing=True)
+                            percentiles=PERCENTILES,
+                            skip_missing=True,
+                            clobber=True)
 
 
 # Command line execution
