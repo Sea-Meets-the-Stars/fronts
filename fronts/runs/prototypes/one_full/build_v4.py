@@ -8,13 +8,16 @@
 #
 # Path alignment
 # --------------
-# run_all_subsets writes:
+# fronts uses the config's run_id verbatim as the run tag -- no 'V'/'v' prefix
+# and no separate "version".  run_all_subsets writes:
 #     {netcdf_base}/{run_id}/{date_prefix}/LLC4320_{date}_{channel}_{run_id}.nc
-# fronts reads from:
-#     {OS_OGCM}/LLC/Fronts/V{version}/{date_prefix}/LLC4320_{ts}_{field}_V{version}.nc
-# These coincide when:
-#     netcdf_base = {OS_OGCM}/LLC/Fronts   and   run_id = 'V{version}'
-# So run_v4_depth.yaml MUST set run.run_id = 'V4' for version = '4'.
+# fronts reads/writes under the same convention:
+#     {OS_OGCM}/LLC/Fronts/{run_id}/{date_prefix}/LLC4320_{ts}_{field}_{run_id}.nc
+# These coincide as long as:
+#     netcdf_base = {OS_OGCM}/LLC/Fronts
+# so run_id can be anything (e.g. 'V4', 'vtest', 'global_DEPTH_test01') and the
+# producer + consumer paths line up automatically.  run_id is read straight
+# from run.run_id in run_v4_depth.yaml.
 #
 # Steps (pass the step number on the command line):
 #   1  generate + export ALL active subsets via run_all_subsets
@@ -73,7 +76,7 @@ PROPERTY_ROOTS = [
     'gradb2', 'gradtheta2', 'gradsalt2', 'gradrho2', 'gradeta2', 'turner_angle',
     # kinematic               (suffixed;  bare extra: coriolis_f)
     'relative_vorticity', 'strain_n', 'strain_s', 'strain_mag', 'divergence',
-    'rossby_number', 'okubo_weiss', 'coriolis_f',
+    'okubo_weiss', #'coriolis_f','rossby_number',
     # frontogenesis           (suffixed)
     'frontogenesis_tendency', 'frontogenesis_geo', 'frontogenesis_ageo',
     'ug', 'vg',
@@ -115,9 +118,6 @@ def main(flg: str):
     fronts_path = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts')
     llc_io.set_fronts_path(fronts_path)
 
-    # Property roots -> fully-suffixed channel names from the config.
-    property_names = expand_property_roots(PROPERTY_ROOTS, config_file)
-
     # Generate + export all active subsets (Zarr + per-channel NetCDF) for all
     # dates.  run_id, pipeline, subsets, dates, and depth_suffixes all come
     # from the config.  Existing stores/files are skipped (pass clobber=True
@@ -125,6 +125,12 @@ def main(flg: str):
     if flg == 1:
         generate_global_dataset(config_file, fronts_path, ice_mask=ICE_MASK)
         return
+
+    # Property roots -> fully-suffixed channel names.  Only needed for
+    # co-location (flg 4); computed lazily so flg 2/3 don't require
+    # PROPERTY_ROOTS to match active_subsets.
+    property_names = (expand_property_roots(PROPERTY_ROOTS, config_file)
+                      if flg == 4 else None)
 
     # Per-timestamp steps (run over every date in the config).
     # Not needed for flg == 1 since generate_global_dataset() already loops over dates.
@@ -138,10 +144,13 @@ def main(flg: str):
         if flg == 3:
             group_fronts(timestamp, config, run_id)
 
-        # Co-locate fronts with physical properties
+        # Co-locate fronts with physical properties.
+        # skip_missing=True -> co-locate whatever .nc files exist and skip the
+        # rest (e.g. depth levels that weren't saved), without regenerating.
         if flg == 4:
             colocate_fronts(timestamp, config, run_id,
-                            property_names=property_names)
+                            property_names=property_names,
+                            skip_missing=True)
 
 
 # Command line execution

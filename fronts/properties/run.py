@@ -50,7 +50,8 @@ def colocate_fronts(timestamp: str, config: str, version: str,
                     output_dir: str = None,
                     stats: list = None, percentiles: list = None,
                     min_npix: int = 1, nan_policy: str = 'omit',
-                    dilation_radius: int = 1, clobber: bool = False):
+                    dilation_radius: int = 1, clobber: bool = False,
+                    skip_missing: bool = False):
     """Co-locate labeled fronts with physical property fields.
 
     All paths are resolved from ``PATH/V{version}/YYYYMMDD_HHMMSS/``
@@ -74,6 +75,9 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         dilation_radius (int): Pixels to dilate each front before stats.
             Defaults to 0.
         clobber (bool): Overwrite existing output. Defaults to False.
+        skip_missing (bool): If True, silently drop requested properties whose
+            .nc file is absent (co-locate only what exists) instead of raising.
+            Defaults to False (strict: raise if any are missing).
     """
     fdir = llc_io.fronts_dir(version, timestamp)
     fronts_file = finding_io.binary_filename(timestamp, config, version)
@@ -97,11 +101,21 @@ def colocate_fronts(timestamp: str, config: str, version: str,
             os.path.join(property_dir, f'LLC4320_{timestamp}_{name}_{version}.nc'))
     ]
     if missing:
-        raise FileNotFoundError(
-            f"Missing property file(s) for: {missing}\n"
-            f"Run generate_properties() first for the subset containing these fields, "
-            f"or check that property_dir is correct: {property_dir}"
-        )
+        if skip_missing:
+            print(f"WARNING: skipping {len(missing)} missing property file(s) "
+                  f"(co-locating only what exists): {missing}")
+            property_names = [n for n in property_names if n not in missing]
+            if not property_names:
+                print(f"No requested property files present in {property_dir}; "
+                      f"nothing to co-locate. Returning.")
+                return
+        else:
+            raise FileNotFoundError(
+                f"Missing property file(s) for: {missing}\n"
+                f"Run generate_properties() first for the subset containing these fields, "
+                f"or pass skip_missing=True to co-locate only what exists, "
+                f"or check that property_dir is correct: {property_dir}"
+            )
 
     # Load label map
     labeled_file = properties_io.get_global_front_output_path(

@@ -58,6 +58,7 @@ active_subsets:
 
 # ---------------------------------------------------------------------------
 # Depth suffixes — USER CONFIGURABLE.
+# options: [sfc, z25m, mld, mld_mean]
 #
 # Every depth (compute) channel is expanded with these suffixes, e.g.
 # relative_vorticity -> relative_vorticity_{sfc,z25m,mld,mld_mean}.
