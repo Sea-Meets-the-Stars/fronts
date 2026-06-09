@@ -1,18 +1,48 @@
 """ High-level routines to run bits and pieces of fronts.properties
 """
 import os
+import sys
+import subprocess
 import yaml
 
 import numpy as np
 import xarray
 
 from dbof.cli import generate_global
+from dbof.global_dataset_creation.subset_definitions import (
+    get_subset_definition, expand_channels_with_suffixes, valid_subsets,
+)
 
 from fronts.finding import io as finding_io
 from fronts.llc import io as llc_io
 
 from fronts.properties import io as properties_io
 from fronts.properties import algorithms as prop_algorithms
+
+
+def generate_global_dataset(config_file: str, netcdf_base: str,
+                            ice_mask: bool = False, clobber: bool = False):
+    """Generate + export all active subsets via ``dbof.run_all_subsets``.
+
+    Thin wrapper around the preprocessing batch driver (a CLI entry point),
+    run as a subprocess in the current interpreter's environment.  Pipeline,
+    run_id, subsets, dates, and depth_suffixes all come from *config_file*;
+    outputs land under ``{netcdf_base}/{run_id}/{date_prefix}/``.  Existing
+    subset/date zarr stores and channel NetCDFs are skipped unless *clobber*.
+
+    Args:
+        config_file (str): Path to the (thin, global) YAML config.
+        netcdf_base (str): Root dir for NetCDF output (e.g. the Fronts path).
+        ice_mask (bool): NaN-mask ice-covered points during export.
+        clobber (bool): Force regenerate/re-export even if outputs exist.
+    """
+    cmd = [sys.executable, '-m', 'dbof.cli.run_all_subsets',
+           '--config', config_file, '--netcdf-base', netcdf_base]
+    if ice_mask:
+        cmd.append('--ice-mask')
+    if clobber:
+        cmd.append('--clobber')
+    subprocess.run(cmd, check=True)
 
 
 def colocate_fronts(timestamp: str, config: str, version: str,
@@ -53,7 +83,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
 
     # Check if output already exists
     time_str = timestamp.replace('_', ':')   # '2012-11-09T12:00:00'
-    run_tag  = f'v{version}_bin_{config}'    # e.g. 'v1_bin_A'
+    run_tag  = f'{version}_bin_{config}'     # e.g. 'Vtest_bin_D' (version = run_id)
     out_file = properties_io.get_global_front_output_path(
         output_dir, time_str, 'properties', run_tag)
     if os.path.isfile(out_file) and not clobber:
@@ -64,7 +94,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
     missing = [
         name for name in property_names
         if not os.path.isfile(
-            os.path.join(property_dir, f'LLC4320_{timestamp}_{name}_v{version}.nc'))
+            os.path.join(property_dir, f'LLC4320_{timestamp}_{name}_{version}.nc'))
     ]
     if missing:
         raise FileNotFoundError(
@@ -84,6 +114,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         property_dir=property_dir,
         fronts_file=fronts_file,
         output_dir=output_dir,
+        version=version,
         stats=stats,
         percentiles=percentiles,
         min_npix=min_npix,
@@ -92,15 +123,141 @@ def colocate_fronts(timestamp: str, config: str, version: str,
     )
 
 
+def _resolve_channel_maps(config_file: str):
+    """Resolve channel ↔ subset mappings from the thin global config.
+
+    The ``subsets:`` block no longer lives in the YAML; the canonical channel
+    lists live in ``dbof.global_dataset_creation.subset_definitions``, keyed by
+    pipeline.  Depth (compute) channels are expanded with the active
+    ``depth_suffixes`` (the YAML override wins; otherwise the per-subset
+    default is used).  ``model_data_feature_channels`` and ``extra_channels``
+    are never suffixed.
+
+    Parameters
+    ----------
+    config_file : str
+        Path to the (thin) global YAML config.
+
+    Returns
+    -------
+    (channel_to_subset, root_to_expanded) : tuple[dict, dict]
+        ``channel_to_subset`` maps every fully-expanded channel name to its
+        subset.  ``root_to_expanded`` maps each *root* (base) name to the list
+        of expanded channel names it produces under the active config.
+    """
+    with open(config_file) as fh:
+        raw = yaml.safe_load(fh) or {}
+
+    pipeline = raw.get('pipeline')
+    if pipeline is None:
+        raise ValueError(f"'pipeline' must be set in {config_file}")
+    pipeline = pipeline.upper()
+
+    # depth_suffixes: an explicit YAML key overrides the per-subset default,
+    # but ONLY for subsets that actually carry a depth_suffixes key -- this
+    # mirrors dbof.run_all_subsets (it applies the override only when
+    # "depth_suffixes" in defn), so surface-only subsets (surface_wind,
+    # icearea) keep bare channels.
+    suffix_override = raw.get('depth_suffixes')   # None if absent
+
+    # Restrict to the subsets the run actually produces, if listed.
+    active = raw.get('active_subsets')
+    if not active:
+        single = raw.get('active_subset')
+        active = [single] if single else valid_subsets(pipeline)
+
+    channel_to_subset = {}
+    root_to_expanded = {}
+    for subset_name in active:
+        defn = get_subset_definition(pipeline, subset_name)
+
+        if suffix_override and ('depth_suffixes' in defn):
+            eff_suffixes = suffix_override
+        else:
+            eff_suffixes = defn.get('depth_suffixes')
+
+        compute = defn.get('compute_features_channels') or []
+        model = defn.get('model_data_feature_channels') or []
+        extra = defn.get('extra_channels') or []
+
+        # Compute channels get suffix-expanded; model/extra stay bare.
+        for base in compute:
+            expanded = expand_channels_with_suffixes([base], eff_suffixes, None)
+            root_to_expanded[base] = expanded
+            for ch in expanded:
+                channel_to_subset[ch] = subset_name
+        for ch in list(model) + list(extra):
+            root_to_expanded[ch] = [ch]
+            channel_to_subset[ch] = subset_name
+
+    return channel_to_subset, root_to_expanded
+
+
+def expand_property_roots(property_roots: list, config_file: str) -> list:
+    """Expand property *roots* into fully-suffixed channel names.
+
+    Lets a caller (e.g. build_v4) list root names like ``'relative_vorticity'``
+    and receive every variant the active config produces
+    (``relative_vorticity_sfc``, ``relative_vorticity_mld``, ...), while
+    channels that carry no suffix (``coriolis_f``, ``mixed_layer_depth``, native
+    model fields) pass through unchanged.
+
+    Parameters
+    ----------
+    property_roots : list of str
+        Root/base channel names.  Already-expanded names are accepted too.
+    config_file : str
+        Path to the (thin) global YAML config.
+
+    Returns
+    -------
+    list of str
+        Fully-expanded channel names, order-preserving and de-duplicated.
+
+    Raises
+    ------
+    ValueError
+        If a root is unknown to the active pipeline/subsets.
+    """
+    channel_to_subset, root_to_expanded = _resolve_channel_maps(config_file)
+
+    expanded, seen = [], set()
+    unknown = []
+    for root in property_roots:
+        if root in root_to_expanded:
+            names = root_to_expanded[root]
+        elif root in channel_to_subset:
+            names = [root]            # already an expanded channel name
+        else:
+            unknown.append(root)
+            continue
+        for ch in names:
+            if ch not in seen:
+                seen.add(ch)
+                expanded.append(ch)
+
+    if unknown:
+        raise ValueError(
+            f"These property roots are not in any active subset of "
+            f"{config_file}: {unknown}"
+        )
+    return expanded
+
+
 def generate_properties(timestamp: str, config_file: str, version: str,
                         property_names: list, run_id: str = None,
                         clobber: bool = False, create_zarr: bool = False):
     """Generate individual per-property .nc files for the requested properties.
 
-    Resolves which dbof subset each property belongs to from the YAML config,
-    then writes one LLC4320_{timestamp}_{property}_v{version}.nc file per
-    property — the format expected by colocate_fronts(). Existing files are
+    Resolves which dbof subset each property belongs to from the canonical
+    ``subset_definitions`` (driven by the pipeline + active_subsets in the
+    config), then writes one LLC4320_{timestamp}_{property}_{version}.nc file
+    per property — the format expected by colocate_fronts(). Existing files are
     skipped unless clobber=True.
+
+    ``property_names`` should be fully-expanded channel names (e.g.
+    ``relative_vorticity_sfc``).  Use :func:`expand_property_roots` to turn a
+    list of root names into the expanded set first.
 
     Use :func:`fronts.llc.io.set_fronts_path` to override the root
     directory.  Files land under ``PATH/V{version}/YYYYMMDD_HHMMSS/``.
@@ -109,35 +266,20 @@ def generate_properties(timestamp: str, config_file: str, version: str,
         timestamp (str): Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
         config_file (str): Path to the YAML config file.
         version (str): Data version string.
-        property_names (list): Property/channel names to generate, e.g.
-            ['relative_vorticity', 'strain_n'].
+        property_names (list): Fully-expanded channel names to generate.
         run_id (str, optional): Override the run_id in the config YAML.
         clobber (bool): Overwrite existing output files. Defaults to False.
         create_zarr (bool): Create the zarr store via generate_global.
             Defaults to False (assumes zarr already exists on S3).
     """
-    with open(config_file) as fh:
-        raw = yaml.safe_load(fh) or {}
-
-    # Build channel → subset mapping from the YAML
-    # this is so the user can input which properties they want
-    # and the 'subset' is determined by the code from YAML
-    channel_to_subset = {}
-    for subset_name, sub_cfg in (raw.get('subsets') or {}).items():
-        for ch in sub_cfg.get('compute_features_channels', []):
-            ch = ch.strip()
-            if ch:
-                channel_to_subset[ch] = subset_name
-        for ch in sub_cfg.get('model_data_feature_channels', []):
-            ch = ch.strip()
-            if ch:
-                channel_to_subset[ch] = subset_name
+    channel_to_subset, _ = _resolve_channel_maps(config_file)
 
     # Validate that all requested properties are known
     unknown = [p for p in property_names if p not in channel_to_subset]
     if unknown:
         raise ValueError(
-            f"The following properties were not found in any subset of {config_file}: {unknown}"
+            f"The following properties were not found in any active subset of "
+            f"{config_file}: {unknown}"
         )
 
     # Group requested properties by subset so generate_global runs once per subset

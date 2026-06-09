@@ -9,7 +9,8 @@ import xarray as xr
 import pandas
 
 from dbof.cli import zarr_to_netcdf
-import dbof.dataset_creation.config as dbof_config
+from dbof.global_dataset_creation.config import default_output_folder
+from dbof.global_dataset_creation.subset_definitions import get_subset_definition
 
 
 from IPython import embed
@@ -77,26 +78,29 @@ def _format_timestamp(timestamp: str) -> str:
 
 
 def fronts_dir(version: str, timestamp: str, generate: bool = False) -> str:
-    """Build the versioned + timestamped output directory.
+    """Build the run + timestamped output directory.
 
-    Returns ``PATH / V{version} / YYYYMMDD_HHMMSS`` and creates it if
+    Returns ``PATH / {version} / YYYYMMDD_HHMMSS`` and creates it if
     it does not exist.
 
     Parameters
     ----------
     version : str
-        Version string (e.g. '3').  Prefixed with ``V``.
+        Run tag, used **verbatim** as the directory name.  This is the
+        ``run_id`` (e.g. 'Vtest', 'vtest', 'global_DEPTH_test01') so the path
+        matches dbof.run_all_subsets' output (``{netcdf_base}/{run_id}/...``).
+        No ``V`` is prepended.
     timestamp : str
         Snapshot timestamp (e.g. '2012-11-09T12_00_00').
     generate : bool, optional
         Generate the directory if it does not exist. Defaults to False.
-    
+
     Returns:
     --------
         str: The path to the directory.
     """
     ts_dir = _format_timestamp(timestamp)
-    d = os.path.join(get_fronts_path(), f'V{version}', ts_dir)
+    d = os.path.join(get_fronts_path(), version, ts_dir)
     if generate:
         os.makedirs(d, exist_ok=True)
     # Return
@@ -125,8 +129,10 @@ def derived_filename(timestamp:str, field:str,
     """
     path = fronts_dir(version, timestamp)
 
-    # Generate base
-    basefile = f'{root}_{timestamp}_{field}_v{version}.nc'
+    # Generate base.  The tag is the run_id used verbatim (no 'V' prefix), so
+    # it matches dbof.run_all_subsets, which names exported NetCDFs
+    # LLC4320_{date}_{channel}_{run_id}.nc.
+    basefile = f'{root}_{timestamp}_{field}_{version}.nc'
 
     # Join and return
     return os.path.join(path, basefile)
@@ -293,27 +299,47 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
                 version: str = None, run_id: str = None):
     """Write netcdf from the S3 zarr store.
 
-    Pass either `field` (single field, e.g. 'gradb2') or `channels` (list of
-    field names for multi-channel subsets). The output path is placed under
+    Pass either `field` (single field, e.g. 'gradb2_sfc') or `channels` (list
+    of field names for multi-channel subsets). The output path is placed under
     ``PATH/V{version}/YYYYMMDD_HHMMSS/``.  Use :func:`set_fronts_path` to
     override the root directory.
+
+    The S3 location and zarr store name are resolved from the (thin, global)
+    config YAML plus the canonical ``subset_definitions`` in the preprocessing
+    package -- the ``subsets:`` block no longer lives in the YAML.
     """
     name = field if field is not None else subset
     full_path = derived_filename(timestamp, name, version=version)
-    cfg = dbof_config.load_config(config_file)
+
     with open(config_file) as fh:
         raw = yaml.safe_load(fh) or {}
-    dataset_name = (raw.get('subsets', {}).get(subset, {}).get('dataset_name')
-                    or cfg.output.dataset_name)
+
+    pipeline = raw.get('pipeline')
+    if pipeline is None:
+        raise ValueError(f"'pipeline' must be set in {config_file}")
+    pipeline = pipeline.upper()
+
+    output = raw.get('output') or {}
+    run_cfg = raw.get('run') or {}
+    data_cfg = raw.get('data') or {}
+
+    # dataset_name comes from the canonical subset definition (source of truth);
+    # allow an explicit YAML override of output.dataset_name if present.
+    defn = get_subset_definition(pipeline, subset)
+    dataset_name = output.get('dataset_name') or defn['dataset_name']
+
+    # folder is pipeline-derived unless explicitly overridden in the YAML.
+    folder = output.get('folder') or default_output_folder(pipeline)
+
     zarr_to_netcdf.main(
         os.path.dirname(full_path),
         output_filename=os.path.basename(full_path),
         mode='snapshots',
-        run_id=run_id or cfg.run.run_id,
-        s3_endpoint=cfg.output.s3_endpoint,
-        bucket=cfg.output.bucket,
+        run_id=run_id or run_cfg.get('run_id'),
+        s3_endpoint=output.get('s3_endpoint', 'https://s3-west.nrp-nautilus.io'),
+        bucket=output.get('bucket', 'dbof/'),
         channels=[field] if field is not None else channels,
-        dates=cfg.data.date_iterations,
+        dates=data_cfg.get('date_iterations'),
         dataset_name=dataset_name,
-        folder=cfg.output.folder)
+        folder=folder)
     return full_path

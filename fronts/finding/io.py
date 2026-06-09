@@ -10,7 +10,8 @@ def binary_filename(timestamp:str, config_lbl:str, version:str,
                     root:str='LLC4320'):
     """Build the filename for a binary-front .npy file.
 
-    The file is placed under ``PATH/V{version}/YYYYMMDD_HHMMSS/``.
+    The file is placed under ``PATH/{version}/YYYYMMDD_HHMMSS/`` (``version``
+    is the run_id, used verbatim).
 
     Parameters
     ----------
@@ -19,19 +20,20 @@ def binary_filename(timestamp:str, config_lbl:str, version:str,
     config_lbl : str
         Configuration label (e.g. 'A') appended to the filename.
     version : str
-        Version of the data to use.
+        Run tag (the run_id), used verbatim in the path and filename.
     root : str, optional
         Dataset root name. Default is 'LLC4320'.
 
     Returns
     -------
     str
-        Full path of the form ``{path}/{root}_{timestamp}_bin_{config_lbl}.npy``.
+        Full path of the form
+        ``{path}/{root}_{timestamp}_{version}_bin_{config_lbl}.npy``.
     """
     path = llc_io.fronts_dir(version, timestamp)
 
-    # Generate base
-    basefile = f'{root}_{timestamp}_v{version}_bin_{config_lbl}.npy'
+    # Generate base.  run_tag = '{version}_bin_{config_lbl}' (version = run_id).
+    basefile = f'{root}_{timestamp}_{version}_bin_{config_lbl}.npy'
 
     # Join and return
     return os.path.join(path, basefile)

@@ -200,6 +200,7 @@ def colocate_fronts(
     min_npix: int = 1,
     nan_policy: str = 'omit',
     dilation_radius: int = 0,
+    version: str = None,
 ) -> pd.DataFrame:
     """
     Co-locate labeled fronts with property fields and save per-front statistics.
@@ -207,13 +208,15 @@ def colocate_fronts(
     Wraps colocation.colocate_fronts_with_properties() with file I/O,
     parallel to how group_fronts() wraps group_labels and geometry.
 
-    Property files are located automatically using the timestamp and version
-    extracted from fronts_file. Expected filename pattern:
+    Property files are located using the timestamp from fronts_file and the
+    ``version`` argument (the run_id, used verbatim in the file tag).  If
+    ``version`` is not given it falls back to the run_id embedded in the
+    fronts_file run_tag.  Expected filename pattern:
 
         LLC4320_{timestamp}_{property_name}_{version}.nc
 
-    e.g. for fronts_file='LLC4320_2012-11-09T12_00_00_v1_bin_A.npy' and
-    property_name='relative_vorticity':
+    e.g. for fronts_file='LLC4320_2012-11-09T12_00_00_Vtest_bin_D.npy',
+    version='Vtest', and property_name='relative_vorticity_sfc':
         property_dir/LLC4320_2012-11-09T12_00_00_relative_vorticity_v1.nc
 
     Parameters
@@ -257,9 +260,14 @@ def colocate_fronts(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     time_str, run_tag, timestamp_raw = _parse_fronts_filename(fronts_file)
-    version = run_tag.split('_')[0]   # e.g. 'v1' from 'v1_bin_A'
+    if version is None:
+        # Fallback for direct callers: recover the run_id from the run_tag,
+        # which is '{run_id}_bin_{config}' (e.g. 'Vtest_bin_D' -> 'Vtest').
+        version = run_tag.rsplit('_bin_', 1)[0]
 
     # --- Load property arrays from standardised filenames ---
+    # Property NetCDFs are tagged with the run_id verbatim (== run_id used by
+    # dbof.run_all_subsets), no 'V' prefix.
     property_arrays = {}
     for prop_name in property_names:
         prop_file = Path(property_dir) / f'LLC4320_{timestamp_raw}_{prop_name}_{version}.nc'

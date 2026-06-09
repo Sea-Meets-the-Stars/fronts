@@ -267,7 +267,9 @@ def property_file_path(
     """Construct the standard NetCDF path for a derived property field.
 
     The naming convention is:
-    ``{properties_dir}/LLC4320_{timestamp}_{property_name}_v{version}.nc``
+    ``{properties_dir}/LLC4320_{timestamp}_{property_name}_{version}.nc``
+    (``version`` is the run_id, used verbatim — matching derived_filename /
+    run_all_subsets output).
 
     Parameters
     ----------
@@ -287,7 +289,7 @@ def property_file_path(
     """
     if properties_dir is None:
         properties_dir = fronts_dir(version, timestamp)
-    return Path(properties_dir) / f'LLC4320_{timestamp}_{property_name}_v{version}.nc'
+    return Path(properties_dir) / f'LLC4320_{timestamp}_{property_name}_{version}.nc'
 
 
 def load_single_property(

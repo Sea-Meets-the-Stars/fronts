@@ -17,7 +17,7 @@ from fronts.finding import algorithms as finding_algorithms
 from fronts.llc import io as llc_io
 
 def find_gradb2_fronts(timestamp: str, config: str, version: str,
-                clobber: bool = False):
+                clobber: bool = False, gradb2_field: str = 'gradb2'):
     """ Find us the fronts in a gradb2 field
 
     Args:
@@ -25,6 +25,9 @@ def find_gradb2_fronts(timestamp: str, config: str, version: str,
         config (str): Configuration label (e.g. 'A').
         version (str): Version of the data to use.
         clobber (bool, optional): _description_. Defaults to False.
+        gradb2_field (str): Name of the gradb2 channel/variable to read.  For
+            the DEPTH pipeline pass the suffixed name, e.g. 'gradb2_sfc'.
+            Defaults to 'gradb2'.
     """
 
     # Check if the binary front field exists
@@ -34,9 +37,9 @@ def find_gradb2_fronts(timestamp: str, config: str, version: str,
         return
 
     # Load gradb2
-    gradb2_file = llc_io.derived_filename(timestamp, 'gradb2', version=version)
+    gradb2_file = llc_io.derived_filename(timestamp, gradb2_field, version=version)
     print(f"Loading gradb2 from: {gradb2_file}")
-    gradb2 = xarray.open_dataset(gradb2_file)['gradb2'].values
+    gradb2 = xarray.open_dataset(gradb2_file)[gradb2_field].values
     print(f"Loaded gradb2 with shape: {gradb2.shape}")
 
 

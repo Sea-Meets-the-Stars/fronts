@@ -20,7 +20,8 @@ def generate_gradb2(timestamp: str, config_file: str, version:str=None,
         version (str): Version of the data to process.
         config_file (str): Path to the YAML config file.
         run_id (str, optional): Override the run_id in the config YAML.
-        field (str): Field name to extract. Defaults to 'gradb2'.
+        field (str): Field name to extract.  For the DEPTH pipeline this is a
+            suffixed channel, e.g. 'gradb2_sfc'.  Defaults to 'gradb2'.
         create_zarr (bool): Create the zarr store. Defaults to False.
         clobber (bool): Overwrite existing output. Defaults to False.
     """
@@ -28,10 +29,11 @@ def generate_gradb2(timestamp: str, config_file: str, version:str=None,
     if os.path.isfile(out_file) and not clobber:
         print(f"gradb2 file {out_file} exists and clobber is False. Returning")
     else:
-        # Create the zarr
+        # Create the zarr.  generate_global builds the full frontal_structure
+        # store (all channels); the pipeline is read from the config YAML.
         if create_zarr:
             generate_global.main(config_file, subset='frontal_structure',
-                only_these_features=['gradb2'], run_id=run_id)
-        # Create the netcdf
+                run_id=run_id)
+        # Create the netcdf for the requested gradb2 channel
         llc_io.zarr_to_nc(timestamp, config_file, 'frontal_structure',
             field, run_id=run_id, version=version)
