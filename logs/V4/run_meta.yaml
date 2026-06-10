@@ -1,0 +1,32 @@
+timestamp: '2026-06-10T16:03:20.462754+00:00'
+git_commit: 1e32efd
+pipeline: DEPTH
+run_id: V4
+active_subsets:
+- icearea
+depth_suffixes:
+- sfc
+- z25m
+- mld
+- mld_mean
+date_iterations:
+- '2012-11-09 12:00:00'
+run:
+  run_id: V4
+  log_dir: ./logs/
+data:
+  endpoint_url: https://mghp.osn.xsede.org
+  date_iterations:
+  - '2012-11-09 12:00:00'
+  k_levels: null
+output:
+  s3_endpoint: https://s3-west.nrp-nautilus.io
+  bucket: dbof/
+  folder: depth_fields/
+  dataset_name: global.zarr
+runtime:
+  zarr_async_concurrency: 8
+  dask_scheduler: distributed
+  dask_n_workers: 4
+  dask_threads_per_worker: 4
+  dask_memory_limit: null

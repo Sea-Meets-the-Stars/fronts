@@ -76,7 +76,7 @@ PROPERTY_ROOTS = [
     'gradb2', 'gradtheta2', 'gradsalt2', 'gradrho2', 'gradeta2', 'turner_angle',
     # kinematic               (suffixed;  bare extra: coriolis_f)
     'relative_vorticity', 'strain_n', 'strain_s', 'strain_mag', 'divergence',
-    'okubo_weiss', #'coriolis_f','rossby_number',
+    'okubo_weiss', 'coriolis_f', #'rossby_number',
     # frontogenesis           (suffixed)
     'frontogenesis_tendency', 'frontogenesis_geo', 'frontogenesis_ageo',
     'ug', 'vg',
