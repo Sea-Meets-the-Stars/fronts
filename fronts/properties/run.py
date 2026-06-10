@@ -21,20 +21,24 @@ from fronts.properties import algorithms as prop_algorithms
 
 
 def generate_global_dataset(config_file: str, netcdf_base: str,
-                            ice_mask: bool = False, clobber: bool = False):
+                            ice_mask: bool = False, clobber: bool = False,
+                            clobber_export: bool = False):
     """Generate + export all active subsets via ``dbof.run_all_subsets``.
 
     Thin wrapper around the preprocessing batch driver (a CLI entry point),
     run as a subprocess in the current interpreter's environment.  Pipeline,
     run_id, subsets, dates, and depth_suffixes all come from *config_file*;
     outputs land under ``{netcdf_base}/{run_id}/{date_prefix}/``.  Existing
-    subset/date zarr stores and channel NetCDFs are skipped unless *clobber*.
+    subset/date zarr stores and channel NetCDFs are skipped unless clobbering.
 
     Args:
         config_file (str): Path to the (thin, global) YAML config.
         netcdf_base (str): Root dir for NetCDF output (e.g. the Fronts path).
         ice_mask (bool): NaN-mask ice-covered points during export.
-        clobber (bool): Force regenerate/re-export even if outputs exist.
+        clobber (bool): Force BOTH phases — regenerate the zarr stores AND
+            re-export every channel, even if they exist.
+        clobber_export (bool): Force re-export of every channel NetCDF from the
+            existing zarr stores, WITHOUT regenerating the stores.
     """
     cmd = [sys.executable, '-m', 'dbof.cli.run_all_subsets',
            '--config', config_file, '--netcdf-base', netcdf_base]
@@ -42,6 +46,8 @@ def generate_global_dataset(config_file: str, netcdf_base: str,
         cmd.append('--ice-mask')
     if clobber:
         cmd.append('--clobber')
+    if clobber_export:
+        cmd.append('--clobber-export')
     subprocess.run(cmd, check=True)
 
 
