@@ -4,6 +4,8 @@
 
 The script also writes a **2-D matplotlib inset** alongside the 3-D PNG with surface σ₀, the front overlaid in red, and lon/lat secondary axes.
 
+> For a copy-paste, end-to-end recipe (headless-cluster env setup, tile generation, and the render command), see the [runbook](fronts_viz_3d_runbook.md).
+
 Optionally, the σ₀ iso-surfaces can be **colored by a second field** (e.g. Richardson number) supplied via `--field-tile` — the geometry stays density-driven while the colors carry the second field interpolated onto each density surface. See [Coloring isopycnals by a second field](#coloring-isopycnals-by-a-second-field-eg-richardson-number).
 
 ## What it produces
