@@ -7,6 +7,9 @@ Inputs:
     (sigma0(k, j, i) on **face-local** axes, plus XC, YC, Z and the
     rect_i_start / rect_j_start / face_index / tile_index provenance
     fields).
+  * optionally, a second **field tile** (same generator, same tile window
+    + timestamp -- e.g. ``--property richardson``) whose variable colors
+    the density iso-surfaces (see "Dual-field coloring" below).
   * a global labelled-fronts mask (``.npy`` or ``.nc``) on the **rect
     grid** (shape 12960 x 17280, integer labels, 0 = no front).
   * a locator: either ``--i / --j`` (rect-grid pixel coordinates) or
@@ -21,13 +24,24 @@ render, with the front itself overlaid as a sigma0-coloured "curtain".
 A companion 2-D matplotlib inset showing surface sigma0 + the front +
 lon/lat ticks is written next to the 3-D PNG by default.
 
+Dual-field coloring (``--field-tile``)
+--------------------------------------
+The scene *geometry* is always density-driven: MLD depth clip, isopycnal
+levels, and the tilted front iso-surface all come from sigma0.  When
+``--field-tile`` is supplied, the second field (transformed per
+``fronts/viz/field_styles.py`` -- e.g. ``log10(clip(Ri, 1e-2, 1e4))``)
+is stamped on the same grid and used purely for *color*: VTK interpolates
+it onto every extracted sigma0 iso-surface.  NaNs (land, edge rim,
+clipped/undefined values) render neutral gray.
+
 CLI usage
 ---------
     python -m fronts.scripts.fronts_viz_3d \\
         --density-tile density_tile330_20121109T12.nc \\
+        --field-tile   Ri_tile330_20121109T12.nc \\
         --labels       LLC4320_2012-11-09T12_00_00_V4_bfronts.npy \\
         --i 13170 --j 9950 \\
-        --output       fronts_viz_3d_californiacurrent.png
+        --output       fronts_viz_3d_californiacurrent_Ri.png
 """
 
 # stdlib
@@ -49,6 +63,8 @@ if str(_DEV_MLD) not in sys.path:
     sys.path.insert(0, str(_DEV_MLD))
 from density_utils import (  # noqa: E402
     load_density_tile,
+    load_tile,
+    check_tiles_consistent,
     load_labels_tile,
     tile_scalar,
     build_tile_lookup,
@@ -72,6 +88,11 @@ from fronts.viz.fronts_3d import (  # noqa: E402
 )
 from fronts.viz.insets import plot_bbox_inset  # noqa: E402
 from fronts.viz.pv_helpers import save_with_rst  # noqa: E402
+from fronts.viz.field_styles import (  # noqa: E402
+    get_style,
+    apply_transform,
+    NAN_COLOR,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +123,25 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="NetCDF density tile produced by generate_tile.py.")
     p.add_argument("--labels", type=Path, required=True,
                    help="Global labelled-fronts mask (.npy or .nc).")
+
+    # Optional second field for coloring (geometry stays sigma0-driven).
+    p.add_argument("--field-tile", type=Path, default=None,
+                   help="Optional NetCDF field tile (same generator, same "
+                        "tile window + timestamp, e.g. --property "
+                        "richardson).  Its variable colors the sigma0 "
+                        "iso-surfaces; geometry stays density-driven.")
+    p.add_argument("--field-name", type=str, default=None,
+                   help="Variable name inside --field-tile (default: "
+                        "auto-detect the single 3-D variable).")
+    p.add_argument("--field-transform",
+                   choices=["log10", "symlog", "linear"], default=None,
+                   help="Override the field's registered display transform "
+                        "(see fronts/viz/field_styles.py).")
+    p.add_argument("--field-clip", type=float, nargs=2, default=None,
+                   metavar=("LO", "HI"),
+                   help="Override the field's registered raw-value clip "
+                        "range (applied before the transform; e.g. for Ri "
+                        "the default is 1e-2 1e4).")
 
     # Locator -- exactly one pair must be supplied.
     p.add_argument("--i", type=int, default=None,
@@ -138,15 +178,19 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Opacity transfer for --mode volume.")
     p.add_argument("--clim", type=float, nargs=2, default=None,
                    metavar=("LO", "HI"),
-                   help="sigma0 colour limits (default 2/98 percentile).")
+                   help="Colour limits for the color scalar (sigma0, or the "
+                        "transformed field in --field-tile mode; default: "
+                        "registered style clim, else mixed-layer 2/98 "
+                        "percentile).")
     p.add_argument(
-        "--cmap-volume", type=str, default="viridis",
+        "--cmap-volume", type=str, default=None,
         help=(
             "Colormap for the volume/isopycnal background.  Suggestions "
             "where DENSER water is DARKER (more natural for sigma0): "
             "dense, deep, gray (cmocean, bare names accepted by PyVista), "
             "Blues, bone, viridis_r, cividis_r, magma_r, plasma_r.  "
-            "Default 'viridis' (denser=lighter)."
+            "Default: 'viridis' for sigma0 coloring; the field's "
+            "registered style cmap in --field-tile mode."
         ),
     )
     p.add_argument("--cmap-curtain", type=str, default="magma",
@@ -358,6 +402,38 @@ def main(argv=None) -> None:
     XC_face = ds["XC"].values  # (J_face, I_face)
     YC_face = ds["YC"].values  # (J_face, I_face)
 
+    # ---------- Optional color-field tile (e.g. Ri) ----------
+    # Geometry stays sigma0-driven; this field is used purely for color.
+    field_name = None
+    field_face = None
+    field_style = None
+    if args.field_tile is not None:
+        log.info("Loading field tile %s", args.field_tile)
+        ds_field = load_tile(args.field_tile, var_name=args.field_name)
+        check_tiles_consistent(
+            ds, ds_field, label_a="--density-tile", label_b="--field-tile",
+        )
+        field_name = ds_field.attrs["tile_var_name"]
+        field_face = ds_field[field_name].values  # (K, J_face, I_face)
+        if field_face.shape != sigma0_face.shape:
+            raise SystemExit(
+                f"--field-tile variable '{field_name}' has shape "
+                f"{field_face.shape}, expected {sigma0_face.shape} (must "
+                "match the density tile)."
+            )
+        field_style = get_style(field_name)
+        log.info(
+            "Coloring by %s (transform=%s, clip=%s)",
+            field_name,
+            args.field_transform or field_style.transform,
+            args.field_clip or field_style.clip,
+        )
+        if args.mode == "volume":
+            log.warning(
+                "--field-tile coloring applies to --mode isopycnals only; "
+                "volume mode renders sigma0 itself."
+            )
+
     log.info("Building tile lookup (face -> rect-tile-local)")
     j_tile_lookup, i_tile_lookup = build_tile_lookup(
         rect_i_start, rect_j_start, face_index,
@@ -374,6 +450,9 @@ def main(argv=None) -> None:
     sigma0_rect = remap_to_rect(sigma0_face, j_tile_lookup, i_tile_lookup)
     XC_rect = remap_to_rect(XC_face, j_tile_lookup, i_tile_lookup)
     YC_rect = remap_to_rect(YC_face, j_tile_lookup, i_tile_lookup)
+    field_rect = None
+    if field_face is not None:
+        field_rect = remap_to_rect(field_face, j_tile_lookup, i_tile_lookup)
 
     # ---------- Pick the front ----------
     if args.locator_kind == "ij":
@@ -405,6 +484,18 @@ def main(argv=None) -> None:
     sigma0_clipped, Z_clipped, k_clip = truncate_depth(
         sigma0_cropped, Z, k_mld, n_below=args.n_below,
     )
+
+    # Color field: same crop + depth clip, then the display transform
+    # (e.g. log10(clip(Ri, 1e-2, 1e4)) with Ri <= 0 -> NaN).
+    field_display = None
+    if field_rect is not None:
+        field_clipped = field_rect[:, j_slice, i_slice][:k_clip]
+        field_display = apply_transform(
+            field_clipped, field_style,
+            clip_override=(tuple(args.field_clip)
+                           if args.field_clip is not None else None),
+            transform_override=args.field_transform,
+        )
     log.info(
         "MLD inside bbox: deepest k=%d (z=%.1f m); clipping to k=%d (z=%.1f m)",
         int(np.nanmax(k_mld)) if (k_mld >= 0).any() else -1,
@@ -432,21 +523,56 @@ def main(argv=None) -> None:
     # ---------- Default clim: 2/98 percentile of the mixed layer ----------
     # Restricting to the mixed layer keeps the iso-surfaces colourful
     # (most cross-front contrast lives there) without washing out the
-    # broader bbox context.
-    if args.clim is None:
+    # broader bbox context.  In dual-field mode the clim applies to the
+    # *transformed color field*; precedence is --clim > the field's
+    # registered style clim > mixed-layer percentiles (symmetrised about
+    # the style's center for diverging fields).
+    if args.clim is not None:
+        clim = tuple(args.clim)
+    elif field_display is not None:
+        style_clim_ok = (
+            field_style.clim is not None
+            and args.field_transform is None
+            and args.field_clip is None
+        )
+        if style_clim_ok:
+            clim = tuple(field_style.clim)
+            log.info("Style clim for %s = (%.4g, %.4g)", field_name, *clim)
+        else:
+            clim = mixed_layer_clim(field_display, k_mld)
+            if field_style.center is not None:
+                span = max(abs(clim[0] - field_style.center),
+                           abs(clim[1] - field_style.center))
+                clim = (field_style.center - span, field_style.center + span)
+            log.info(
+                "Auto clim for %s = (%.4g, %.4g) (mixed layer)",
+                field_name, *clim,
+            )
+    else:
         clim = mixed_layer_clim(sigma0_clipped, k_mld)
         log.info(
             "Auto clim = (%.4f, %.4f) kg m^-3 (mixed layer)", *clim,
         )
+
+    # Colormap: explicit flag wins; otherwise the field's registered style
+    # cmap in dual-field mode, else the classic viridis default.
+    if args.cmap_volume is not None:
+        cmap_volume = args.cmap_volume
+    elif field_style is not None:
+        cmap_volume = field_style.cmap
     else:
-        clim = tuple(args.clim)
+        cmap_volume = "viridis"
 
     # ---------- PyVista scene ----------
     # No mask -> iso-surfaces are rendered over the whole cropped bbox
     # ("waters near the front") -- restoring the v1.2 behaviour the user
     # asked back for.
+    extra_fields = (
+        {field_name: field_display} if field_display is not None else None
+    )
     grid = build_pyvista_grid(
         sigma0_clipped, Z_clipped, j_slice, i_slice, zscale=args.zscale,
+        extra_fields=extra_fields,
     )
 
     # Build a single front-iso-surface: picking the median of the cross-
@@ -481,13 +607,21 @@ def main(argv=None) -> None:
     if args.label_font_size is not None:
         font_kwargs["label_font_size"] = args.label_font_size
 
+    color_kwargs = {}
+    if field_display is not None:
+        color_kwargs = dict(
+            color_scalar=field_name,
+            color_title=field_style.title or field_name,
+            nan_color=NAN_COLOR,
+        )
     pl = render_3d(
         grid, curtain, levels,
         mode=args.mode, clim=clim,
-        cmap_volume=args.cmap_volume, cmap_curtain=args.cmap_curtain,
+        cmap_volume=cmap_volume, cmap_curtain=args.cmap_curtain,
         opacity=args.opacity, zscale=args.zscale, show=args.show,
         top_marker=top_marker,
         front_iso=front_iso,
+        **color_kwargs,
         **font_kwargs,
     )
 

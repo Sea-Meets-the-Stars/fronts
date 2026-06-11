@@ -1,0 +1,264 @@
+"""
+Display styles for coloring 3-D front scenes by a secondary field.
+
+The preprocessing repo's ``dbof/tiles/field_registry.py`` defines *what* can
+be computed into a tile NetCDF (raw physical values, no display policy).
+This module is its display-side counterpart: for each tile variable name
+(``out_name`` in the preprocessing registry, e.g. ``"Ri"``, ``"vorticity"``)
+it declares *how* the field should be transformed and colored when used as
+the color scalar in ``fronts_viz_3d``.
+
+The two registries are deliberately decoupled -- they are matched only by
+the variable name stored in the tile NetCDF, which is self-describing
+(``units`` / ``long_name`` attrs).  Unknown variables fall back to a linear
+transform with percentile color limits (see :func:`get_style`).
+
+Transforms
+----------
+``log10``
+    ``log10(clip(x, *clip))`` with non-positive values -> NaN.  For
+    positive-definite fields spanning decades (Ri, N2, shear, |grad b|^2).
+``symlog``
+    Signed pseudo-log: ``sign(x) * log10(1 + |x| / linthresh)``.  For signed
+    fields spanning decades (Okubo-Weiss, frontogenesis, Ertel PV).
+``linear``
+    Optionally clipped passthrough.  For bounded or narrow-range fields
+    (vorticity, divergence, Turner angle).
+
+A ``center`` of 0.0 marks diverging fields: the default color limits are
+made symmetric about 0 so the colormap midpoint sits at zero.
+"""
+
+# stdlib
+from __future__ import annotations
+from dataclasses import dataclass
+
+# numerical
+import numpy as np
+
+
+# Neutral gray used for NaN cells (land, clipped, undefined) on colored
+# surfaces -- keeps the geometry hole-free while flagging missing data.
+NAN_COLOR = "#9e9e9e"
+
+
+@dataclass(frozen=True)
+class FieldStyle:
+    """Display policy for one tile variable used as a color scalar.
+
+    Attributes
+    ----------
+    transform : str
+        ``'log10'``, ``'symlog'``, or ``'linear'``.
+    clip : tuple of (float, float) or None
+        Clip range applied in *raw* units before the transform.
+    cmap : str
+        Default colormap (PyVista/matplotlib name).
+    title : str
+        Scalar-bar title (post-transform units).
+    center : float or None
+        If set (typically 0.0), default clim is symmetric about it.
+    linthresh : float
+        Linear threshold for ``symlog`` (ignored otherwise).
+    clim : tuple of (float, float) or None
+        Pinned post-transform color limits.  None -> percentile-based.
+    """
+    transform: str = "linear"
+    clip: tuple[float, float] | None = None
+    cmap: str = "viridis"
+    title: str = ""
+    center: float | None = None
+    linthresh: float = 1e-12
+    clim: tuple[float, float] | None = None
+
+
+# Keyed by the tile NetCDF variable name (= out_name in the preprocessing
+# field registry).  Add a row when you add a property over there.
+FIELD_STYLES: dict[str, FieldStyle] = {
+    "sigma0": FieldStyle(
+        transform="linear", cmap="dense",
+        title="sigma0 [kg/m^3]",
+    ),
+    "Theta": FieldStyle(
+        transform="linear", cmap="thermal",
+        title="Theta [degC]",
+    ),
+    "Salt": FieldStyle(
+        transform="linear", cmap="haline",
+        title="Salt [psu]",
+    ),
+    "Ri": FieldStyle(
+        transform="log10", clip=(1e-2, 1e4), cmap="RdYlBu",
+        title="log10(Ri)",
+        # Ri = 0.25 (log10 ~ -0.6) is the shear-instability threshold;
+        # this clim keeps the unstable range in the warm half of the bar.
+        clim=(-1.0, 2.0),
+    ),
+    "N2": FieldStyle(
+        transform="log10", clip=(1e-9, 1e-3), cmap="viridis",
+        title="log10(N^2 [s^-2])",
+    ),
+    "vertical_shear": FieldStyle(
+        transform="log10", clip=(1e-6, 1e-1), cmap="viridis",
+        title="log10(|S| [s^-1])",
+    ),
+    "vorticity": FieldStyle(
+        transform="linear", cmap="RdBu_r",
+        title="zeta [1/s]", center=0.0,
+    ),
+    "divergence": FieldStyle(
+        transform="linear", cmap="RdBu_r",
+        title="div [1/s]", center=0.0,
+    ),
+    "strain": FieldStyle(
+        transform="log10", clip=(1e-8, 1e-3), cmap="viridis",
+        title="log10(strain [s^-1])",
+    ),
+    "okubo_weiss": FieldStyle(
+        transform="symlog", cmap="RdBu_r",
+        title="symlog(OW [s^-2])", center=0.0, linthresh=1e-11,
+    ),
+    "Ro": FieldStyle(
+        transform="linear", clip=(-10.0, 10.0), cmap="RdBu_r",
+        title="Ro", center=0.0,
+    ),
+    "Fr": FieldStyle(
+        transform="log10", clip=(1e-3, 1e1), cmap="viridis",
+        title="log10(Fr)",
+    ),
+    "Bu": FieldStyle(
+        transform="log10", clip=(1e-3, 1e3), cmap="viridis",
+        title="log10(Bu)",
+    ),
+    "Fs": FieldStyle(
+        transform="symlog", cmap="RdBu_r",
+        title="symlog(F [s^-5])", center=0.0, linthresh=1e-19,
+    ),
+    "ertel_pv": FieldStyle(
+        transform="symlog", cmap="RdBu_r",
+        title="symlog(q [m^-1 s^-1])", center=0.0, linthresh=1e-12,
+    ),
+    "turner_angle": FieldStyle(
+        transform="linear", cmap="twilight_shifted",
+        title="Tu [deg]", center=0.0,
+    ),
+}
+
+
+def get_style(var_name: str) -> FieldStyle:
+    """Look up the style for a tile variable, with a safe linear fallback.
+
+    Parameters
+    ----------
+    var_name : str
+        Tile NetCDF variable name.
+
+    Returns
+    -------
+    FieldStyle
+        The registered style, or a default linear style (titled with the
+        variable name) when the field is unknown.
+    """
+    style = FIELD_STYLES.get(var_name)
+    if style is None:
+        import logging
+        logging.getLogger(__name__).warning(
+            "No FIELD_STYLES entry for %r -- falling back to a linear "
+            "transform with percentile color limits.  Add an entry to "
+            "fronts/viz/field_styles.py to control its display.", var_name,
+        )
+        return FieldStyle(title=var_name)
+    return style
+
+
+def apply_transform(
+    values: np.ndarray,
+    style: FieldStyle,
+    *,
+    clip_override: tuple[float, float] | None = None,
+    transform_override: str | None = None,
+) -> np.ndarray:
+    """Transform raw field values into display values per a style.
+
+    Non-finite inputs stay NaN.  For ``log10``, values <= 0 become NaN
+    (e.g. negative Ri from unstable stratification) and the remainder are
+    clipped into ``clip`` before the log.  For ``symlog`` and ``linear``,
+    clipping (when configured) is a plain ``np.clip``.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Raw field values (any shape).
+    style : FieldStyle
+        Display policy (see :data:`FIELD_STYLES`).
+    clip_override, transform_override : optional
+        CLI-level overrides for the style's ``clip`` / ``transform``.
+
+    Returns
+    -------
+    numpy.ndarray
+        float64 array of display values, NaN where undefined.
+    """
+    transform = transform_override or style.transform
+    clip = clip_override if clip_override is not None else style.clip
+
+    out = np.asarray(values, dtype=np.float64).copy()
+
+    if transform == "log10":
+        out[~np.isfinite(out)] = np.nan
+        out[out <= 0] = np.nan
+        if clip is not None:
+            out = np.clip(out, clip[0], clip[1])
+        return np.log10(out)
+
+    if transform == "symlog":
+        if clip is not None:
+            out = np.clip(out, clip[0], clip[1])
+        lt = float(style.linthresh)
+        return np.sign(out) * np.log10(1.0 + np.abs(out) / lt)
+
+    if transform == "linear":
+        if clip is not None:
+            out = np.clip(out, clip[0], clip[1])
+        return out
+
+    raise ValueError(
+        f"Unknown transform {transform!r}; expected 'log10', 'symlog', "
+        "or 'linear'."
+    )
+
+
+def default_clim(
+    display_values: np.ndarray,
+    style: FieldStyle,
+    *,
+    percentile_low: float = 2.0,
+    percentile_high: float = 98.0,
+) -> tuple[float, float]:
+    """Default post-transform color limits for a field.
+
+    Order of precedence: the style's pinned ``clim``; symmetric limits about
+    ``style.center`` (when set) using the larger percentile excursion; plain
+    2/98 percentiles otherwise.
+
+    Parameters
+    ----------
+    display_values : numpy.ndarray
+        Transformed (display-space) values; NaNs ignored.
+    style : FieldStyle
+        Display policy.
+    percentile_low, percentile_high : float, optional
+        Percentile bounds (default 2/98).
+
+    Returns
+    -------
+    tuple of (float, float)
+    """
+    if style.clim is not None:
+        return tuple(style.clim)
+    lo = float(np.nanpercentile(display_values, percentile_low))
+    hi = float(np.nanpercentile(display_values, percentile_high))
+    if style.center is not None:
+        span = max(abs(lo - style.center), abs(hi - style.center))
+        return (style.center - span, style.center + span)
+    return (lo, hi)

@@ -4,6 +4,8 @@
 
 The script also writes a **2-D matplotlib inset** alongside the 3-D PNG with surface σ₀, the front overlaid in red, and lon/lat secondary axes.
 
+Optionally, the σ₀ iso-surfaces can be **colored by a second field** (e.g. Richardson number) supplied via `--field-tile` — the geometry stays density-driven while the colors carry the second field interpolated onto each density surface. See [Coloring isopycnals by a second field](#coloring-isopycnals-by-a-second-field-eg-richardson-number).
+
 ## What it produces
 
 Three files per run:
@@ -14,9 +16,10 @@ Three files per run:
 
 ## Inputs
 
-1. **3-D density tile** — NetCDF written by [llc4320-native-grid-preprocessing/src/dbof/tiles/generate_tile.py](../../../llc4320-native-grid-preprocessing/src/dbof/tiles/generate_tile.py). `sigma0(k, j, i)` on **face-local** axes (k=51, j=720, i=720), 2-D `XC`/`YC`, 1-D `Z`, plus `rect_i_start`/`rect_j_start`/`face_index` provenance.
-2. **Labelled-fronts mask** — global `.npy` on the **rect grid** (12960 × 17280, integer labels, `0 = no front`). For V4 the integer-label file is `labeled_fronts_global_*_V4.npy` (the `*_bfronts.npy` neighbour is boolean only).
-3. **Locator** — either `(--i, --j)` global rect indices, or `(--lat, --lon)` degrees.
+1. **3-D density tile** — NetCDF written by [llc4320-native-grid-preprocessing/src/dbof/tiles/generate_tile.py](../../../llc4320-native-grid-preprocessing/src/dbof/tiles/generate_tile.py). `sigma0(k, j, i)` on **face-local** axes (k=51, j=720, i=720), 2-D `XC`/`YC`, 1-D `Z`, plus `rect_i_start`/`rect_j_start`/`face_index` provenance. **Always drives the geometry.**
+2. **Field tile** *(optional, `--field-tile`)* — a second NetCDF from the same generator, same tile window + timestamp, holding a different property (e.g. `--property richardson` → `Ri(k, j, i)`). Its variable **colors** the density iso-surfaces. See [Coloring isopycnals by a second field](#coloring-isopycnals-by-a-second-field-eg-richardson-number).
+3. **Labelled-fronts mask** — global `.npy` on the **rect grid** (12960 × 17280, integer labels, `0 = no front`). For V4 the integer-label file is `labeled_fronts_global_*_V4.npy` (the `*_bfronts.npy` neighbour is boolean only).
+4. **Locator** — either `(--i, --j)` global rect indices, or `(--lat, --lon)` degrees.
 
 ## Frame handling
 
@@ -40,6 +43,45 @@ The density tile is on face-local axes; the labels mask is on the rect grid. The
 12. **Camera** — `render_3d` sets a **south-east elevated camera** so that i increases left → right and j increases bottom → top on screen. The script captures `pl.camera_position` after `render_3d` and explicitly passes it to `save_with_rst` so the default isometric override inside `save_figure` doesn't reset it. Override per-run with `--cpos JSON`.
 13. **Render & save** — `save_with_rst` from `pv_helpers` writes the 3-D PNG and the interactive HTML in one call; then the script calls `plot_bbox_inset` from [fronts/viz/insets.py](../../fronts/viz/insets.py) for the 2-D companion.
 
+## Coloring isopycnals by a second field (e.g. Richardson number)
+
+The scene **geometry is always density-driven**: the MLD depth clip, the
+isopycnal contour levels, and the tilted front iso-surface are all computed
+from σ₀. Passing `--field-tile` adds a *second* field that is used purely for
+**color**.
+
+How it works: both fields are stamped as point-data arrays on the same
+`RectilinearGrid` (`build_pyvista_grid(extra_fields=...)`). The iso-surfaces
+are still contoured on σ₀ — but VTK's `contour` filter interpolates every
+point array onto the extracted surfaces, so the second field "rides along" and
+can be used as the `add_mesh` color scalar with no resampling code. Each
+isopycnal therefore shows the second field's value *on that density surface*,
+and the tilted front iso-surface is likewise colored by it (so e.g. Ri along
+the front sheet shows directly where the front is shear-unstable).
+
+**Transforms and styles** live in [fronts/viz/field_styles.py](../../fronts/viz/field_styles.py), keyed by the tile variable name (`Ri`, `vorticity`, …). Each style sets a transform (`log10` / `symlog` / `linear`), a raw-value clip, a colormap, a scalar-bar title, and an optional `center` (diverging fields get symmetric color limits). For `Ri` the default is `log10(clip(Ri, 1e-2, 1e4))` with `Ri ≤ 0 → NaN` and a pinned clim of `(-1, 2)`. Unknown fields fall back to a linear transform with percentile limits and a warning.
+
+**NaN handling**: cells that are NaN in the field (land, the tile edge rim, clipped/undefined values such as `Ri ≤ 0`) render in **neutral gray** (`#9e9e9e`) so the iso-surfaces stay hole-free while flagging missing data.
+
+**Interpretation (Ri)**: the gradient Richardson number measures the competition between stratification (stabilising) and vertical shear (destabilising). `Ri < 0.25` (≈ `log10(Ri) < -0.6`) flags shear instability; the default `RdYlBu` colormap with clim `(-1, 2)` keeps that unstable range in the warm half of the bar.
+
+Two-tile example (California Current front, rect tile 330):
+
+```text
+python -m fronts.scripts.fronts_viz_3d \
+    --density-tile density_tile330_20121109T12.nc \
+    --field-tile   Ri_tile330_20121109T12.nc \
+    --labels       labeled_fronts_global_20121109T12_00_00_V4.npy \
+    --i 13142 --j 9956 \
+    --zscale 1.0 \
+    --output /tmp/fronts_viz_3d_calcurrent_Ri.png
+```
+
+`--cmap-volume`, `--clim`, `--field-transform`, and `--field-clip` override the
+registered style if you want to retune. `--mode volume` ignores the field tile
+(volume mode renders σ₀ itself; coloring a σ₀ volume by a second scalar is
+ill-defined).
+
 ## CLI
 
 ```text
@@ -55,7 +97,11 @@ python -m fronts.scripts.fronts_viz_3d \
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--density-tile` | path | required | NetCDF density tile from `generate_tile.py`. |
+| `--density-tile` | path | required | NetCDF density tile from `generate_tile.py`. Drives geometry. |
+| `--field-tile` | path | none | Optional second tile (same window + timestamp) whose variable colors the iso-surfaces. |
+| `--field-name` | str | auto | Variable inside `--field-tile` (default: the single 3-D variable). |
+| `--field-transform` | `log10`/`symlog`/`linear` | style | Override the field's registered display transform. |
+| `--field-clip` | LO HI | style | Override the field's raw-value clip range (applied before the transform). |
 | `--labels` | path | required | Global integer-labels mask (`.npy` or `.nc`). |
 | `--i / --j` | int | — | Rect-grid pixel coordinates (locator option A). |
 | `--lat / --lon` | float | — | Degrees (locator option B); snapped to the nearest labelled pixel. |
@@ -66,8 +112,8 @@ python -m fronts.scripts.fronts_viz_3d \
 | `--mode` | `isopycnals` / `volume` | `isopycnals` | Background rendering style. |
 | `--isopycnals` | floats | auto-picked | Explicit σ₀ contour values for `--mode isopycnals`. |
 | `--opacity` | `sigmoid` / `linear` / `geom` | `sigmoid` | Opacity transfer for `--mode volume`. |
-| `--clim` | LO HI | mixed-layer 2/98 percentile | σ₀ colour limits. |
-| `--cmap-volume` | str | `viridis` | Colormap for the volume/isopycnal background. See [colormap suggestions](#colormap-suggestions-denser--darker). |
+| `--clim` | LO HI | style clim, else mixed-layer 2/98 percentile | Colour limits for the color scalar (σ₀, or the **transformed** field in `--field-tile` mode). |
+| `--cmap-volume` | str | `viridis` (σ₀) / field-style cmap | Colormap for the volume/isopycnal background. See [colormap suggestions](#colormap-suggestions-denser--darker). |
 | `--cmap-curtain` | str | `magma` | Colormap for the front curtain (only used when `draw_curtain=True`). |
 | `--font-size` | int | 56 | Bounds-axis font size. |
 | `--title-font-size` | int | 60 | Scalar-bar title font size. |
@@ -111,6 +157,7 @@ PyVista's colormap lookup accepts the bare cmocean names (`dense`, `deep`, `gray
 | [fronts/scripts/fronts_viz_3d.py](../../fronts/scripts/fronts_viz_3d.py) | CLI thin wrapper; orchestrates everything. |
 | [fronts/viz/fronts_3d.py](../../fronts/viz/fronts_3d.py) | Front-specific PyVista builders. Re-usable by future 3-D scripts. |
 | [fronts/viz/pv_helpers.py](../../fronts/viz/pv_helpers.py) | Generic PyVista helpers (scientific theme, off-screen Xvfb, scalar bar, PNG + HTML export). |
+| [fronts/viz/field_styles.py](../../fronts/viz/field_styles.py) | Display registry for the color field: per-variable transform / clip / cmap / title / center, plus `apply_transform` and `default_clim`. |
 | [fronts/viz/insets.py](../../fronts/viz/insets.py) | Matplotlib 2-D companion inset. |
 | [fronts/llc/analysis.py](../../fronts/llc/analysis.py) | `mixed_layer_depth` (scalar) and `mixed_layer_depth_field` (vectorised). |
 | [dev/mld/density_utils.py](../../dev/mld/density_utils.py) | Reused for `load_density_tile`, `load_labels_tile`, `build_tile_lookup`, `attach_lonlat_twins`. |
@@ -121,7 +168,7 @@ PyVista's colormap lookup accepts the bare cmocean names (`dense`, `deep`, `gray
 |---|---|
 | `front_bbox_and_crop(labels, label, margin)` | `(j_slice, i_slice)` covering the front's bbox + margin. |
 | `truncate_depth(sigma0, Z, k_mld, n_below)` | Clip the volume to `max(k_mld) + n_below + 1` levels. |
-| `build_pyvista_grid(sigma0, Z, j_slice, i_slice, zscale, mask_2d=None)` | `pv.RectilinearGrid` with σ₀ stamped Fortran-ordered; optional NaN-mask outside `mask_2d`. |
+| `build_pyvista_grid(sigma0, Z, j_slice, i_slice, zscale, mask_2d=None, extra_fields=None)` | `pv.RectilinearGrid` with σ₀ (and any `extra_fields`) stamped Fortran-ordered; optional NaN-mask outside `mask_2d`. σ₀ stays the active scalar so geometry is always density-driven. |
 | `dilate_front_mask(mask, iterations)` | 8-connectivity binary dilation. |
 | `decompose_front_branches(front_mask)` | Custom 8-neighbour DFS; returns a list of per-branch (j,i) polylines. |
 | `build_front_curtain(...)` | `pv.MultiBlock` of vertical sigma0-coloured ribbons per branch. Computed even when off; used by the surface marker. |
@@ -130,7 +177,7 @@ PyVista's colormap lookup accepts the bare cmocean names (`dense`, `deep`, `gray
 | `pick_isopycnals_across_front(sigma0, mask, Z, ...)` | Auto-pick 5 σ₀ levels bracketing the cross-front contrast. |
 | `mixed_layer_clim(sigma0, k_mld, ...)` | 2/98 percentile inside the mixed layer (the default for `--clim`). |
 | `front_volume_clim(sigma0, dilated_mask, ...)` | 2/98 percentile inside a dilated-front 2-D mask (kept for future use; unused in the default path). |
-| `render_3d(grid, curtain, levels, ...)` | Assembles the scene: background, front iso-surface, top marker, axes, SE-up camera, scalar bar. |
+| `render_3d(grid, curtain, levels, ..., color_scalar="sigma0", color_title=None, nan_color="#9e9e9e")` | Assembles the scene: background, front iso-surface, top marker, axes, SE-up camera, scalar bar. Geometry contours σ₀; `color_scalar` selects the coloring array (any stamped field); NaNs render neutral gray. |
 
 ## Smoke-test examples
 
@@ -167,6 +214,7 @@ python -m fronts.scripts.fronts_viz_3d \
 - **v1.4** — dropped the dilation mask from the default path (broader-context iso-surfaces back); replaced the vertical-sheet curtain with a single **tilted σ₀ iso-surface** via `build_front_isosurface`; inset figsize bumped (7×6 → 10×8).
 - **v1.5** — explicit **south-east elevated camera** so i goes left→right and j goes bottom→top; fonts bumped (40/44/32 → 56/60/44); top marker tube radius reduced (1.5 → 0.8) and opacity dropped (1.0 → 0.6).
 - **v1.6** — `--cmap-volume` suggestions for "dark = dense" (recommend `dense`); CLI font knobs (`--font-size`, `--title-font-size`, `--label-font-size`); enlarged scalar bar (width 0.05 → 0.08, height 0.42 → 0.50) and shifted left of the viewport edge so the title doesn't clip.
+- **v1.7** — **dual-field coloring**: geometry stays σ₀-driven while an optional `--field-tile` (e.g. a Richardson-number tile) colors the iso-surfaces via VTK contour pass-through interpolation. New `field_styles.py` display registry (per-variable transform / clip / cmap / title / center); `build_pyvista_grid(extra_fields=...)` and `render_3d(color_scalar=, color_title=, nan_color=)`; NaN cells (land / edge rim / clipped) render neutral gray `#9e9e9e`. New flags `--field-tile`, `--field-name`, `--field-transform`, `--field-clip`; `--clim`/`--cmap-volume` now apply to the color scalar. Fully backward compatible — without `--field-tile` the scene is unchanged.
 
 ## Known follow-ups
 

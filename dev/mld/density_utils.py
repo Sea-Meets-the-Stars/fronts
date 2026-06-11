@@ -19,6 +19,7 @@ Conventions match the original script:
 
 # stdlib
 from __future__ import annotations
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -28,16 +29,65 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-# tile_mapping lives next to generate_tile_density.py in a sibling repo.
-# We mirror the sys.path trick used by generate_tile_density.py itself so
-# anyone importing this module gets the lookup available immediately.
-_TILE_MAPPING_DIR = Path(
-    "/home/xavier/Oceanography/python/llc4320-native-grid-preprocessing/"
-    "src/dbof/tiles"
-)
-if str(_TILE_MAPPING_DIR) not in sys.path:
-    sys.path.insert(0, str(_TILE_MAPPING_DIR))
-import tile_mapping  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# tile_mapping resolution
+# ---------------------------------------------------------------------------
+# ``tile_mapping`` lives in the sibling llc4320-native-grid-preprocessing repo.
+# Resolution order (no machine-specific path is hard-coded):
+#   1. the installed ``dbof`` package (``pip install -e`` of the preprocessing
+#      repo) -- the normal case, needs no configuration;
+#   2. the ``LLC4320_PREPROC_SRC`` environment variable, pointing at the
+#      preprocessing repo's ``src`` directory (or directly at ``.../dbof/tiles``);
+#   3. otherwise a clear ImportError explaining both options.
+def _import_tile_mapping():
+    """Import the preprocessing repo's ``tile_mapping`` module, robustly.
+
+    Returns
+    -------
+    module
+        The resolved ``tile_mapping`` module.
+
+    Raises
+    ------
+    ImportError
+        If the ``dbof`` package is not installed and ``LLC4320_PREPROC_SRC``
+        is unset or does not point at a directory containing ``tile_mapping``.
+    """
+    # 1. Installed package -- preferred; works with no configuration.
+    try:
+        import dbof.tiles.tile_mapping as tm
+        return tm
+    except ModuleNotFoundError:
+        pass
+
+    # 2. Environment-variable override (the "parsed input").  Accept either
+    #    the repo ``src`` dir or the ``dbof/tiles`` dir directly.
+    env_dir = os.environ.get("LLC4320_PREPROC_SRC")
+    if env_dir:
+        candidates = [
+            Path(env_dir),
+            Path(env_dir) / "dbof" / "tiles",
+            Path(env_dir) / "src" / "dbof" / "tiles",
+        ]
+        for cand in candidates:
+            if (cand / "tile_mapping.py").is_file():
+                if str(cand) not in sys.path:
+                    sys.path.insert(0, str(cand))
+                import tile_mapping as tm  # noqa: E402
+                return tm
+
+    raise ImportError(
+        "Could not import 'tile_mapping' from the llc4320-native-grid-"
+        "preprocessing repo.  Either `pip install -e` that repo so the "
+        "`dbof` package is importable, or set the LLC4320_PREPROC_SRC "
+        "environment variable to its `src` directory, e.g.\n"
+        "    export LLC4320_PREPROC_SRC=/path/to/"
+        "llc4320-native-grid-preprocessing/src"
+    )
+
+
+tile_mapping = _import_tile_mapping()
 
 
 # ---------------------------------------------------------------------------
@@ -71,41 +121,109 @@ def timestamp_to_stamp(timestamp: str) -> str:
 # Density-tile + global file loading
 # ---------------------------------------------------------------------------
 
-def load_density_tile(path: Path) -> xr.Dataset:
-    """Open the density-tile NetCDF and assert the required fields are present.
+def load_tile(path: Path, var_name: str | None = None) -> xr.Dataset:
+    """Open a property-tile NetCDF (any field) and validate its contents.
 
-    ``generate_tile_density.py`` writes some provenance as attrs and some as
-    scalar coords; we accept either location.
+    Tiles are written by ``llc4320-native-grid-preprocessing``'s
+    ``dbof.tiles.generate_tile`` and hold one 3-D data variable
+    (``sigma0``, ``Ri``, ``vorticity``, ...) plus ``XC``/``YC``/``Z``
+    coordinates and provenance fields (some as attrs, some as scalar
+    coords; we accept either location).
 
     Parameters
     ----------
     path : pathlib.Path
-        Path to the density-tile NetCDF produced by
-        ``generate_tile_density.py``.
+        Path to the tile NetCDF.
+    var_name : str or None, optional
+        Expected data-variable name.  When ``None`` the variable is
+        auto-detected (the single 3-D data variable in the file).
 
     Returns
     -------
     xarray.Dataset
-        Lazy dataset holding ``sigma0(k, j, i)``, plus the ``XC``, ``YC``,
-        ``Z`` coordinates and the ``tile_index``/``face_index``/
-        ``rect_i_start``/``rect_j_start``/``timestamp`` provenance fields.
+        Lazy dataset holding ``{var_name}(k, j, i)`` plus coordinates and
+        provenance.  The resolved variable name is recorded in
+        ``ds.attrs['tile_var_name']`` for convenience.
 
     Raises
     ------
     KeyError
-        If a required provenance field or the ``sigma0`` variable is absent.
+        If a required provenance field is absent, the requested variable is
+        missing, or (in auto-detect mode) the file does not contain exactly
+        one 3-D data variable.
     """
     ds = xr.open_dataset(path)
     for key in ("tile_index", "face_index", "rect_i_start", "rect_j_start",
                 "timestamp"):
         if key not in ds.attrs and key not in ds.coords:
             raise KeyError(
-                f"Density tile {path} missing required field '{key}' "
+                f"Tile {path} missing required field '{key}' "
                 "(checked attrs and coords)."
             )
-    if "sigma0" not in ds.data_vars:
-        raise KeyError(f"Density tile {path} has no 'sigma0' variable.")
+    if var_name is None:
+        candidates = [v for v in ds.data_vars if ds[v].ndim == 3]
+        if len(candidates) != 1:
+            raise KeyError(
+                f"Tile {path} should contain exactly one 3-D variable; "
+                f"found {candidates}.  Pass var_name= explicitly."
+            )
+        var_name = candidates[0]
+    elif var_name not in ds.data_vars:
+        raise KeyError(
+            f"Tile {path} has no '{var_name}' variable "
+            f"(data_vars={list(ds.data_vars)})."
+        )
+    ds.attrs["tile_var_name"] = var_name
     return ds
+
+
+def load_density_tile(path: Path) -> xr.Dataset:
+    """Backward-compatible wrapper: :func:`load_tile` pinned to ``sigma0``.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Path to the density-tile NetCDF.
+
+    Returns
+    -------
+    xarray.Dataset
+        See :func:`load_tile`.
+    """
+    return load_tile(path, var_name="sigma0")
+
+
+def check_tiles_consistent(ds_a: xr.Dataset, ds_b: xr.Dataset,
+                           label_a: str = "tile A",
+                           label_b: str = "tile B") -> None:
+    """Hard-error unless two tiles share geometry and timestamp provenance.
+
+    Used by ``fronts_viz_3d`` to confirm that a color-field tile (e.g. Ri)
+    was generated for the same tile window and snapshot as the density tile
+    that drives the scene geometry.
+
+    Parameters
+    ----------
+    ds_a, ds_b : xarray.Dataset
+        Tile datasets from :func:`load_tile`.
+    label_a, label_b : str, optional
+        Names used in the error message.
+
+    Raises
+    ------
+    SystemExit
+        On any mismatch of tile_index / face_index / rect origins /
+        timestamp.
+    """
+    for key in ("tile_index", "face_index", "rect_i_start", "rect_j_start",
+                "timestamp"):
+        va, vb = tile_scalar(ds_a, key), tile_scalar(ds_b, key)
+        if str(va) != str(vb):
+            raise SystemExit(
+                f"Tile provenance mismatch: {label_a} has {key}={va!r} but "
+                f"{label_b} has {key}={vb!r}.  Both tiles must come from "
+                "the same tile window and timestamp."
+            )
 
 
 def tile_scalar(ds: xr.Dataset, key: str):
