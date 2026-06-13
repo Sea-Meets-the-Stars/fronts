@@ -452,6 +452,10 @@ Open items / not addressed in v1.5:
 
 I poorly named the density definition of 0.125 kg m^-3 as the isopycnal depth in the file dev/mld/plot_top_N_density_profiles.py.  Please change it to the pycnocline depth (this is also incorrect) and make any other necessary changes to the code.
 
+### Sixth set of modifications
+
+The two methods mixed_layer_depth and mixed_layer_depth_field in the file fronts/llc/analysis.py have substantial code overlap.  Please refactor them to share the same code as best possible.
+
 ## Examples
 
 1.  python -m fronts.scripts.fronts_viz_3d     --density-tile "$OS_OGCM/LLC/Fronts/V4/20121109_120000/tiles/density_tile330_20121109T12.nc"     --labels       "$OS_OGCM/LLC/Fronts/V4/20121109_120000/labeled_fronts_global_20121109T12_00_00_V4.npy"     --i 13142 --j 9956     --zscale 1.0     --output fronts_viz_3d_calcurrent.png --clim 24.4 25.0 # Coastal cali
@@ -549,6 +553,7 @@ Open items for a future round:
 3. Re-read this doc.  Now execute the Third set of modifications listed under Modifications.
 4. Re-read this doc.  Now execute the Fourth set of modifications listed under Modifications.
 5. Re-read this doc.  Now execute the Fifth set of modifications listed under Modifications.
+6. Re-read this doc.  Now execute the Sixth set of modifications listed under Modifications.
 
 ### Polish
 

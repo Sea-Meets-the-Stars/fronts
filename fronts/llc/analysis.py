@@ -100,22 +100,22 @@ def mixed_layer_depth(
     -------
     float or None
         Depth of the mixed-layer base in metres (negative downward), or
-        ``None`` if the profile is empty or its value at the reference
-        depth is non-finite.
+        ``None`` if the profile is empty, its value at the reference depth
+        is non-finite, or no well-mixed level exists.
     """
+    # A single profile is just a degenerate (K, 1, 1) volume, so delegate to
+    # the vectorised engine below rather than re-deriving the reference-depth /
+    # delta / well-mixed logic here.  The empty-profile guard stays local so we
+    # never hand a zero-length K to the field helper (which would mismatch Z).
     if sigma0_profile.size == 0:
         return None
-    k_ref = reference_k(Z, reference_depth_m)
-    surface = float(sigma0_profile[k_ref])
-    if not np.isfinite(surface):
-        return None
-    # delta is positive inside the mixed layer and grows with depth in a
-    # stably stratified column; well-mixed water sits at delta <= threshold.
-    delta = sigma0_profile - surface
-    well_mixed = np.where(delta <= delta_sigma0)[0]
-    if well_mixed.size == 0:
-        return None
-    return float(Z[well_mixed].min())
+    z_mld, _ = mixed_layer_depth_field(
+        sigma0_profile[:, None, None], Z,
+        delta_sigma0=delta_sigma0,
+        reference_depth_m=reference_depth_m,
+    )
+    z = float(z_mld[0, 0])
+    return None if np.isnan(z) else z
 
 
 # ---------------------------------------------------------------------------
@@ -130,11 +130,12 @@ def mixed_layer_depth_field(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Vectorised mixed-layer depth across a 3-D sigma0 array.
 
-    Same definition as :func:`mixed_layer_depth` but applied to every
-    ``(j, i)`` column of a 3-D sigma0 array in one pass.  Returns both the
-    depth and the corresponding LLC level index so downstream code can clip
-    a volume to a depth a few levels below the deepest MLD without doing a
-    second search.
+    This is the shared engine: it applies the MLD definition to every
+    ``(j, i)`` column of a 3-D sigma0 array in one pass, and the scalar
+    :func:`mixed_layer_depth` delegates to it via a ``(K, 1, 1)`` view.
+    Returns both the depth and the corresponding LLC level index so
+    downstream code can clip a volume to a depth a few levels below the
+    deepest MLD without doing a second search.
 
     Parameters
     ----------
