@@ -1,0 +1,72 @@
+# ---------------------------------------------------------------------------
+# fronts build_v4 — DEPTH pipeline config
+#
+# Thin config matching the refactored preprocessing schema
+# (llc4320-native-grid-preprocessing/configs/global/run.yaml).
+#
+# Channel lists, dataset names, and the S3 output folder are NOT listed here:
+# they live in dbof.global_dataset_creation.subset_definitions, keyed by
+# pipeline.  The only knobs here are the pipeline, dates, which subsets to
+# produce, and the depth suffixes.
+# ---------------------------------------------------------------------------
+
+pipeline: "DEPTH"
+
+run:
+  # run_id is the per-run tag used by run_all_subsets for BOTH the output
+  # directory and the NetCDF filename suffix.  build_v4 reads fronts files as
+  # .../V{version}/{prefix}/LLC4320_{ts}_{field}_V{version}.nc, so run_id MUST
+  # equal 'V{version}' (here version='4' -> run_id='V4') for the paths to line up.
+  run_id: "V4"
+  log_dir: "./logs/"
+
+data:
+  # ISO format 'YYYY-MM-DD HH:MM:SS'.
+  # For DEPTH each date must match a timestep store already transferred from
+  # MIT into S3.
+  date_iterations:
+    - '2012-11-09 12:00:00'
+
+output:
+  s3_endpoint: "https://s3-west.nrp-nautilus.io"
+  bucket: "dbof/"
+  # folder is auto-resolved to depth_fields/ for the DEPTH pipeline.
+  # dataset_name is auto-resolved per-subset from subset_definitions.
+
+runtime:
+  zarr_async_concurrency: 8
+  dask_scheduler: "distributed"
+  dask_n_workers: 4
+  dask_threads_per_worker: 4
+
+# ---------------------------------------------------------------------------
+# Subsets to produce (must all be valid for the DEPTH pipeline).
+# ---------------------------------------------------------------------------
+active_subsets:
+  - stratification      # N2 (+ bare: mixed_layer_depth, ml_heat_content)
+  - vertical_shear      # vertical_shear, Ri
+  - mixing_parameters   # Fr, Ro, Bu
+  - ertel_pv            # ertel_pv, ertel_pv_vertical, ertel_pv_tilt
+  - buoyancy_fluxes     # uB, vB, wB
+  - surface_wind        # oceTAUX, oceTAUY, oceQnet (+ wind diagnostics) — all bare
+  - energetics          # KE
+  - frontal_structure   # gradb2, gradtheta2, gradsalt2, gradrho2, gradeta2, turner_angle
+  - kinematic           # relative_vorticity, strain_*, divergence, rossby_number, okubo_weiss (+ bare coriolis_f)
+  - frontogenesis       # frontogenesis_tendency, frontogenesis_geo/ageo, ug, vg
+  - native_fields       # Theta, Salt, Eta, U, V, W
+  - icearea             # SIarea
+
+# ---------------------------------------------------------------------------
+# Depth suffixes — USER CONFIGURABLE.
+# options: [sfc, z25m, mld, mld_mean]
+#
+# Every depth (compute) channel is expanded with these suffixes, e.g.
+# relative_vorticity -> relative_vorticity_{sfc,z25m,mld,mld_mean}.
+# Channels with no depth variants (coriolis_f, oceTAUX, SIarea, surface
+# diagnostics) are never suffixed.
+#
+# build_v4 reads this list and produces / co-locates ALL listed suffixes.
+# Set to [sfc] for a surface-only run; comment out to use the per-subset
+# defaults baked into subset_definitions.
+# ---------------------------------------------------------------------------
+depth_suffixes: [sfc, z25m, mld, mld_mean]
