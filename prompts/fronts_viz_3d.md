@@ -448,6 +448,10 @@ Open items / not addressed in v1.5:
 - Some axis tick labels overlap at the back corners of the bbox (e.g. the `i` and `j` labels along the same edge crowd each other). Could be addressed by toggling `ticks="outside"` or by passing `n_xlabels`/`n_ylabels`/`n_zlabels` to `show_bounds` to thin the tick density. Not part of this round.
 - The Gulf Stream example uses the *default* `--clim` (mixed-layer 2/98 percentile = 24.1–25.1 here) which gives a slightly washed-out top portion of the orange iso-surface; passing a manual `--clim` like the California Current example tightens the contrast as expected.
 
+### Fifth set of modifications
+
+I poorly named the density definition of 0.125 kg m^-3 as the isopycnal depth in the file dev/mld/plot_top_N_density_profiles.py.  Please change it to the pycnocline depth (this is also incorrect) and make any other necessary changes to the code.
+
 ## Examples
 
 1.  python -m fronts.scripts.fronts_viz_3d     --density-tile "$OS_OGCM/LLC/Fronts/V4/20121109_120000/tiles/density_tile330_20121109T12.nc"     --labels       "$OS_OGCM/LLC/Fronts/V4/20121109_120000/labeled_fronts_global_20121109T12_00_00_V4.npy"     --i 13142 --j 9956     --zscale 1.0     --output fronts_viz_3d_calcurrent.png --clim 24.4 25.0 # Coastal cali
@@ -544,6 +548,7 @@ Open items for a future round:
 2. Read this doc.  Now execute the second set of modifications listed under Modifications.
 3. Re-read this doc.  Now execute the Third set of modifications listed under Modifications.
 4. Re-read this doc.  Now execute the Fourth set of modifications listed under Modifications.
+5. Re-read this doc.  Now execute the Fifth set of modifications listed under Modifications.
 
 ### Polish
 

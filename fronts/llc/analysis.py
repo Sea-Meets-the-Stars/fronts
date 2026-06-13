@@ -7,7 +7,7 @@ potential-temperature volume into derived stratification fields such as
 the mixed-layer depth (MLD) using a configurable threshold.
 
 The scalar versions ported here (`mixed_layer_depth`) replace the private
-`_mixed_layer_depth` / `_isopycnal_depth` helpers that previously lived in
+`_mixed_layer_depth` / `_pycnocline_depth` helpers that previously lived in
 `dev/mld/plot_top_N_density_profiles.py`; the field-wise vectorised
 twin (`mixed_layer_depth_field`) is new and intended for use by the
 3-D fronts visualisation script (`fronts/scripts/fronts_viz_3d.py`).
@@ -30,11 +30,11 @@ import numpy as np
 # MLD definitions and threshold constants
 # ---------------------------------------------------------------------------
 
-# Default delta_sigma0 threshold used for the "isopycnal MLD" criterion in
+# Default delta_sigma0 threshold used for the "pycnocline depth" criterion in
 # Bodner-style analyses (kg m^-3 above the reference-depth density).  The
 # 3-D-fronts viz script uses this default; existing callers in
 # dev/mld/plot_top_N_density_profiles.py pass the older 0.03 (mixed layer
-# proper) or 0.125 (isopycnal) values explicitly.
+# proper) or 0.125 (pycnocline) values explicitly.
 DEFAULT_DELTA_SIGMA0 = 0.125  # kg m^-3
 DEFAULT_REFERENCE_DEPTH_M = 10.0  # metres; "10 m below the surface"
 
@@ -78,7 +78,7 @@ def mixed_layer_depth(
     ``sigma0(z) - sigma0(z = -reference_depth_m) <= delta_sigma0``).
 
     The scalar logic is a direct port of ``_mixed_layer_depth`` /
-    ``_isopycnal_depth`` from
+    ``_pycnocline_depth`` from
     ``dev/mld/plot_top_N_density_profiles.py`` -- the difference is that
     the threshold is now a parameter instead of a module constant.
 
@@ -91,7 +91,7 @@ def mixed_layer_depth(
         downward (matches LLC4320).
     delta_sigma0 : float, optional
         Threshold density jump above the reference-depth density, in
-        kg m^-3.  Defaults to the 0.125 kg m^-3 isopycnal MLD criterion;
+        kg m^-3.  Defaults to the 0.125 kg m^-3 pycnocline-depth criterion;
         pass 0.03 for the conventional "mixed-layer" criterion.
     reference_depth_m : float, optional
         Reference depth in metres (positive).  Defaults to 10 m.

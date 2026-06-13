@@ -114,9 +114,9 @@ MLD_REFERENCE_DEPTH_M = 10.0  # metres — Bodner et al. reference depth (≈ 9.
 G_GRAV   = 9.81     # m s^-2
 RHO_REF  = 1027.0   # kg m^-3  (reference seawater density for sigma0)
 
-# Isopycnal-depth threshold and temperature-MLD threshold for Modification 11
+# Pycnocline-depth threshold and temperature-MLD threshold for Modification 11
 # (definitions copied verbatim from prompts/fronts_N.md).
-ISOPYCNAL_DELTA_SIGMA0 = 0.125  # kg m^-3 above 10 m density
+PYCNOCLINE_DELTA_SIGMA0 = 0.125  # kg m^-3 above 10 m density
 TMLD_DELTA_THETA       = 0.2    # K (positive: theta drops by this much)
 
 
@@ -164,16 +164,16 @@ def _mixed_layer_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | Non
     )
 
 
-def _isopycnal_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | None:
-    """Isopycnal-depth diagnostic (0.125 kg m^-3 criterion).
+def _pycnocline_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | None:
+    """Pycnocline-depth diagnostic (0.125 kg m^-3 criterion).
 
     Thin wrapper around :func:`fronts.llc.analysis.mixed_layer_depth` with
-    the larger ``ISOPYCNAL_DELTA_SIGMA0`` threshold.  Kept under its
+    the larger ``PYCNOCLINE_DELTA_SIGMA0`` threshold.  Kept under its
     private name so existing call sites in this script are unaffected.
     """
     return _mld_helper(
         sigma0_profile, Z,
-        delta_sigma0=ISOPYCNAL_DELTA_SIGMA0,
+        delta_sigma0=PYCNOCLINE_DELTA_SIGMA0,
         reference_depth_m=MLD_REFERENCE_DEPTH_M,
     )
 
@@ -895,7 +895,7 @@ def _plot_mld_diagnostics(
     depths returned by
 
         * :func:`_mixed_layer_depth`  -- circle      ('o', delta sigma = 0.03)
-        * :func:`_isopycnal_depth`    -- square      ('s', delta sigma = 0.125)
+        * :func:`_pycnocline_depth`   -- square      ('s', delta sigma = 0.125)
         * :func:`_temperature_mld`    -- triangle    ('^', delta theta = 0.2 K)
 
     Markers are open (facecolor='none') in the front's colour so the underlying
@@ -958,12 +958,12 @@ def _plot_mld_diagnostics(
         # Compute the three diagnostic depths.  Each returns None when the
         # column never crosses the threshold (rare for an LLC profile).
         z_mld  = _mixed_layer_depth(sigma0_profile, Z)
-        z_iso  = _isopycnal_depth(sigma0_profile, Z)
+        z_pyc  = _pycnocline_depth(sigma0_profile, Z)
         z_tmld = _temperature_mld(theta_profile, Z)
         # Plot markers at (sigma0_at_z, z) for each defined diagnostic.
         for z_def, marker in (
             (z_mld,  "o"),
-            (z_iso,  "s"),
+            (z_pyc,  "s"),
             (z_tmld, "^"),
         ):
             if z_def is None:
@@ -1002,11 +1002,11 @@ def _plot_mld_diagnostics(
     # Filled black markers for the median's three MLD diagnostics -- the
     # filled face distinguishes them from the open per-front markers.
     z_mld_med  = _mixed_layer_depth(sigma0_median, Z)
-    z_iso_med  = _isopycnal_depth(sigma0_median, Z)
+    z_pyc_med  = _pycnocline_depth(sigma0_median, Z)
     z_tmld_med = _temperature_mld(theta_median, Z)
     for z_def, marker in (
         (z_mld_med,  "o"),
-        (z_iso_med,  "s"),
+        (z_pyc_med,  "s"),
         (z_tmld_med, "^"),
     ):
         if z_def is None:
@@ -1065,7 +1065,7 @@ def _plot_mld_diagnostics(
         )
         for m, lab in (
             ("o", f"MLD (Δσ₀ ≥ {MLD_DELTA_SIGMA0})"),
-            ("s", f"Isopycnal depth (Δσ₀ ≥ {ISOPYCNAL_DELTA_SIGMA0})"),
+            ("s", f"Pycnocline depth (Δσ₀ ≥ {PYCNOCLINE_DELTA_SIGMA0})"),
             ("^", f"T-MLD (Δθ ≥ {TMLD_DELTA_THETA} K)"),
         )
     ]
