@@ -13,13 +13,17 @@ We will follow the example provided in fronts/properties/nb
 Here are guidelines for the code: 
 
 - Use Python
-- When possible use existing methods from the modules in fronts/properties/
+- When possible use existing methods from the modules in fronts/properties/ and fronts/viz
 - Add inline comments to explain the effort
 - Reuse existing code when possible
 - Use methods, not classes
-- Generate viz methods in the fronts/properties/viz.py module.
 - Place I/O methods in the fronts/properties/io.py module.
 - Place import statements at the top of the file.
+- Include a description of inputs/outputs in the doc string of all methods
+
+## Testing
+
+If you need to test the code, you can use the files in $OS_OGCM/LLC/Fronts as test data. You should run on the "ocean14" conda environment.
 
 ## Development
 
@@ -32,9 +36,21 @@ dev/properties/properties_viz_plan.md
 
 4. Generate a script in dev/properties/properties_viz_test.py that tests the code.  You can use the files in $OS_OGCM/LLC/Fronts as test data.
 
+## Modifications
+
+1. Make these changes to the front_property_viewer.py module and other related code:
+
+- Move the viz_utils.py module to fronts/viz/ and refactor other modules as needed 
+- Allow the user to set the display levels (vmin, vmax) for any given field by setting --vl0 vmin,vmax --vl1 vmin,vmax, etc.
+- Allow the user to choose different colormaps (blue, green, red) for a given field with, e.g. -cl0 blue
+
+2. Make these changes to the front_property_viewer.py module and other related code:
+
+- Make all of the fonts black and/or bold (i.e. easier to read)
+- Lower the opacity of the drawn fronts
+
+
 ## Docs
-
-
 
 ## Prompts
 
@@ -44,3 +60,5 @@ dev/properties/properties_viz_plan.md
 2. Read this doc.  Now execute the 2nd step listed under Development.
 3. Read this doc.  Now execute the 3rd step listed under Development.
 4. Read this doc.  Now execute step 4 listed under Development.
+5. Read this doc.  Implement the 1st set of modifications described in the Modifications section
+6. Read this doc.  Implement the 2nd set of modifications described in the Modifications section

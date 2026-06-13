@@ -4,7 +4,7 @@ import numpy as np
 import pyqtgraph as pg
 
 
-def make_colormap(divergent=False):
+def make_colormap(divergent=False, name=None):
     """Return a pyqtgraph ColorMap.
 
     Parameters
@@ -12,7 +12,29 @@ def make_colormap(divergent=False):
     divergent : bool
         If True, return a blue-white-red (seismic) colormap.
         If False, return an inverted grayscale (white->black) colormap.
+        Ignored when *name* is supplied.
+    name : str, optional
+        Named single-hue colormap: ``'blue'``, ``'green'``, or ``'red'``.
+        Each ramps white -> dark hue. When provided this overrides
+        the *divergent* flag.
     """
+    # Single-hue named ramps (white -> dark color)
+    if name is not None:
+        ramps = {
+            'blue':  [[255, 255, 255], [ 30,  60, 150]],
+            'green': [[255, 255, 255], [ 30, 120,  50]],
+            'red':   [[255, 255, 255], [150,  30,  30]],
+        }
+        key = name.lower()
+        if key not in ramps:
+            raise ValueError(
+                f"Unknown colormap name '{name}'. "
+                f"Choose from: {sorted(ramps)}"
+            )
+        colors = np.array(ramps[key], dtype=np.ubyte)
+        pos = np.array([0.0, 1.0])
+        return pg.ColorMap(pos=pos, color=colors)
+
     if divergent:
         colors = np.array([
             [ 58,  76, 139],   # muted dark blue
@@ -69,16 +91,18 @@ def make_fronts_rgba(fronts_data, divergent=False):
         Shape (rows, cols, 4), dtype uint8.
     """
     rgba = np.zeros((*fronts_data.shape, 4), dtype=np.ubyte)
+    # Lowered alpha values so the drawn fronts no longer obscure the
+    # underlying field — they should read as a light tint, not a wash.
     if divergent:
         rgba[:, :, 0] = 255
         rgba[:, :, 1] = 255
         rgba[:, :, 2] = 0
-        alpha = 200
+        alpha = 110
     else:
         rgba[:, :, 0] = 255
         rgba[:, :, 1] = 0
         rgba[:, :, 2] = 0
-        alpha = 120
+        alpha = 70
     rgba[:, :, 3] = (fronts_data > 0).astype(np.ubyte) * alpha
     return rgba
 

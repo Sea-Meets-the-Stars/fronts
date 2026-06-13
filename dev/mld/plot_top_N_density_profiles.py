@@ -58,6 +58,7 @@ from matplotlib import cm  # noqa: E402
 
 # repo helpers ------------------------------------------------------------
 from fronts.properties.io import load_front_index
+from fronts.llc.analysis import mixed_layer_depth as _mld_helper
 
 # Shared utilities (formerly inlined here) live in density_utils.py next to
 # this script.  Make sure that directory is importable regardless of how the
@@ -113,9 +114,9 @@ MLD_REFERENCE_DEPTH_M = 10.0  # metres — Bodner et al. reference depth (≈ 9.
 G_GRAV   = 9.81     # m s^-2
 RHO_REF  = 1027.0   # kg m^-3  (reference seawater density for sigma0)
 
-# Isopycnal-depth threshold and temperature-MLD threshold for Modification 11
+# Pycnocline-depth threshold and temperature-MLD threshold for Modification 11
 # (definitions copied verbatim from prompts/fronts_N.md).
-ISOPYCNAL_DELTA_SIGMA0 = 0.125  # kg m^-3 above 10 m density
+PYCNOCLINE_DELTA_SIGMA0 = 0.125  # kg m^-3 above 10 m density
 TMLD_DELTA_THETA       = 0.2    # K (positive: theta drops by this much)
 
 
@@ -123,7 +124,7 @@ TMLD_DELTA_THETA       = 0.2    # K (positive: theta drops by this much)
 # Small helpers
 # ---------------------------------------------------------------------------
 
-def _build_stem(tile_index: int, timestamp: str, N: int) -> str:
+def _build_stem(tile_index: int, timestamp: str, N: int, region_name: str | None = None) -> str:
     """Standardised output filename stem shared by CSV + PNGs.
 
     Parameters
@@ -143,108 +144,38 @@ def _build_stem(tile_index: int, timestamp: str, N: int) -> str:
         overlay PNG.
     """
     return (
-        f"density_profiles_tile{tile_index:03d}_"
+        f"density_profiles_{region_name}_tile{tile_index:03d}_"
         f"{_timestamp_to_stamp(timestamp)}_topN{N}"
     )
 
 
 def _mixed_layer_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | None:
-    """Mixed-layer depth from a single sigma0(z) profile.
+    """Mixed-layer depth from a single sigma0(z) profile (0.03 kg m^-3 criterion).
 
-    Definition (matches prompts/fronts_N.md): the depth at which
-    ``sigma0(z) - sigma0(z=0) >= MLD_DELTA_SIGMA0`` (0.03 kg m^-3).  The depth
-    is linearly interpolated between the two bracketing model levels for
-    sub-grid accuracy.
-
-    Parameters
-    ----------
-    sigma0_profile : numpy.ndarray
-        1-D potential density column, length ``K``, in kg m^-3.  NaNs are
-        treated as ``-inf`` (i.e. ignored) when searching for the threshold
-        crossing.
-    Z : numpy.ndarray
-        1-D depth array, length ``K``, in metres.  Convention: negative
-        downward (matches LLC4320), with the surface as ``Z[0]`` (largest).
-
-    Returns
-    -------
-    float or None
-        Depth of the mixed-layer base in metres (negative downward), or
-        ``None`` if the threshold is never crossed (water column too weakly
-        stratified, or profile entirely NaN).
+    Thin wrapper around :func:`fronts.llc.analysis.mixed_layer_depth` with
+    the local module's ``MLD_DELTA_SIGMA0`` threshold (0.03 kg m^-3) and
+    ``MLD_REFERENCE_DEPTH_M`` reference depth.  Kept under its private name
+    so existing call sites in this script are unaffected.
     """
-    if sigma0_profile.size == 0:
-        return None
-    # Density at reference depth
-    k_10m = int(np.abs(np.abs(Z) - float(MLD_REFERENCE_DEPTH_M)).argmin())
-    #embed(header="mixed_layer_depth 184")
-    surface = float(sigma0_profile[k_10m])
-    if not np.isfinite(surface):
-        return None
-
-    delta = sigma0_profile - surface
-
-    #embed(header="mixed_layer_depth 192")
-    z_masked = np.where(delta <= MLD_DELTA_SIGMA0)
-    mld = Z[z_masked].min()
-    return mld
-
-    #mld = z_masked.max(dim=zdim, skipna=True)
-
-    # THE CODE BELOW MAY BE USED SOMEDAY.  SAVING IT FOR NOW
-
-    '''
-    # Find the first index whose sigma0 exceeds the threshold.  np.argmax on
-    # a boolean array returns the first True (or 0 if there are no Trues, so
-    # we guard with .any()).
-    crossed = (delta >= MLD_DELTA_SIGMA0) & (Z <= -1*MLD_REFERENCE_DEPTH_M)
-    if not np.any(crossed):
-        return None
-    k = int(np.argmax(crossed))
-    if k == 0:
-        # Threshold already met at the surface -- nominally zero MLD.
-        return float(Z[0])
-    # Linear interpolation in (delta, z) between levels k-1 and k.
-    d0, d1 = float(delta[k - 1]), float(delta[k])
-    z0, z1 = float(Z[k - 1]), float(Z[k])
-    if d1 == d0:
-        return z1
-    frac = (MLD_DELTA_SIGMA0 - d0) / (d1 - d0)
-    return z0 + frac * (z1 - z0)
-    '''
+    return _mld_helper(
+        sigma0_profile, Z,
+        delta_sigma0=MLD_DELTA_SIGMA0,
+        reference_depth_m=MLD_REFERENCE_DEPTH_M,
+    )
 
 
-def _isopycnal_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | None:
-    """Isopycnal-depth diagnostic (Modification 11, Definition 2).
+def _pycnocline_depth(sigma0_profile: np.ndarray, Z: np.ndarray) -> float | None:
+    """Pycnocline-depth diagnostic (0.125 kg m^-3 criterion).
 
-    Same convention as :func:`_mixed_layer_depth` but using the larger
-    ``ISOPYCNAL_DELTA_SIGMA0`` (0.125 kg m^-3) threshold above the 10 m
-    reference density.  Returns the deepest LLC level where the sigma0
-    deviation from the 10 m value has not yet exceeded the threshold.
-
-    Parameters
-    ----------
-    sigma0_profile : numpy.ndarray
-        1-D potential density column, length ``K``, in kg m^-3.
-    Z : numpy.ndarray
-        1-D depth array, length ``K``, in metres (negative downward).
-
-    Returns
-    -------
-    float or None
-        Depth in metres (negative downward) of the deepest level still on the
-        well-mixed side of the threshold, or ``None`` if the profile is empty
-        or all-NaN at the reference depth.
+    Thin wrapper around :func:`fronts.llc.analysis.mixed_layer_depth` with
+    the larger ``PYCNOCLINE_DELTA_SIGMA0`` threshold.  Kept under its
+    private name so existing call sites in this script are unaffected.
     """
-    if sigma0_profile.size == 0:
-        return None
-    k_10m = int(np.abs(np.abs(Z) - float(MLD_REFERENCE_DEPTH_M)).argmin())
-    surface = float(sigma0_profile[k_10m])
-    if not np.isfinite(surface):
-        return None
-    delta = sigma0_profile - surface
-    z_masked = np.where(delta <= ISOPYCNAL_DELTA_SIGMA0)
-    return float(Z[z_masked].min())
+    return _mld_helper(
+        sigma0_profile, Z,
+        delta_sigma0=PYCNOCLINE_DELTA_SIGMA0,
+        reference_depth_m=MLD_REFERENCE_DEPTH_M,
+    )
 
 
 def _temperature_mld(theta_profile: np.ndarray, Z: np.ndarray) -> float | None:
@@ -964,7 +895,7 @@ def _plot_mld_diagnostics(
     depths returned by
 
         * :func:`_mixed_layer_depth`  -- circle      ('o', delta sigma = 0.03)
-        * :func:`_isopycnal_depth`    -- square      ('s', delta sigma = 0.125)
+        * :func:`_pycnocline_depth`   -- square      ('s', delta sigma = 0.125)
         * :func:`_temperature_mld`    -- triangle    ('^', delta theta = 0.2 K)
 
     Markers are open (facecolor='none') in the front's colour so the underlying
@@ -1027,12 +958,12 @@ def _plot_mld_diagnostics(
         # Compute the three diagnostic depths.  Each returns None when the
         # column never crosses the threshold (rare for an LLC profile).
         z_mld  = _mixed_layer_depth(sigma0_profile, Z)
-        z_iso  = _isopycnal_depth(sigma0_profile, Z)
+        z_pyc  = _pycnocline_depth(sigma0_profile, Z)
         z_tmld = _temperature_mld(theta_profile, Z)
         # Plot markers at (sigma0_at_z, z) for each defined diagnostic.
         for z_def, marker in (
             (z_mld,  "o"),
-            (z_iso,  "s"),
+            (z_pyc,  "s"),
             (z_tmld, "^"),
         ):
             if z_def is None:
@@ -1071,11 +1002,11 @@ def _plot_mld_diagnostics(
     # Filled black markers for the median's three MLD diagnostics -- the
     # filled face distinguishes them from the open per-front markers.
     z_mld_med  = _mixed_layer_depth(sigma0_median, Z)
-    z_iso_med  = _isopycnal_depth(sigma0_median, Z)
+    z_pyc_med  = _pycnocline_depth(sigma0_median, Z)
     z_tmld_med = _temperature_mld(theta_median, Z)
     for z_def, marker in (
         (z_mld_med,  "o"),
-        (z_iso_med,  "s"),
+        (z_pyc_med,  "s"),
         (z_tmld_med, "^"),
     ):
         if z_def is None:
@@ -1134,7 +1065,7 @@ def _plot_mld_diagnostics(
         )
         for m, lab in (
             ("o", f"MLD (Δσ₀ ≥ {MLD_DELTA_SIGMA0})"),
-            ("s", f"Isopycnal depth (Δσ₀ ≥ {ISOPYCNAL_DELTA_SIGMA0})"),
+            ("s", f"Pycnocline depth (Δσ₀ ≥ {PYCNOCLINE_DELTA_SIGMA0})"),
             ("^", f"T-MLD (Δθ ≥ {TMLD_DELTA_THETA} K)"),
         )
     ]
@@ -1274,6 +1205,7 @@ def run(
     outdir: Path,
     top_fronts_csv: Path | None,
     strength_col: str,
+    region_name: str, 
     i_rect_range: tuple[int, int] | None = None,
     j_rect_range: tuple[int, int] | None = None,
     theta_path: Path | None = None,
@@ -1313,6 +1245,8 @@ def run(
         Path to a temperature tile NetCDF.  When supplied (Modification 11)
         an extra ``MLD_{stem}.png`` is written with three MLD diagnostics
         per front; when omitted, that figure is skipped.
+    region_name : str or None, optional
+        Region name used in the panel title.
 
     Returns
     -------
@@ -1343,7 +1277,7 @@ def run(
         i_rect_range, j_rect_range, rect_i_start, rect_j_start,
     )
     has_subregion = (i_rect_range is not None) or (j_rect_range is not None)
-    base_stem = _build_stem(tile_index, timestamp, N)
+    base_stem = _build_stem(tile_index, timestamp, N, region_name)
     if has_subregion:
         i0g = rect_i_start + sub_i_lo
         i1g = rect_i_start + sub_i_hi

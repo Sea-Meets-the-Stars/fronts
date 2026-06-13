@@ -32,8 +32,8 @@ def binary_filename(timestamp:str, config_lbl:str, version:str,
     """
     path = llc_io.fronts_dir(version, timestamp)
 
-    # Generate base.  run_tag = '{version}_bin_{config_lbl}' (version = run_id).
-    basefile = f'{root}_{timestamp}_{version}_bin_{config_lbl}.npy'
+    # Generate base
+    basefile = f'{root}_{timestamp}_V{version}_bfronts.npy'
 
     # Join and return
     return os.path.join(path, basefile)
