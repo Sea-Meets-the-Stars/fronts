@@ -30,3 +30,139 @@ runtime:
   dask_n_workers: 4
   dask_threads_per_worker: 4
   dask_memory_limit: null
+last_updated: '2026-06-15T19:44:03.116132+00:00'
+subsets:
+  frontal_structure:
+    last_run: '2026-06-15T19:44:03.116203+00:00'
+    git_commit: 3b14bf6
+    depth_suffixes:
+    - sfc
+    - z25m
+    - mld
+    - mld_mean
+    channels:
+    - gradb2_sfc
+    - gradb2_z25m
+    - gradb2_mld
+    - gradb2_mld_mean
+    - gradtheta2_sfc
+    - gradtheta2_z25m
+    - gradtheta2_mld
+    - gradtheta2_mld_mean
+    - gradsalt2_sfc
+    - gradsalt2_z25m
+    - gradsalt2_mld
+    - gradsalt2_mld_mean
+    - gradrho2_sfc
+    - gradrho2_z25m
+    - gradrho2_mld
+    - gradrho2_mld_mean
+    - gradeta2_sfc
+    - turner_angle_sfc
+    - turner_angle_z25m
+    - turner_angle_mld
+    - turner_angle_mld_mean
+    clobber: false
+  kinematic:
+    last_run: '2026-06-12T23:56:01.277696+00:00'
+    git_commit: 3b14bf6
+    depth_suffixes:
+    - sfc
+    - z25m
+    - mld
+    - mld_mean
+    channels:
+    - relative_vorticity_sfc
+    - relative_vorticity_z25m
+    - relative_vorticity_mld
+    - relative_vorticity_mld_mean
+    - strain_n_sfc
+    - strain_n_z25m
+    - strain_n_mld
+    - strain_n_mld_mean
+    - strain_s_sfc
+    - strain_s_z25m
+    - strain_s_mld
+    - strain_s_mld_mean
+    - strain_mag_sfc
+    - strain_mag_z25m
+    - strain_mag_mld
+    - strain_mag_mld_mean
+    - divergence_sfc
+    - divergence_z25m
+    - divergence_mld
+    - divergence_mld_mean
+    - rossby_number_sfc
+    - rossby_number_z25m
+    - rossby_number_mld
+    - rossby_number_mld_mean
+    - okubo_weiss_sfc
+    - okubo_weiss_z25m
+    - okubo_weiss_mld
+    - okubo_weiss_mld_mean
+    - coriolis_f
+    clobber: false
+  frontogenesis:
+    last_run: '2026-06-13T00:20:07.749064+00:00'
+    git_commit: 3b14bf6
+    depth_suffixes:
+    - sfc
+    - z25m
+    - mld
+    - mld_mean
+    channels:
+    - frontogenesis_tendency_sfc
+    - frontogenesis_tendency_z25m
+    - frontogenesis_tendency_mld
+    - frontogenesis_tendency_mld_mean
+    - frontogenesis_geo_sfc
+    - frontogenesis_geo_z25m
+    - frontogenesis_geo_mld
+    - frontogenesis_geo_mld_mean
+    - frontogenesis_ageo_sfc
+    - frontogenesis_ageo_z25m
+    - frontogenesis_ageo_mld
+    - frontogenesis_ageo_mld_mean
+    - ug_sfc
+    - ug_z25m
+    - ug_mld
+    - ug_mld_mean
+    - vg_sfc
+    - vg_z25m
+    - vg_mld
+    - vg_mld_mean
+    clobber: false
+  native_fields:
+    last_run: '2026-06-13T02:30:29.833245+00:00'
+    git_commit: 3b14bf6
+    depth_suffixes:
+    - sfc
+    - z25m
+    - mld
+    - mld_mean
+    channels:
+    - Theta_sfc
+    - Theta_z25m
+    - Theta_mld
+    - Theta_mld_mean
+    - Salt_sfc
+    - Salt_z25m
+    - Salt_mld
+    - Salt_mld_mean
+    - Eta_sfc
+    - Eta_z25m
+    - Eta_mld
+    - Eta_mld_mean
+    - U_sfc
+    - U_z25m
+    - U_mld
+    - U_mld_mean
+    - V_sfc
+    - V_z25m
+    - V_mld
+    - V_mld_mean
+    - W_sfc
+    - W_z25m
+    - W_mld
+    - W_mld_mean
+    clobber: false
