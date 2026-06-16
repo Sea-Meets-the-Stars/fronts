@@ -150,10 +150,24 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "(default 30; total length 2*N+1).")
     p.add_argument("--perp-point", type=int, default=None,
                    help="Main-axis column index for the perpendicular "
-                        "transect.  Default: the field-extremum column.")
+                        "transect.  Default: the field-extremum column.  Use "
+                        "--list-perp-candidates to see column -> (i,j) values.")
     p.add_argument("--extremum", choices=["min", "max"], default="min",
                    help="Whether the default perpendicular point is the field "
                         "minimum (default; e.g. lowest Ri) or maximum.")
+    p.add_argument("--perp-max-crossings", type=int, default=1,
+                   help="When auto-picking the perpendicular point, only "
+                        "consider main-axis columns whose transect crosses the "
+                        "front at most this many times (default 1 = a clean "
+                        "single crossing, away from the front's squiggly "
+                        "self-overlapping parts).")
+    p.add_argument("--perp-allow-crossings", action="store_true",
+                   help="Disable the crossing filter above; auto-pick the "
+                        "field extremum anywhere along the axis.")
+    p.add_argument("--list-perp-candidates", action="store_true",
+                   help="Log the main-axis column index, (i,j), along-path km, "
+                        "and transect crossing-count for each column, then "
+                        "continue.  Helps choose --perp-point.")
 
     # Smoothing of the direction field (NOT the main-axis columns).
     p.add_argument("--smooth-normals", action="store_true",
@@ -162,6 +176,14 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "default).  Does NOT move the main-axis columns.")
     p.add_argument("--smooth-window", type=int, default=5,
                    help="Odd pixel window for --smooth-normals (default 5).")
+    p.add_argument("--no-trim-offsets", dest="trim_offsets",
+                   action="store_false",
+                   help="Keep self-intersection loops in the offset lines "
+                        "(shaded magenta) instead of trimming them.  By "
+                        "default each offset polyline is 'sewn' shut so it "
+                        "contains no crossings (looped columns become gray "
+                        "gaps in the curtain).")
+    p.set_defaults(trim_offsets=True)
 
     # Display.
     p.add_argument("--isopycnals", type=float, nargs="+", default=None,
@@ -246,6 +268,7 @@ def plot_map_inset(
     i_slice: slice,
     output_path: Path,
     *,
+    trim: bool = True,
     title: str = "",
 ) -> Path:
     """Plan-view map of the bbox: surface field + axis + offsets + perp point.
@@ -297,17 +320,25 @@ def plot_map_inset(
     def _plot(p, **kw):
         ax.plot(p[:, 1] + di, p[:, 0] + dj, **kw)
 
+    def _plot_offset(p, **kw):
+        # "Sew" the offset shut: drop self-intersection loops so the drawn line
+        # has no crossings (matches the trimmed curtain).
+        if trim:
+            keep = curtains.trim_offset_loops(p)
+            p = p[keep]
+        _plot(p, **kw)
+
     # All front pixels (faint), then the main axis (bold).
     yy, xx = np.where(mask_crop)
     ax.scatter(xx + di, yy + dj, s=2, c="0.5", alpha=0.5,
                label="front pixels")
     _plot(axis_path_cropped, color="red", lw=2.0, label="main axis")
     for k, p in enumerate(side_a):
-        _plot(p, color="dodgerblue", lw=0.8, alpha=0.8,
-              label="offset +n" if k == 0 else None)
+        _plot_offset(p, color="dodgerblue", lw=0.8, alpha=0.8,
+                     label="offset +n" if k == 0 else None)
     for k, p in enumerate(side_b):
-        _plot(p, color="orange", lw=0.8, alpha=0.8,
-              label="offset -n" if k == 0 else None)
+        _plot_offset(p, color="orange", lw=0.8, alpha=0.8,
+                     label="offset -n" if k == 0 else None)
     _plot(perp_path_cropped, color="lime", lw=2.0, label="perpendicular")
     if mark_jicropped is not None:
         ax.scatter([mark_jicropped[1] + di], [mark_jicropped[0] + dj],
@@ -450,14 +481,45 @@ def main(argv=None) -> None:
     log.info("Isopycnal levels (kg m^-3): %s",
              ", ".join(f"{lv:.3f}" for lv in levels))
 
+    # Transect crossing-count per column (used for the auto-pick filter and
+    # the optional candidate listing).
+    crossings = curtains.transect_front_crossings(
+        axis_path, metrics["normals"], front_mask_cropped, args.perp_half_width,
+    )
+
+    if args.list_perp_candidates:
+        log.info("Perpendicular-point candidates (column: i,j  km  crossings):")
+        dist_km = metrics["dist_km"]
+        for c in range(axis_path.shape[0]):
+            km = "" if dist_km is None else f"{dist_km[c]:7.2f} km"
+            log.info("  col %4d: i=%4d j=%4d  %s  crossings=%d",
+                     c, int(axis_path[c, 1]) + i_slice.start,
+                     int(axis_path[c, 0]) + j_slice.start, km, crossings[c])
+
     # Perpendicular point: user index or the field extremum along the axis.
     axis_color = curtains.sample_curtain(color_display, axis_path)
     if args.perp_point is not None:
         perp_idx = int(np.clip(args.perp_point, 0, axis_path.shape[0] - 1))
+        log.info("Perpendicular point: axis column %d (user --perp-point); "
+                 "transect crosses front %d time(s)",
+                 perp_idx, crossings[perp_idx])
     else:
-        perp_idx = curtains.pick_extremum_index(axis_color, mode=args.extremum)
-    log.info("Perpendicular point: axis column %d (%s of %s)",
-             perp_idx, args.extremum, color_title)
+        search = axis_color.copy()
+        if not args.perp_allow_crossings:
+            # Exclude columns whose transect re-crosses the front (the squiggly
+            # hook); NaN their color so the extremum search ignores them.
+            bad = crossings > args.perp_max_crossings
+            search[:, bad] = np.nan
+            if not np.isfinite(search).any():
+                log.warning("No columns with <= %d crossings; falling back to "
+                            "the whole axis for the perpendicular point.",
+                            args.perp_max_crossings)
+                search = axis_color
+        perp_idx = curtains.pick_extremum_index(search, mode=args.extremum)
+        log.info("Perpendicular point: axis column %d (%s of %s, "
+                 "<= %d crossings); transect crosses front %d time(s)",
+                 perp_idx, args.extremum, color_title,
+                 args.perp_max_crossings, crossings[perp_idx])
 
     perp_path = curtains.perpendicular_path(
         axis_path, metrics["normals"], perp_idx, args.perp_half_width,
@@ -488,7 +550,7 @@ def main(argv=None) -> None:
         color_display, sigma0_clipped, Z_clipped, axis_path, metrics,
         args.n_offsets, out_off,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
-        mark_index=perp_idx,
+        mark_index=perp_idx, trim=args.trim_offsets,
         title=f"Along-front curtains + offsets (front {label})",
     )
     log.info("Wrote %s", out_off)
@@ -513,7 +575,7 @@ def main(argv=None) -> None:
         plot_map_inset(
             surf, front_mask_full, axis_path, side_a, side_b, perp_path,
             (axis_path[perp_idx, 0], axis_path[perp_idx, 1]),
-            j_slice, i_slice, out_inset,
+            j_slice, i_slice, out_inset, trim=args.trim_offsets,
             title=(f"Front {label} curtain geometry "
                    f"(lon={float(XC_rect[j_pick, i_pick]):.2f}, "
                    f"lat={float(YC_rect[j_pick, i_pick]):.2f})"),

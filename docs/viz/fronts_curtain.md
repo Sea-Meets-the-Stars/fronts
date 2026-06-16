@@ -25,11 +25,11 @@ Plots only the front's **main axis** — the longest end-to-end path through the
 
 Two columns — one per side of the front. **Row 0 of both columns is the main-axis curtain itself** (offset 0). Rows 1..N show curtains sampled along paths offset 1..N pixels away from the axis, on the `+normal` side (left column) and `-normal` side (right column). All panels share one color scale for comparability.
 
-Where the offset geometry **self-overlaps** — the concave side of a bend, or residual skeleton noise — the affected columns are shaded magenta and the count is noted in the panel title (see [Offsets and self-overlap](#offsets-and-self-overlap)). Off-window/NaN cells render in neutral gray, so the two failure modes are visually distinct.
+By default each offset line is **trimmed** of self-intersection loops so it contains no crossings — the looped columns on the concave side of a bend are excised ("sewn shut") and render as neutral-gray gaps in the curtain (and as a continuous, crossing-free line on the inset). Pass `--no-trim-offsets` to keep the loops instead and shade them magenta. Off-window/NaN cells always render gray. See [Offsets, trimming, and self-overlap](#offsets-trimming-and-self-overlap).
 
 ### 3. Cross-front (perpendicular) curtain
 
-A perpendicular transect is cut at a chosen point along the main axis. By default that point is the **field extremum over the full curtain depth** (e.g. the column whose deepest-searched `Ri` is lowest — most shear-unstable); override the search direction with `--extremum max` or pin a specific column with `--perp-point`. The transect spans `2·--perp-half-width + 1` pixels; the curtain's x-axis is **signed cross-front distance** with 0 at the front axis (negative on side B, positive on side A).
+A perpendicular transect is cut at a chosen point along the main axis. By default that point is the **field extremum over the full curtain depth** (e.g. the column whose deepest-searched `Ri` is lowest — most shear-unstable), **restricted to columns whose transect crosses the front at most `--perp-max-crossings` times (default 1)** so the transect lands on a clean stretch rather than the front's squiggly self-overlapping parts. Override with `--extremum max`, lift the crossing filter with `--perp-allow-crossings`, or pin a specific column with `--perp-point` (use `--list-perp-candidates` to print each column's `(i, j)`, along-path km, and crossing count). The transect spans `2·--perp-half-width + 1` pixels — which is exactly the length of the green line drawn on the inset — and the curtain's x-axis is **signed cross-front distance** with 0 at the front axis (negative on side B, positive on side A).
 
 ## Inputs
 
@@ -55,7 +55,7 @@ Identical to the 3-D script: `build_tile_lookup` gives the per-pixel `(j_face, i
 7. **Main axis** — `curtains.extract_main_axis` (skeleton diameter; see below).
 8. **Path metrics** — `curtains.path_metrics` returns per-pixel pixel-distance, great-circle km distance, and unit tangents/normals. `--smooth-normals` smooths *only* the direction field.
 9. **Isopycnal levels** — `pick_isopycnal_levels` brackets the 2/98 percentile of the whole clipped volume (the curtain spans full depth), or uses `--isopycnals`.
-10. **Perpendicular point** — `--perp-point`, else `curtains.pick_extremum_index` over the full-depth axis curtain.
+10. **Perpendicular point** — `--perp-point`, else `curtains.pick_extremum_index` over the full-depth axis curtain, with columns whose transect re-crosses the front (`curtains.transect_front_crossings > --perp-max-crossings`) excluded unless `--perp-allow-crossings`.
 11. **Render** — `curtains.figure_main_axis`, `figure_offsets`, `figure_perpendicular`, and the script's `plot_map_inset`.
 
 ## Main-axis extraction
@@ -74,13 +74,18 @@ Identical to the 3-D script: `build_tile_lookup` gives the per-pixel `(j_face, i
 
 **Smoothing (`--smooth-normals`, off by default)** applies a moving average of width `--smooth-window` (odd, default 5) to the tangent direction before deriving normals. It affects **only the direction field** — never the main-axis column positions or the distances. A raw thinned skeleton zig-zags between 4- and 8-connected steps, so per-pixel normals can swing ~45–90° between neighbours; that throws adjacent offset points in inconsistent directions and makes them collide immediately. Smoothing averages those kinks out so offsets stay roughly parallel. Render the same front both ways to compare.
 
-## Offsets and self-overlap
+## Offsets, trimming, and self-overlap
 
 `offset_paths` shifts the main axis ±k pixels along the per-pixel normal for k = 1..N, giving two mirror-image families (side A = `+normal`, side B = `−normal`). Each offset path is sampled exactly like the main axis.
 
-`offset_quality_flags` flags a column when its offset point lands within `< 1 px` of any *non-adjacent* column's offset point — the signature of the concave side of a bend folding back, or of residual skeleton noise when smoothing is off. Flagged columns are shaded so the curtain still renders but the unreliable region is obvious. There are two distinct, separately-shaded failure modes: **magenta** = offset self-overlap; **neutral gray** = off-window/NaN sample.
+On the concave side of a bend an offset folds back and crosses itself. Two handling modes:
 
-Two causes of overlap, two responses: pixel-scale jaggedness is best removed by `--smooth-normals` (it's an artifact); genuine tight curvature is real geometry, so it is marked rather than hidden. A more-correct centre-of-curvature offset (move outward from the local centre of curvature instead of straight along the normal) would handle the second case but is fragile to the first and is left as a follow-up.
+- **Trim (default).** `trim_offset_loops` finds each pair of crossing segments and excises the looped vertices between them, leaving a shorter but crossing-free polyline — the "sew the line shut" behaviour. The dropped columns are NaN'd in the curtain (gray gaps) and skipped on the inset line, so neither the curtain nor the map ever shows a self-crossing offset. Trimming runs whether or not `--smooth-normals` is set, but smoothing first gives cleaner results because it removes the pixel-scale kinks that create spurious tiny loops.
+- **Shade (`--no-trim-offsets`).** Keep the loops and instead flag them: `offset_quality_flags` marks a column when its offset point lands within `< 1 px` of any non-adjacent column's offset point, and those columns are shaded magenta. The curtain still renders; the unreliable region is just made obvious.
+
+Either way the two failure modes stay visually distinct: **gray** = trimmed loop or off-window/NaN sample; **magenta** (shade mode only) = kept self-overlap.
+
+Two causes of overlap, two complementary tools: pixel-scale jaggedness is an artifact best removed by `--smooth-normals`; genuine tight curvature is real geometry, removed cleanly by trimming. A more-correct centre-of-curvature offset (move outward from the local centre of curvature instead of straight along the normal) would *preserve* rather than drop the concave-side material, but it is fragile to pixel noise and is left as a follow-up.
 
 ## Curtain sampling
 
@@ -111,11 +116,15 @@ python -m fronts.scripts.fronts_viz_curtain \
 | `--margin` | int | `50` | Pixel margin around the front bbox. |
 | `--n-below` | int | `3` | LLC levels below the deepest MLD to include (sets depth extent). |
 | `--n-offsets` | int | `3` | Number of offset rows per side. |
-| `--perp-half-width` | int | `30` | Half-width (px) of the perpendicular transect (length `2N+1`). |
+| `--perp-half-width` | int | `30` | Half-width (px) of the perpendicular transect (length `2N+1`); also the length of the green line on the inset. |
 | `--perp-point` | int | extremum | Main-axis column index for the perpendicular transect. |
 | `--extremum` | `min`/`max` | `min` | Default perpendicular point = field min (e.g. lowest `Ri`) or max. |
+| `--perp-max-crossings` | int | `1` | Auto-pick only considers columns whose transect crosses the front ≤ this many times (keeps it off the squiggly hook). |
+| `--perp-allow-crossings` | flag | off | Disable the crossing filter; auto-pick the extremum anywhere. |
+| `--list-perp-candidates` | flag | off | Log each column's `(i, j)`, along-path km, and crossing count, then continue. Helps choose `--perp-point`. |
 | `--smooth-normals` | flag | off | Smooth the tangent/normal direction field before offsets/perpendicular. Never moves the main-axis columns. |
 | `--smooth-window` | int | `5` | Odd pixel window for `--smooth-normals`. |
+| `--no-trim-offsets` | flag | off (trim on) | Keep offset self-intersection loops (shaded magenta) instead of trimming them to crossing-free lines. |
 | `--isopycnals` | floats | auto | Explicit σ₀ contour levels. |
 | `--n-isopycnals` | int | `8` | Number of auto-picked isopycnal levels. |
 | `--clim` | LO HI | style clim, else 2/98 pct | Color limits for the (transformed) color field. |
@@ -142,7 +151,9 @@ python -m fronts.scripts.fronts_viz_curtain \
 | `path_metrics(path, XC, YC, smooth=, smooth_window=)` | Per-pixel `dist_px` / `dist_km` / unit tangents / normals. Smoothing affects directions only. |
 | `offset_paths(path, normals, n)` | Two mirror families of offset polylines (sides A/B). |
 | `perpendicular_path(path, normals, idx, half_width)` | Cross-front transect centered on `path[idx]`. |
-| `offset_quality_flags(offset_path)` | Boolean mask of self-overlapping columns (< 1 px collision). |
+| `offset_quality_flags(offset_path)` | Boolean mask of self-overlapping columns (< 1 px collision); used in `--no-trim-offsets` mode. |
+| `trim_offset_loops(offset_path)` | Keep-mask that excises self-intersection loops so the offset line has no crossings ("sew shut"). |
+| `transect_front_crossings(axis, normals, mask, half_width)` | Per-column count of how many times the perpendicular transect hits the front; drives the perpendicular auto-pick filter. |
 | `sample_curtain(field3d, path)` | `(K, L)` sample of a field along a path at every depth; off-window → NaN. |
 | `pick_extremum_index(curtain_field, mode)` | Column of the full-depth min/max of the field. |
 | `plot_curtain_panel(ax, ...)` | One curtain panel: color mesh + isopycnal contours + km twin axis + MLD + overlap shading. |
@@ -158,7 +169,7 @@ pytest fronts/tests/test_curtains.py
 
 ## Known follow-ups
 
-- **Centre-of-curvature offsets** — offset outward from the local centre of curvature instead of straight along the normal, for a more correct concave-side spacing. Deferred (fragile to pixel-scale noise; needs smoothing first).
+- **Centre-of-curvature offsets** — offset outward from the local centre of curvature instead of straight along the normal, for a more correct concave-side spacing that *preserves* rather than trims the inner material. Deferred (fragile to pixel-scale noise; needs smoothing first).
 - **km twin axis on the perpendicular figure** — currently the perpendicular x-axis is signed pixels only; a signed-km twin could be added.
 - **Adaptive `--perp-half-width`** from the front's local cross-stream density scale.
 - **Shared interactive HTML** (plotly) export, if hover/zoom is wanted — not currently a repo pattern.

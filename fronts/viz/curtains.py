@@ -433,6 +433,115 @@ def offset_quality_flags(
     return flags
 
 
+def _cross(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
+    """Signed area of triangle (a, b, c); sign gives orientation of c vs a->b."""
+    return ((b[0] - a[0]) * (c[1] - a[1])
+            - (b[1] - a[1]) * (c[0] - a[0]))
+
+
+def _segments_intersect(p1, p2, p3, p4) -> bool:
+    """True if open segments p1p2 and p3p4 cross (proper intersection)."""
+    d1 = _cross(p3, p4, p1)
+    d2 = _cross(p3, p4, p2)
+    d3 = _cross(p1, p2, p3)
+    d4 = _cross(p1, p2, p4)
+    return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+
+
+def trim_offset_loops(offset_path: np.ndarray) -> np.ndarray:
+    """Remove self-intersection loops from an offset polyline ("sew" it shut).
+
+    When an offset is thrown off the concave side of a bend it can fold back
+    and cross itself.  This excises the looped vertices between each pair of
+    crossing segments, leaving a shorter but crossing-free polyline -- exactly
+    the "the line can just be sewn together to not include this part" behaviour.
+
+    Iterative: find the first pair of non-adjacent segments that cross, drop the
+    vertices strictly between them, and repeat until no crossings remain.
+
+    Parameters
+    ----------
+    offset_path : numpy.ndarray
+        ``(L, 2)`` offset polyline coordinates.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(L,)`` boolean keep-mask, True for vertices retained in the
+        crossing-free line.  (Apply as ``offset_path[mask]`` for the line, or
+        NaN-out ``~mask`` columns of the sampled curtain.)
+    """
+    pts = np.asarray(offset_path, dtype=np.float64)
+    L = pts.shape[0]
+    if L < 4:
+        return np.ones(L, dtype=bool)
+    idx = list(range(L))
+    changed = True
+    while changed and len(idx) >= 4:
+        changed = False
+        m = len(idx)
+        for a in range(m - 1):
+            for b in range(a + 2, m - 1):
+                if _segments_intersect(
+                    pts[idx[a]], pts[idx[a + 1]],
+                    pts[idx[b]], pts[idx[b + 1]],
+                ):
+                    # Excise the loop: drop vertices a+1 .. b inclusive.
+                    del idx[a + 1:b + 1]
+                    changed = True
+                    break
+            if changed:
+                break
+    mask = np.zeros(L, dtype=bool)
+    mask[idx] = True
+    return mask
+
+
+def transect_front_crossings(
+    axis_path: np.ndarray,
+    normals: np.ndarray,
+    front_mask: np.ndarray,
+    half_width: int,
+) -> np.ndarray:
+    """Count how many times each column's perpendicular transect hits the front.
+
+    Used to keep the auto-picked perpendicular point on a clean stretch: a
+    transect that crosses the front exactly once (the axis itself) shows
+    cross-front dissipation cleanly, while one that crosses several times sits
+    where the front loops back on itself (the squiggly hook) and is hard to
+    interpret.
+
+    Parameters
+    ----------
+    axis_path : numpy.ndarray
+        ``(L, 2)`` main-axis coordinates (cropped frame).
+    normals : numpy.ndarray
+        ``(L, 2)`` unit normals from :func:`path_metrics`.
+    front_mask : numpy.ndarray
+        2-D boolean mask of the selected front (cropped frame).
+    half_width : int
+        Half-width (px) of the transect used at each column.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(L,)`` int count of distinct front-pixel runs along each transect.
+    """
+    L = axis_path.shape[0]
+    counts = np.zeros(L, dtype=int)
+    fmask = front_mask.astype(np.float64)
+    for c in range(L):
+        perp = perpendicular_path(axis_path, normals, c, half_width)
+        hit = scimg.map_coordinates(
+            fmask, np.stack([perp[:, 0], perp[:, 1]]),
+            order=0, mode="constant", cval=0.0,
+        ) > 0.5
+        # Count rising edges (0 -> 1) = number of distinct crossings.
+        runs = np.diff(np.concatenate([[0], hit.astype(int), [0]]))
+        counts[c] = int((runs == 1).sum())
+    return counts
+
+
 # ---------------------------------------------------------------------------
 # Curtain sampling
 # ---------------------------------------------------------------------------
@@ -632,8 +741,9 @@ def plot_curtain_panel(
 
     # Mixed-layer depth line.
     if mld_curtain is not None:
-        ax.plot(dist_px, mld_curtain, color="white", lw=1.5, ls="--",
-                label="MLD")
+        ax.plot(dist_px, mld_curtain, color="white", lw=1.8, ls="--",
+                label="mixed-layer depth")
+        ax.legend(loc="lower left", fontsize=8, framealpha=0.85)
 
     # Overlap shading: vertical spans on flagged columns.
     if overlap_flags is not None and overlap_flags.any():
@@ -649,23 +759,28 @@ def plot_curtain_panel(
     ax.set_xlabel("distance along path [px]")
     ax.set_ylabel("depth [m]")
     if title:
-        ax.set_title(title, fontsize=10)
+        ax.set_title(title, fontsize=10, pad=24)  # pad leaves room for km axis
 
-    # Secondary km axis on top.
+    # Colorbar in its own axes carved from the right of the panel, so it sits
+    # fully to the RIGHT of the data instead of overlapping it.  Done before
+    # the km twin so the twin inherits the panel's final (shrunk) position and
+    # the two x-axes stay aligned.
+    if add_colorbar:
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="2.5%", pad=0.08)
+        cbar = ax.figure.colorbar(mesh, cax=cax)
+        cbar.set_label(color_title)
+
+    # Secondary km axis on top (created last so it tracks ax's final position).
     if dist_km is not None:
         ax_km = ax.twiny()
         ax_km.set_xlim(ax.get_xlim())
-        # Place ~6 ticks at pixel positions, labelled with km.
         xticks = np.linspace(dist_px[0], dist_px[-1], 6)
-        # Interpolate km at those pixel positions.
         km_at = np.interp(xticks, dist_px, dist_km)
         ax_km.set_xticks(xticks)
         ax_km.set_xticklabels([f"{v:.1f}" for v in km_at])
         ax_km.set_xlabel("distance along path [km]")
-
-    if add_colorbar:
-        cbar = ax.figure.colorbar(mesh, ax=ax, shrink=0.85, pad=0.02)
-        cbar.set_label(color_title)
 
 
 # ---------------------------------------------------------------------------
@@ -746,13 +861,19 @@ def figure_offsets(
     color_title: str = "",
     mark_index: int | None = None,
     title: str | None = None,
+    trim: bool = True,
 ):
     """Figure 2 -- along-front curtains with offsets (two columns).
 
     Row 0 of both columns is the main-axis curtain itself.  Rows 1..N show
     offsets 1..N pixels to side A (left column) and side B (right column).
-    Columns whose offset geometry self-overlaps are shaded (see
-    :func:`offset_quality_flags`).
+
+    When ``trim`` is True (default), each offset polyline is "sewn" shut with
+    :func:`trim_offset_loops` -- the self-intersection loops on the concave
+    side of bends are excised and those columns render as neutral-gray gaps,
+    so the curtain only shows the crossing-free part of each offset.  When
+    ``trim`` is False the loops are kept and instead shaded magenta via
+    :func:`offset_quality_flags`.
 
     Parameters
     ----------
@@ -809,12 +930,22 @@ def figure_offsets(
                 row_title = f"{col_label[col]}: main axis (offset 0)"
                 mk = mark_index
             else:
-                flags = offset_quality_flags(pth)
-                n_flag = int(flags.sum())
-                row_title = (f"{col_label[col]}: offset {row} px"
-                             + (f"  [{n_flag} overlap cols shaded]"
-                                if n_flag else ""))
                 mk = None
+                if trim:
+                    keep = trim_offset_loops(pth)
+                    n_drop = int((~keep).sum())
+                    # NaN the looped columns so they render as gray gaps.
+                    color_curtain[:, ~keep] = np.nan
+                    sigma0_curtain[:, ~keep] = np.nan
+                    row_title = (f"{col_label[col]}: offset {row} px"
+                                 + (f"  [{n_drop} looped cols trimmed]"
+                                    if n_drop else ""))
+                else:
+                    flags = offset_quality_flags(pth)
+                    n_flag = int(flags.sum())
+                    row_title = (f"{col_label[col]}: offset {row} px"
+                                 + (f"  [{n_flag} overlap cols shaded]"
+                                    if n_flag else ""))
             plot_curtain_panel(
                 ax, dist_px, Z, color_curtain, sigma0_curtain,
                 dist_km=dist_km, levels=levels, clim=clim, cmap=cmap,

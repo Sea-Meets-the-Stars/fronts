@@ -198,6 +198,59 @@ def test_perpendicular_path_geometry():
     assert np.allclose(perp[:, 1], axis[idx, 1], atol=1e-9)
 
 
+def test_trim_offset_loops_straight_keeps_all():
+    m = _straight_horizontal()
+    axis = curtains.extract_main_axis(m)
+    met = curtains.path_metrics(axis)
+    a, _ = curtains.offset_paths(axis, met["normals"], 2)
+    for p in a:
+        assert curtains.trim_offset_loops(p).all()  # no loops -> keep everything
+
+
+def test_trim_offset_loops_removes_crossing():
+    # Hand-built polyline with an explicit loop (figure-eight pinch).
+    p = np.array([
+        [0, 0], [0, 1], [0, 2], [0, 3], [0, 4],
+        [1, 3], [1, 2],            # fold back (crosses the outgoing run)
+        [0, 5], [0, 6], [0, 7],
+    ], dtype=float)
+    keep = curtains.trim_offset_loops(p)
+    kept = p[keep]
+    # The trimmed line must have no self-intersections among its segments.
+    n = kept.shape[0]
+    for a in range(n - 1):
+        for b in range(a + 2, n - 1):
+            assert not curtains._segments_intersect(
+                kept[a], kept[a + 1], kept[b], kept[b + 1])
+    # And it stays shorter than or equal to the original.
+    assert kept.shape[0] <= p.shape[0]
+
+
+def test_transect_front_crossings_straight():
+    # A single straight front: a perpendicular at mid-span crosses it once.
+    m = _straight_horizontal()
+    axis = curtains.extract_main_axis(m)
+    met = curtains.path_metrics(axis)
+    counts = curtains.transect_front_crossings(axis, met["normals"], m, 6)
+    mid = axis.shape[0] // 2
+    assert counts[mid] == 1
+
+
+def test_transect_front_crossings_double():
+    # Two parallel horizontal fronts 4 px apart: a tall vertical transect
+    # through the middle crosses both.
+    H = W = 30
+    m = np.zeros((H, W), bool)
+    m[12, 5:25] = True
+    m[16, 5:25] = True
+    # Build a single-front axis on the first line; normals point in +/- j.
+    axis = np.column_stack([np.full(20, 12), np.arange(5, 25)]).astype(int)
+    met = curtains.path_metrics(axis)
+    counts = curtains.transect_front_crossings(axis, met["normals"], m, 8)
+    mid = 10
+    assert counts[mid] >= 2
+
+
 def test_pick_extremum_index():
     K, L = 4, 12
     cur = np.full((K, L), 1.0)
