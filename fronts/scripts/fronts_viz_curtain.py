@@ -403,8 +403,12 @@ def main(argv=None) -> None:
             f"{field_face.shape}, expected {sigma0_face.shape}."
         )
     field_style = get_style(field_name)
-    log.info("Coloring curtains by %s (transform=%s)",
-             field_name, args.field_transform or field_style.transform)
+    # Human-readable field name for titles (e.g. "richardson_number"); fall
+    # back to the tile variable name (e.g. "Ri") when no long_name attr.
+    field_label = ds_field[field_name].attrs.get("long_name", field_name)
+    log.info("Coloring curtains by %s (%s, transform=%s)",
+             field_name, field_label,
+             args.field_transform or field_style.transform)
 
     # ---------- Frame remap ----------
     log.info("Building tile lookup + remapping to rect-tile-local frame")
@@ -542,7 +546,7 @@ def main(argv=None) -> None:
         color_display, sigma0_clipped, Z_clipped, axis_path, metrics, out_main,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
         mld_curtain=mld_curtain, mark_index=perp_idx,
-        title=f"Main-axis curtain (front {label})",
+        title=f"Main-axis curtain — {field_label} (front {label})",
     )
     log.info("Wrote %s", out_main)
 
@@ -551,7 +555,8 @@ def main(argv=None) -> None:
         args.n_offsets, out_off,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
         mark_index=perp_idx, trim=args.trim_offsets,
-        title=f"Along-front curtains + offsets (front {label})",
+        title=(f"Along-front curtains — {field_label}, "
+               f"{args.n_offsets} offsets/side (front {label})"),
     )
     log.info("Wrote %s", out_off)
 
@@ -560,7 +565,8 @@ def main(argv=None) -> None:
         args.perp_half_width, out_perp,
         XC_rect=XC_crop, YC_rect=YC_crop,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
-        title=f"Cross-front curtain at axis col {perp_idx} (front {label})",
+        title=(f"Cross-front curtain — {field_label} "
+               f"at axis col {perp_idx} (front {label})"),
     )
     log.info("Wrote %s", out_perp)
 
