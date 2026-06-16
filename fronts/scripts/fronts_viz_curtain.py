@@ -34,12 +34,12 @@ Inputs mirror ``fronts_viz_3d``:
 
 CLI usage
 ---------
-    python -m fronts.scripts.fronts_viz_curtain \\
-        --density-tile density_tile330_20121109T12.nc \\
-        --field-tile   Ri_tile330_20121109T12.nc \\
-        --labels       labeled_fronts_global_20121109T12_00_00_V4.npy \\
-        --i 13142 --j 9956 \\
-        --n-offsets 3 --perp-half-width 30 \\
+    python -m fronts.scripts.fronts_viz_curtain \
+        --density-tile density_tile330_20121109T12.nc \
+        --field-tile   Ri_tile330_20121109T12.nc \
+        --labels       labeled_fronts_global_20121109T12_00_00_V4.npy \
+        --i 13142 --j 9956 \
+        --n-offsets 3 --perp-half-width 10 \
         --output-prefix /tmp/calcurrent_curtain
 """
 
