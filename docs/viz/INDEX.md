@@ -7,6 +7,7 @@ These scripts cover four different visual stories and use four different renderi
 | Script | What it shows | Backend | Output |
 |---|---|---|---|
 | [fronts_viz_3d.py](fronts_viz_3d.md) | One labelled front extruded through a 3-D sigma0 volume down to a few levels below the MLD. | PyVista (VTK) | PNG + interactive HTML + 2-D matplotlib inset |
+| [fronts_viz_curtain.py](fronts_curtain.md) | 2-D vertical "curtain" cross-sections of one labelled front: main-axis, along-front offsets, and a cross-front transect; color = a field (default Ri), contours = isopycnals. | matplotlib | PNG (×3) + plan-view inset |
 | [front_property_viewer.py](front_property_viewer.md) | Four linked 2-D panels in a regional bbox: gradb2 + binary fronts + three derived fields you choose. | PyQt6 + pyqtgraph | Interactive GUI window |
 | [global_field_viewer.py](global_field_viewer.md) | The full global LLC4320 field at one timestep with one or two front masks overlaid. | PyQt6 + pyqtgraph | Interactive GUI window |
 | [front_viz_groups_bokeh.py](front_viz_groups_bokeh.md) | Labelled-front background with per-front properties exposed as hover tooltips. | Bokeh | Standalone HTML |
@@ -20,7 +21,9 @@ The 3-D pipeline introduced a couple of re-usable modules; the rest of the viz s
 |---|---|---|
 | [fronts/viz/pv_helpers.py](../../fronts/viz/pv_helpers.py) | fronts_viz_3d | Generic PyVista wrappers: `ensure_display` (Xvfb), `new_plotter`, `scientific_theme`, `add_scalar_field`, `save_with_rst`. |
 | [fronts/viz/fronts_3d.py](../../fronts/viz/fronts_3d.py) | fronts_viz_3d | Front-specific PyVista builders: `front_bbox_and_crop`, `truncate_depth`, `build_pyvista_grid`, `decompose_front_branches`, `build_front_curtain`, `pick_isopycnals_across_front`, `render_3d`. |
-| [fronts/viz/insets.py](../../fronts/viz/insets.py) | fronts_viz_3d | Matplotlib 2-D companion inset (`plot_bbox_inset`). Kept separate from `viz_utils.py` which is pyqtgraph-based. |
+| [fronts/viz/insets.py](../../fronts/viz/insets.py) | fronts_viz_3d, fronts_viz_curtain | Matplotlib 2-D companion inset (`plot_bbox_inset`). Kept separate from `viz_utils.py` which is pyqtgraph-based. |
+| [fronts/viz/curtains.py](../../fronts/viz/curtains.py) | fronts_viz_curtain | Matplotlib curtain builders: `extract_main_axis` (skeleton diameter), `path_metrics`, `offset_paths`, `perpendicular_path`, `offset_quality_flags`, `sample_curtain`, `pick_extremum_index`, and the figure assemblers. Imports `decompose_front_branches` lazily so it needs no PyVista. |
+| [fronts/viz/field_styles.py](../../fronts/viz/field_styles.py) | fronts_viz_3d, fronts_viz_curtain | Per-variable display registry (transform / clip / cmap / title / center) for the color field; `apply_transform`, `default_clim`. |
 | [fronts/viz/viz_utils.py](../../fronts/viz/viz_utils.py) | front_property_viewer, global_field_viewer | Pyqtgraph helpers: `make_colormap`, `compute_levels`, `make_fronts_rgba`, `make_nan_rgba`. |
 | [fronts/llc/analysis.py](../../fronts/llc/analysis.py) | fronts_viz_3d (and `dev/mld/plot_top_N_density_profiles.py` after the v1 refactor) | Stratification diagnostics: scalar `mixed_layer_depth` and vectorised `mixed_layer_depth_field`. The threshold is a parameter, so the same helper covers the 0.03 ("mixed layer") and 0.125 ("isopycnal MLD") conventions. |
 

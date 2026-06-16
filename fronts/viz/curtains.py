@@ -1,0 +1,898 @@
+"""
+Builders for 2-D "curtain" cross-sections of labelled fronts in LLC4320 tiles.
+
+A *curtain* is a vertical cross-section sampled along a path of pixels through
+a tile:
+
+* x-axis -- distance along the path (pixels, with an optional km twin),
+* y-axis -- depth (the LLC ``Z`` axis, metres, negative downward),
+* color  -- a configurable field (default the Richardson number ``Ri``),
+* contours -- isopycnals (sigma0 surfaces) overlaid on top.
+
+This module is the 2-D counterpart of ``fronts/viz/fronts_3d.py``.  It reuses
+that module's :func:`~fronts.viz.fronts_3d.decompose_front_branches` to split a
+thinned front skeleton into branch polylines, then assembles the *main axis*
+(the longest end-to-end path, ignoring side branches), throws *offset* paths to
+either side of it, and cuts a *perpendicular* transect at a chosen point.
+
+The sampling core (:func:`sample_curtain`) mirrors the inner loop of
+``fronts_3d.build_front_curtain`` -- ``scipy.ndimage.map_coordinates`` along a
+``(j, i)`` polyline across every depth level -- but returns a plain ``(K, L)``
+array for matplotlib rather than a PyVista ribbon.
+
+Rendering is static matplotlib (Agg), matching the repo's 2-D companion figures
+in ``fronts/viz/insets.py``.
+
+Design notes
+------------
+* **Main-axis columns are the real front pixels.**  No resampling onto evenly
+  spaced points: every pixel along the diameter path is one curtain column.
+  Distance-in-km is integrated great-circle distance between consecutive real
+  pixels, so the km axis is just a relabelling of the same columns.
+* **Smoothing affects only directions.**  The optional tangential/normal
+  smoothing (``smooth_window``) is applied to the unit-direction field used to
+  throw offsets and the perpendicular transect -- never to the main-axis
+  column positions.  A jagged single-pixel skeleton produces wildly swinging
+  raw normals that make adjacent offset points collide immediately; smoothing
+  averages the kink out.
+* **Offset self-overlap is detected, not hidden.**  Where offset points from
+  different axis positions land within < 1 px of each other (the concave side
+  of a genuine bend, or residual skeleton noise), the affected columns are
+  flagged and shaded on the figure so the curtain still renders but the
+  unreliable region is obvious.  The more-correct centre-of-curvature offset is
+  a documented follow-up, not implemented here.
+"""
+
+# stdlib
+from __future__ import annotations
+import heapq
+from typing import Sequence
+
+# numerical / plotting
+import numpy as np
+from scipy import ndimage as scimg
+import matplotlib
+matplotlib.use("Agg")  # headless-safe; pair to off-screen rendering
+import matplotlib.pyplot as plt  # noqa: E402
+
+
+def _decompose_front_branches(front_mask: np.ndarray):
+    """Lazily import the 3-D module's branch decomposition.
+
+    ``fronts/viz/fronts_3d.py`` imports PyVista at module load, but the branch
+    decomposition itself is pure NumPy/SciPy.  Importing it lazily here keeps
+    the 2-D curtain viewer usable without a 3-D rendering stack installed,
+    while still reusing the identical skeleton-handling code.
+    """
+    from fronts.viz.fronts_3d import decompose_front_branches
+    return decompose_front_branches(front_mask)
+
+
+# ---------------------------------------------------------------------------
+# Main-axis extraction (longest end-to-end path through the skeleton)
+# ---------------------------------------------------------------------------
+
+def _branch_length(branch: np.ndarray) -> float:
+    """Arc length of a ``(L, 2)`` (j, i) polyline in pixels.
+
+    Consecutive 4-connected steps contribute 1, diagonal steps ``sqrt(2)``.
+
+    Parameters
+    ----------
+    branch : numpy.ndarray
+        ``(L, 2)`` integer array of ``(j, i)`` pixel coordinates.
+
+    Returns
+    -------
+    float
+        Sum of Euclidean distances between consecutive pixels (0 for a
+        single-pixel branch).
+    """
+    if branch.shape[0] < 2:
+        return 0.0
+    d = np.diff(branch.astype(np.float64), axis=0)
+    return float(np.sqrt((d ** 2).sum(axis=1)).sum())
+
+
+def extract_main_axis(front_mask: np.ndarray) -> np.ndarray:
+    """Return the longest end-to-end path through a thinned front skeleton.
+
+    The skeleton is decomposed into branches between junctions/endpoints by
+    :func:`fronts.viz.fronts_3d.decompose_front_branches`.  Those branches form
+    a graph whose nodes are the branch end pixels and whose edges are weighted
+    by branch arc length.  The *main axis* is the graph diameter -- the longest
+    end-to-end shortest path -- found with two Dijkstra sweeps (a longest-path
+    search on a tree; for the rare cyclic skeleton the double-sweep still
+    returns a near-diameter path, which is sufficient for a front backbone).
+
+    Side branches are dropped: only the branches lying on the diameter path are
+    concatenated into the returned polyline.
+
+    Parameters
+    ----------
+    front_mask : numpy.ndarray
+        2-D boolean mask, True at the selected front's (thinned) pixels.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(L, 2)`` integer array of ``(j, i)`` pixel coordinates, ordered along
+        the main axis.  Falls back to the single longest branch if the graph is
+        degenerate, or to the lone pixel for a single-pixel mask.
+
+    Raises
+    ------
+    ValueError
+        If ``front_mask`` has no True pixels.
+    """
+    if not front_mask.any():
+        raise ValueError("front_mask has no True pixels; nothing to trace.")
+
+    branches = _decompose_front_branches(front_mask)
+    # Drop zero-length (single-pixel) branches for graph building but remember
+    # them in case the whole front is a single pixel.
+    poly_branches = [b for b in branches if b.shape[0] >= 2]
+    if not poly_branches:
+        # Single isolated pixel (or a handful) -- just return the longest.
+        return max(branches, key=lambda b: b.shape[0])
+
+    # Build a node index keyed by pixel coordinate of every branch endpoint.
+    node_id: dict[tuple[int, int], int] = {}
+
+    def _node(jy: int, ix: int) -> int:
+        key = (int(jy), int(ix))
+        if key not in node_id:
+            node_id[key] = len(node_id)
+        return node_id[key]
+
+    # adjacency: node -> list of (neighbour_node, weight, branch_index, reversed)
+    adj: dict[int, list[tuple[int, float, int, bool]]] = {}
+    for b_idx, branch in enumerate(poly_branches):
+        a = _node(branch[0, 0], branch[0, 1])
+        b = _node(branch[-1, 0], branch[-1, 1])
+        w = _branch_length(branch)
+        adj.setdefault(a, []).append((b, w, b_idx, False))
+        adj.setdefault(b, []).append((a, w, b_idx, True))
+
+    def _dijkstra(source: int) -> tuple[np.ndarray, dict[int, tuple[int, int, bool]]]:
+        """Shortest-path distances + predecessor edges from ``source``."""
+        n = len(node_id)
+        dist = np.full(n, np.inf)
+        dist[source] = 0.0
+        prev: dict[int, tuple[int, int, bool]] = {}  # node -> (prev_node, b_idx, reversed)
+        pq: list[tuple[float, int]] = [(0.0, source)]
+        while pq:
+            d, u = heapq.heappop(pq)
+            if d > dist[u]:
+                continue
+            for v, w, b_idx, rev in adj.get(u, []):
+                nd = d + w
+                if nd < dist[v]:
+                    dist[v] = nd
+                    prev[v] = (u, b_idx, rev)
+                    heapq.heappush(pq, (nd, v))
+        return dist, prev
+
+    # Double sweep: farthest node from an arbitrary start, then farthest from
+    # that node -> the two endpoints of the diameter.
+    start = next(iter(node_id.values()))
+    dist0, _ = _dijkstra(start)
+    end_a = int(np.argmax(np.where(np.isfinite(dist0), dist0, -1.0)))
+    dist1, prev1 = _dijkstra(end_a)
+    end_b = int(np.argmax(np.where(np.isfinite(dist1), dist1, -1.0)))
+
+    # Walk predecessors from end_b back to end_a, collecting branch indices.
+    path_edges: list[tuple[int, bool]] = []  # (branch_index, reversed)
+    cur = end_b
+    while cur != end_a and cur in prev1:
+        pnode, b_idx, rev = prev1[cur]
+        path_edges.append((b_idx, rev))
+        cur = pnode
+    path_edges.reverse()
+
+    if not path_edges:
+        # Disconnected / degenerate -- fall back to the single longest branch.
+        return max(poly_branches, key=_branch_length)
+
+    # Concatenate branch polylines along the path, orienting each so its tail
+    # matches the previous branch's head, and de-duplicating shared junction
+    # pixels at the joins.
+    pieces: list[np.ndarray] = []
+    for k, (b_idx, rev) in enumerate(path_edges):
+        seg = poly_branches[b_idx]
+        if rev:
+            seg = seg[::-1]
+        if k > 0:
+            # Drop the first pixel if it duplicates the previous tail.
+            if np.array_equal(seg[0], pieces[-1][-1]):
+                seg = seg[1:]
+        if seg.shape[0] > 0:
+            pieces.append(seg)
+    axis = np.concatenate(pieces, axis=0)
+    return axis.astype(np.int32)
+
+
+# ---------------------------------------------------------------------------
+# Path metrics: distances + (optionally smoothed) tangents/normals
+# ---------------------------------------------------------------------------
+
+def _great_circle_step_km(lat1, lon1, lat2, lon2) -> np.ndarray:
+    """Great-circle distance (km) between consecutive lon/lat samples (haversine)."""
+    R = 6371.0088  # mean Earth radius, km
+    p1 = np.radians(lat1)
+    p2 = np.radians(lat2)
+    dphi = np.radians(lat2 - lat1)
+    dlmb = np.radians(lon2 - lon1)
+    a = (np.sin(dphi / 2.0) ** 2
+         + np.cos(p1) * np.cos(p2) * np.sin(dlmb / 2.0) ** 2)
+    return 2.0 * R * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
+
+
+def path_metrics(
+    path: np.ndarray,
+    XC_rect: np.ndarray | None = None,
+    YC_rect: np.ndarray | None = None,
+    *,
+    smooth: bool = False,
+    smooth_window: int = 5,
+) -> dict:
+    """Per-pixel distance + unit tangent/normal for a ``(j, i)`` path.
+
+    The returned arrays are aligned 1:1 with ``path`` -- one entry per real
+    pixel; nothing is resampled onto new positions.  ``smooth`` controls *only*
+    the direction field (tangents and normals), never the distances or the path
+    itself.
+
+    Parameters
+    ----------
+    path : numpy.ndarray
+        ``(L, 2)`` integer/float ``(j, i)`` pixel coordinates.
+    XC_rect, YC_rect : numpy.ndarray, optional
+        Longitude / latitude on the rect-tile-local frame, shape
+        ``(TILE_SIZE, TILE_SIZE)``.  When supplied the cumulative great-circle
+        distance in km is computed; otherwise ``dist_km`` is None.
+    smooth : bool, optional
+        If True, smooth the tangential direction with a moving average of width
+        ``smooth_window`` before deriving normals.  Default False (raw, jagged).
+    smooth_window : int, optional
+        Odd window length in pixels for the tangent smoothing (default 5).
+        Ignored when ``smooth`` is False.
+
+    Returns
+    -------
+    dict
+        Keys: ``dist_px`` (L,), ``dist_km`` (L,) or None, ``tangents`` (L, 2)
+        unit ``(dj, di)``, ``normals`` (L, 2) unit ``(dj, di)`` rotated +90 deg,
+        ``smoothed`` (bool).
+    """
+    pts = np.asarray(path, dtype=np.float64)
+    L = pts.shape[0]
+
+    # Cumulative pixel distance (Euclidean between consecutive pixels).
+    if L >= 2:
+        step = np.sqrt((np.diff(pts, axis=0) ** 2).sum(axis=1))
+        dist_px = np.concatenate([[0.0], np.cumsum(step)])
+    else:
+        dist_px = np.zeros(L)
+
+    # Cumulative km distance from lon/lat at the real pixels.
+    dist_km = None
+    if XC_rect is not None and YC_rect is not None and L >= 1:
+        jj = np.clip(np.round(pts[:, 0]).astype(int), 0, XC_rect.shape[0] - 1)
+        ii = np.clip(np.round(pts[:, 1]).astype(int), 0, XC_rect.shape[1] - 1)
+        lon = XC_rect[jj, ii]
+        lat = YC_rect[jj, ii]
+        if L >= 2:
+            step_km = _great_circle_step_km(lat[:-1], lon[:-1], lat[1:], lon[1:])
+            dist_km = np.concatenate([[0.0], np.cumsum(step_km)])
+        else:
+            dist_km = np.zeros(L)
+
+    # Tangents via central differences on the (un-smoothed) pixel positions.
+    if L >= 2:
+        tang = np.gradient(pts, axis=0)  # (L, 2)
+    else:
+        tang = np.zeros((L, 2))
+        tang[:, 1] = 1.0  # arbitrary unit direction for a single pixel
+
+    if smooth and L >= 3:
+        w = max(3, int(smooth_window) | 1)  # force odd, >= 3
+        kernel = np.ones(w) / w
+        # Smooth each component of the tangent direction, then renormalise.
+        tj = np.convolve(tang[:, 0], kernel, mode="same")
+        ti = np.convolve(tang[:, 1], kernel, mode="same")
+        tang = np.column_stack([tj, ti])
+
+    norm = np.sqrt((tang ** 2).sum(axis=1))
+    norm[norm == 0] = 1.0
+    tangents = tang / norm[:, None]
+
+    # Normal = tangent rotated +90 deg in (j, i): (dj, di) -> (-di, dj)... but
+    # we keep a consistent right-hand convention: n = (di, -dj) gives a vector
+    # 90 deg clockwise.  Either sign is fine as long as +offset/-offset are
+    # mirror images; we pick n = (-t_i, t_j) so side A / side B are consistent.
+    normals = np.column_stack([-tangents[:, 1], tangents[:, 0]])
+
+    return {
+        "dist_px": dist_px,
+        "dist_km": dist_km,
+        "tangents": tangents,
+        "normals": normals,
+        "smoothed": bool(smooth),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Offset + perpendicular path construction
+# ---------------------------------------------------------------------------
+
+def offset_paths(
+    path: np.ndarray,
+    normals: np.ndarray,
+    n_offsets: int,
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Build offset polylines 1..n pixels to either side of a path.
+
+    Parameters
+    ----------
+    path : numpy.ndarray
+        ``(L, 2)`` ``(j, i)`` main-axis pixel coordinates (float ok).
+    normals : numpy.ndarray
+        ``(L, 2)`` unit normal per pixel (from :func:`path_metrics`).
+    n_offsets : int
+        Number of offset steps per side.
+
+    Returns
+    -------
+    side_a, side_b : list of numpy.ndarray
+        ``side_a[k]`` is the path shifted ``(k + 1)`` pixels along ``+normal``;
+        ``side_b[k]`` along ``-normal``.  Each is an ``(L, 2)`` float array (not
+        rounded -- sampling interpolates).
+    """
+    pts = np.asarray(path, dtype=np.float64)
+    side_a: list[np.ndarray] = []
+    side_b: list[np.ndarray] = []
+    for k in range(1, int(n_offsets) + 1):
+        side_a.append(pts + k * normals)
+        side_b.append(pts - k * normals)
+    return side_a, side_b
+
+
+def perpendicular_path(
+    path: np.ndarray,
+    normals: np.ndarray,
+    idx: int,
+    half_width: int,
+) -> np.ndarray:
+    """Cross-front transect centered on ``path[idx]`` along its normal.
+
+    Parameters
+    ----------
+    path : numpy.ndarray
+        ``(L, 2)`` ``(j, i)`` main-axis coordinates.
+    normals : numpy.ndarray
+        ``(L, 2)`` unit normals from :func:`path_metrics`.
+    idx : int
+        Index along the path at which to cut the transect.
+    half_width : int
+        Number of pixels on each side of the axis (transect length is
+        ``2 * half_width + 1``).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(2 * half_width + 1, 2)`` float ``(j, i)`` coordinates, ordered from
+        ``-half_width`` (side B) through 0 (the axis point) to ``+half_width``
+        (side A).
+    """
+    idx = int(np.clip(idx, 0, path.shape[0] - 1))
+    origin = np.asarray(path[idx], dtype=np.float64)
+    n = np.asarray(normals[idx], dtype=np.float64)
+    steps = np.arange(-int(half_width), int(half_width) + 1)
+    return origin[None, :] + steps[:, None] * n[None, :]
+
+
+def offset_quality_flags(
+    offset_path: np.ndarray,
+    *,
+    min_separation_px: float = 1.0,
+) -> np.ndarray:
+    """Flag columns of an offset path that self-overlap (option (b)).
+
+    A column is flagged when its offset point lands within
+    ``min_separation_px`` of *any other* column's offset point -- the signature
+    of the concave side of a bend folding back on itself (or of residual
+    skeleton noise when smoothing is off).  The curtain still renders; the
+    caller shades flagged columns.
+
+    Parameters
+    ----------
+    offset_path : numpy.ndarray
+        ``(L, 2)`` offset polyline coordinates.
+    min_separation_px : float, optional
+        Collision threshold in pixels (default 1.0).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(L,)`` boolean array, True where the offset point collides with a
+        non-adjacent column.
+    """
+    pts = np.asarray(offset_path, dtype=np.float64)
+    L = pts.shape[0]
+    flags = np.zeros(L, dtype=bool)
+    if L < 3:
+        return flags
+    # Pairwise distance, but only flag collisions between columns that are not
+    # immediate neighbours (adjacent columns are *supposed* to be ~1 px apart).
+    for a in range(L):
+        d = np.sqrt(((pts - pts[a]) ** 2).sum(axis=1))
+        d[max(0, a - 1):min(L, a + 2)] = np.inf  # ignore self + neighbours
+        if np.any(d < min_separation_px):
+            flags[a] = True
+    return flags
+
+
+# ---------------------------------------------------------------------------
+# Curtain sampling
+# ---------------------------------------------------------------------------
+
+def sample_curtain(
+    field3d: np.ndarray,
+    path: np.ndarray,
+    *,
+    order: int = 1,
+) -> np.ndarray:
+    """Sample a 3-D field along a ``(j, i)`` path at every depth level.
+
+    Mirrors the inner sampling of
+    :func:`fronts.viz.fronts_3d.build_front_curtain` but returns a plain
+    ``(K, L)`` array.  Off-grid samples (paths leaving the cropped window) come
+    back as NaN via ``mode='constant', cval=nan`` so the renderer can flag them.
+
+    Parameters
+    ----------
+    field3d : numpy.ndarray
+        ``(K, J, I)`` field already cropped/clipped to the curtain window
+        (e.g. cropped + depth-clipped sigma0, or the transformed color field).
+    path : numpy.ndarray
+        ``(L, 2)`` ``(j, i)`` coordinates *in the cropped frame*.
+    order : int, optional
+        Spline interpolation order for ``map_coordinates`` (default 1, linear).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(K, L)`` sampled field; NaN where the path leaves the window.
+    """
+    K = field3d.shape[0]
+    pts = np.asarray(path, dtype=np.float64)
+    L = pts.shape[0]
+    j_loc = pts[:, 0]
+    i_loc = pts[:, 1]
+    kk, ss = np.meshgrid(np.arange(K), np.arange(L), indexing="ij")
+    coords = np.stack([
+        kk.ravel().astype(np.float64),
+        np.repeat(j_loc[None, :], K, axis=0).ravel(),
+        np.repeat(i_loc[None, :], K, axis=0).ravel(),
+    ], axis=0)
+    sampled = scimg.map_coordinates(
+        field3d, coords, order=order, mode="constant", cval=np.nan,
+    ).reshape(K, L)
+    return sampled
+
+
+def pick_extremum_index(
+    curtain_field: np.ndarray,
+    mode: str = "min",
+) -> int:
+    """Index of the column holding the field's extremum over the full depth.
+
+    Parameters
+    ----------
+    curtain_field : numpy.ndarray
+        ``(K, L)`` sampled (display-space) color field along the main axis.
+    mode : {'min', 'max'}, optional
+        Whether the "most extreme" point is the minimum (default; e.g. lowest
+        Ri = most shear-unstable) or the maximum.
+
+    Returns
+    -------
+    int
+        Column index ``0..L-1`` of the extreme value, searched over all depths
+        (full column).  NaNs are ignored.
+
+    Raises
+    ------
+    ValueError
+        If the curtain is entirely NaN, or ``mode`` is unrecognised.
+    """
+    if mode not in ("min", "max"):
+        raise ValueError(f"mode must be 'min' or 'max', got {mode!r}.")
+    if not np.isfinite(curtain_field).any():
+        raise ValueError("curtain_field is entirely NaN; no extremum.")
+    # Collapse depth: best (min or max) value in each column, then argmin/argmax.
+    if mode == "min":
+        per_col = np.nanmin(curtain_field, axis=0)
+        return int(np.nanargmin(per_col))
+    per_col = np.nanmax(curtain_field, axis=0)
+    return int(np.nanargmax(per_col))
+
+
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+
+def plot_curtain_panel(
+    ax,
+    dist_px: np.ndarray,
+    Z: np.ndarray,
+    color_curtain: np.ndarray,
+    sigma0_curtain: np.ndarray,
+    *,
+    dist_km: np.ndarray | None = None,
+    levels: Sequence[float] | None = None,
+    clim: tuple[float, float] | None = None,
+    cmap: str = "RdYlBu",
+    color_title: str = "",
+    nan_color: str = "#9e9e9e",
+    overlap_flags: np.ndarray | None = None,
+    mld_curtain: np.ndarray | None = None,
+    title: str | None = None,
+    mark_index: int | None = None,
+    add_colorbar: bool = True,
+    contour_color: str = "k",
+) -> None:
+    """Draw a single curtain panel: color field + isopycnal contours.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Target axes.
+    dist_px : numpy.ndarray
+        ``(L,)`` along-path distance in pixels (the x coordinate of columns).
+    Z : numpy.ndarray
+        ``(K,)`` depth axis in metres (negative downward).
+    color_curtain : numpy.ndarray
+        ``(K, L)`` display-space color field (e.g. log10 Ri).
+    sigma0_curtain : numpy.ndarray
+        ``(K, L)`` sigma0 field for the isopycnal contour overlay.
+    dist_km : numpy.ndarray, optional
+        ``(L,)`` along-path distance in km; when given, a secondary top x-axis
+        labelled in km is attached.
+    levels : sequence of float, optional
+        sigma0 contour levels.  When None no isopycnals are drawn.
+    clim : tuple of (float, float), optional
+        Color limits for ``color_curtain``.  Default 2/98 percentile.
+    cmap : str, optional
+        Colormap for the color field (default ``'RdYlBu'``, the Ri style).
+    color_title : str, optional
+        Colorbar label.
+    nan_color : str, optional
+        Color for NaN cells of the color field (default neutral gray).
+    overlap_flags : numpy.ndarray, optional
+        ``(L,)`` boolean; columns flagged True are shaded (offset self-overlap).
+    mld_curtain : numpy.ndarray, optional
+        ``(L,)`` mixed-layer depth (metres, negative) sampled along the path;
+        drawn as a dashed line when supplied.
+    title : str, optional
+        Panel title.
+    mark_index : int, optional
+        Column index to mark with a vertical line (e.g. the perpendicular
+        point on an along-front panel).
+    add_colorbar : bool, optional
+        Whether to attach a colorbar to this panel (default True).
+    contour_color : str, optional
+        Color of the isopycnal contour lines (default black).
+    """
+    L = dist_px.shape[0]
+    if clim is None:
+        if np.isfinite(color_curtain).any():
+            clim = (
+                float(np.nanpercentile(color_curtain, 2)),
+                float(np.nanpercentile(color_curtain, 98)),
+            )
+        else:
+            clim = (0.0, 1.0)
+
+    cmap_obj = matplotlib.cm.get_cmap(cmap).copy()
+    cmap_obj.set_bad(nan_color)
+
+    # pcolormesh needs cell edges; build them from the column centres (dist_px)
+    # and the depth centres (Z).  Use midpoints + endpoint extrapolation.
+    def _edges(centres: np.ndarray) -> np.ndarray:
+        c = np.asarray(centres, dtype=np.float64)
+        if c.size == 1:
+            return np.array([c[0] - 0.5, c[0] + 0.5])
+        mids = 0.5 * (c[:-1] + c[1:])
+        first = c[0] - (mids[0] - c[0])
+        last = c[-1] + (c[-1] - mids[-1])
+        return np.concatenate([[first], mids, [last]])
+
+    x_edges = _edges(dist_px)
+    z_edges = _edges(Z)
+
+    masked = np.ma.masked_invalid(color_curtain)
+    mesh = ax.pcolormesh(
+        x_edges, z_edges, masked,
+        cmap=cmap_obj, vmin=clim[0], vmax=clim[1], shading="flat",
+    )
+
+    # Isopycnal contours (drawn at column/depth centres).
+    if levels is not None and np.isfinite(sigma0_curtain).any():
+        Xc, Zc = np.meshgrid(dist_px, Z)
+        try:
+            cs = ax.contour(
+                Xc, Zc, sigma0_curtain, levels=list(levels),
+                colors=contour_color, linewidths=0.8,
+            )
+            ax.clabel(cs, inline=True, fontsize=7, fmt="%.2f")
+        except ValueError:
+            pass  # levels outside the data range -> no contours
+
+    # Mixed-layer depth line.
+    if mld_curtain is not None:
+        ax.plot(dist_px, mld_curtain, color="white", lw=1.5, ls="--",
+                label="MLD")
+
+    # Overlap shading: vertical spans on flagged columns.
+    if overlap_flags is not None and overlap_flags.any():
+        x_e = x_edges
+        for c in np.where(overlap_flags)[0]:
+            ax.axvspan(x_e[c], x_e[c + 1], color="magenta", alpha=0.18, lw=0)
+
+    # Mark a chosen column (e.g. the perpendicular point).
+    if mark_index is not None:
+        ax.axvline(dist_px[int(np.clip(mark_index, 0, L - 1))],
+                   color="lime", lw=1.5, ls="-")
+
+    ax.set_xlabel("distance along path [px]")
+    ax.set_ylabel("depth [m]")
+    if title:
+        ax.set_title(title, fontsize=10)
+
+    # Secondary km axis on top.
+    if dist_km is not None:
+        ax_km = ax.twiny()
+        ax_km.set_xlim(ax.get_xlim())
+        # Place ~6 ticks at pixel positions, labelled with km.
+        xticks = np.linspace(dist_px[0], dist_px[-1], 6)
+        # Interpolate km at those pixel positions.
+        km_at = np.interp(xticks, dist_px, dist_km)
+        ax_km.set_xticks(xticks)
+        ax_km.set_xticklabels([f"{v:.1f}" for v in km_at])
+        ax_km.set_xlabel("distance along path [km]")
+
+    if add_colorbar:
+        cbar = ax.figure.colorbar(mesh, ax=ax, shrink=0.85, pad=0.02)
+        cbar.set_label(color_title)
+
+
+# ---------------------------------------------------------------------------
+# Figure assemblers (one per deliverable)
+# ---------------------------------------------------------------------------
+
+def figure_main_axis(
+    color_field3d: np.ndarray,
+    sigma0_field3d: np.ndarray,
+    Z: np.ndarray,
+    axis_path: np.ndarray,
+    metrics: dict,
+    output_path,
+    *,
+    levels: Sequence[float] | None = None,
+    clim: tuple[float, float] | None = None,
+    cmap: str = "RdYlBu",
+    color_title: str = "",
+    mld_curtain: np.ndarray | None = None,
+    mark_index: int | None = None,
+    title: str | None = None,
+):
+    """Figure 1 -- the main-axis curtain (single panel).
+
+    Parameters
+    ----------
+    color_field3d, sigma0_field3d : numpy.ndarray
+        ``(K, J, I)`` cropped+clipped color field and sigma0 (cropped frame).
+    Z : numpy.ndarray
+        ``(K,)`` depth axis.
+    axis_path : numpy.ndarray
+        ``(L, 2)`` main-axis ``(j, i)`` coordinates in the cropped frame.
+    metrics : dict
+        Output of :func:`path_metrics` for ``axis_path``.
+    output_path : str or pathlib.Path
+        PNG output path.
+    levels, clim, cmap, color_title, mld_curtain, mark_index, title
+        Passed through to :func:`plot_curtain_panel`.
+
+    Returns
+    -------
+    pathlib.Path
+        The output path.
+    """
+    from pathlib import Path
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    color_curtain = sample_curtain(color_field3d, axis_path)
+    sigma0_curtain = sample_curtain(sigma0_field3d, axis_path)
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    plot_curtain_panel(
+        ax, metrics["dist_px"], Z, color_curtain, sigma0_curtain,
+        dist_km=metrics["dist_km"], levels=levels, clim=clim, cmap=cmap,
+        color_title=color_title, mld_curtain=mld_curtain,
+        mark_index=mark_index,
+        title=title or "Main-axis curtain",
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def figure_offsets(
+    color_field3d: np.ndarray,
+    sigma0_field3d: np.ndarray,
+    Z: np.ndarray,
+    axis_path: np.ndarray,
+    metrics: dict,
+    n_offsets: int,
+    output_path,
+    *,
+    levels: Sequence[float] | None = None,
+    clim: tuple[float, float] | None = None,
+    cmap: str = "RdYlBu",
+    color_title: str = "",
+    mark_index: int | None = None,
+    title: str | None = None,
+):
+    """Figure 2 -- along-front curtains with offsets (two columns).
+
+    Row 0 of both columns is the main-axis curtain itself.  Rows 1..N show
+    offsets 1..N pixels to side A (left column) and side B (right column).
+    Columns whose offset geometry self-overlaps are shaded (see
+    :func:`offset_quality_flags`).
+
+    Parameters
+    ----------
+    color_field3d, sigma0_field3d, Z, axis_path, metrics
+        As in :func:`figure_main_axis`.
+    n_offsets : int
+        Number of offset rows per side.
+    output_path : str or pathlib.Path
+        PNG output path.
+    levels, clim, cmap, color_title, mark_index, title
+        Display options.
+
+    Returns
+    -------
+    pathlib.Path
+        The output path.
+    """
+    from pathlib import Path
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    side_a, side_b = offset_paths(axis_path, metrics["normals"], n_offsets)
+    dist_px = metrics["dist_px"]
+    dist_km = metrics["dist_km"]
+
+    n_rows = n_offsets + 1
+    fig, axes = plt.subplots(
+        n_rows, 2, figsize=(16, 3.2 * n_rows), squeeze=False,
+    )
+
+    # Shared clim across all panels for comparability: derive from the axis
+    # curtain if not supplied.
+    axis_color = sample_curtain(color_field3d, axis_path)
+    if clim is None and np.isfinite(axis_color).any():
+        clim = (
+            float(np.nanpercentile(axis_color, 2)),
+            float(np.nanpercentile(axis_color, 98)),
+        )
+
+    # Per-column path lists: row 0 = axis (both columns), rows below = offsets.
+    col_paths = {
+        0: [axis_path] + side_a,   # side A column
+        1: [axis_path] + side_b,   # side B column
+    }
+    col_label = {0: "side +n", 1: "side -n"}
+
+    for col in (0, 1):
+        for row, pth in enumerate(col_paths[col]):
+            ax = axes[row][col]
+            color_curtain = sample_curtain(color_field3d, pth)
+            sigma0_curtain = sample_curtain(sigma0_field3d, pth)
+            flags = None
+            if row == 0:
+                row_title = f"{col_label[col]}: main axis (offset 0)"
+                mk = mark_index
+            else:
+                flags = offset_quality_flags(pth)
+                n_flag = int(flags.sum())
+                row_title = (f"{col_label[col]}: offset {row} px"
+                             + (f"  [{n_flag} overlap cols shaded]"
+                                if n_flag else ""))
+                mk = None
+            plot_curtain_panel(
+                ax, dist_px, Z, color_curtain, sigma0_curtain,
+                dist_km=dist_km, levels=levels, clim=clim, cmap=cmap,
+                color_title=color_title, overlap_flags=flags,
+                mark_index=mk, title=row_title,
+                add_colorbar=(col == 1),  # one colorbar per row, on the right
+            )
+
+    fig.suptitle(title or "Along-front curtains with offsets", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.98))
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def figure_perpendicular(
+    color_field3d: np.ndarray,
+    sigma0_field3d: np.ndarray,
+    Z: np.ndarray,
+    perp_path: np.ndarray,
+    half_width: int,
+    output_path,
+    *,
+    XC_rect: np.ndarray | None = None,
+    YC_rect: np.ndarray | None = None,
+    levels: Sequence[float] | None = None,
+    clim: tuple[float, float] | None = None,
+    cmap: str = "RdYlBu",
+    color_title: str = "",
+    title: str | None = None,
+):
+    """Figure 3 -- the perpendicular (cross-front) curtain (single panel).
+
+    The x-axis is signed cross-front distance: 0 at the main axis, negative on
+    side B, positive on side A.
+
+    Parameters
+    ----------
+    color_field3d, sigma0_field3d, Z
+        As in :func:`figure_main_axis`.
+    perp_path : numpy.ndarray
+        ``(2*half_width+1, 2)`` transect coordinates from
+        :func:`perpendicular_path`.
+    half_width : int
+        Half-width used to build ``perp_path`` (sets the signed x range).
+    output_path : str or pathlib.Path
+        PNG output path.
+    XC_rect, YC_rect : numpy.ndarray, optional
+        For a km twin axis along the transect.
+    levels, clim, cmap, color_title, title
+        Display options.
+
+    Returns
+    -------
+    pathlib.Path
+        The output path.
+    """
+    from pathlib import Path
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    metrics = path_metrics(perp_path, XC_rect, YC_rect, smooth=False)
+    color_curtain = sample_curtain(color_field3d, perp_path)
+    sigma0_curtain = sample_curtain(sigma0_field3d, perp_path)
+
+    # Signed cross-front distance in pixels: -half_width .. +half_width.
+    signed_px = np.arange(-int(half_width), int(half_width) + 1, dtype=float)
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    plot_curtain_panel(
+        ax, signed_px, Z, color_curtain, sigma0_curtain,
+        dist_km=None,  # signed axis; km twin handled below if desired
+        levels=levels, clim=clim, cmap=cmap, color_title=color_title,
+        mark_index=int(half_width),  # the axis crossing at 0
+        title=title or "Cross-front (perpendicular) curtain",
+    )
+    ax.set_xlabel("cross-front distance [px]  (0 = front axis)")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
