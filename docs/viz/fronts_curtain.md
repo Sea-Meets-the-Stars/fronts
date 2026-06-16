@@ -6,12 +6,12 @@ It reuses the 3-D script's tile-loading, frame-remapping, and front-picking pipe
 
 ## What it produces
 
-Four PNGs per run, all sharing the `--output-prefix`:
+Four PNGs per run, all sharing the `--output-prefix`. The filenames embed the field name (`{field}` = the tile variable, e.g. `Ri`) and, for the offsets figure, the offset count (`{N}` = `--n-offsets`):
 
-- **`{prefix}_mainaxis.png`** — the main-axis curtain (single panel).
-- **`{prefix}_offsets.png`** — along-front curtains with offsets (two columns × `N+1` rows).
-- **`{prefix}_perp.png`** — the cross-front (perpendicular) curtain (single panel).
-- **`{prefix}_inset.png`** — a plan-view map of the bbox showing the main axis, the offset envelope, and the marked perpendicular point (opt out with `--no-inset`).
+- **`{prefix}_{field}_mainaxis.png`** — the main-axis curtain (single panel).
+- **`{prefix}_{field}_offsets_n{N}.png`** — along-front curtains with offsets (two columns × `N+1` rows).
+- **`{prefix}_{field}_perp.png`** — the cross-front (perpendicular) curtain (single panel).
+- **`{prefix}_{field}_inset.png`** — a plan-view map of the bbox showing the main axis, the offset envelope, and the marked perpendicular point (opt out with `--no-inset`).
 
 All figures are static matplotlib (Agg backend, dpi 150), matching the repo's existing 2-D companion in [fronts/viz/insets.py](../../fronts/viz/insets.py).
 
@@ -129,7 +129,7 @@ python -m fronts.scripts.fronts_viz_curtain \
 | `--n-isopycnals` | int | `8` | Number of auto-picked isopycnal levels. |
 | `--clim` | LO HI | style clim, else 2/98 pct | Color limits for the (transformed) color field. |
 | `--cmap` | str | field-style cmap | Colormap for the color field. |
-| `--output-prefix` | path | required | Prefix; appends `_mainaxis.png` / `_offsets.png` / `_perp.png` / `_inset.png`. |
+| `--output-prefix` | path | required | Prefix; appends `_{field}_mainaxis.png` / `_{field}_offsets_n{N}.png` / `_{field}_perp.png` / `_{field}_inset.png` (`{field}` = tile variable name, `{N}` = `--n-offsets`). |
 | `--no-inset` | flag | off | Skip the plan-view map inset. |
 
 ## Module map

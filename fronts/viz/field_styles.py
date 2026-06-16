@@ -142,6 +142,13 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         transform="linear", cmap="twilight_shifted",
         title="Tu [deg]", center=0.0,
     ),
+    "wB": FieldStyle(
+        # Signed vertical buoyancy flux (down/up-gradient); symlog + diverging
+        # map centred on 0, like okubo_weiss / Fs.  linthresh is a starting
+        # point -- retune per the field's magnitude if the centre washes out.
+        transform="symlog", cmap="RdBu_r",
+        title="symlog(wB [m^3 s^-3])", center=0.0, linthresh=1e-4,
+    ),
 }
 
 

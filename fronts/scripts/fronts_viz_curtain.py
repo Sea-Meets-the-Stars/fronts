@@ -5,21 +5,23 @@ This is the 2-D companion to ``fronts/scripts/fronts_viz_3d.py``.  It reuses
 that script's tile-loading / remapping / front-picking pipeline, then -- instead
 of a 3-D PyVista scene -- produces three static matplotlib curtain figures:
 
-1. **Main-axis curtain** (``{prefix}_mainaxis.png``) -- a vertical
+1. **Main-axis curtain** (``{prefix}_{field}_mainaxis.png``) -- a vertical
    cross-section along the front's main axis (longest end-to-end path through
    the skeleton, side branches dropped).  x = distance along the front,
    y = depth, color = a configurable field (default ``Ri``), with isopycnal
    (sigma0) contours overlaid.
-2. **Along-front curtains with offsets** (``{prefix}_offsets.png``) -- two
-   columns (the two sides of the front); row 0 of each is the main axis, rows
-   below are offsets 1..N pixels away.  Offset columns whose geometry
-   self-overlaps (concave bends / skeleton noise) are shaded.
-3. **Cross-front curtain** (``{prefix}_perp.png``) -- a perpendicular transect
-   cut at a chosen point along the main axis (default: the field extremum over
-   the full depth range), same curtain style.
+2. **Along-front curtains with offsets** (``{prefix}_{field}_offsets_n{N}.png``)
+   -- two columns (the two sides of the front); row 0 of each is the main
+   axis, rows below are offsets 1..N pixels away.  Offset columns whose
+   geometry self-overlaps (concave bends / skeleton noise) are trimmed.
+3. **Cross-front curtain** (``{prefix}_{field}_perp.png``) -- a perpendicular
+   transect cut at a chosen point along the main axis (default: the field
+   extremum over the full depth range), same curtain style.
 
-A 2-D **map-view inset** (``{prefix}_inset.png``) shows the bbox with the main
-axis, the offset envelope, and the marked perpendicular point.
+A 2-D **map-view inset** (``{prefix}_{field}_inset.png``) shows the bbox with
+the main axis, the offset envelope, and the marked perpendicular point.  The
+``{field}`` token is the tile variable name (e.g. ``Ri``); ``{N}`` is
+``--n-offsets``.
 
 Inputs mirror ``fronts_viz_3d``:
   * a 3-D **density tile** NetCDF (``sigma0(k, j, i)``, face-local) -- drives
@@ -202,7 +204,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Output.
     p.add_argument("--output-prefix", type=Path, required=True,
                    help="Output path prefix; the script appends "
-                        "_mainaxis.png / _offsets.png / _perp.png / _inset.png.")
+                        "_{field}_mainaxis.png / _{field}_offsets_n{N}.png / "
+                        "_{field}_perp.png / _{field}_inset.png, where {field} "
+                        "is the tile variable name and {N} is --n-offsets.")
     p.add_argument("--no-inset", action="store_true",
                    help="Skip the map-view inset figure.")
 
@@ -369,8 +373,9 @@ def main(argv=None) -> None:
 
     Side effects
     ------------
-    Writes ``{prefix}_mainaxis.png``, ``{prefix}_offsets.png``,
-    ``{prefix}_perp.png`` and (unless ``--no-inset``) ``{prefix}_inset.png``.
+    Writes ``{prefix}_{field}_mainaxis.png``,
+    ``{prefix}_{field}_offsets_n{N}.png``, ``{prefix}_{field}_perp.png`` and
+    (unless ``--no-inset``) ``{prefix}_{field}_inset.png``.
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -403,9 +408,13 @@ def main(argv=None) -> None:
             f"{field_face.shape}, expected {sigma0_face.shape}."
         )
     field_style = get_style(field_name)
-    # Human-readable field name for titles (e.g. "richardson_number"); fall
-    # back to the tile variable name (e.g. "Ri") when no long_name attr.
+    # Human-readable field name (e.g. "richardson_number"); fall back to the
+    # tile variable name (e.g. "Ri") when no long_name attr.
     field_label = ds_field[field_name].attrs.get("long_name", field_name)
+    # Filesystem-safe token built into the output filenames (e.g. "Ri", "wB").
+    field_tag = "".join(
+        c if (c.isalnum() or c in "._-") else "_" for c in str(field_name)
+    ).strip("_") or "field"
     log.info("Coloring curtains by %s (%s, transform=%s)",
              field_name, field_label,
              args.field_transform or field_style.transform)
@@ -537,10 +546,14 @@ def main(argv=None) -> None:
     mld_curtain = mld_depth_2d[jj, ii]
 
     # ---------- Render the three figures ----------
+    # Filenames carry the field tag, and the offsets figure also carries the
+    # offset count: {prefix}_{field}_mainaxis.png, {prefix}_{field}_offsets_n{N}.png,
+    # {prefix}_{field}_perp.png.
     prefix = args.output_prefix
-    out_main = prefix.with_name(prefix.name + "_mainaxis.png")
-    out_off = prefix.with_name(prefix.name + "_offsets.png")
-    out_perp = prefix.with_name(prefix.name + "_perp.png")
+    out_main = prefix.with_name(f"{prefix.name}_{field_tag}_mainaxis.png")
+    out_off = prefix.with_name(
+        f"{prefix.name}_{field_tag}_offsets_n{args.n_offsets}.png")
+    out_perp = prefix.with_name(f"{prefix.name}_{field_tag}_perp.png")
 
     curtains.figure_main_axis(
         color_display, sigma0_clipped, Z_clipped, axis_path, metrics, out_main,
@@ -555,8 +568,7 @@ def main(argv=None) -> None:
         args.n_offsets, out_off,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
         mark_index=perp_idx, trim=args.trim_offsets,
-        title=(f"Along-front curtains — {field_label}, "
-               f"{args.n_offsets} offsets/side (front {label})"),
+        title=f"Along-front curtains + offsets — {field_label} (front {label})",
     )
     log.info("Wrote %s", out_off)
 
@@ -572,7 +584,7 @@ def main(argv=None) -> None:
 
     # ---------- Map-view inset ----------
     if not args.no_inset:
-        out_inset = prefix.with_name(prefix.name + "_inset.png")
+        out_inset = prefix.with_name(f"{prefix.name}_{field_tag}_inset.png")
         side_a, side_b = curtains.offset_paths(
             axis_path, metrics["normals"], args.n_offsets,
         )
