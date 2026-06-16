@@ -62,6 +62,11 @@ class FieldStyle:
         Linear threshold for ``symlog`` (ignored otherwise).
     clim : tuple of (float, float) or None
         Pinned post-transform color limits.  None -> percentile-based.
+    scale : float
+        Divisor applied to the values in the ``linear`` transform (after any
+        ``clip``), so the displayed numbers are ``value / scale`` -- e.g.
+        ``scale=1e-7`` shows the field in units of 1e-7.  Ignored by the
+        ``log10`` / ``symlog`` transforms.
     """
     transform: str = "linear"
     clip: tuple[float, float] | None = None
@@ -70,6 +75,7 @@ class FieldStyle:
     center: float | None = None
     linthresh: float = 1e-12
     clim: tuple[float, float] | None = None
+    scale: float = 1.0
 
 
 # Keyed by the tile NetCDF variable name (= out_name in the preprocessing
@@ -115,8 +121,8 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         title="log10(strain [s^-1])",
     ),
     "okubo_weiss": FieldStyle(
-        transform="symlog", cmap="RdBu_r",
-        title="symlog(OW [s^-2])", center=0.0, linthresh=1e-11,
+        transform="linear", cmap="RdBu_r",
+        title="OW [s^-2]", center=0.0, 
     ),
     "Ro": FieldStyle(
         transform="linear", clip=(-10.0, 10.0), cmap="RdBu_r",
@@ -131,12 +137,12 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         title="log10(Bu)",
     ),
     "Fs": FieldStyle(
-        transform="symlog", cmap="RdBu_r",
-        title="symlog(F [s^-5])", center=0.0, linthresh=1e-19,
+        transform="linear", scale=1e-7, cmap="RdBu_r",
+        title="Fs [s^-5]", center=0.0,
     ),
     "ertel_pv": FieldStyle(
-        transform="symlog", cmap="RdBu_r",
-        title="symlog(q [m^-1 s^-1])", center=0.0, linthresh=1e-12,
+        transform="linear", scale=1e-7, cmap="RdBu_r",
+        title="q / 1e-7 [s^-3]", center=0.0,
     ),
     "turner_angle": FieldStyle(
         transform="linear", cmap="twilight_shifted",
@@ -227,6 +233,8 @@ def apply_transform(
     if transform == "linear":
         if clip is not None:
             out = np.clip(out, clip[0], clip[1])
+        if style.scale != 1.0:
+            out = out / style.scale
         return out
 
     raise ValueError(
