@@ -704,7 +704,7 @@ def plot_curtain_panel(
         else:
             clim = (0.0, 1.0)
 
-    cmap_obj = matplotlib.cm.get_cmap(cmap).copy()
+    cmap_obj = plt.get_cmap(cmap).copy()
     cmap_obj.set_bad(nan_color)
 
     # pcolormesh needs cell edges; build them from the column centres (dist_px)
@@ -863,24 +863,33 @@ def figure_offsets(
     title: str | None = None,
     trim: bool = True,
 ):
-    """Figure 2 -- along-front curtains with offsets (two columns).
+    """Figure 2 -- along-front curtains: summary means + individual offsets.
 
-    Row 0 of both columns is the main-axis curtain itself.  Rows 1..N show
-    offsets 1..N pixels to side A (left column) and side B (right column).
+    Layout is ``n_offsets + 2`` rows x 2 columns:
+
+    * **Row 0** -- main-axis curtain (left) and the **mean over all** ``2N``
+      offsets (right).  The all-offset mean is a *dilation* of the front: the
+      average field in a band ``1..N`` px to either side.
+    * **Row 1** -- mean over the **+** offsets (left) and mean over the **-**
+      offsets (right).  These are *directional dilations* (one side of the
+      front each).
+    * **Rows 2..N+1** -- the individual offsets: offset ``r`` px on the +side
+      (left) and -side (right).
 
     When ``trim`` is True (default), each offset polyline is "sewn" shut with
     :func:`trim_offset_loops` -- the self-intersection loops on the concave
-    side of bends are excised and those columns render as neutral-gray gaps,
-    so the curtain only shows the crossing-free part of each offset.  When
-    ``trim`` is False the loops are kept and instead shaded magenta via
-    :func:`offset_quality_flags`.
+    side of bends are excised and those columns render as neutral-gray gaps.
+    The trimmed (NaN) columns are excluded from the row-0/row-1 means via
+    ``nanmean``, so each averaged column only pools the offsets whose geometry
+    is valid there.  When ``trim`` is False the loops are kept and shaded
+    magenta via :func:`offset_quality_flags` (and counted in the means).
 
     Parameters
     ----------
     color_field3d, sigma0_field3d, Z, axis_path, metrics
         As in :func:`figure_main_axis`.
     n_offsets : int
-        Number of offset rows per side.
+        Number of individual offset rows per side (``N``).
     output_path : str or pathlib.Path
         PNG output path.
     levels, clim, cmap, color_title, mark_index, title
@@ -892,6 +901,7 @@ def figure_offsets(
         The output path.
     """
     from pathlib import Path
+    import warnings
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -899,62 +909,95 @@ def figure_offsets(
     dist_px = metrics["dist_px"]
     dist_km = metrics["dist_km"]
 
-    n_rows = n_offsets + 1
-    fig, axes = plt.subplots(
-        n_rows, 2, figsize=(16, 3.2 * n_rows), squeeze=False,
-    )
-
     # Shared clim across all panels for comparability: derive from the axis
     # curtain if not supplied.
     axis_color = sample_curtain(color_field3d, axis_path)
+    axis_sigma0 = sample_curtain(sigma0_field3d, axis_path)
     if clim is None and np.isfinite(axis_color).any():
         clim = (
             float(np.nanpercentile(axis_color, 2)),
             float(np.nanpercentile(axis_color, 98)),
         )
 
-    # Per-column path lists: row 0 = axis (both columns), rows below = offsets.
-    col_paths = {
-        0: [axis_path] + side_a,   # side A column
-        1: [axis_path] + side_b,   # side B column
-    }
-    col_label = {0: "side +n", 1: "side -n"}
+    def _sample_offset(pth):
+        """Sample one offset path; trim looped columns to NaN (or flag them)."""
+        cc = sample_curtain(color_field3d, pth)
+        ss = sample_curtain(sigma0_field3d, pth)
+        flags = None
+        n_drop = 0
+        if trim:
+            keep = trim_offset_loops(pth)
+            n_drop = int((~keep).sum())
+            cc[:, ~keep] = np.nan
+            ss[:, ~keep] = np.nan
+        else:
+            flags = offset_quality_flags(pth)
+        return cc, ss, flags, n_drop
 
-    for col in (0, 1):
-        for row, pth in enumerate(col_paths[col]):
-            ax = axes[row][col]
-            color_curtain = sample_curtain(color_field3d, pth)
-            sigma0_curtain = sample_curtain(sigma0_field3d, pth)
-            flags = None
-            if row == 0:
-                row_title = f"{col_label[col]}: main axis (offset 0)"
-                mk = mark_index
-            else:
-                mk = None
-                if trim:
-                    keep = trim_offset_loops(pth)
-                    n_drop = int((~keep).sum())
-                    # NaN the looped columns so they render as gray gaps.
-                    color_curtain[:, ~keep] = np.nan
-                    sigma0_curtain[:, ~keep] = np.nan
-                    row_title = (f"{col_label[col]}: offset {row} px"
-                                 + (f"  [{n_drop} looped cols trimmed]"
-                                    if n_drop else ""))
-                else:
-                    flags = offset_quality_flags(pth)
-                    n_flag = int(flags.sum())
-                    row_title = (f"{col_label[col]}: offset {row} px"
-                                 + (f"  [{n_flag} overlap cols shaded]"
-                                    if n_flag else ""))
-            plot_curtain_panel(
-                ax, dist_px, Z, color_curtain, sigma0_curtain,
-                dist_km=dist_km, levels=levels, clim=clim, cmap=cmap,
-                color_title=color_title, overlap_flags=flags,
-                mark_index=mk, title=row_title,
-                add_colorbar=(col == 1),  # one colorbar per row, on the right
-            )
+    # Sample every individual offset once; reuse for both the rows and the
+    # mean panels.
+    a_samples = [_sample_offset(p) for p in side_a]   # +side, offsets 1..N
+    b_samples = [_sample_offset(p) for p in side_b]   # -side, offsets 1..N
 
-    fig.suptitle(title or "Along-front curtains with offsets", fontsize=13)
+    def _nanmean(stack_color, stack_sigma0):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            mc = np.nanmean(np.stack(stack_color), axis=0)
+            ms = np.nanmean(np.stack(stack_sigma0), axis=0)
+        return mc, ms
+
+    pos_c = [s[0] for s in a_samples]
+    pos_s = [s[1] for s in a_samples]
+    neg_c = [s[0] for s in b_samples]
+    neg_s = [s[1] for s in b_samples]
+    mean_all_c, mean_all_s = _nanmean(pos_c + neg_c, pos_s + neg_s)
+    mean_pos_c, mean_pos_s = _nanmean(pos_c, pos_s)
+    mean_neg_c, mean_neg_s = _nanmean(neg_c, neg_s)
+
+    n_rows = n_offsets + 2
+    fig, axes = plt.subplots(
+        n_rows, 2, figsize=(16, 3.2 * n_rows), squeeze=False,
+    )
+
+    def _panel(ax, cc, ss, *, title, flags=None, mk=None, cbar=False):
+        plot_curtain_panel(
+            ax, dist_px, Z, cc, ss,
+            dist_km=dist_km, levels=levels, clim=clim, cmap=cmap,
+            color_title=color_title, overlap_flags=flags,
+            mark_index=mk, title=title, add_colorbar=cbar,
+        )
+
+    # ----- Row 0: main axis | mean over ALL offsets (dilation) -----
+    _panel(axes[0][0], axis_color, axis_sigma0,
+           title="main axis (offset 0)", mk=mark_index)
+    _panel(axes[0][1], mean_all_c, mean_all_s,
+           title=f"mean of all +/-{n_offsets} offsets (dilation)",
+           mk=mark_index, cbar=True)
+
+    # ----- Row 1: mean over + offsets | mean over - offsets -----
+    _panel(axes[1][0], mean_pos_c, mean_pos_s,
+           title=f"mean of +offsets 1..{n_offsets} (+dilation)", mk=mark_index)
+    _panel(axes[1][1], mean_neg_c, mean_neg_s,
+           title=f"mean of -offsets 1..{n_offsets} (-dilation)",
+           mk=mark_index, cbar=True)
+
+    # ----- Rows 2..N+1: individual offsets (+side left, -side right) -----
+    for k in range(n_offsets):
+        row = k + 2
+        ac, as_, aflags, adrop = a_samples[k]
+        bc, bs, bflags, bdrop = b_samples[k]
+        note = (lambda n: f"  [{n} looped cols trimmed]" if (trim and n) else
+                (f"  [{n} overlap cols shaded]" if (not trim and n) else ""))
+        a_n = adrop if trim else (int(aflags.sum()) if aflags is not None else 0)
+        b_n = bdrop if trim else (int(bflags.sum()) if bflags is not None else 0)
+        _panel(axes[row][0], ac, as_,
+               title=f"+side: offset {k + 1} px" + note(a_n), flags=aflags)
+        _panel(axes[row][1], bc, bs,
+               title=f"-side: offset {k + 1} px" + note(b_n), flags=bflags,
+               cbar=True)
+
+    fig.suptitle(title or "Along-front curtains: dilation + offsets",
+                 fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.98))
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

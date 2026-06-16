@@ -272,15 +272,31 @@ def plot_map_inset(
     i_slice: slice,
     output_path: Path,
     *,
+    cmap: str = "viridis",
+    clim: tuple[float, float] | None = None,
+    color_title: str = "",
+    nan_color: str = "#9e9e9e",
     trim: bool = True,
     title: str = "",
 ) -> Path:
     """Plan-view map of the bbox: surface field + axis + offsets + perp point.
 
+    The background is the near-surface slice of the **color field** (e.g. Ri),
+    in the same display space / colormap as the curtains, with a colorbar.
+
     Parameters
     ----------
     surface_field : numpy.ndarray
-        2-D near-surface display field (rect-tile-local frame, full tile).
+        2-D near-surface display-space color field (rect-tile-local frame,
+        full tile) -- e.g. ``apply_transform(field_rect[k_ref], style)``.
+    cmap : str, optional
+        Colormap for the field background (default the field-style cmap).
+    clim : tuple of (float, float), optional
+        Color limits for the field; default 2/98 percentile of the bbox crop.
+    color_title : str, optional
+        Colorbar label (the field's display title).
+    nan_color : str, optional
+        Color for NaN cells (land / clipped / undefined); default neutral gray.
     front_mask_full : numpy.ndarray
         Full-tile boolean mask of the selected front.
     axis_path_cropped : numpy.ndarray
@@ -311,13 +327,20 @@ def plot_map_inset(
     extent = (i_slice.start, i_slice.stop, j_slice.start, j_slice.stop)
 
     fig, ax = plt.subplots(figsize=(9, 8))
-    if np.isfinite(surf_crop).any():
+    if clim is not None:
+        vlo, vhi = clim
+    elif np.isfinite(surf_crop).any():
         vlo = float(np.nanpercentile(surf_crop, 2))
         vhi = float(np.nanpercentile(surf_crop, 98))
     else:
         vlo, vhi = 0.0, 1.0
-    ax.imshow(surf_crop, origin="lower", extent=extent, cmap="Greys",
-              vmin=vlo, vmax=vhi, interpolation="nearest", aspect="equal")
+    cmap_obj = plt.get_cmap(cmap).copy()
+    cmap_obj.set_bad(nan_color)
+    im = ax.imshow(np.ma.masked_invalid(surf_crop), origin="lower",
+                   extent=extent, cmap=cmap_obj, vmin=vlo, vmax=vhi,
+                   interpolation="nearest", aspect="equal")
+    cbar = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+    cbar.set_label(color_title)
 
     di, dj = i_slice.start, j_slice.start
 
@@ -334,7 +357,7 @@ def plot_map_inset(
 
     # All front pixels (faint), then the main axis (bold).
     yy, xx = np.where(mask_crop)
-    ax.scatter(xx + di, yy + dj, s=2, c="0.5", alpha=0.5,
+    ax.scatter(xx + di, yy + dj, s=2, c="k", alpha=0.35,
                label="front pixels")
     _plot(axis_path_cropped, color="red", lw=2.0, label="main axis")
     for k, p in enumerate(side_a):
@@ -588,12 +611,21 @@ def main(argv=None) -> None:
         side_a, side_b = curtains.offset_paths(
             axis_path, metrics["normals"], args.n_offsets,
         )
+        # Background = near-surface slice of the COLOR FIELD (display space),
+        # same colormap/clim as the curtains.
         k_ref = int(np.abs(np.abs(Z) - 10.0).argmin())
-        surf = sigma0_rect[k_ref]
+        field_surf = apply_transform(
+            field_rect[k_ref], field_style,
+            clip_override=(tuple(args.field_clip)
+                           if args.field_clip is not None else None),
+            transform_override=args.field_transform,
+        )
         plot_map_inset(
-            surf, front_mask_full, axis_path, side_a, side_b, perp_path,
+            field_surf, front_mask_full, axis_path, side_a, side_b, perp_path,
             (axis_path[perp_idx, 0], axis_path[perp_idx, 1]),
-            j_slice, i_slice, out_inset, trim=args.trim_offsets,
+            j_slice, i_slice, out_inset,
+            cmap=cmap, clim=clim, color_title=color_title, nan_color=NAN_COLOR,
+            trim=args.trim_offsets,
             title=(f"Front {label} curtain geometry "
                    f"(lon={float(XC_rect[j_pick, i_pick]):.2f}, "
                    f"lat={float(YC_rect[j_pick, i_pick]):.2f})"),

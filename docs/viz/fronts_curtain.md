@@ -9,9 +9,9 @@ It reuses the 3-D script's tile-loading, frame-remapping, and front-picking pipe
 Four PNGs per run, all sharing the `--output-prefix`. The filenames embed the field name (`{field}` = the tile variable, e.g. `Ri`) and, for the offsets figure, the offset count (`{N}` = `--n-offsets`):
 
 - **`{prefix}_{field}_mainaxis.png`** — the main-axis curtain (single panel).
-- **`{prefix}_{field}_offsets_n{N}.png`** — along-front curtains with offsets (two columns × `N+1` rows).
+- **`{prefix}_{field}_offsets_n{N}.png`** — along-front curtains: two summary (dilation) rows on top + the `N` individual offset rows (two columns × `N+2` rows).
 - **`{prefix}_{field}_perp.png`** — the cross-front (perpendicular) curtain (single panel).
-- **`{prefix}_{field}_inset.png`** — a plan-view map of the bbox showing the main axis, the offset envelope, and the marked perpendicular point (opt out with `--no-inset`).
+- **`{prefix}_{field}_inset.png`** — a plan-view map of the bbox: the **color field** near-surface slice (same colormap/colorbar as the curtains) with the main axis, the offset envelope, and the marked perpendicular point overlaid (opt out with `--no-inset`).
 
 All figures are static matplotlib (Agg backend, dpi 150), matching the repo's existing 2-D companion in [fronts/viz/insets.py](../../fronts/viz/insets.py).
 
@@ -23,7 +23,13 @@ Plots only the front's **main axis** — the longest end-to-end path through the
 
 ### 2. Along-front curtains with offsets
 
-Two columns — one per side of the front. **Row 0 of both columns is the main-axis curtain itself** (offset 0). Rows 1..N show curtains sampled along paths offset 1..N pixels away from the axis, on the `+normal` side (left column) and `-normal` side (right column). All panels share one color scale for comparability.
+Two columns, `N+2` rows, all sharing one color scale:
+
+- **Row 0** — the main-axis curtain (left) and the **mean over all `2N` offsets** (right). The all-offset mean is a *dilation* of the front: the average field in a band 1..N px to either side.
+- **Row 1** — the mean over the **`+`** offsets (left) and the mean over the **`−`** offsets (right): *directional dilations*, one side of the front each.
+- **Rows 2..N+1** — the individual offsets: offset *r* px on the `+normal` side (left) and `−normal` side (right).
+
+The means are computed on the sampled curtains, column-aligned, with trimmed/looped columns NaN'd *before* averaging, so each averaged column only pools the offsets whose geometry is valid there.
 
 By default each offset line is **trimmed** of self-intersection loops so it contains no crossings — the looped columns on the concave side of a bend are excised ("sewn shut") and render as neutral-gray gaps in the curtain (and as a continuous, crossing-free line on the inset). Pass `--no-trim-offsets` to keep the loops instead and shade them magenta. Off-window/NaN cells always render gray. See [Offsets, trimming, and self-overlap](#offsets-trimming-and-self-overlap).
 
@@ -56,7 +62,7 @@ Identical to the 3-D script: `build_tile_lookup` gives the per-pixel `(j_face, i
 8. **Path metrics** — `curtains.path_metrics` returns per-pixel pixel-distance, great-circle km distance, and unit tangents/normals. `--smooth-normals` smooths *only* the direction field.
 9. **Isopycnal levels** — `pick_isopycnal_levels` brackets the 2/98 percentile of the whole clipped volume (the curtain spans full depth), or uses `--isopycnals`.
 10. **Perpendicular point** — `--perp-point`, else `curtains.pick_extremum_index` over the full-depth axis curtain, with columns whose transect re-crosses the front (`curtains.transect_front_crossings > --perp-max-crossings`) excluded unless `--perp-allow-crossings`.
-11. **Render** — `curtains.figure_main_axis`, `figure_offsets`, `figure_perpendicular`, and the script's `plot_map_inset`.
+11. **Render** — `curtains.figure_main_axis`, `figure_offsets` (with the dilation summary rows), `figure_perpendicular`, and the script's `plot_map_inset` (field background + colorbar).
 
 ## Main-axis extraction
 
