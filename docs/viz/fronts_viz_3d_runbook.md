@@ -71,7 +71,7 @@ export DISPLAY=dummy
 
 # Data locations.
 export TILES=/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/V4/20121109_120000/tiles
-export LABELS=/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/V4/20121109_120000/labeled_fronts_global_20121109T12_00_00_V4.npy
+export LABELS=/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/V4/20121109_120000/labeled_fronts_global_20121109T12_00_00_V4_bin_D.npy
 export OUTDIR=/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/fronts_viz
 mkdir -p "$OUTDIR"
 ```
