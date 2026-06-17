@@ -5,23 +5,23 @@ This is the 2-D companion to ``fronts/scripts/fronts_viz_3d.py``.  It reuses
 that script's tile-loading / remapping / front-picking pipeline, then -- instead
 of a 3-D PyVista scene -- produces three static matplotlib curtain figures:
 
-1. **Main-axis curtain** (``{prefix}_{field}_mainaxis.png``) -- a vertical
+1. **Main-axis curtain** (``{prefix}_{field}_{loc}_mainaxis.png``) -- a vertical
    cross-section along the front's main axis (longest end-to-end path through
    the skeleton, side branches dropped).  x = distance along the front,
    y = depth, color = a configurable field (default ``Ri``), with isopycnal
    (sigma0) contours overlaid.
-2. **Along-front curtains with offsets** (``{prefix}_{field}_offsets_n{N}.png``)
+2. **Along-front curtains with offsets** (``{prefix}_{field}_{loc}_offsets_n{N}.png``)
    -- two columns (the two sides of the front); row 0 of each is the main
    axis, rows below are offsets 1..N pixels away.  Offset columns whose
    geometry self-overlaps (concave bends / skeleton noise) are trimmed.
-3. **Cross-front curtain** (``{prefix}_{field}_perp.png``) -- a perpendicular
-   transect cut at a chosen point along the main axis (default: the field
-   extremum over the full depth range), same curtain style.
+3. **Cross-front curtain** (``{prefix}_{field}_{loc}_perp.png``) -- a
+   perpendicular transect cut at a chosen point along the main axis (default:
+   the field extremum over the full depth range), same curtain style.
 
-A 2-D **map-view inset** (``{prefix}_{field}_inset.png``) shows the bbox with
-the main axis, the offset envelope, and the marked perpendicular point.  The
-``{field}`` token is the tile variable name (e.g. ``Ri``); ``{N}`` is
-``--n-offsets``.
+A 2-D **map-view inset** (``{prefix}_{field}_{loc}_inset.png``) shows the bbox
+with the main axis, the offset envelope, and the marked perpendicular point.
+``{field}`` is the tile variable name (e.g. ``Ri``), ``{loc}`` is the picked
+front's location (e.g. ``lat36.38_lon-124.20``), and ``{N}`` is ``--n-offsets``.
 
 Inputs mirror ``fronts_viz_3d``:
   * a 3-D **density tile** NetCDF (``sigma0(k, j, i)``, face-local) -- drives
@@ -131,13 +131,16 @@ def parse_args(argv=None) -> argparse.Namespace:
 
     # Locator -- exactly one pair.
     p.add_argument("--i", type=int, default=None,
-                   help="Rect-grid column (locator option A).")
+                   help="Rect-grid column (PREFERRED locator). Must land on a "
+                        "front pixel; errors on a 0 (no-front) pixel.")
     p.add_argument("--j", type=int, default=None,
-                   help="Rect-grid row (locator option A).")
+                   help="Rect-grid row (PREFERRED locator).")
     p.add_argument("--lat", type=float, default=None,
-                   help="Latitude in degrees (locator option B).")
+                   help="Latitude in degrees (advanced locator). Snaps to the "
+                        "nearest labelled front IN THIS TILE; guarded against "
+                        "out-of-tile values (the run logs the tile's bbox).")
     p.add_argument("--lon", type=float, default=None,
-                   help="Longitude in degrees (locator option B).")
+                   help="Longitude in degrees (advanced locator). See --lat.")
 
     # Geometry controls.
     p.add_argument("--margin", type=int, default=50,
@@ -204,9 +207,12 @@ def parse_args(argv=None) -> argparse.Namespace:
     # Output.
     p.add_argument("--output-prefix", type=Path, required=True,
                    help="Output path prefix; the script appends "
-                        "_{field}_mainaxis.png / _{field}_offsets_n{N}.png / "
-                        "_{field}_perp.png / _{field}_inset.png, where {field} "
-                        "is the tile variable name and {N} is --n-offsets.")
+                        "_{field}_{loc}_mainaxis.png / _..._offsets_n{N}.png / "
+                        "_..._perp.png / _..._inset.png, where {field} is the "
+                        "tile variable name, {loc} is the front's "
+                        "lat/lon (e.g. lat36.38_lon-124.20), and {N} is "
+                        "--n-offsets.  The lat/lon keeps different fronts from "
+                        "overwriting each other.")
     p.add_argument("--no-inset", action="store_true",
                    help="Skip the map-view inset figure.")
 
@@ -396,9 +402,10 @@ def main(argv=None) -> None:
 
     Side effects
     ------------
-    Writes ``{prefix}_{field}_mainaxis.png``,
-    ``{prefix}_{field}_offsets_n{N}.png``, ``{prefix}_{field}_perp.png`` and
-    (unless ``--no-inset``) ``{prefix}_{field}_inset.png``.
+    Writes ``{prefix}_{field}_{loc}_mainaxis.png``,
+    ``{prefix}_{field}_{loc}_offsets_n{N}.png``,
+    ``{prefix}_{field}_{loc}_perp.png`` and (unless ``--no-inset``)
+    ``{prefix}_{field}_{loc}_inset.png`` (``{loc}`` = ``lat{LAT}_lon{LON}``).
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -456,6 +463,30 @@ def main(argv=None) -> None:
     YC_rect = remap_to_rect(YC_face, j_tile_lookup, i_tile_lookup)
     field_rect = remap_to_rect(field_face, j_tile_lookup, i_tile_lookup)
 
+    # ---------- Tile lat/lon bbox + lat/lon-locator guard ----------
+    # The tile is the full TILE_SIZE x TILE_SIZE chunk, not just the region
+    # around one front.  Log its lat/lon extent every run so the valid
+    # --lat/--lon range is always visible.
+    lat_min, lat_max = float(YC_rect.min()), float(YC_rect.max())
+    lon_min, lon_max = float(XC_rect.min()), float(XC_rect.max())
+    log.info("Tile lat/lon bbox: lat [%.3f, %.3f], lon [%.3f, %.3f]",
+             lat_min, lat_max, lon_min, lon_max)
+    if args.locator_kind == "latlon":
+        # --lat/--lon snaps to the nearest in-tile pixel via argmin, so an
+        # out-of-tile value would *silently* pick a corner front.  Hard-error
+        # (printing the bounds) instead.
+        pad = 0.05 * max(lat_max - lat_min, lon_max - lon_min)
+        if not (lat_min - pad <= args.lat <= lat_max + pad
+                and lon_min - pad <= args.lon <= lon_max + pad):
+            raise SystemExit(
+                f"--lat {args.lat} --lon {args.lon} is outside this tile's "
+                f"lat/lon bbox: lat [{lat_min:.3f}, {lat_max:.3f}], "
+                f"lon [{lon_min:.3f}, {lon_max:.3f}] (pad {pad:.3f} deg).  "
+                "The lat/lon locator snaps to the nearest in-tile pixel, so an "
+                "out-of-tile value would pick the wrong front.  Use --i/--j "
+                "(rect-grid indices) or a lat/lon inside the bbox above."
+            )
+
     # ---------- Pick the front ----------
     locator = ((args.i, args.j) if args.locator_kind == "ij"
                else (args.lat, args.lon))
@@ -463,9 +494,13 @@ def main(argv=None) -> None:
         labels_tile, args.locator_kind, locator,
         rect_i_start, rect_j_start, XC_rect, YC_rect,
     )
+    lon_pick = float(XC_rect[j_pick, i_pick])
+    lat_pick = float(YC_rect[j_pick, i_pick])
+    # Location tag baked into the output filenames so different fronts don't
+    # overwrite each other (e.g. "lat36.38_lon-124.20").
+    loc_tag = f"lat{lat_pick:.2f}_lon{lon_pick:.2f}"
     log.info("Selected front label=%d at tile-local (j=%d, i=%d) lon=%.3f lat=%.3f",
-             label, j_pick, i_pick,
-             float(XC_rect[j_pick, i_pick]), float(YC_rect[j_pick, i_pick]))
+             label, j_pick, i_pick, lon_pick, lat_pick)
 
     # ---------- Crop + depth clip ----------
     j_slice, i_slice = front_bbox_and_crop(labels_tile, label, margin=args.margin)
@@ -569,14 +604,14 @@ def main(argv=None) -> None:
     mld_curtain = mld_depth_2d[jj, ii]
 
     # ---------- Render the three figures ----------
-    # Filenames carry the field tag, and the offsets figure also carries the
-    # offset count: {prefix}_{field}_mainaxis.png, {prefix}_{field}_offsets_n{N}.png,
-    # {prefix}_{field}_perp.png.
+    # Filenames carry the field tag and the front's lat/lon (so different
+    # fronts don't overwrite); the offsets figure also carries the offset
+    # count.  e.g. {prefix}_Ri_lat36.38_lon-124.20_mainaxis.png
     prefix = args.output_prefix
-    out_main = prefix.with_name(f"{prefix.name}_{field_tag}_mainaxis.png")
-    out_off = prefix.with_name(
-        f"{prefix.name}_{field_tag}_offsets_n{args.n_offsets}.png")
-    out_perp = prefix.with_name(f"{prefix.name}_{field_tag}_perp.png")
+    stem = f"{prefix.name}_{field_tag}_{loc_tag}"
+    out_main = prefix.with_name(f"{stem}_mainaxis.png")
+    out_off = prefix.with_name(f"{stem}_offsets_n{args.n_offsets}.png")
+    out_perp = prefix.with_name(f"{stem}_perp.png")
 
     curtains.figure_main_axis(
         color_display, sigma0_clipped, Z_clipped, axis_path, metrics, out_main,
@@ -607,7 +642,7 @@ def main(argv=None) -> None:
 
     # ---------- Map-view inset ----------
     if not args.no_inset:
-        out_inset = prefix.with_name(f"{prefix.name}_{field_tag}_inset.png")
+        out_inset = prefix.with_name(f"{stem}_inset.png")
         side_a, side_b = curtains.offset_paths(
             axis_path, metrics["normals"], args.n_offsets,
         )

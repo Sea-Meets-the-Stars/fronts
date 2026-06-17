@@ -6,12 +6,12 @@ It reuses the 3-D script's tile-loading, frame-remapping, and front-picking pipe
 
 ## What it produces
 
-Four PNGs per run, all sharing the `--output-prefix`. The filenames embed the field name (`{field}` = the tile variable, e.g. `Ri`) and, for the offsets figure, the offset count (`{N}` = `--n-offsets`):
+Four PNGs per run, all sharing the `--output-prefix`. The filenames embed the field name (`{field}` = the tile variable, e.g. `Ri`), the picked front's location (`{loc}` = `lat{LAT}_lon{LON}`, e.g. `lat36.38_lon-124.20`, so different fronts don't overwrite each other), and — for the offsets figure — the offset count (`{N}` = `--n-offsets`):
 
-- **`{prefix}_{field}_mainaxis.png`** — the main-axis curtain (single panel).
-- **`{prefix}_{field}_offsets_n{N}.png`** — along-front curtains: two summary (dilation) rows on top + the `N` individual offset rows (two columns × `N+2` rows).
-- **`{prefix}_{field}_perp.png`** — the cross-front (perpendicular) curtain (single panel).
-- **`{prefix}_{field}_inset.png`** — a plan-view map of the bbox: the **color field** near-surface slice (same colormap/colorbar as the curtains) with the main axis, the offset envelope, and the marked perpendicular point overlaid (opt out with `--no-inset`).
+- **`{prefix}_{field}_{loc}_mainaxis.png`** — the main-axis curtain (single panel).
+- **`{prefix}_{field}_{loc}_offsets_n{N}.png`** — along-front curtains: two summary (dilation) rows on top + the `N` individual offset rows (two columns × `N+2` rows).
+- **`{prefix}_{field}_{loc}_perp.png`** — the cross-front (perpendicular) curtain (single panel).
+- **`{prefix}_{field}_{loc}_inset.png`** — a plan-view map of the bbox: the **color field** near-surface slice (same colormap/colorbar as the curtains) with the main axis, the offset envelope, and the marked perpendicular point overlaid (opt out with `--no-inset`).
 
 All figures are static matplotlib (Agg backend, dpi 150), matching the repo's existing 2-D companion in [fronts/viz/insets.py](../../fronts/viz/insets.py).
 
@@ -135,7 +135,7 @@ python -m fronts.scripts.fronts_viz_curtain \
 | `--n-isopycnals` | int | `8` | Number of auto-picked isopycnal levels. |
 | `--clim` | LO HI | style clim, else 2/98 pct | Color limits for the (transformed) color field. |
 | `--cmap` | str | field-style cmap | Colormap for the color field. |
-| `--output-prefix` | path | required | Prefix; appends `_{field}_mainaxis.png` / `_{field}_offsets_n{N}.png` / `_{field}_perp.png` / `_{field}_inset.png` (`{field}` = tile variable name, `{N}` = `--n-offsets`). |
+| `--output-prefix` | path | required | Prefix; appends `_{field}_{loc}_mainaxis.png` / `_..._offsets_n{N}.png` / `_..._perp.png` / `_..._inset.png` (`{field}` = tile variable, `{loc}` = `lat{LAT}_lon{LON}`, `{N}` = `--n-offsets`). The lat/lon prevents different fronts overwriting each other. |
 | `--no-inset` | flag | off | Skip the plan-view map inset. |
 
 ## Module map
