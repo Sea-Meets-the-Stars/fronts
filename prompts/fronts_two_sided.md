@@ -10,6 +10,45 @@ The following will be useful for the development of this code:
 
   - Read the modules in fronts/properties/
 
+### Current Implementation
+
+The code in fronts/properties/colocation.py is used to co-locate labeled
+fronts with mapped property fields and compute per-front summary
+statistics.  Steps taken in `colocate_fronts_with_properties()`:
+
+1. **Validate inputs.** Default `stats` to `['mean','std','median']` if
+   not given; check `nan_policy` is `'propagate'` or `'omit'`; verify
+   every property array matches the shape of `labeled_fronts`.
+2. **Identify fronts.** `np.unique(..., return_counts=True)` over the
+   label array, dropping background (label 0), to get each front's label
+   (`flabels`) and pixel count (`npix`).  Return an empty DataFrame if
+   none exist.
+3. **Filter by size.** Keep only fronts with `npix >= min_npix`; return
+   empty if none survive.
+4. **Build the label array used for stats.**
+   - If `dilation_radius > 0`, call `_dilate_labeled_array`, which uses a
+     Euclidean distance transform so each retained front grows outward by
+     that many pixels (background pixels inherit the nearest front's
+     label) — this samples the property on *both sides* of the front.
+   - Otherwise, zero out any filtered-out labels via a lookup table so
+     only kept fronts contribute.
+5. **Compute statistics per property.** For each property (cast to
+   float64) and each requested stat, compute one value per front:
+   - `count` -> just the pixel count.
+   - `nan_policy='omit'` -> `ndimage.labeled_comprehension` with the
+     nan-aware reducer (`np.nanmean`, etc.).
+   - `nan_policy='propagate'` -> fast `scipy.ndimage` reducers
+     (`ndimage.mean`, `standard_deviation`, `median`, `minimum`,
+     `maximum`).
+6. **Compute percentiles** (if requested) per property via
+   `labeled_comprehension` with `np.nanpercentile`/`np.percentile`.
+7. **Assemble output.** Return a `pd.DataFrame` with one row per front:
+   columns `flabel`, `npix`, `{prop}_{stat}`, and `{prop}_p{pct}`.
+
+(`load_and_colocate()` is a convenience wrapper that loads the fronts
+`.npy` and property arrays/files first, then calls the above.)
+
+
 ## Coding
 
 Follow these guidelines:
@@ -56,6 +95,196 @@ We will perform a few steps to make sure we are working with the correct data an
   - Normalize the vorticity field by the Coriolis parameter (you can use an approximate single value for this location)
   - Log your work in Logs
 
+3. Please modify the plot_normalized_vorticity_with_fronts function to:
+
+  - Use gray instead of yellow for the fronts
+  - Show the label for each of the fronts in this region
+  - Log your work in Logs
+
+4. Examine the code in fronts/properties/colocation.py.  Then please:
+  - Write a brief list of the steps taken in the method colocate_fronts_with_properties() to measure properties at the fronts.
+  - Put this list in the Implementation section below.
+  - Log your work in Logs
+ 
+### Two sided front analysis
+
+Unlike the current front analysis (described above), we wish to measure properties at the fronts on both sides of the front.  The primary issue is to do so efficiently, to avoid the an excessive time to complete.
+
+#### Tasks
+
+1. Please:
+
+  - Generate a plan to measure the properties at the fronts on both sides of the front.  
+  - Ignore the front pixels themselves
+  - If possible, use a function like dilate but only dilate on one side of the front at a time
+  - Write your plan in the Planning section below.
+  - Log your work in Logs
+
+2. Your initial plan looks good.  If you have any questions, put them under the Clarifications section and I will then provide the answers. 
+
+3. I have answered the clarifying questions.  Please update the Planning section with your plan. Log your work in Logs
+
+4. Ok, we are ready to implement the plan.  Please:
+  -  generate the code to implement the plan.  
+  -  Place the modules in dev/properties/two_sided/ but note they will eventually move to the colocation.py module.
+  -  Start by running on a single front (44131)
+  -  Generate a figure showing the front and the two sides of the front and the properties on each side
+  -  Log your work in Logs
+
+#### Planning
+
+**Goal.** For every labeled front, measure each property separately on
+its two flanking sides (the lighter- vs heavier-density water),
+excluding the front pixels themselves.
+
+**Finalized parameters (from Clarifications):**
+- **Band width:** fixed `R = 3` pixels on each side (no physical-distance
+  conversion).
+- **Property measured:** the **Rossby number** (Ro).  Available either
+  precomputed as `..._Ro_sfc_V4.nc`, or as relative_vorticity / f from
+  the Prep work; stats = **mean** and **median** only.
+- **Side-naming field:** **potential density** sigma0, computed with
+  `gsw` from the surface temperature (`..._Theta_sfc_V4.nc`) and salinity
+  (`..._Salt_sfc_V4.nc`) fields (both confirmed present in the snapshot
+  dir).  Lighter side = lower sigma0, heavier = higher sigma0.
+- **Output:** **wide** format, one row per front, with paired
+  `_light` / `_heavy` columns and a `delta` (see Output).
+- **Buffer:** none — only the front pixels themselves are excluded.
+- **Scope:** the test box only; **no dask** (region is small).
+- **Front labels:** each label is a single connected segment.
+
+**Core idea.** Reuse the single Euclidean distance transform already at
+the heart of `_dilate_labeled_array` (one O(N) pass over the grid), and
+add a *side sign* so the dilated band is split into the two flanks.  We
+never loop per-front; everything is vectorized over the band pixels.
+
+**Algorithm (one tile / region):**
+
+1. **Front mask.** `M = labeled_fronts > 0`.  Front pixels are excluded
+   from all measurements from the start (they have `dist == 0` below).
+
+2. **Nearest-front transform (one EDT).**
+   `dist, (qy, qx) = ndimage.distance_transform_edt(~M,
+   return_indices=True)`.  Each background pixel `p` thus knows its
+   distance to the front and the coordinates `q=(qy,qx)` of its nearest
+   front pixel.  The measurement band is
+   `band = (dist > 0) & (dist <= R)` with fixed `R = 3` — note
+   `dist > 0` automatically drops the front pixels (the only pixels we
+   exclude; no extra buffer).
+
+3. **Local front tangent.** Estimate the front's local orientation once,
+   vectorized over the whole tile:
+   - Blur the mask: `Ms = ndimage.gaussian_filter(M.astype(float),
+     sigma~1-2)`.
+   - Gradient: `gy, gx = np.gradient(Ms)` (or `scipy.ndimage.sobel`,
+     matching `pyboa`).  This gradient points across the front, i.e. it
+     is the local **normal** `n`; the tangent is `t = (-n_y, n_x)`.
+   - Sample the normal at each band pixel's nearest front pixel:
+     `n_p = (gx[qy,qx], gy[qy,qx])` (normalized).
+
+4. **Side sign.** For band pixel `p`, the offset from its nearest front
+   pixel is `v = p - q`, which is (by the nearest-point property)
+   essentially perpendicular to the front.  The side is
+   `side = sign(dot(v, n_p))` -> {+1, -1}.  This cleanly separates the
+   two flanks for a locally straight front and is fully vectorized.
+
+5. **Build two label bands.** Construct a combined label that encodes
+   both the front id and the side, e.g.
+   `side_label = 2*labeled_fronts[qy,qx] + (side > 0)` on the band, 0
+   elsewhere.  Equivalently emit two label arrays (`labels_A`,
+   `labels_B`).  Feed these straight into the existing
+   `colocate_fronts_with_properties` machinery
+   (`ndimage.labeled_comprehension` / `ndimage.mean` etc.) — no new
+   stats code needed; we only changed which pixels carry which label.
+
+6. **Name the sides by density.** The geometric +/- sign is arbitrary,
+   so map it to **light vs heavy** *after* the stats: per front, compute
+   the mean potential density sigma0 on each side; the side with the
+   higher sigma0 is **heavy**, the other **light**.  Sigma0 is computed
+   once for the whole tile via `gsw` from Theta_sfc + Salt_sfc
+   (`SA_from_SP` -> `CT_from_pt` -> `sigma0`; surface p~0).  This
+   density-based naming is robust to the global tangent-sign ambiguity.
+
+**Output (wide).** One row per front:
+- `flabel`
+- `npix_light`, `npix_heavy` (band pixel counts per side)
+- `Ro_mean_light`, `Ro_mean_heavy`, `Ro_median_light`, `Ro_median_heavy`
+- `Ro_mean_delta`, `Ro_median_delta` where `delta = heavy - light`
+  (the two-sided signal of interest)
+- (optionally) `sigma0_mean_light`, `sigma0_mean_heavy` to document the
+  density contrast that defined the labels.
+
+**Efficiency:**
+- Cost is dominated by the single `distance_transform_edt` over the test
+  box; the normal (one gaussian + gradient) and the side test are cheap,
+  vectorized passes.  No Python per-front loop.
+- Test box only for now; the small region means **dask is not needed**.
+  (A future global run would tile with a halo `>= R`, but that is out of
+  scope here.)
+
+**Known edge cases to handle:**
+- *Tangent-sign flips on sharply curved fronts* — resolved by the
+  density-based naming in step 6 (robust to per-pixel sign); each label
+  is a single connected segment, so a consistent tangent could also be
+  propagated along the skeleton if ever needed.
+- *Two nearby fronts whose bands collide* — the EDT assigns each pixel to
+  its single nearest front, so bands never overlap; a pixel just goes to
+  the closest front (acceptable, and documented).
+- *Front endpoints / junctions* — the nearest-pixel assignment fans out
+  around tips; with `R = 3` this smearing is limited.
+
+**Validation (on the test box):**
+- Re-color the test-region figure with the light / heavy bands in two
+  colors to confirm the split follows the front geometry.
+- Spot-check that `npix_light + npix_heavy + n_front_pixels` is
+  consistent and that the heavy side matches the colder/denser water in
+  the Theta/sigma0 field.
+
+#### Clarifications
+
+Questions before implementing (answers welcome inline below each):
+
+1. **Dilation width R.** How wide should each side's band be? Options:
+   a fixed pixel count (e.g. R=3-5 px), or a physical distance (the test
+   grid is ~0.02 deg/px ~ 2 km/px, so R=5 px ~ 10 km).  Should both sides
+   use the same R?
+   - Answer: Let us use a fixed pixel count of R=3 pixels.
+
+2. **Which properties.** The Goal mentions "a set of properties."  Which
+   fields should the two-sided measurement run on (e.g. SSTK, buoyancy /
+   density, salinity, SSH, relative vorticity, Divb2)?  And which stats
+   per side — mean, median, std, percentiles (p10/p90)?
+   - Answer: Let us start with the Rossby number.  Use the mean and median for the stats.
+
+3. **Reference field for naming sides.** To turn the geometric +/- side
+   into a physical "dense vs light" (or "warm vs cold") label, which
+   field defines it?  True density (needs T and S) or is SSTK an
+   acceptable proxy for this dataset?
+   - Answer:  True density from the temperature and salinity fields.
+
+4. **Output schema.** Preference between (a) *long* — one row per
+   (front, side); or (b) *wide* — one row per front with paired
+   `{prop}_{stat}_warm` / `{prop}_{stat}_cold` columns plus a
+   `delta = warm - cold`?  The `delta` is the two-sided signal.
+   - Answer: Wide format, but use light/heavy instead of warm/cold.
+
+5. **Gap / buffer.** Fronts are single-pixel thinned, so `dist > 0`
+   already drops the front line.  Should we also leave a 1-px buffer
+   between the two sides (start the band at `dist >= 2`) to avoid
+   cross-front contamination of the side means?
+   - Answer: No, just ignore the front pixels themselves.
+
+6. **Scope for first implementation.** Build and validate on the test
+   box only first (defer the dask global tiling), or implement the
+   global haloed-tiling path from the start?
+   - Answer: Build on the text box only.  I don't think we will need dask
+
+7. **Front labels.** Is each label in `labeled_fronts` a single
+   connected segment, or can one label cover disjoint pieces?  This
+   affects how robustly a consistent side can be propagated along a
+   front.
+   - Answer: Each label is a single connected segment.
+
 ## Docs
 
 ## Modifications
@@ -64,6 +293,12 @@ We will perform a few steps to make sure we are working with the correct data an
 
 1. Re-read this document.  Implement the 1st task under Development/Prep
 2. Re-read this document.  Implement the 2nd task under Development/Prep
+3. Re-read this document.  Implement the 3rd task under Development/Prep
+4. Re-read this document.  Implement the 4th task under Development/Prep
+5. Re-read this document.  Implement the 1st task under Development/Two sided front analysis
+6. Re-read this document.  Implement the 2nd task under Development/Two sided front analysis
+7. Re-read this document.  Implement the 3rd task under Development/Two sided front analysis
+8. Re-read this document.  Implement the 4th task under Development/Two sided front analysis
 
 ## Logging
 
@@ -136,3 +371,125 @@ Added `plot_normalized_vorticity_with_fronts` to
 Figure: `dev/properties/two_sided/rossby_with_fronts_test_region.png`.
 The yellow fronts trace the strong vorticity filaments / gradients, as
 expected for the Brazil-Malvinas confluence.
+
+### 2026-06-14 (Prep Task 3: gray fronts + per-front labels)
+
+Modified `plot_normalized_vorticity_with_fronts` in
+`dev/properties/two_sided/prep_test_region.py`:
+
+- Switched the front overlay color from yellow to gray (alpha=0.5).
+- Annotated each of the 40 front labels at its centroid.  The centroid
+  is computed in pixel space from the sliced array indices: row r ->
+  y = j_range[0] + r, col c -> x = i_range[0] + c, then the mean of the
+  member pixels.  Labels drawn as small bold black text.
+- Updated the title to report the front count.
+
+Regenerated `rossby_with_fronts_test_region.png` (same filename).  The
+integer labels make it easy to reference individual fronts in the
+upcoming two-sided property work.
+
+### 2026-06-14 (Prep Task 4: document colocate_fronts_with_properties)
+
+Read `fronts/properties/colocation.py` and wrote a 7-step summary of
+`colocate_fronts_with_properties()` into the Implementation section
+above (validate -> identify fronts -> size-filter -> build stat-label
+array, optionally dilating -> per-property stats -> percentiles ->
+assemble DataFrame).
+
+Key insight for the two-sided work: the `dilation_radius` argument and
+`_dilate_labeled_array` (via a Euclidean distance transform) are how the
+code samples property values on *both sides* of a front rather than only
+on the single-pixel front line.  Stats use `scipy.ndimage` label
+reducers for speed, with a nan-aware `labeled_comprehension` path when
+`nan_policy='omit'`.  Output is one DataFrame row per front with
+`flabel`, `npix`, `{prop}_{stat}`, `{prop}_p{pct}` columns.
+
+### 2026-06-14 (Two-sided Task 1: plan for one-sided front measurement)
+
+Wrote a plan in the Planning section for measuring properties on each
+side of a front separately while excluding the front pixels.
+
+Design choice driven by efficiency: rather than dilate per-front in a
+Python loop, reuse the *single* global `distance_transform_edt(~M,
+return_indices=True)` already used by `_dilate_labeled_array`.  That one
+pass gives every band pixel both its distance to the front and the
+coordinates of its nearest front pixel.  A *side sign* is then added by
+(a) estimating the local front normal from the gradient of a
+gaussian-blurred front mask (Sobel/np.gradient, matching `pyboa`) and
+(b) taking `sign(dot(p - q, normal_at_q))`.  Encoding side into the
+label (`2*flabel + side`) lets the existing colocation stats run
+unchanged.  Front pixels fall out naturally as `dist == 0`.
+
+Resolved the main subtlety (global tangent-sign ambiguity on curved
+fronts) by naming the two geometric sides *after* the stats via a
+reference property (warm/cold, dense/light), and noted dask haloed
+tiling (halo >= R) for the global grid.  Confirmed `skimage` 0.26 /
+`scipy` 1.17 and the Sobel/EDT primitives are available.  Next step
+(future task) would be to implement and validate the side split on the
+test box with a two-color overlay.
+
+### 2026-06-14 (Two-sided Task 2: clarifying questions)
+
+Per the user's go-ahead, added 7 clarifying questions to the
+Clarifications section (each with an inline "Answer:" slot for the
+user).  They target the decisions that most shape the implementation:
+band width R (pixels vs physical distance), which properties + stats to
+run, the reference field that names dense/light sides, output schema
+(long vs wide + delta), whether to leave a 1-px cross-front buffer,
+test-box-first vs global-tiling scope, and whether front labels are
+single connected segments (affects side-consistency propagation).
+Awaiting answers before coding the side-split routine.
+
+### 2026-06-14 (Two-sided Task 3: finalize plan from answers)
+
+Folded the user's answers into the Planning section: fixed band
+`R = 3` px; measure the **Rossby number** (mean + median); name the two
+sides by **potential density sigma0** (light = low, heavy = high)
+computed with `gsw` from Theta_sfc + Salt_sfc; **wide** output with
+paired `_light` / `_heavy` columns and `delta = heavy - light`; no
+cross-front buffer (only front pixels excluded); **test box only, no
+dask**; labels are single connected segments.
+
+Verified data availability while updating the plan: the snapshot dir
+contains `..._Salt_sfc_V4.nc`, `..._Ro_sfc_V4.nc`, and
+`..._Theta_sfc_V4.nc` (the user added the Theta file during this task),
+so density can be computed from surface T+S.  Noted the gsw chain
+`SA_from_SP -> CT_from_pt -> sigma0` (surface p~0).  Removed the dask
+global-tiling step from scope (kept as a future note).  Output columns
+specified: `flabel`, `npix_light/heavy`,
+`Ro_{mean,median}_{light,heavy}`, `Ro_{mean,median}_delta`, and optional
+`sigma0_mean_{light,heavy}`.
+
+### 2026-06-14 (Two-sided Task 4: implement + run on front 44131)
+
+Implemented the plan in `dev/properties/two_sided/two_sided_colocation.py`
+(intended to later migrate into `fronts/properties/colocation.py`).
+Functions: `potential_density` (gsw `SA_from_SP -> CT_from_pt ->
+sigma0`), `load_region` (fronts + precomputed `Ro_sfc` + sigma0 from
+Theta/Salt over the box), `assign_two_sides` (single EDT -> band
+`0<dist<=3`; local normal from gradient of a blurred front mask; side =
+`sign((p-q).normal)`), `two_sided_colocate` (per-side nan-aware stats via
+`ndimage.labeled_comprehension`, then name light/heavy by mean sigma0),
+and `plot_single_front`.
+
+Box note: front 44131 lives at y~5020-5023, x~16529-16542, which is
+inside the **script's** current `I_RANGE=(16400,16800)`,
+`J_RANGE=(4900,5200)` (user-edited) -- NOT the box quoted in the Test
+data section (j=[5611,5811]).  Used the script box so the target front
+is present; the Test-data text is stale.
+
+Result for front 44131 (R=3): light Ro_mean=0.042, heavy Ro_mean=0.186,
+delta=+0.144; sigma0 light=26.796, heavy=26.864 (so the heavy side is
+correctly the denser water, contrast ~0.07 kg/m^3).  Figure
+`two_sided_front_44131.png` shows cyan=light, magenta=heavy, black=front.
+
+Honest caveat / next step: front 44131 is a short **bent (elbow)**
+segment, and the pure local-normal split is messy there -- the band
+**wraps around the endpoints** and the two flanks intermingle near the
+corner, giving lopsided counts (light n=24 vs heavy n=71).  The
+aggregate density/Ro contrast is still physically sensible, but for
+curved/short fronts the side assignment needs refinement.  Candidate
+fix (labels are single connected segments): propagate a *consistent*
+tangent/normal orientation along the front skeleton and mask out the
+endpoint fan-out, rather than relying on the per-pixel nearest-normal
+sign.  Recommend validating on a longer, straighter front next.
