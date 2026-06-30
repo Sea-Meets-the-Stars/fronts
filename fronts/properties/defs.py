@@ -129,7 +129,7 @@ ocean_field_defs = {
         subset='frontal_structure',
     ),
     'gradtheta2': dict(
-        units='(K/m)²',
+        units='(°C/m)²',
         equation='|∇θ|² = (∂θ/∂x)² + (∂θ/∂y)²',
         description='Squared temperature gradient magnitude',
         subset='frontal_structure',

@@ -153,7 +153,7 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         # map centred on 0, like okubo_weiss / Fs.  linthresh is a starting
         # point -- retune per the field's magnitude if the centre washes out.
         transform="symlog", cmap="RdBu_r",
-        title="symlog(wB [m^3 s^-3])", center=0.0, linthresh=1e-4,
+        title="symlog(wB [m^2 s^-3])", center=0.0, linthresh=1e-4,
     ),
 }
 
