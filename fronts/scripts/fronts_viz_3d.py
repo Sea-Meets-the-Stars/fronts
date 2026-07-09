@@ -410,9 +410,13 @@ def main(argv=None) -> None:
     if args.field_tile is not None:
         log.info("Loading field tile %s", args.field_tile)
         ds_field = load_tile(args.field_tile, var_name=args.field_name)
-        check_tiles_consistent(
-            ds, ds_field, label_a="--density-tile", label_b="--field-tile",
-        )
+        try:
+            check_tiles_consistent(
+                ds, ds_field,
+                label_a="--density-tile", label_b="--field-tile",
+            )
+        except ValueError as err:
+            raise SystemExit(str(err)) from err
         field_name = ds_field.attrs["tile_var_name"]
         field_face = ds_field[field_name].values  # (K, J_face, I_face)
         if field_face.shape != sigma0_face.shape:

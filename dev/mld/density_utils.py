@@ -211,15 +211,15 @@ def check_tiles_consistent(ds_a: xr.Dataset, ds_b: xr.Dataset,
 
     Raises
     ------
-    SystemExit
+    ValueError
         On any mismatch of tile_index / face_index / rect origins /
-        timestamp.
+        timestamp.  CLI callers should translate this to ``SystemExit``.
     """
     for key in ("tile_index", "face_index", "rect_i_start", "rect_j_start",
                 "timestamp"):
         va, vb = tile_scalar(ds_a, key), tile_scalar(ds_b, key)
         if str(va) != str(vb):
-            raise SystemExit(
+            raise ValueError(
                 f"Tile provenance mismatch: {label_a} has {key}={va!r} but "
                 f"{label_b} has {key}={vb!r}.  Both tiles must come from "
                 "the same tile window and timestamp."
