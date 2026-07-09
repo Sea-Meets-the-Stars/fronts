@@ -1080,10 +1080,16 @@ def figure_perpendicular(
     # Signed cross-front distance in pixels: -half_width .. +half_width.
     signed_px = np.arange(-int(half_width), int(half_width) + 1, dtype=float)
 
+    # Signed km for the twin axis (when lon/lat provided): re-center the
+    # cumulative along-transect distance so 0 km sits at the front axis.
+    signed_km = None
+    if metrics["dist_km"] is not None:
+        signed_km = metrics["dist_km"] - metrics["dist_km"][int(half_width)]
+
     fig, ax = plt.subplots(figsize=(9, 5))
     plot_curtain_panel(
         ax, signed_px, Z, color_curtain, sigma0_curtain,
-        dist_km=None,  # signed axis; km twin handled below if desired
+        dist_km=signed_km,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
         mark_index=int(half_width),  # the axis crossing at 0
         title=title or "Cross-front (perpendicular) curtain",
