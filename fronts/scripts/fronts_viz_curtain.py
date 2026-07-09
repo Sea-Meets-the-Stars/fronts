@@ -160,6 +160,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--extremum", choices=["min", "max"], default="min",
                    help="Whether the default perpendicular point is the field "
                         "minimum (default; e.g. lowest Ri) or maximum.")
+    p.add_argument("--isopycnal-curtain", action="store_true",
+                   help="Also write a flattened-isopycnal figure: the "
+                        "density surface the front lives on, unrolled to 2-D "
+                        "(x = along-front distance, y = depth, color = the "
+                        "field ON that surface as it slopes down-and-"
+                        "sideways).")
+    p.add_argument("--isopycnal-sigma0", type=float, default=None,
+                   help="Density surface for --isopycnal-curtain (default: "
+                        "median surface sigma0 along the main axis).")
     p.add_argument("--perp-isopycnal", action="store_true",
                    help="Draw the perpendicular curtain in isopycnal-"
                         "following coordinates: each depth row is shifted so "
@@ -659,6 +668,20 @@ def main(argv=None) -> None:
                f"at axis col {perp_idx} (front {label})"),
     )
     log.info("Wrote %s", out_perp)
+
+    # ---------- Flattened isopycnal surface ----------
+    if args.isopycnal_curtain:
+        out_iso = prefix.with_name(f"{stem}_isopycnal.png")
+        curtains.figure_isopycnal_surface(
+            color_display, sigma0_clipped, Z_clipped, axis_path, metrics,
+            args.perp_half_width, out_iso,
+            target_sigma0=args.isopycnal_sigma0,
+            clim=clim, cmap=cmap, color_title=color_title,
+            mark_index=perp_idx,
+            title=(f"{field_label} on the front's isopycnal "
+                   f"(front {label})"),
+        )
+        log.info("Wrote %s", out_iso)
 
     # ---------- Map-view inset ----------
     if not args.no_inset:

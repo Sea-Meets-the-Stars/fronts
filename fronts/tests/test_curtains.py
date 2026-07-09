@@ -319,6 +319,47 @@ def test_recenter_curtain_straightens_isopycnal():
     assert np.isnan(rec[traced][-1, -1])  # deep row, far right came from off-window
 
 
+def test_isopycnal_curtain_reads_field_on_surface():
+    # Density tilts in j with depth; field3d encodes its own j coordinate.
+    # The value read on the surface at depth k must equal the surface's
+    # analytic j position there.
+    K, H, W = 6, 41, 30
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    slope = 2.0  # surface moves 2 px in j per depth level
+    sigma0 = (25.0 + 0.1 * (k - (j - 20.0) / slope)) * np.ones((1, 1, W))
+    field = j * np.ones((K, 1, W))  # value == j position
+
+    axis = np.column_stack([np.full(15, 20), np.arange(5, 20)]).astype(int)
+    met = curtains.path_metrics(axis)
+    target = 25.0  # sits at j=20 at k=0, j = 20 + slope*k at depth k
+    cur, disp = curtains.isopycnal_curtain(
+        field, sigma0, axis, met["normals"], target, half_width=15,
+    )
+    for kk in range(K):
+        expect_j = 20.0 + slope * kk
+        assert np.allclose(cur[kk], expect_j, atol=1e-6)
+        # displacement is signed cross-front px; magnitude = slope*k
+        assert np.allclose(np.abs(disp[kk]), slope * kk, atol=1e-6)
+
+
+def test_isopycnal_curtain_nan_when_off_window():
+    # Same field, but a half_width too small to reach the deep surface.
+    K, H, W = 6, 41, 30
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    sigma0 = (25.0 + 0.1 * (k - (j - 20.0) / 2.0)) * np.ones((1, 1, W))
+    field = np.ones((K, H, W))
+    axis = np.column_stack([np.full(15, 20), np.arange(5, 20)]).astype(int)
+    met = curtains.path_metrics(axis)
+    cur, _ = curtains.isopycnal_curtain(
+        field, sigma0, axis, met["normals"], 25.0, half_width=5,
+    )
+    # Surface is 2*k px away: reachable for k<=2, gone for k>=3.
+    assert np.isfinite(cur[:3]).all()
+    assert np.isnan(cur[3:]).all()
+
+
 def test_recenter_curtain_nan_row():
     cur = np.ones((3, 11))
     xstar = np.array([5.0, np.nan, 5.0])
@@ -489,5 +530,17 @@ def test_figure_perpendicular_isopycnal_smoke(synthetic_scene, tmp_path):
     out = curtains.figure_perpendicular(
         color, sigma0, Z, perp, 5, tmp_path / "perp_iso.png",
         follow_isopycnal=True,
+    )
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_figure_isopycnal_surface_smoke(synthetic_scene, tmp_path):
+    color, _, Z, axis, metrics = synthetic_scene
+    K, H, W = color.shape
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    sigma0 = (25.0 + 0.2 * k - 0.05 * j) * np.ones((1, 1, W))
+    out = curtains.figure_isopycnal_surface(
+        color, sigma0, Z, axis, metrics, 8, tmp_path / "iso_surface.png",
     )
     assert out.exists() and out.stat().st_size > 0
