@@ -1,9 +1,12 @@
-"""Unit tests for fronts/viz/curtains.py (geometry + sampling)."""
+"""Unit tests for fronts/viz/curtains.py (geometry + sampling) and
+fronts/viz/field_styles.py (transforms + color limits), plus smoke tests
+for the figure assemblers."""
 
 import numpy as np
 import pytest
 
 from fronts.viz import curtains
+from fronts.viz.field_styles import FieldStyle, apply_transform, default_clim
 
 
 # ---------------------------------------------------------------------------
@@ -260,3 +263,152 @@ def test_pick_extremum_index():
     assert curtains.pick_extremum_index(cur, "max") == 3
     with pytest.raises(ValueError):
         curtains.pick_extremum_index(np.full((K, L), np.nan), "min")
+
+
+# ---------------------------------------------------------------------------
+# field_styles.apply_transform
+# ---------------------------------------------------------------------------
+
+def test_apply_transform_log10_nonpositive_to_nan():
+    style = FieldStyle(transform="log10")
+    vals = np.array([-1.0, 0.0, 1.0, 100.0, np.nan, np.inf])
+    out = apply_transform(vals, style)
+    assert np.isnan(out[0])          # negative -> NaN
+    assert np.isnan(out[1])          # zero -> NaN
+    assert np.isnan(out[4]) and np.isnan(out[5])  # non-finite -> NaN
+    assert out[2] == pytest.approx(0.0)   # log10(1)
+    assert out[3] == pytest.approx(2.0)   # log10(100)
+
+
+def test_apply_transform_log10_clips_before_log():
+    style = FieldStyle(transform="log10", clip=(1e-2, 1e2))
+    out = apply_transform(np.array([1e-6, 1e6]), style)
+    assert out[0] == pytest.approx(-2.0)  # clipped up to 1e-2
+    assert out[1] == pytest.approx(2.0)   # clipped down to 1e2
+
+
+def test_apply_transform_symlog_signed():
+    style = FieldStyle(transform="symlog", linthresh=1.0)
+    vals = np.array([-99.0, 0.0, 99.0])
+    out = apply_transform(vals, style)
+    # sign(x) * log10(1 + |x| / linthresh)
+    assert out[1] == pytest.approx(0.0)
+    assert out[2] == pytest.approx(2.0)       # log10(1 + 99)
+    assert out[0] == pytest.approx(-out[2])   # odd function
+
+
+def test_apply_transform_linear_clip_and_scale():
+    style = FieldStyle(transform="linear", clip=(-2.0, 2.0), scale=1e-1)
+    out = apply_transform(np.array([-5.0, 0.1, 5.0]), style)
+    assert out[0] == pytest.approx(-20.0)  # clip to -2, then / 0.1
+    assert out[1] == pytest.approx(1.0)
+    assert out[2] == pytest.approx(20.0)
+
+
+def test_apply_transform_overrides():
+    style = FieldStyle(transform="log10", clip=(1e-2, 1e4))
+    vals = np.array([-10.0, 10.0])
+    # Override to symlog: negative values survive instead of going NaN.
+    out = apply_transform(vals, style, transform_override="symlog",
+                          clip_override=(-5.0, 5.0))
+    assert np.isfinite(out).all()
+    assert out[0] == pytest.approx(-out[1])  # clipped to +/-5, symmetric
+
+
+def test_apply_transform_unknown_raises():
+    with pytest.raises(ValueError):
+        apply_transform(np.array([1.0]), FieldStyle(transform="sqrt"))
+
+
+# ---------------------------------------------------------------------------
+# field_styles.default_clim (pinned clim vs center-symmetric vs percentiles)
+# ---------------------------------------------------------------------------
+
+def test_default_clim_pinned():
+    style = FieldStyle(clim=(-1.0, 2.0))
+    assert default_clim(np.linspace(-9, 9, 100), style) == (-1.0, 2.0)
+
+
+def test_default_clim_pinned_skipped_on_override():
+    # A pinned clim is calibrated to the style's own display space, so a CLI
+    # transform/clip override must fall back to percentiles.
+    style = FieldStyle(clim=(-1.0, 2.0))
+    vals = np.linspace(-9, 9, 1000)
+    lo, hi = default_clim(vals, style, transform_override="symlog")
+    assert (lo, hi) != (-1.0, 2.0)
+    assert lo == pytest.approx(np.nanpercentile(vals, 2.0))
+    assert hi == pytest.approx(np.nanpercentile(vals, 98.0))
+    lo2, hi2 = default_clim(vals, style, clip_override=(-3.0, 3.0))
+    assert (lo2, hi2) == (lo, hi)
+
+
+def test_default_clim_center_symmetric():
+    style = FieldStyle(center=0.0)
+    vals = np.linspace(-1.0, 10.0, 1000)  # asymmetric spread
+    lo, hi = default_clim(vals, style)
+    assert lo == pytest.approx(-hi)  # symmetric about 0
+    assert hi == pytest.approx(np.nanpercentile(vals, 98.0))  # larger excursion
+
+
+def test_default_clim_percentiles():
+    style = FieldStyle()
+    vals = np.concatenate([np.linspace(0, 1, 1000), [np.nan] * 50])
+    lo, hi = default_clim(vals, style)
+    assert lo == pytest.approx(0.02, abs=1e-2)
+    assert hi == pytest.approx(0.98, abs=1e-2)
+
+
+# ---------------------------------------------------------------------------
+# Figure assemblers (smoke tests: each writes a non-empty PNG)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def synthetic_scene():
+    """Tiny (K, J, I) fields + a straight front axis, enough to render."""
+    rng = np.random.default_rng(42)
+    K, H, W = 6, 20, 40
+    color = rng.normal(size=(K, H, W))
+    sigma0 = np.sort(rng.normal(25.0, 0.5, size=(K, H, W)), axis=0)
+    Z = -np.linspace(1.0, 60.0, K)
+    m = _straight_horizontal(H, W)
+    axis = curtains.extract_main_axis(m)
+    metrics = curtains.path_metrics(axis)
+    return color, sigma0, Z, axis, metrics
+
+
+def test_figure_main_axis_smoke(synthetic_scene, tmp_path):
+    color, sigma0, Z, axis, metrics = synthetic_scene
+    out = curtains.figure_main_axis(
+        color, sigma0, Z, axis, metrics, tmp_path / "main.png",
+        clim=(-2.0, 2.0), color_title="test",
+    )
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_figure_offsets_smoke(synthetic_scene, tmp_path):
+    color, sigma0, Z, axis, metrics = synthetic_scene
+    out = curtains.figure_offsets(
+        color, sigma0, Z, axis, metrics, 2, tmp_path / "offsets.png",
+        clim=(-2.0, 2.0),
+    )
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_figure_perpendicular_smoke(synthetic_scene, tmp_path):
+    color, sigma0, Z, axis, metrics = synthetic_scene
+    idx = axis.shape[0] // 2
+    perp = curtains.perpendicular_path(axis, metrics["normals"], idx, 5)
+    # Without lon/lat: pixel axis only.
+    out = curtains.figure_perpendicular(
+        color, sigma0, Z, perp, 5, tmp_path / "perp.png",
+    )
+    assert out.exists() and out.stat().st_size > 0
+    # With lon/lat: adds the km twin axis.
+    H, W = 20, 40
+    XC = np.tile(np.arange(W) * 0.01, (H, 1))
+    YC = np.full((H, W), 30.0)
+    out2 = curtains.figure_perpendicular(
+        color, sigma0, Z, perp, 5, tmp_path / "perp_km.png",
+        XC_rect=XC, YC_rect=YC,
+    )
+    assert out2.exists() and out2.stat().st_size > 0

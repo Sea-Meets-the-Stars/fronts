@@ -122,7 +122,7 @@ FIELD_STYLES: dict[str, FieldStyle] = {
     ),
     "okubo_weiss": FieldStyle(
         transform="linear", cmap="RdBu_r",
-        title="OW [s^-2]", center=0.0, 
+        title="OW [s^-2]", center=0.0,
     ),
     "Ro": FieldStyle(
         transform="linear", clip=(-10.0, 10.0), cmap="RdBu_r",
