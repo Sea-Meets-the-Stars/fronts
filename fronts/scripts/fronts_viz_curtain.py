@@ -160,6 +160,16 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--extremum", choices=["min", "max"], default="min",
                    help="Whether the default perpendicular point is the field "
                         "minimum (default; e.g. lowest Ri) or maximum.")
+    p.add_argument("--perp-isopycnal", action="store_true",
+                   help="Draw the perpendicular curtain in isopycnal-"
+                        "following coordinates: each depth row is shifted so "
+                        "the front's density surface sits at x=0, so the "
+                        "x-axis reads distance from the (sloping) front at "
+                        "every depth.")
+    p.add_argument("--perp-sigma0", type=float, default=None,
+                   help="Density surface to follow with --perp-isopycnal "
+                        "(default: sigma0 at the transect centre at the "
+                        "shallowest level).")
     p.add_argument("--perp-max-crossings", type=int, default=1,
                    help="When auto-picking the perpendicular point, only "
                         "consider main-axis columns whose transect crosses the "
@@ -643,6 +653,8 @@ def main(argv=None) -> None:
         args.perp_half_width, out_perp,
         XC_rect=XC_crop, YC_rect=YC_crop,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
+        follow_isopycnal=args.perp_isopycnal,
+        target_sigma0=args.perp_sigma0,
         title=(f"Cross-front curtain — {field_label} "
                f"at axis col {perp_idx} (front {label})"),
     )

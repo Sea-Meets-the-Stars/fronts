@@ -652,6 +652,112 @@ def pick_extremum_index(
 
 
 # ---------------------------------------------------------------------------
+# Isopycnal-following coordinates
+# ---------------------------------------------------------------------------
+
+def trace_isopycnal(
+    sigma0_curtain: np.ndarray,
+    target: float,
+    start_col: int,
+) -> np.ndarray:
+    """Trace one isopycnal down through a curtain, column by column.
+
+    Fronts slope with depth, so the density surface a front lives on at the
+    surface is displaced horizontally at depth.  For each depth row this finds
+    the sub-pixel column where the curtain's density crosses ``target``,
+    linearly interpolating between the two bracketing columns.  When a row has
+    several crossings (folded isopycnal), the one nearest the previous depth's
+    position is chosen so the trace stays continuous.  The trace stops at the
+    first depth with no crossing (isopycnal left the window or vanished);
+    deeper rows are NaN.
+
+    Parameters
+    ----------
+    sigma0_curtain : numpy.ndarray
+        ``(K, L)`` density curtain (NaN where invalid).
+    target : float
+        The sigma0 value to follow.
+    start_col : int
+        Column to anchor the trace at the shallowest depth (typically the
+        front axis).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(K,)`` float array of sub-pixel column positions; NaN where the
+        isopycnal was not found.
+    """
+    K, L = sigma0_curtain.shape
+    xstar = np.full(K, np.nan)
+    prev = float(start_col)
+    for k in range(K):
+        d = sigma0_curtain[k] - target
+        ok = np.isfinite(d)
+        crossings = []
+        for i in range(L - 1):
+            if not (ok[i] and ok[i + 1]):
+                continue
+            if d[i] == 0.0:
+                crossings.append(float(i))
+            elif d[i] * d[i + 1] < 0.0:
+                crossings.append(i + d[i] / (d[i] - d[i + 1]))
+        if ok[L - 1] and d[L - 1] == 0.0:
+            crossings.append(float(L - 1))
+        if not crossings:
+            break  # outcropped / left the window; stop rather than jump
+        arr = np.asarray(crossings)
+        prev = float(arr[np.argmin(np.abs(arr - prev))])
+        xstar[k] = prev
+    return xstar
+
+
+def recenter_curtain(curtain: np.ndarray, xstar: np.ndarray) -> np.ndarray:
+    """Shift each curtain row horizontally so ``xstar`` lands on the centre.
+
+    Puts the curtain in isopycnal-following (front-following) coordinates:
+    after recentering, the traced isopycnal is a vertical line through the
+    middle column, and every row shows structure *relative to the front*
+    rather than at fixed positions.  Rows are resampled by linear
+    interpolation; positions shifted outside the original window, and rows
+    where ``xstar`` is NaN, come back NaN.
+
+    Parameters
+    ----------
+    curtain : numpy.ndarray
+        ``(K, L)`` curtain to recenter (color field or density).
+    xstar : numpy.ndarray
+        ``(K,)`` sub-pixel column of the isopycnal per depth, from
+        :func:`trace_isopycnal`.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(K, L)`` recentered curtain (float64).
+    """
+    K, L = curtain.shape
+    cols = np.arange(L, dtype=np.float64)
+    center = (L - 1) / 2.0
+    out = np.full((K, L), np.nan)
+    for k in range(K):
+        if not np.isfinite(xstar[k]):
+            continue
+        row = np.asarray(curtain[k], dtype=np.float64)
+        ok = np.isfinite(row)
+        if ok.sum() < 2:
+            continue
+        src = cols - center + xstar[k]  # where each output column samples from
+        out[k] = np.interp(src, cols[ok], row[ok],
+                           left=np.nan, right=np.nan)
+        # np.interp bridges interior NaN gaps; re-mask anything that landed
+        # nearer a missing column than a valid one.
+        nearest = np.round(src).astype(int)
+        inside = (nearest >= 0) & (nearest < L)
+        bad = inside & ~ok[np.clip(nearest, 0, L - 1)]
+        out[k][bad] = np.nan
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
 
@@ -1042,11 +1148,21 @@ def figure_perpendicular(
     cmap: str = "RdYlBu",
     color_title: str = "",
     title: str | None = None,
+    follow_isopycnal: bool = False,
+    target_sigma0: float | None = None,
 ):
     """Figure 3 -- the perpendicular (cross-front) curtain (single panel).
 
     The x-axis is signed cross-front distance: 0 at the main axis, negative on
     side B, positive on side A.
+
+    With ``follow_isopycnal=True`` the curtain is drawn in *front-following*
+    coordinates: the isopycnal that the front lives on at the surface (or
+    ``target_sigma0``) is traced down through the transect, and each depth row
+    is shifted horizontally so that isopycnal sits at x=0.  The front is then
+    a vertical line and the x-axis reads distance *from the front* at every
+    depth, instead of distance from the surface axis point.  Depths where the
+    isopycnal leaves the transect window are blank.
 
     Parameters
     ----------
@@ -1063,6 +1179,11 @@ def figure_perpendicular(
         For a km twin axis along the transect.
     levels, clim, cmap, color_title, title
         Display options.
+    follow_isopycnal : bool, optional
+        Recenter each depth row on the traced isopycnal (see above).
+    target_sigma0 : float, optional
+        Density surface to follow.  Default: the shallowest finite sigma0 at
+        the transect centre (the front's surface density).
 
     Returns
     -------
@@ -1082,19 +1203,44 @@ def figure_perpendicular(
 
     # Signed km for the twin axis (when lon/lat provided): re-center the
     # cumulative along-transect distance so 0 km sits at the front axis.
+    # (In isopycnal-following mode this is the surface spacing; row shifts
+    # are small relative to the transect so the km scale is unchanged.)
     signed_km = None
     if metrics["dist_km"] is not None:
         signed_km = metrics["dist_km"] - metrics["dist_km"][int(half_width)]
+
+    xlabel = "cross-front distance [px]  (0 = front axis)"
+    if follow_isopycnal:
+        centre = sigma0_curtain[:, int(half_width)]
+        if target_sigma0 is None:
+            finite = np.flatnonzero(np.isfinite(centre))
+            if finite.size == 0:
+                raise ValueError(
+                    "Cannot pick a target isopycnal: sigma0 is NaN at every "
+                    "depth of the transect centre."
+                )
+            target_sigma0 = float(centre[finite[0]])
+        xstar = trace_isopycnal(sigma0_curtain, target_sigma0,
+                                int(half_width))
+        n_ok = int(np.isfinite(xstar).sum())
+        log.info("Isopycnal sigma0=%.4f traced through %d/%d depth levels.",
+                 target_sigma0, n_ok, xstar.size)
+        color_curtain = recenter_curtain(color_curtain, xstar)
+        sigma0_curtain = recenter_curtain(sigma0_curtain, xstar)
+        xlabel = (f"cross-front distance [px]  "
+                  f"(0 = sigma0={target_sigma0:.3f} isopycnal)")
 
     fig, ax = plt.subplots(figsize=(9, 5))
     plot_curtain_panel(
         ax, signed_px, Z, color_curtain, sigma0_curtain,
         dist_km=signed_km,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
-        mark_index=int(half_width),  # the axis crossing at 0
-        title=title or "Cross-front (perpendicular) curtain",
+        mark_index=int(half_width),  # x=0: the axis, or the traced isopycnal
+        title=title or ("Cross-front curtain (isopycnal-following)"
+                        if follow_isopycnal
+                        else "Cross-front (perpendicular) curtain"),
     )
-    ax.set_xlabel("cross-front distance [px]  (0 = front axis)")
+    ax.set_xlabel(xlabel)
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
