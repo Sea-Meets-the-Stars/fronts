@@ -541,7 +541,12 @@ def main(argv=None) -> None:
     if args.clim is not None:
         clim = tuple(args.clim)
     else:
-        clim = default_clim(color_display, field_style)
+        clim = default_clim(
+            color_display, field_style,
+            clip_override=(tuple(args.field_clip)
+                           if args.field_clip is not None else None),
+            transform_override=args.field_transform,
+        )
     cmap = args.cmap or field_style.cmap
     color_title = field_style.title or field_name
 

@@ -247,14 +247,18 @@ def default_clim(
     display_values: np.ndarray,
     style: FieldStyle,
     *,
+    clip_override: tuple[float, float] | None = None,
+    transform_override: str | None = None,
     percentile_low: float = 2.0,
     percentile_high: float = 98.0,
 ) -> tuple[float, float]:
     """Default post-transform color limits for a field.
 
-    Order of precedence: the style's pinned ``clim``; symmetric limits about
-    ``style.center`` (when set) using the larger percentile excursion; plain
-    2/98 percentiles otherwise.
+    Order of precedence: the style's pinned ``clim`` (only when neither
+    override is given -- a pinned clim is calibrated to the style's own
+    display space, so a CLI transform/clip override invalidates it);
+    symmetric limits about ``style.center`` (when set) using the larger
+    percentile excursion; plain 2/98 percentiles otherwise.
 
     Parameters
     ----------
@@ -262,6 +266,9 @@ def default_clim(
         Transformed (display-space) values; NaNs ignored.
     style : FieldStyle
         Display policy.
+    clip_override, transform_override : optional
+        CLI-level overrides for the style's ``clip`` / ``transform``.
+        Pass the same values given to :func:`apply_transform`.
     percentile_low, percentile_high : float, optional
         Percentile bounds (default 2/98).
 
@@ -269,7 +276,12 @@ def default_clim(
     -------
     tuple of (float, float)
     """
-    if style.clim is not None:
+    style_clim_ok = (
+        style.clim is not None
+        and clip_override is None
+        and transform_override is None
+    )
+    if style_clim_ok:
         return tuple(style.clim)
     lo = float(np.nanpercentile(display_values, percentile_low))
     hi = float(np.nanpercentile(display_values, percentile_high))
