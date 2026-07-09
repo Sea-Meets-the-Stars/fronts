@@ -769,7 +769,7 @@ def isopycnal_curtain(
     axis_path: np.ndarray,
     normals: np.ndarray,
     target: float,
-    half_width: int,
+    half_width: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Flatten one isopycnal surface into an along-front curtain.
 
@@ -779,7 +779,8 @@ def isopycnal_curtain(
     traced down through it with :func:`trace_isopycnal`, and the field is
     interpolated *at the isopycnal's position* at every depth.  Each column
     therefore dives along the sloping density surface rather than straight
-    down; the y-axis of the result is the depth of the surface itself.
+    down, following it however far it wanders horizontally; the y-axis of
+    the result is the depth of the surface itself.
 
     Parameters
     ----------
@@ -791,21 +792,28 @@ def isopycnal_curtain(
         ``(L, 2)`` unit normals from :func:`path_metrics`.
     target : float
         The sigma0 surface to flatten.
-    half_width : int
-        Cross-front search half-width in pixels; where the surface is
-        displaced further than this from the axis, the column is NaN.
+    half_width : int, optional
+        Cross-front search half-width in pixels.  Default None follows the
+        surface across the entire domain (the transect spans the tile
+        diagonal); the trace then ends only where the surface itself ends --
+        it flattens out between depth levels, hits the tile edge, or runs
+        into invalid data.
 
     Returns
     -------
     curtain : numpy.ndarray
         ``(K, L)`` field values on the surface; NaN where the surface is
-        absent (outcropped, off-window, or invalid data).
+        absent (never reaches that depth, off-tile, or invalid data).
     displacement : numpy.ndarray
         ``(K, L)`` signed cross-front displacement (px) of the surface from
         the main axis at each depth.
     """
-    K = field3d.shape[0]
+    K, J, I = field3d.shape
     L = axis_path.shape[0]
+    if half_width is None:
+        # Span the whole tile: no transect cast from inside the domain can
+        # be longer than the diagonal.
+        half_width = int(np.ceil(np.hypot(J, I)))
     W = 2 * int(half_width) + 1
     cols = np.arange(W, dtype=np.float64)
     curtain = np.full((K, L), np.nan)
@@ -1322,9 +1330,9 @@ def figure_isopycnal_surface(
     Z: np.ndarray,
     axis_path: np.ndarray,
     metrics: dict,
-    half_width: int,
     output_path,
     *,
+    half_width: int | None = None,
     target_sigma0: float | None = None,
     clim: tuple[float, float] | None = None,
     cmap: str = "RdYlBu",
@@ -1338,19 +1346,20 @@ def figure_isopycnal_surface(
     surface the front lives on and unrolls it: x is distance along the front,
     y is depth, and the color at ``(x, z)`` is the field *on the surface*
     where it passes through depth ``z`` at that along-front position -- each
-    column follows the sloping surface down-and-sideways instead of sampling
-    straight below the axis.  Blank cells are where the surface is above/
-    below the depth range, displaced more than ``half_width`` px from the
-    axis, or over invalid data.
+    column follows the sloping surface down-and-sideways, however far it
+    wanders, instead of sampling straight below the axis.  Blank cells are
+    where the surface never reaches that depth (it flattens out or has left
+    the tile) or overlies invalid data.
 
     Parameters
     ----------
     color_field3d, sigma0_field3d, Z, axis_path, metrics
         As in :func:`figure_main_axis`.
-    half_width : int
-        Cross-front search half-width (px) for the surface at depth.
     output_path : str or pathlib.Path
         PNG output path.
+    half_width : int, optional
+        Cross-front search half-width (px).  Default None: follow the
+        surface across the whole tile (see :func:`isopycnal_curtain`).
     target_sigma0 : float, optional
         Density surface to flatten.  Default: the median of the shallowest
         finite sigma0 sampled along the main axis (the front's surface

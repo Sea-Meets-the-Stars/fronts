@@ -169,6 +169,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--isopycnal-sigma0", type=float, default=None,
                    help="Density surface for --isopycnal-curtain (default: "
                         "median surface sigma0 along the main axis).")
+    p.add_argument("--isopycnal-half-width", type=int, default=None,
+                   help="Limit the cross-front search for the surface to "
+                        "this many px (default: unlimited -- the surface is "
+                        "followed across the whole tile).")
     p.add_argument("--perp-isopycnal", action="store_true",
                    help="Draw the perpendicular curtain in isopycnal-"
                         "following coordinates: each depth row is shifted so "
@@ -674,7 +678,8 @@ def main(argv=None) -> None:
         out_iso = prefix.with_name(f"{stem}_isopycnal.png")
         curtains.figure_isopycnal_surface(
             color_display, sigma0_clipped, Z_clipped, axis_path, metrics,
-            args.perp_half_width, out_iso,
+            out_iso,
+            half_width=args.isopycnal_half_width,
             target_sigma0=args.isopycnal_sigma0,
             clim=clim, cmap=cmap, color_title=color_title,
             mark_index=perp_idx,

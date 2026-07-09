@@ -541,6 +541,25 @@ def test_figure_isopycnal_surface_smoke(synthetic_scene, tmp_path):
     j = np.arange(H)[None, :, None].astype(float)
     sigma0 = (25.0 + 0.2 * k - 0.05 * j) * np.ones((1, 1, W))
     out = curtains.figure_isopycnal_surface(
-        color, sigma0, Z, axis, metrics, 8, tmp_path / "iso_surface.png",
+        color, sigma0, Z, axis, metrics, tmp_path / "iso_surface.png",
     )
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_isopycnal_curtain_unlimited_follows_across_tile():
+    # Steeply sloping surface: with the default (unlimited) search the trace
+    # follows it across the whole tile instead of stopping at a window edge.
+    K, H, W = 10, 61, 30
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    slope = 4.0  # 4 px per level: leaves a +/-5 window after 2 levels
+    sigma0 = (25.0 + 0.1 * (k - (j - 20.0) / slope)) * np.ones((1, 1, W))
+    field = j * np.ones((K, 1, W))
+    axis = np.column_stack([np.full(15, 20), np.arange(5, 20)]).astype(int)
+    met = curtains.path_metrics(axis)
+    cur, _ = curtains.isopycnal_curtain(
+        field, sigma0, axis, met["normals"], 25.0,  # half_width=None
+    )
+    # Surface at j = 20 + 4k: inside the tile (j <= 60) through k=9.
+    for kk in range(K):
+        assert np.allclose(cur[kk], 20.0 + slope * kk, atol=1e-6)
