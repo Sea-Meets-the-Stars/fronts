@@ -46,6 +46,7 @@ Design notes
 # stdlib
 from __future__ import annotations
 import heapq
+import logging
 from typing import Sequence
 
 # numerical / plotting
@@ -54,6 +55,8 @@ from scipy import ndimage as scimg
 import matplotlib
 matplotlib.use("Agg")  # headless-safe; pair to off-screen rendering
 import matplotlib.pyplot as plt  # noqa: E402
+
+log = logging.getLogger(__name__)
 
 
 def _decompose_front_branches(front_mask: np.ndarray):
@@ -449,15 +452,24 @@ def _segments_intersect(p1, p2, p3, p4) -> bool:
 
 
 def trim_offset_loops(offset_path: np.ndarray) -> np.ndarray:
-    """Remove self-intersection loops from an offset polyline ("sew" it shut).
+    """Trim self-crossing loops out of an offset line so it stays continuous.
 
-    When an offset is thrown off the concave side of a bend it can fold back
-    and cross itself.  This excises the looped vertices between each pair of
-    crossing segments, leaving a shorter but crossing-free polyline -- exactly
-    the "the line can just be sewn together to not include this part" behaviour.
+    An offset line traced along the inside of a sharp bend can fold back and
+    cross over itself, forming a small loop.  This function cuts each loop
+    out: wherever two segments of the line cross, the points between them are
+    dropped and the line is sewn back together at the crossing.  The result
+    is a shorter line that never overlaps itself.
 
-    Iterative: find the first pair of non-adjacent segments that cross, drop the
-    vertices strictly between them, and repeat until no crossings remain.
+    It works iteratively: find the first place the line crosses itself, cut
+    out the loop, then start over, until no crossings remain.
+
+    Performance note: each pass compares every segment against every other
+    (O(L^2)), and cutting a loop restarts the pass, so the worst case is
+    ~O(L^3).  That is fast for typical lines (tens to low hundreds of
+    points).  As a safeguard, the number of cuts is capped at L (each cut
+    removes at least one point, so more is impossible); if the cap is
+    somehow hit, the line is returned with any remaining crossings intact
+    and a warning is logged, rather than stalling the render.
 
     Parameters
     ----------
@@ -477,7 +489,14 @@ def trim_offset_loops(offset_path: np.ndarray) -> np.ndarray:
         return np.ones(L, dtype=bool)
     idx = list(range(L))
     changed = True
+    n_excisions = 0
     while changed and len(idx) >= 4:
+        if n_excisions >= L:  # each excision removes >=1 vertex; see docstring
+            log.warning(
+                "trim_offset_loops: excision cap (%d) reached with crossings "
+                "remaining; leaving offset partially untrimmed.", L,
+            )
+            break
         changed = False
         m = len(idx)
         for a in range(m - 1):
@@ -488,10 +507,14 @@ def trim_offset_loops(offset_path: np.ndarray) -> np.ndarray:
                 ):
                     # Excise the loop: drop vertices a+1 .. b inclusive.
                     del idx[a + 1:b + 1]
+                    n_excisions += 1
                     changed = True
                     break
             if changed:
                 break
+    if n_excisions:
+        log.debug("trim_offset_loops: %d loop(s) excised, %d/%d vertices kept.",
+                  n_excisions, len(idx), L)
     mask = np.zeros(L, dtype=bool)
     mask[idx] = True
     return mask
