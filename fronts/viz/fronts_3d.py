@@ -144,6 +144,7 @@ def build_pyvista_grid(
     zscale: float = 50.0,
     *,
     mask_2d: np.ndarray | None = None,
+    extra_fields: dict[str, np.ndarray] | None = None,
 ) -> pv.RectilinearGrid:
     """Wrap a cropped+clipped sigma0 array as a PyVista ``RectilinearGrid``.
 
@@ -171,12 +172,21 @@ def build_pyvista_grid(
         inside the mask.  Use this together with
         :func:`dilate_front_mask` to render iso-surfaces only in a
         dilated region around the selected front.
+    extra_fields : dict of str -> numpy.ndarray, optional
+        Additional point-data scalars to stamp alongside ``sigma0``, each
+        of the same ``(K_clip, J', I')`` shape (e.g. a transformed
+        Richardson-number volume named ``"log10_Ri"``).  VTK's ``contour``
+        filter interpolates *all* point arrays onto extracted iso-surfaces,
+        so any field stamped here can be used to color sigma0 iso-surfaces
+        via ``render_3d(color_scalar=...)``.  The ``mask_2d`` NaN-out (when
+        given) is applied to these fields too.
 
     Returns
     -------
     pyvista.RectilinearGrid
-        Grid with ``grid["sigma0"]`` stamped using Fortran order (the
-        documented silent-bug trap in PyVista's RectilinearGrid).
+        Grid with ``grid["sigma0"]`` (and each ``extra_fields`` entry)
+        stamped using Fortran order (the documented silent-bug trap in
+        PyVista's RectilinearGrid).
     """
     K_clip, Jp, Ip = sigma0_clipped.shape
 
@@ -191,21 +201,34 @@ def build_pyvista_grid(
 
     # VTK expects Fortran-ordered scalar arrays for image/rectilinear grids;
     # the patterns reference flags C-order as the most common silent bug.
-    # sigma0_clipped has axes (k, j, i); we want the iteration order to
-    # match (x, y, z) = (i, j, k), so transpose first then ravel('F').
-    field = sigma0_clipped.astype(np.float32, copy=True)
-    if mask_2d is not None:
-        if mask_2d.shape != (Jp, Ip):
+    # The arrays have axes (k, j, i); we want the iteration order to match
+    # (x, y, z) = (i, j, k), so transpose first then ravel('F').
+    def _stamp(name: str, arr: np.ndarray) -> None:
+        if arr.shape != (K_clip, Jp, Ip):
             raise ValueError(
-                f"mask_2d shape {mask_2d.shape} does not match the (J, I) "
-                f"axes of sigma0_clipped ({Jp}, {Ip})."
+                f"field {name!r} shape {arr.shape} does not match "
+                f"sigma0_clipped {(K_clip, Jp, Ip)}."
             )
-        # Broadcast the 2-D mask along k so the same (j,i) pixels are
-        # active at every depth; contour() will then trace surfaces
-        # restricted to the columns where the mask is True.
-        field[:, ~mask_2d] = np.nan
-    field = np.transpose(field, (2, 1, 0))
-    grid["sigma0"] = field.ravel(order="F")
+        field = arr.astype(np.float32, copy=True)
+        if mask_2d is not None:
+            if mask_2d.shape != (Jp, Ip):
+                raise ValueError(
+                    f"mask_2d shape {mask_2d.shape} does not match the "
+                    f"(J, I) axes of the volume ({Jp}, {Ip})."
+                )
+            # Broadcast the 2-D mask along k so the same (j,i) pixels are
+            # active at every depth; contour() will then trace surfaces
+            # restricted to the columns where the mask is True.
+            field[:, ~mask_2d] = np.nan
+        grid[name] = np.transpose(field, (2, 1, 0)).ravel(order="F")
+
+    _stamp("sigma0", sigma0_clipped)
+    if extra_fields:
+        for name, arr in extra_fields.items():
+            _stamp(name, arr)
+    # contour() defaults to the active scalars; keep that sigma0 so the
+    # geometry is always density-driven regardless of stamping order.
+    grid.set_active_scalars("sigma0")
     return grid
 
 
@@ -784,11 +807,23 @@ def render_3d(
     front_iso_color: str = "orange",
     front_iso_opacity: float = 0.95,
     draw_curtain: bool = False,
+    color_scalar: str = "sigma0",
+    color_title: str | None = None,
+    nan_color: str = "#9e9e9e",
+    nan_opacity: float = 1.0,
+    front_iso_use_color_scalar: bool = True,
     font_size: int = 56,
     title_font_size: int = 60,
     label_font_size: int = 44,
 ) -> pv.Plotter:
     """Assemble the 3-D scene: isopycnals / volume + curtain + top marker + axes.
+
+    Geometry is always sigma0-driven (contours extract density surfaces);
+    *coloring* follows ``color_scalar``, which may be any point-data array
+    stamped on the grid via ``build_pyvista_grid(extra_fields=...)`` --
+    VTK interpolates every point array onto the extracted iso-surfaces.
+    With the default ``color_scalar='sigma0'`` the scene is identical to
+    the classic single-field behaviour.
 
     Parameters
     ----------
@@ -801,11 +836,13 @@ def render_3d(
     mode : {'isopycnals', 'volume'}, optional
         ``'isopycnals'`` (default) draws ``grid.contour(levels)`` with a
         semi-transparent fill; ``'volume'`` calls ``add_volume`` with the
-        chosen opacity transfer function.
+        chosen opacity transfer function.  Volume mode always renders
+        sigma0 (a secondary-field volume is not supported).
     clim : tuple of (float, float), optional
-        Colour-scale limits for sigma0; default 2/98 percentile of the
-        grid scalars.  For better mixed-layer contrast pass
-        :func:`mixed_layer_clim`'s output.
+        Colour-scale limits for the *color scalar*; default 2/98
+        percentile of that scalar on the grid.  For better mixed-layer
+        contrast pass :func:`mixed_layer_clim`'s output (computed on the
+        same scalar).
     cmap_volume, cmap_curtain : str, optional
         Colormaps for the background and curtain respectively.
     opacity : str, optional
@@ -822,6 +859,27 @@ def render_3d(
         colour so the front's lateral position is visible from above.
     top_marker_color : str, optional
         Colour of the top-layer marker (default ``'red'``).
+    front_iso : pyvista.PolyData, optional
+        Single sigma0 iso-surface from :func:`build_front_isosurface`.
+    front_iso_color : str, optional
+        Solid colour for the front iso-surface when it is NOT being
+        coloured by the color scalar (default ``'orange'``).
+    color_scalar : str, optional
+        Name of the point-data array used for coloring (default
+        ``'sigma0'``).  Must be stamped on the grid.
+    color_title : str, optional
+        Scalar-bar title.  Defaults to ``"sigma0 [kg/m^3]"`` for sigma0,
+        else the scalar name.
+    nan_color : str, optional
+        Colour for NaN values of the color scalar on extracted surfaces
+        (default neutral gray ``'#9e9e9e'``) -- keeps surfaces hole-free
+        over land / clipped / undefined cells.
+    nan_opacity : float, optional
+        Opacity of NaN-coloured cells (default 1.0; set 0 to hide them).
+    front_iso_use_color_scalar : bool, optional
+        When True (default) and ``color_scalar != 'sigma0'``, the front
+        iso-surface is coloured by the color scalar too (e.g. Ri along the
+        tilted front sheet) instead of the solid ``front_iso_color``.
     font_size, title_font_size, label_font_size : int, optional
         Font sizes for axes / scalar-bar titles / scalar-bar tick labels.
 
@@ -838,11 +896,23 @@ def render_3d(
     theme = scientific_theme(font_size=font_size, label_size=label_font_size)
     pl = new_plotter(off_screen=not show, theme=theme)
 
-    # Default contrast: 2/98 percentile of the grid scalars.  Callers
+    # Resolve the coloring scalar + title.  Geometry stays sigma0-driven;
+    # only the colors follow color_scalar.
+    if color_scalar != "sigma0" and color_scalar not in grid.array_names:
+        raise ValueError(
+            f"color_scalar {color_scalar!r} is not stamped on the grid "
+            f"(available: {list(grid.array_names)}).  Pass it via "
+            "build_pyvista_grid(extra_fields=...)."
+        )
+    if color_title is None:
+        color_title = ("sigma0 [kg/m^3]" if color_scalar == "sigma0"
+                       else color_scalar)
+
+    # Default contrast: 2/98 percentile of the coloring scalar.  Callers
     # that want mixed-layer-focused contrast should pass `clim=` from
-    # :func:`mixed_layer_clim` instead.
+    # :func:`mixed_layer_clim` (computed on the same scalar) instead.
     if clim is None:
-        scalars = np.asarray(grid["sigma0"])
+        scalars = np.asarray(grid[color_scalar])
         clim = (
             float(np.nanpercentile(scalars, 2)),
             float(np.nanpercentile(scalars, 98)),
@@ -875,23 +945,31 @@ def render_3d(
         )
 
     if mode == "isopycnals":
+        # Contour on sigma0 (geometry); VTK interpolates every other point
+        # array onto the surfaces, so coloring by color_scalar is free.
         iso = grid.contour(isosurfaces=list(levels), scalars="sigma0")
         if iso.n_points > 0:
             pl.add_mesh(
                 iso,
-                scalars="sigma0",
+                scalars=color_scalar,
                 cmap=cmap_volume,
                 clim=clim,
                 opacity=0.6,
                 smooth_shading=True,
+                nan_color=nan_color,
+                nan_opacity=nan_opacity,
                 scalar_bar_args=_sb_args(
-                    "sigma0 [kg/m^3]", position_y=0.30,
+                    color_title, position_y=0.30,
                 ),
             )
     elif mode == "volume":
+        # Volume mode renders the sigma0 field itself; coloring a sigma0
+        # volume by a second scalar is ill-defined, so color_scalar is
+        # ignored here (documented in the docstring).
         pl.add_volume(
             grid, scalars="sigma0",
-            cmap=cmap_volume, clim=clim, opacity=opacity,
+            cmap=cmap_volume, clim=clim if color_scalar == "sigma0" else None,
+            opacity=opacity,
             scalar_bar_args=_sb_args(
                 "sigma0 [kg/m^3]", position_y=0.55,
             ),
@@ -934,18 +1012,38 @@ def render_3d(
                 )
 
     # Front iso-surface -- a single sigma0 iso-surface that naturally
-    # tilts with depth across the front.  Drawn opaque in a distinct
-    # colour so the tilt geometry (dense waters on one side, less dense
-    # on the other) reads at a glance against the semi-transparent
-    # context iso-surfaces.
+    # tilts with depth across the front.  In single-field mode it is drawn
+    # opaque in a distinct colour so the tilt geometry (dense waters on one
+    # side, less dense on the other) reads at a glance.  In dual-field mode
+    # (color_scalar != 'sigma0') it is coloured by the color scalar instead
+    # -- e.g. Ri along the tilted front sheet shows directly where the
+    # front is shear-unstable.
     if front_iso is not None and front_iso.n_points > 0:
-        pl.add_mesh(
-            front_iso,
-            color=front_iso_color,
-            opacity=front_iso_opacity,
-            smooth_shading=True,
-            show_scalar_bar=False,
+        color_front_by_scalar = (
+            front_iso_use_color_scalar
+            and color_scalar != "sigma0"
+            and color_scalar in front_iso.array_names
         )
+        if color_front_by_scalar:
+            pl.add_mesh(
+                front_iso,
+                scalars=color_scalar,
+                cmap=cmap_volume,
+                clim=clim,
+                opacity=front_iso_opacity,
+                smooth_shading=True,
+                nan_color=nan_color,
+                nan_opacity=nan_opacity,
+                show_scalar_bar=False,
+            )
+        else:
+            pl.add_mesh(
+                front_iso,
+                color=front_iso_color,
+                opacity=front_iso_opacity,
+                smooth_shading=True,
+                show_scalar_bar=False,
+            )
 
     # Top-layer marker (optional).  Drawn in a single bright fixed colour
     # so the front's lateral position is identifiable in plan view, but
