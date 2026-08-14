@@ -26,7 +26,7 @@ front's location (e.g. ``lat36.38_lon-124.20``), and ``{N}`` is ``--n-offsets``.
 Inputs mirror ``fronts_viz_3d``:
   * a 3-D **density tile** NetCDF (``sigma0(k, j, i)``, face-local) -- drives
     isopycnal contours;
-  * a **field tile** (same window+timestamp, e.g. ``--property richardson``)
+  * a **field tile** (same window+timestamp, e.g. ``--property Ri``)
     whose variable is the curtain color (REQUIRED here -- the curtain color and
     the perpendicular-point extremum both need it; default ``Ri``);
   * a global **labelled-fronts mask** on the rect grid;
@@ -36,7 +36,7 @@ CLI usage
 ---------
     python -m fronts.scripts.fronts_viz_curtain \
         --density-tile density_tile330_20121109T12.nc \
-        --field-tile   Ri_tile330_20121109T12.nc \
+        --field-tile   ri_tile330_20121109T12.nc \
         --labels       labeled_fronts_global_20121109T12_00_00_V4.npy \
         --i 13142 --j 9956 \
         --n-offsets 3 --perp-half-width 10 \
@@ -464,7 +464,7 @@ def main(argv=None) -> None:
             f"{field_face.shape}, expected {sigma0_face.shape}."
         )
     field_style = get_style(field_name)
-    # Human-readable field name (e.g. "richardson_number"); fall back to the
+    # Human-readable field name (e.g. "Richardson number N2/S2"); fall back to the
     # tile variable name (e.g. "Ri") when no long_name attr.
     field_label = ds_field[field_name].attrs.get("long_name", field_name)
     # Filesystem-safe token built into the output filenames (e.g. "Ri", "wB").

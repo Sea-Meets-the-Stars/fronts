@@ -42,7 +42,7 @@ A perpendicular transect is cut at a chosen point along the main axis. By defaul
 Same as `fronts_viz_3d`, with one difference: the field tile is **required** here (it supplies both the curtain color and the perpendicular-point extremum).
 
 1. **3-D density tile** — NetCDF from `generate_tile.py`. `sigma0(k, j, i)` on face-local axes, plus `XC`/`YC`/`Z` and `rect_i_start`/`rect_j_start`/`face_index` provenance. Drives the isopycnal contours.
-2. **Field tile** (`--field-tile`, **required**) — a second NetCDF (same tile window + timestamp) holding the color field, e.g. a `Ri` tile from `--property richardson`. Auto-detects the single 3-D variable unless `--field-name` is given.
+2. **Field tile** (`--field-tile`, **required**) — a second NetCDF (same tile window + timestamp) holding the color field, e.g. a `Ri` tile from `--property Ri`. Auto-detects the single 3-D variable unless `--field-name` is given.
 3. **Labelled-fronts mask** — global `.npy`/`.nc` on the rect grid (integer labels, `0 = no front`).
 4. **Locator** — `(--i, --j)` rect indices or `(--lat, --lon)` degrees (snapped to the nearest labelled pixel).
 
@@ -102,7 +102,7 @@ Two causes of overlap, two complementary tools: pixel-scale jaggedness is an art
 ```text
 python -m fronts.scripts.fronts_viz_curtain \
     --density-tile density_tile330_20121109T12.nc \
-    --field-tile   Ri_tile330_20121109T12.nc \
+    --field-tile   ri_tile330_20121109T12.nc \
     --labels       labeled_fronts_global_20121109T12_00_00_V4.npy \
     --i 13142 --j 9956 \
     --n-offsets 3 --perp-half-width 30 \

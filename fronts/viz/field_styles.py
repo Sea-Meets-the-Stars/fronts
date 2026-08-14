@@ -78,8 +78,9 @@ class FieldStyle:
     scale: float = 1.0
 
 
-# Keyed by the tile NetCDF variable name (= out_name in the preprocessing
-# field registry).  Add a row when you add a property over there.
+# Keyed by the tile NetCDF variable name (= ``out_name`` in the preprocessing
+# repo's ``dbof.tiles.field_registry.TILE_PROPERTIES``).  Add a row when you
+# add a property over there; pre-rename names live in LEGACY_VAR_NAMES below.
 FIELD_STYLES: dict[str, FieldStyle] = {
     "sigma0": FieldStyle(
         transform="linear", cmap="dense",
@@ -108,7 +109,7 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         transform="log10", clip=(1e-6, 1e-1), cmap="viridis",
         title="log10(|S| [s^-1])",
     ),
-    "vorticity": FieldStyle(
+    "relative_vorticity": FieldStyle(
         transform="linear", cmap="RdBu_r",
         title="zeta [1/s]", center=0.0,
     ),
@@ -116,15 +117,31 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         transform="linear", cmap="RdBu_r",
         title="div [1/s]", center=0.0,
     ),
-    "strain": FieldStyle(
+    "strain_mag": FieldStyle(
         transform="log10", clip=(1e-8, 1e-3), cmap="viridis",
         title="log10(strain [s^-1])",
+    ),
+    # The registry also exposes the signed normal/shear strain components;
+    # unlike the magnitude these change sign, so they get a diverging map.
+    "strain_n": FieldStyle(
+        transform="linear", cmap="RdBu_r",
+        title="normal strain [1/s]", center=0.0,
+    ),
+    "strain_s": FieldStyle(
+        transform="linear", cmap="RdBu_r",
+        title="shear strain [1/s]", center=0.0,
     ),
     "okubo_weiss": FieldStyle(
         transform="linear", cmap="RdBu_r",
         title="OW [s^-2]", center=0.0,
     ),
     "Ro": FieldStyle(
+        transform="linear", clip=(-10.0, 10.0), cmap="RdBu_r",
+        title="Ro", center=0.0,
+    ),
+    # ``rossby_number`` is a separate registry channel that writes the same
+    # quantity under its long name; display it identically to ``Ro``.
+    "rossby_number": FieldStyle(
         transform="linear", clip=(-10.0, 10.0), cmap="RdBu_r",
         title="Ro", center=0.0,
     ),
@@ -136,9 +153,17 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         transform="log10", clip=(1e-3, 1e3), cmap="viridis",
         title="log10(Bu)",
     ),
-    "Fs": FieldStyle(
+    "frontogenesis_tendency": FieldStyle(
         transform="linear", scale=1e-7, cmap="RdBu_r",
         title="Fs [s^-5]", center=0.0,
+    ),
+    "frontogenesis_geo": FieldStyle(
+        transform="linear", scale=1e-7, cmap="RdBu_r",
+        title="Fs geo [s^-5]", center=0.0,
+    ),
+    "frontogenesis_ageo": FieldStyle(
+        transform="linear", scale=1e-7, cmap="RdBu_r",
+        title="Fs ageo [s^-5]", center=0.0,
     ),
     "ertel_pv": FieldStyle(
         transform="linear", scale=1e-7, cmap="RdBu_r",
@@ -158,6 +183,17 @@ FIELD_STYLES: dict[str, FieldStyle] = {
 }
 
 
+#: Variable names written by the *old* preprocessing ``tiles_field`` branch,
+#: mapped to their current out-names.  Tiles already on disk keep their old
+#: variable name inside the NetCDF, so resolve through this before falling
+#: back to the default style.
+LEGACY_VAR_NAMES: dict[str, str] = {
+    "vorticity": "relative_vorticity",
+    "strain":    "strain_mag",
+    "Fs":        "frontogenesis_tendency",
+}
+
+
 def get_style(var_name: str) -> FieldStyle:
     """Look up the style for a tile variable, with a safe linear fallback.
 
@@ -173,6 +209,9 @@ def get_style(var_name: str) -> FieldStyle:
         variable name) when the field is unknown.
     """
     style = FIELD_STYLES.get(var_name)
+    if style is None and var_name in LEGACY_VAR_NAMES:
+        # A tile written by the old branch: same field, older variable name.
+        style = FIELD_STYLES.get(LEGACY_VAR_NAMES[var_name])
     if style is None:
         import logging
         logging.getLogger(__name__).warning(

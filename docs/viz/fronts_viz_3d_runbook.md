@@ -90,21 +90,35 @@ default per-property filename inside it.
 
 ```bash
 # geometry tile (sigma0) — skip if it already exists in $TILES
-python -m dbof.tiles.generate_tile \
+python -m dbof.cli.generate_tile \
     --i 13142 --j 9956 --timestamp '2012-11-09 12:00:00' \
     --property density --output "$TILES"
 # -> $TILES/density_tile330_20121109T12.nc
 
 # color tile (Ri)
-python -m dbof.tiles.generate_tile \
+python -m dbof.cli.generate_tile \
     --i 13142 --j 9956 --timestamp '2012-11-09 12:00:00' \
-    --property richardson --output "$TILES"
-# -> $TILES/Ri_tile330_20121109T12.nc
+    --property Ri --output "$TILES"
+# -> $TILES/ri_tile330_20121109T12.nc
 ```
 
 Any registered property works for `--field-tile` color (see the table in
-`Tiles.md`): `vorticity`, `okubo_weiss`, `frontogenesis`, `N2`, … — just
-generate that tile with `--property <name>`.
+`Tiles.md`): `relative_vorticity`, `okubo_weiss`, `frontogenesis_tendency`,
+`N2`, … — just generate that tile with `--property <name>`.
+
+> **Channel names changed** with the `tiles-depth-fields` merge in
+> `llc4320-native-grid-preprocessing`. Only `temperature` and `salinity` kept
+> aliases; the rest now error out. The renames that matter here:
+> `richardson`→`Ri`, `vorticity`→`relative_vorticity`, `strain`→`strain_mag`
+> (also `strain_n`/`strain_s`), `frontogenesis`→`frontogenesis_tendency`,
+> `rossby`→`rossby_number`, `froude`→`Fr`, `burger`→`Bu`,
+> `vertical_buoyancy_flux`→`wB`. Default filename prefixes are lowercase now
+> (`ri_tile…`, `ftend_tile…`, `okuboweiss_tile…`), and derivative fields carry
+> a 1–3 cell NaN rim (`edge_margin`) at the tile boundary.
+
+Note that only **3-D** tiles work as `--field-tile`; the registry's
+inherently-2-D channels (`mixed_layer_depth`, `Eta`, `oceTAUX`, …) have no `Z`
+coord and are rejected by the loader.
 
 ---
 
@@ -113,7 +127,7 @@ generate that tile with `--property <name>`.
 ```bash
 python -m fronts.scripts.fronts_viz_3d \
     --density-tile "$TILES/density_tile330_20121109T12.nc" \
-    --field-tile   "$TILES/Ri_tile330_20121109T12.nc" \
+    --field-tile   "$TILES/ri_tile330_20121109T12.nc" \
     --labels       "$LABELS" \
     --i 13142 --j 9956 --zscale 1.0 \
     --output           "$OUTDIR/fronts_viz_3d_calcurrent_Ri.png" \

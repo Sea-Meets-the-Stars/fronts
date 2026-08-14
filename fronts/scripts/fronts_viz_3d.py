@@ -3,12 +3,12 @@ Render a 3-D view of a single labelled front through a sigma0 density tile.
 
 Inputs:
   * a 3-D density tile NetCDF produced by
-    ``llc4320-native-grid-preprocessing/src/dbof/tiles/generate_tile.py``
+    ``llc4320-native-grid-preprocessing/src/dbof/cli/generate_tile.py``
     (sigma0(k, j, i) on **face-local** axes, plus XC, YC, Z and the
     rect_i_start / rect_j_start / face_index / tile_index provenance
     fields).
   * optionally, a second **field tile** (same generator, same tile window
-    + timestamp -- e.g. ``--property richardson``) whose variable colors
+    + timestamp -- e.g. ``--property Ri``) whose variable colors
     the density iso-surfaces (see "Dual-field coloring" below).
   * a global labelled-fronts mask (``.npy`` or ``.nc``) on the **rect
     grid** (shape 12960 x 17280, integer labels, 0 = no front).
@@ -38,7 +38,7 @@ CLI usage
 ---------
     python -m fronts.scripts.fronts_viz_3d \\
         --density-tile density_tile330_20121109T12.nc \\
-        --field-tile   Ri_tile330_20121109T12.nc \\
+        --field-tile   ri_tile330_20121109T12.nc \\
         --labels       LLC4320_2012-11-09T12_00_00_V4_bfronts.npy \\
         --i 13170 --j 9950 \\
         --output       fronts_viz_3d_californiacurrent_Ri.png
@@ -128,7 +128,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--field-tile", type=Path, default=None,
                    help="Optional NetCDF field tile (same generator, same "
                         "tile window + timestamp, e.g. --property "
-                        "richardson).  Its variable colors the sigma0 "
+                        "Ri).  Its variable colors the sigma0 "
                         "iso-surfaces; geometry stays density-driven.")
     p.add_argument("--field-name", type=str, default=None,
                    help="Variable name inside --field-tile (default: "

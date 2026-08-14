@@ -18,8 +18,8 @@ Three files per run:
 
 ## Inputs
 
-1. **3-D density tile** — NetCDF written by [llc4320-native-grid-preprocessing/src/dbof/tiles/generate_tile.py](../../../llc4320-native-grid-preprocessing/src/dbof/tiles/generate_tile.py). `sigma0(k, j, i)` on **face-local** axes (k=51, j=720, i=720), 2-D `XC`/`YC`, 1-D `Z`, plus `rect_i_start`/`rect_j_start`/`face_index` provenance. **Always drives the geometry.**
-2. **Field tile** *(optional, `--field-tile`)* — a second NetCDF from the same generator, same tile window + timestamp, holding a different property (e.g. `--property richardson` → `Ri(k, j, i)`). Its variable **colors** the density iso-surfaces. See [Coloring isopycnals by a second field](#coloring-isopycnals-by-a-second-field-eg-richardson-number).
+1. **3-D density tile** — NetCDF written by [llc4320-native-grid-preprocessing/src/dbof/cli/generate_tile.py](../../../llc4320-native-grid-preprocessing/src/dbof/cli/generate_tile.py). `sigma0(k, j, i)` on **face-local** axes (k=51, j=720, i=720), 2-D `XC`/`YC`, 1-D `Z`, plus `rect_i_start`/`rect_j_start`/`face_index` provenance. **Always drives the geometry.**
+2. **Field tile** *(optional, `--field-tile`)* — a second NetCDF from the same generator, same tile window + timestamp, holding a different property (e.g. `--property Ri` → `Ri(k, j, i)`). Its variable **colors** the density iso-surfaces. See [Coloring isopycnals by a second field](#coloring-isopycnals-by-a-second-field-eg-richardson-number).
 3. **Labelled-fronts mask** — global `.npy` on the **rect grid** (12960 × 17280, integer labels, `0 = no front`). For V4 the integer-label file is `labeled_fronts_global_*_V4.npy` (the `*_bfronts.npy` neighbour is boolean only).
 4. **Locator** — either `(--i, --j)` global rect indices, or `(--lat, --lon)` degrees.
 
@@ -72,7 +72,7 @@ Two-tile example (California Current front, rect tile 330):
 ```text
 python -m fronts.scripts.fronts_viz_3d \
     --density-tile density_tile330_20121109T12.nc \
-    --field-tile   Ri_tile330_20121109T12.nc \
+    --field-tile   ri_tile330_20121109T12.nc \
     --labels       labeled_fronts_global_20121109T12_00_00_V4.npy \
     --i 13142 --j 9956 \
     --zscale 1.0 \
