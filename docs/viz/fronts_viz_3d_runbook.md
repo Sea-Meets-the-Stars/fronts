@@ -1,27 +1,24 @@
-# Runbook — Ri-colored 3-D front viz on a headless cluster
+# Runbook — Ri-colored front viz on a headless cluster
 
-End-to-end recipe for producing the interactive 3-D HTML (isopycnal surfaces
-colored by Richardson number) on a headless Linux node with **no X server and
-no admin rights**. Pairs with the reference doc
-[`fronts_viz_3d.md`](fronts_viz_3d.md) (flags, algorithm) and the tile docs in
-the preprocessing repo
-([`llc4320-native-grid-preprocessing/docs/Tiles.md`](../../../llc4320-native-grid-preprocessing/docs/Tiles.md)).
+End-to-end recipe for the 3-D interactive HTML (isopycnal surfaces colored by
+Richardson number) and the 2-D curtain figures, on a headless Linux node with
+**no X server and no admin rights**.
 
-Two things have different lifetimes, and conflating them is the usual
-stumbling block:
+Reference docs: [`fronts_viz_3d.md`](fronts_viz_3d.md) and
+[`fronts_curtain.md`](fronts_curtain.md) for flags and algorithms;
+[`llc4320-native-grid-preprocessing/docs/Tiles.md`](../../../llc4320-native-grid-preprocessing/docs/Tiles.md)
+for how tiles are built.
 
-| Thing | Lifetime | Redo when? |
-|-------|----------|------------|
-| The conda env + OSMesa VTK swap | **persists on disk** | only if you delete/rebuild the env, or a later `conda install` clobbers `vtk` |
-| The `export DISPLAY=… / TILES=… / …` shell vars | **per shell session** | every new shell — so keep them in a file you `source` (below) |
+Step 0 persists on disk (redo only if you rebuild the env). Step 1 is
+per-shell.
 
 ---
 
 ## 0. One-time: headless rendering env (OSMesa)
 
-The default PyVista/VTK build needs an OpenGL context (X server / GPU). On a
-headless node with neither, swap in the **OSMesa** (software, CPU) VTK build.
-Do it in a *clone* so the original env stays intact:
+PyVista/VTK needs an OpenGL context. With no X server and no GPU, swap in the
+**OSMesa** (software, CPU) VTK build — in a *clone*, so the original env stays
+intact:
 
 ```bash
 conda create --name llcngp_osmesa --clone llcngp
@@ -36,36 +33,29 @@ pip install --extra-index-url https://wheels.vtk.org "vtk-osmesa==<VERSION_ABOVE
 
 # sanity check — should print a byte count, no display error:
 python -c "import pyvista as pv; pv.OFF_SCREEN=True; p=pv.Plotter(off_screen=True); p.add_mesh(pv.Sphere()); print('ok', len(p.screenshot(return_img=True)))"
+
+pip freeze | grep -i vtk       # record the pin, e.g. vtk-osmesa==9.3.1
 ```
 
-Record what you installed so the version is pinned for future-you:
-
-```bash
-pip freeze | grep -i vtk        # e.g. vtk-osmesa==9.3.1
-```
-
-(Why this isn't a `pip install -e .` dependency: the right GL backend —
-OSMesa / GLX / EGL / Xvfb — is machine-specific, and `vtk-osmesa` is a
-conflicting drop-in for `vtk` served from a non-PyPI index. Pinning it in the
-package would break every non-headless install. It's a deployment choice, not
-a code dependency.)
+`vtk-osmesa` is deliberately **not** a `pip install -e .` dependency: the right
+GL backend is machine-specific, and it's a conflicting drop-in for `vtk` from a
+non-PyPI index.
 
 ---
 
 ## 1. Per-session env
 
-Save this as `env_fronts_viz.sh` (edit the paths once) and `source` it at the
-start of each session — that's all you re-do next week:
+Save as `env_fronts_viz.sh` (edit the paths once) and `source` it each session:
 
 ```bash
 # env_fronts_viz.sh  --  source this, don't execute it
 conda activate llcngp_osmesa
 
 # Lets dev/mld/density_utils.py find the preprocessing repo's tile_mapping.
-# (Redundant if the preprocessing repo is `pip install -e`'d, but harmless.)
+# (Redundant if that repo is `pip install -e`'d, but harmless.)
 export LLC4320_PREPROC_SRC=/home/lhoffma2/git/llc4320-native-grid-preprocessing/
 
-# Any non-empty value: makes ensure_display() skip the (removed) start_xvfb;
+# Any non-empty value: makes ensure_display() skip the (removed) start_xvfb.
 # OSMesa ignores DISPLAY entirely.
 export DISPLAY=dummy
 
@@ -76,17 +66,13 @@ export OUTDIR=/mnt/tank/Oceanography/data/OGCM/LLC/Fronts/lohoff/fronts_viz
 mkdir -p "$OUTDIR"
 ```
 
-```bash
-source env_fronts_viz.sh
-```
-
 ---
 
 ## 2. Generate the tiles (reads from S3 — needs network)
 
-The viz needs **two** tiles from the same window + timestamp: density drives
-the geometry, Ri drives the color. Passing a directory to `--output` uses the
-default per-property filename inside it.
+Both viz scripts need **two** tiles from the same window + timestamp: density
+drives the geometry/isopycnals, a second field drives the color. Passing a
+directory to `--output` uses the default per-property filename inside it.
 
 ```bash
 # geometry tile (sigma0) — skip if it already exists in $TILES
@@ -102,27 +88,22 @@ python -m dbof.cli.generate_tile \
 # -> $TILES/ri_tile330_20121109T12.nc
 ```
 
-Any registered property works for `--field-tile` color (see the table in
-`Tiles.md`): `relative_vorticity`, `okubo_weiss`, `frontogenesis_tendency`,
-`N2`, … — just generate that tile with `--property <name>`.
+**Choosing `--property`.** The registry is the list — `TILE_PROPERTIES` in
+`dbof/tiles/field_registry.py`. To see every accepted name without opening the
+file:
 
-> **Channel names changed** with the `tiles-depth-fields` merge in
-> `llc4320-native-grid-preprocessing`. Only `temperature` and `salinity` kept
-> aliases; the rest now error out. The renames that matter here:
-> `richardson`→`Ri`, `vorticity`→`relative_vorticity`, `strain`→`strain_mag`
-> (also `strain_n`/`strain_s`), `frontogenesis`→`frontogenesis_tendency`,
-> `rossby`→`rossby_number`, `froude`→`Fr`, `burger`→`Bu`,
-> `vertical_buoyancy_flux`→`wB`. Default filename prefixes are lowercase now
-> (`ri_tile…`, `ftend_tile…`, `okuboweiss_tile…`), and derivative fields carry
-> a 1–3 cell NaN rim (`edge_margin`) at the tile boundary.
+```bash
+python -m dbof.cli.generate_tile --help     # argparse prints the full choices list
+```
 
-Note that only **3-D** tiles work as `--field-tile`; the registry's
+Any **3-D** channel works as `--field-tile` color: `Ri`, `N2`,
+`relative_vorticity`, `okubo_weiss`, `frontogenesis_tendency`, `wB`, … The
 inherently-2-D channels (`mixed_layer_depth`, `Eta`, `oceTAUX`, …) have no `Z`
 coord and are rejected by the loader.
 
 ---
 
-## 3. Render the interactive HTML
+## 3. Render the 3-D interactive HTML
 
 ```bash
 python -m fronts.scripts.fronts_viz_3d \
@@ -136,16 +117,41 @@ python -m fronts.scripts.fronts_viz_3d \
 
 Writes the interactive HTML, a 3-D PNG, and a 2-D inset PNG into `$OUTDIR`.
 Geometry = isopycnals (σ₀); color = `log10(clip(Ri, 1e-2, 1e4))`. Cells where
-Ri ≤ 0 or NaN (land, the 1-px tile edge rim, zero-shear) render neutral gray.
+Ri ≤ 0 or NaN (land, the tile-edge rim, zero-shear) render neutral gray.
 
 ---
 
-## 4. Configuring the colormap / scaling
+## 4. Render the 2-D curtains
+
+Same two tiles, same locator. `--isopycnal-curtain` adds the flattened
+density-surface figure on top of the three standard curtains:
+
+```bash
+python -m fronts.scripts.fronts_viz_curtain \
+    --density-tile "$TILES/density_tile330_20121109T12.nc" \
+    --field-tile   "$TILES/ri_tile330_20121109T12.nc" \
+    --labels       "$LABELS" \
+    --i 13142 --j 9956 \
+    --n-offsets 3 --perp-half-width 30 \
+    --isopycnal-curtain \
+    --output-prefix "$OUTDIR/calcurrent_curtain"
+```
+
+Writes `{prefix}_{field}_{loc}_…png` for `mainaxis`, `offsets_n{N}`, `perp`,
+`isopycnal` and `inset`, where `{loc}` is the front's `lat…_lon…` — so
+different fronts don't overwrite each other. Needs no OSMesa (matplotlib only).
+
+Add `--list-perp-candidates` to log each main-axis column with its `(i, j)` and
+crossing count before rendering, then pass the one you want as `--perp-point`.
+
+---
+
+## 5. Configuring the colormap / scaling
 
 Per run (overrides the registered style):
 
 ```bash
---cmap-volume RdBu_r        # any matplotlib / cmocean name
+--cmap-volume RdBu_r        # 3-D only; any matplotlib / cmocean name
 --clim -1 2                 # color limits, in the *transformed* (log10) space
 --field-clip 1e-3 1e3       # raw-Ri clip before the transform
 --field-transform symlog    # log10 | symlog | linear
@@ -162,8 +168,10 @@ Persistent default — edit the `"Ri"` entry of
 ```
 
 That one entry controls colormap, color limits, transform, raw clip, and the
-scalar-bar title for every Ri render. Diverging fields (vorticity, OW, …) set
-`center=0.0` for symmetric limits.
+scalar-bar title for every Ri render, in both scripts. Keys must match the
+tile's variable name (= `out_name` in the preprocessing registry). Diverging
+fields (`relative_vorticity`, `okubo_weiss`, …) set `center=0.0` for symmetric
+limits.
 
 ---
 
@@ -174,5 +182,6 @@ scalar-bar title for every Ri render. Diverging fields (vorticity, OW, …) set
 | `module 'pyvista' has no attribute 'start_xvfb'` | No `$DISPLAY` and PyVista ≥ 0.44. Set `export DISPLAY=dummy` (step 1) — OSMesa needs no real display. |
 | `Could not import 'tile_mapping' …` | `LLC4320_PREPROC_SRC` unset and preprocessing repo not installed. Set the var (step 1) or `pip install -e` that repo. |
 | `Tile provenance mismatch …` | The density and field tiles are from different windows/timestamps. Regenerate both with the same `--i/--j/--timestamp`. |
+| `No FIELD_STYLES entry for …` | The tile's variable name has no style row. Add one to `fronts/viz/field_styles.py` (step 5); the render still works, with a linear/percentile fallback. |
 | OpenGL / `libGL` error (not a display error) | Env missing Mesa: `conda install -c conda-forge mesalib`. |
-| HTML opens but surfaces are mostly gray | Expected where Ri ≤ 0 / NaN; if *everything* is gray, the field tile may be all-NaN — check the QA of the Ri tile. |
+| Surfaces / curtains mostly gray | Expected where Ri ≤ 0 / NaN. If *everything* is gray, the field tile may be all-NaN — check its QA plot. |
