@@ -246,7 +246,7 @@ def _resolve_channel_maps(config_file: str):
 def expand_property_roots(property_roots: list, config_file: str) -> list:
     """Expand property *roots* into fully-suffixed channel names.
 
-    Lets a caller (e.g. build_v4) list root names like ``'relative_vorticity'``
+    Lets a caller list root names like ``'relative_vorticity'``
     and receive every variant the active config produces
     (``relative_vorticity_sfc``, ``relative_vorticity_mld``, ...), while
     channels that carry no suffix (``coriolis_f``, ``mixed_layer_depth``, native
@@ -295,15 +295,15 @@ def expand_property_roots(property_roots: list, config_file: str) -> list:
 
 
 # ===========================================================================
-#  Pipeline-aware config helpers  (build_v5)
+#  Pipeline-aware config helpers
 # ===========================================================================
 #
-#  build_v4 hardcoded a DEPTH-only PROPERTY_ROOTS list and the channel name
-#  'gradb2_sfc'.  Neither survives a pipeline switch: SURF/OSN emit a bare
-#  'gradb2' and have no N2 / Ri / ertel_pv / ... at all.  Everything below
-#  derives from the pipeline + active_subsets in the YAML instead, so the same
-#  driver runs unchanged on SURF, OSN and DEPTH -- and picks up new channels
-#  (R_ib, Wstar, rossby_number, ...) the moment they land in subset_definitions.
+#  Channel names and subset membership both depend on the pipeline: SURF and OSN
+#  emit a bare 'gradb2', DEPTH emits 'gradb2_sfc', and the depth-resolved
+#  subsets (stratification, ertel_pv, ...) have no surface equivalent at all.
+#  Everything below derives from the pipeline + active_subsets in the YAML, so a
+#  single driver runs on all three and picks up channels the moment they land in
+#  subset_definitions.
 
 #: Defaults for the optional ``build:`` block in a run YAML.
 BUILD_DEFAULTS = {
@@ -425,9 +425,8 @@ def subset_for_channel(config_file: str, channel: str) -> str:
 def all_property_roots(config_file: str, exclude: list = None) -> list:
     """Every property root the active subsets produce, in config order.
 
-    The pipeline-aware replacement for build_v4's hardcoded ``PROPERTY_ROOTS``.
-    Because it is derived, a channel added to ``subset_definitions`` upstream
-    is co-located automatically instead of being silently dropped.
+    Derived from ``subset_definitions``, so the set follows the pipeline and a
+    channel added upstream is co-located automatically.
 
     Parameters
     ----------

@@ -94,7 +94,7 @@ def depth_cfg(tmp_path):
 
 
 # ===========================================================================
-#  Phase 1 -- compatibility with the current generate_global pipeline
+#  The contract with the preprocessing repo
 # ===========================================================================
 
 def test_all_three_pipelines_are_known():
@@ -138,8 +138,8 @@ def _channels_for(pipeline, subset, depth_suffixes=None):
 def test_gradb2_channel_name_depends_on_pipeline():
     """The gradb2 channel is bare on SURF/OSN and suffixed on DEPTH.
 
-    This is the single biggest build_v4 -> v5 breakage: build_v4 hardcodes
-    'gradb2_sfc', which does not exist in the SURF or OSN pipelines.
+    Any driver that names the channel literally therefore works on one pipeline
+    and fails on the others with a missing file.
     """
     for pipeline in ("SURF", "OSN"):
         chans = _channels_for(pipeline, "frontal_structure")
@@ -168,12 +168,12 @@ def test_surface_frontal_structure_has_extra_channels():
     assert len(depth) == 21
 
 
-def test_depth_pipeline_has_channels_build_v4_never_listed():
-    """R_ib / Wstar / rossby_number are in DEPTH but absent from build_v4.
+def test_depth_channel_roster_is_discovered_not_assumed():
+    """subset_definitions is the only place the DEPTH channel list lives.
 
-    build_v4's hardcoded PROPERTY_ROOTS silently drops them.  build_v5 derives
-    the root list from subset_definitions instead, so new channels are picked
-    up automatically -- this test is the canary for that.
+    R_ib, Wstar and rossby_number are easy to miss by hand.  build_v5 reads the
+    roster rather than restating it; this test is the canary for a roster that
+    grows again.
     """
     roots = set()
     for subset in valid_subsets("DEPTH"):
@@ -218,9 +218,9 @@ def test_zarr_to_netcdf_main_supports_single_date_and_ice_mask():
 def test_output_filename_requires_a_single_date():
     """Guard rail: many dates + one output filename is an error upstream.
 
-    build_v5 must therefore export per-timestamp, not hand the whole
-    ``date_iterations`` list to zarr_to_netcdf.  (build_v4 got away with it
-    only because its config had exactly one date.)
+    Exports must therefore be per-timestamp -- handing the whole
+    ``date_iterations`` list to zarr_to_netcdf raises for any config with more
+    than one date.
     """
     src = inspect.getsource(zarr_to_netcdf.main)
     assert "--output-filename can only be used when converting a single" in src
@@ -234,7 +234,7 @@ def test_date_helpers_roundtrip():
 
 
 # ===========================================================================
-#  Phase 2 -- step 1 generates gradb2 and nothing else
+#  Step 1 builds gradb2 and nothing else
 # ===========================================================================
 
 class _Spy:
@@ -357,7 +357,7 @@ def test_export_channels_skips_files_that_already_exist(
 
 
 # ===========================================================================
-#  Phase 3 -- pipeline selection, no hardcoded roots
+#  Pipeline selection
 # ===========================================================================
 
 def test_channel_for_root_resolves_per_pipeline(surf_cfg, depth_cfg):
@@ -383,21 +383,21 @@ def test_subset_for_channel(surf_cfg, depth_cfg):
 
 
 def test_all_property_roots_follows_the_pipeline(surf_cfg, depth_cfg):
-    """The list build_v4 hardcoded is now derived -- and pipeline-correct."""
+    """The root list follows the pipeline, with no overlap between the two."""
     surf = set(prun.all_property_roots(surf_cfg))
     assert {"gradb2", "density", "buoyancy", "rossby_number"} <= surf
     assert not ({"N2", "Ri", "ertel_pv", "KE"} & surf)   # DEPTH-only
 
     depth = set(prun.all_property_roots(depth_cfg))
-    assert {"N2", "R_ib", "gradb2"} <= depth            # incl. the ones v4 missed
+    assert {"N2", "R_ib", "gradb2"} <= depth
     assert not ({"density", "buoyancy"} & depth)        # SURF-only
 
 
 def test_all_property_roots_always_expand_cleanly(surf_cfg, depth_cfg):
     """Derived roots round-trip through expand_property_roots without raising.
 
-    This is the regression for breakage #2: build_v4's list raised ValueError
-    on 15 roots the moment the pipeline was not DEPTH.
+    A hand-written root list drifts out of the pipeline it was written for and
+    raises ValueError on every root the active subsets do not produce.
     """
     for cfg in (surf_cfg, depth_cfg):
         roots = prun.all_property_roots(cfg)
@@ -429,7 +429,7 @@ def test_read_build_config_merges_defaults_with_the_yaml(surf_cfg, depth_cfg):
 
 
 # ===========================================================================
-#  Phase 4 -- the ice mask is a per-step toggle
+#  The ice mask is a per-step toggle
 # ===========================================================================
 
 def test_ice_mask_off_everywhere_by_default(spies, depth_cfg):
@@ -464,11 +464,10 @@ def test_masking_gradb2_also_builds_icearea(spies, tmp_path):
 
 def test_zarr_to_nc_passes_ice_mask_and_one_date_prefix(
         monkeypatch, tmp_path, surf_cfg):
-    """Breakages #5 and #6, together.
+    """The fronts-side export forwards ice_mask and pins one date_prefix.
 
-    The fronts-side export must (a) forward the ice_mask flag and (b) pin a
-    single date_prefix -- the old code passed every date in the config, which
-    zarr_to_netcdf rejects when an output filename is given.
+    Passing every date in the config instead would be rejected upstream as soon
+    as an output filename is given.
     """
     llc_io.set_fronts_path(str(tmp_path / "Fronts"))
     spy = _Spy()
@@ -479,7 +478,7 @@ def test_zarr_to_nc_passes_ice_mask_and_one_date_prefix(
 
     kw = spy.kwargs
     assert kw["date_prefix"] == "20121109_120000"
-    assert kw.get("dates") is None            # NOT the whole date_iterations list
+    assert kw.get("dates") is None            # one snapshot, not the whole list
     assert kw["ice_mask"] is True
     assert kw["ice_mask_dataset_name"] == "icearea.zarr"
     assert kw["channels"] == ["gradb2"]
