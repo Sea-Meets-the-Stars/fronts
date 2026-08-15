@@ -26,6 +26,64 @@ _fronts_root = None
 if os.getenv('OS_OGCM') is not None:
     _fronts_root = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts')
 
+# Run layout.  ``_run_dir`` is the sub-path under the root that holds one
+# build's products; ``_file_tag`` is the suffix stamped into every filename.
+# They are separate so a build can be organised by its own version while the
+# files stay named after the dataset they were derived from.  Both fall back to
+# the ``version`` argument when unset.
+_run_dir = None
+_file_tag = None
+
+
+def set_run_layout(run_dir: str, file_tag: str = None):
+    """Set the output sub-path and filename tag for this run.
+
+    ::
+
+        set_fronts_path('/.../LLC/Fronts')
+        set_run_layout('V5/SURF', file_tag='v2_2_01')
+        # -> /.../LLC/Fronts/V5/SURF/20111204_000000/
+        #        LLC4320_2011-12-04T00_00_00_gradb2_v2_2_01.nc
+
+    Parameters
+    ----------
+    run_dir : str
+        Sub-path under the Fronts root, e.g. ``'V5/SURF'``.
+    file_tag : str, optional
+        Filename suffix, e.g. the source ``run_id``.  Defaults to *run_dir*.
+    """
+    global _run_dir, _file_tag
+    _run_dir = run_dir
+    _file_tag = file_tag if file_tag is not None else run_dir
+
+
+def clear_run_layout():
+    """Fall back to using the ``version`` argument for both path and tag."""
+    global _run_dir, _file_tag
+    _run_dir = None
+    _file_tag = None
+
+
+def _resolve_run_dir(version: str) -> str:
+    return _run_dir if _run_dir is not None else version
+
+
+def _resolve_file_tag(version: str) -> str:
+    return _file_tag if _file_tag is not None else version
+
+
+def run_root(version: str = None, generate: bool = False) -> str:
+    """Return the directory holding all timestamps for this run.
+
+    ``{fronts_path}/{run_dir}`` -- the level above the per-timestamp folders,
+    where run-wide files such as the ``.meta`` descriptor live.
+    """
+    d = os.path.join(get_fronts_path(), _resolve_run_dir(version))
+    if generate:
+        os.makedirs(d, exist_ok=True)
+    return d
+
+
 def set_fronts_path(path:str):
     """Set the root directory for all Fronts I/O products.
 
@@ -100,7 +158,7 @@ def fronts_dir(version: str, timestamp: str, generate: bool = False) -> str:
         str: The path to the directory.
     """
     ts_dir = _format_timestamp(timestamp)
-    d = os.path.join(get_fronts_path(), version, ts_dir)
+    d = os.path.join(get_fronts_path(), _resolve_run_dir(version), ts_dir)
     if generate:
         os.makedirs(d, exist_ok=True)
     # Return
@@ -132,7 +190,7 @@ def derived_filename(timestamp:str, field:str,
     # Generate base.  The tag is the run_id used verbatim (no 'V' prefix), so
     # it matches dbof.run_all_subsets, which names exported NetCDFs
     # LLC4320_{date}_{channel}_{run_id}.nc.
-    basefile = f'{root}_{timestamp}_{field}_{version}.nc'
+    basefile = f'{root}_{timestamp}_{field}_{_resolve_file_tag(version)}.nc'
 
     # Join and return
     return os.path.join(path, basefile)

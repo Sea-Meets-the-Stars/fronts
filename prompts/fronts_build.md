@@ -10,10 +10,11 @@ fields. Data production is delegated to the preprocessing repo
 
 | Step | What it does | Cost |
 |------|--------------|------|
-| **1** | Build the frontal-structure zarr store, export **gradb2 only** → `gradb2.nc` | 1 subset, 1 NetCDF |
+| **1** | Export **gradb2 only** from the frontal-structure store → `gradb2.nc` | 1 NetCDF |
 | **2** | Threshold gradb2 → binary front map (`*_bfronts.npy`) | cheap, local |
 | **3** | Label the fronts + geometric properties (`label_map`, groups) | cheap, local |
-| **4** | Generate + export **every other subset**, then co-locate | expensive |
+| **4** | Build + export **every other subset**, then co-locate | expensive |
+| **5** | Copy the front products back to S3 | network |
 
 Steps 1–3 are self-contained. If all you want is a map of where the fronts are,
 stop after 3 and never pay for the other ~140 channels.
@@ -24,13 +25,33 @@ cd fronts/runs/prototypes/one_full
 python build_v5.py 1 run_v5_100_timesteps.yaml   # gradb2
 python build_v5.py 2 run_v5_100_timesteps.yaml   # find
 python build_v5.py 3 run_v5_100_timesteps.yaml   # group
+python build_v5.py 5 run_v5_100_timesteps.yaml   # push to S3
 python build_v5.py 4 run_v5_100_timesteps.yaml   # everything else + co-locate
 ```
 
-Everything is re-runnable: existing zarr stores and `.nc` files are skipped.
+Everything is re-runnable: existing `.nc` files and S3 keys are skipped.
 
 To try a single timestep first, comment out the other dates in the config's
 `date_iterations` list.
+
+## Where the zarr stores come from
+
+Step 1 reads a store that already exists. Building one is a preprocessing-repo
+job, run separately:
+
+```bash
+run-all-subsets --config <cfg> --netcdf-base <dir> \
+    --subsets frontal_structure --generate-only
+```
+
+Step 4 does call `run_all_subsets`, but only to build stores
+(`--generate-only`). Both steps export through `export_channels`, so every
+product lands in this build's directory. `run_all_subsets` exports to
+`{netcdf_base}/{run_id}/{date_prefix}/`, which is a different place — using it
+would scatter the property files where co-location does not look.
+
+Step 1 does not call it at all, because it has no `--channels` flag: its export
+phase writes all 8 SURF channels (21 on DEPTH) when only gradb2 is wanted.
 
 ## Why this differs from build_v4
 
@@ -89,8 +110,8 @@ Every key has a default (`fronts.properties.run.BUILD_DEFAULTS`), so the block
 is optional.
 
 **Ice mask.** Two independent toggles, because you usually want fronts found on
-the *unmasked* field and masking applied only afterwards. Turning on
-`ice_mask_find` makes step 1 also build `icearea.zarr`, since the mask is read
+the *unmasked* field and masking applied only afterwards. `ice_mask_find`
+requires `icearea.zarr` to exist for the same run_id and date — the mask is read
 from it at export time.
 
 **Pipeline.** Set `pipeline: SURF | OSN | DEPTH`. Nothing else in the driver
@@ -100,12 +121,95 @@ Note SURF reads Theta/Salt from OSN kerchunk and only the forcing fields
 
 ## Paths
 
-`run_id` is the run tag, used verbatim — no `V` prefix, no separate version.
-Producer and consumer line up automatically:
+Products are organised by the **build** that made them; filenames keep the
+**source** `run_id`, so a file always names the dataset it came from.
 
 ```
-$OS_OGCM/LLC/Fronts/{run_id}/{YYYYMMDD_HHMMSS}/LLC4320_{timestamp}_{channel}_{run_id}.nc
+source   s3://{bucket}/{folder}/{run_id}/{YYYYMMDD_HHMMSS}/{subset}.zarr
+local    $OS_OGCM/LLC/Fronts/{build_version}/{pipeline}/{YYYYMMDD_HHMMSS}/
+             LLC4320_{timestamp}_{channel}_{run_id}.nc
+             LLC4320_{timestamp}_{run_id}_bfronts.npy
+             labeled_fronts_global_*, front_index_*, global_front_geometry_*,
+             front_properties_*, metadata_*
+pushed   s3://{bucket}/{folder}/{run_id}/{YYYYMMDD_HHMMSS}/Fronts/
 ```
+
+For example, `V5` + `SURF` + `v2_2_01`:
+
+```
+s3://dbof/globals_for_cutouts/v2_2_01/20111204_000000/frontal_structure.zarr
+$OS_OGCM/LLC/Fronts/V5/SURF/20111204_000000/LLC4320_2011-12-04T00_00_00_gradb2_v2_2_01.nc
+s3://dbof/globals_for_cutouts/v2_2_01/20111204_000000/Fronts/...
+```
+
+`fronts.llc.io.set_run_layout()` owns the split. `folder` defaults to
+`surface_fields/` (SURF, OSN) or `depth_fields/` (DEPTH); set `output.folder` to
+read stores written somewhere else.
+
+`V5` comes from `build_v5.py` itself (`BUILD_VERSION`), not from the config, so
+everything this driver writes lands under `Fronts/V5/{pipeline}/` no matter
+which dataset it read. The source dataset is recorded in two other places: the
+filename tag, and the `.meta` name.
+
+| | pipeline | `run_id` | `output.folder` | source store | local products |
+|---|---|---|---|---|---|
+| A | DEPTH | `V5` | *omit* | `s3://dbof/depth_fields/V5/{ts}/` | `Fronts/V5/DEPTH/{ts}/…_gradb2_sfc_V5.nc` |
+| B | SURF | `v2_00_2` | `globals_for_cutouts/` | `s3://dbof/globals_for_cutouts/v2_00_2/{ts}/` | `Fronts/V5/SURF/{ts}/…_gradb2_v2_00_2.nc` |
+
+In A the folder is the DEPTH default, so it can be omitted. `run_id` is a free
+string: underscore-heavy tags survive the filename parser that recovers them.
+
+Two source datasets with the same pipeline therefore share a local directory.
+Nothing is overwritten — every product name carries its tag — and the push
+filters on that tag, so one run never uploads another's files.
+
+The raw store (`s3://dbof/LLC4320_RAW/{SURFACE,DEPTH}/`) is not configurable
+from here — it is a constant in `dbof.global_dataset_creation.data_sources`,
+picked by pipeline.
+
+## Pushing back to S3
+
+Step 5 (`fronts.llc.publish`) copies each timestamp's products into a `Fronts/`
+folder beside the zarr stores they came from. The destination is read from the
+same config that drove the run, so products cannot land next to the wrong
+dataset. Existing keys are skipped unless clobbering.
+
+The `.nc` exports are deliberately **not** pushed — they are exports of the zarr
+store sitting in the parent directory. Change `publish.PRODUCT_PATTERNS` if you
+want them.
+
+## The run descriptor
+
+Step 1 writes one YAML file at the top of the run directory:
+
+```
+$OS_OGCM/LLC/Fronts/V5/SURF/fronts_meta_V5_SURF_from_globals_for_cutouts_v2_2_01.meta
+```
+
+The name says which dataset the fronts came from without opening anything.
+Inside: pipeline, S3 store URI, subsets, the resolved gradb2 channel, the
+front-finding config, ice-mask flags, date count and range, and the git SHA of
+both repos at the time of the run.
+
+## Checking a store before you run
+
+```
+
+```python
+from dbof.io.filesystems import create_s3_filesystems
+from dbof.global_dataset_creation import check_existence
+from dbof.global_dataset_creation.zarr_dataset_global import make_run_prefix
+
+_, fs = create_s3_filesystems("https://s3-west.nrp-nautilus.io")
+path = make_run_prefix("dbof/", "globals_for_cutouts/", "v2_2_01",
+                       "frontal_structure.zarr", date_prefix="20111204_000000")
+print(check_existence.store_channels(fs, path))
+```
+
+The export needs only the one channel it asks for, so a store missing newer
+channels (`density`, `buoyancy`, ...) still works for gradb2. `run_all_subsets`
+would judge such a store incomplete and rebuild it — another reason step 1 does
+not call it.
 
 ## Tests
 
@@ -113,8 +217,9 @@ $OS_OGCM/LLC/Fronts/{run_id}/{YYYYMMDD_HHMMSS}/LLC4320_{timestamp}_{channel}_{ru
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-35 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+58 tests, fully offline — no S3, no OSN, no data. They cover the contract with
 the preprocessing repo, that step 1 builds one subset and exports one channel,
-pipeline resolution, the two ice-mask toggles, and the shipped 100-timestep
-config. If the preprocessing repo changes shape underneath us,
+pipeline resolution, the two ice-mask toggles, the output layout, the S3 push,
+the run descriptor, both naming schemes across all three pipelines, and the
+shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
 these fail fast and name what moved.
