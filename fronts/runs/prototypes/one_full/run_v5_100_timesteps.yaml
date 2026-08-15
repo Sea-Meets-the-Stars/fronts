@@ -83,9 +83,10 @@ build:
   # Front-finding config -> fronts/finding/configs/finding_config_D.yaml
   finding_config: "D"
 
-  # Ice masking, per step.  Fronts are found on the unmasked gradb2 field;
-  # the mask is applied later, to the fields the fronts are co-located with.
-  # Setting ice_mask_find true makes step 1 build icearea.zarr as well.
+  # Ice masking, per step.  As set here, fronts are found on the unmasked
+  # gradb2 field and the mask is applied later, to the fields the fronts are
+  # co-located with.  Either flag requires icearea.zarr to exist for the same
+  # run_id and date -- the mask is read from it at export time.
   ice_mask_find:  false
   ice_mask_props: true
 
