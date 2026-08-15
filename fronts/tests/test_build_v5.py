@@ -10,6 +10,7 @@ Run with::
 
     pytest fronts/tests/test_build_v5.py -v
 """
+import os
 import inspect
 import re
 import textwrap
@@ -341,7 +342,7 @@ def test_export_channels_skips_files_that_already_exist(
     llc_io.set_fronts_path(str(tmp_path / "Fronts"))
     ts = "2012-11-09T12_00_00"
     target = llc_io.derived_filename(ts, "gradb2", version="V5test")
-    import os
+
     os.makedirs(os.path.dirname(target), exist_ok=True)
     open(target, "w").close()
 
@@ -485,6 +486,87 @@ def test_zarr_to_nc_passes_ice_mask_and_one_date_prefix(
     assert kw["dataset_name"] == "frontal_structure.zarr"
     assert kw["folder"] == "surface_fields/"
     assert kw["output_filename"] == "LLC4320_2012-11-09T12_00_00_gradb2_V5test.nc"
+
+
+# ===========================================================================
+#  Narrowing a run to a few timesteps
+# ===========================================================================
+
+def test_date_subset_config_keeps_the_first_n(surf_cfg, tmp_path):
+    out = prun.write_date_subset_config(surf_cfg, ndates=1,
+                                        out_dir=str(tmp_path / "sub"))
+    assert out != surf_cfg                       # original untouched
+    cfg = prun.read_build_config(out)
+    assert cfg["date_iterations"] == ["2012-11-09 12:00:00"]
+    assert prun.read_build_config(surf_cfg)["date_iterations"] != \
+        cfg["date_iterations"]
+
+
+def test_date_subset_config_preserves_everything_else(surf_cfg, tmp_path):
+    """Only the date list changes -- pipeline, run_id, subsets, build: survive."""
+    out = prun.write_date_subset_config(surf_cfg, dates=["2012-11-10 06:00:00"],
+                                        out_dir=str(tmp_path / "sub"))
+    a, b = prun.read_build_config(surf_cfg), prun.read_build_config(out)
+    for key in ("pipeline", "run_id", "active_subsets", "finding_config",
+                "ice_mask_props", "percentiles"):
+        assert a[key] == b[key]
+    assert b["timestamps"] == ["2012-11-10T06_00_00"]
+
+
+def test_date_subset_config_rejects_a_date_not_in_the_config(surf_cfg):
+    with pytest.raises(ValueError, match="not in"):
+        prun.write_date_subset_config(surf_cfg, dates=["1999-01-01 00:00:00"])
+
+
+def test_no_date_filter_returns_the_original_path(surf_cfg):
+    assert prun.write_date_subset_config(surf_cfg) == surf_cfg
+
+
+def test_narrowing_reaches_both_the_generator_and_the_export(spies, surf_cfg):
+    """The reduced config is what run_all_subsets sees, so it builds 1 store."""
+    build_v5.main(1, surf_cfg, ndates=1)
+    assert len(spies["export"].calls) == 1
+    passed_cfg = spies["generate"].args[0]
+    assert passed_cfg != surf_cfg
+    assert prun.read_build_config(passed_cfg)["date_iterations"] == \
+        ["2012-11-09 12:00:00"]
+
+
+# ===========================================================================
+#  The shipped 100-timestep config
+# ===========================================================================
+
+_RUN_CFG = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "runs", "prototypes", "one_full", "run_v5_100_timesteps.yaml")
+
+
+@pytest.mark.skipif(not os.path.exists(_RUN_CFG), reason="config not present")
+def test_shipped_config_is_coherent():
+    cfg = prun.read_build_config(_RUN_CFG)
+    assert cfg["pipeline"] == "SURF"
+    assert len(cfg["date_iterations"]) == 100
+    assert len(set(cfg["date_iterations"])) == 100      # no duplicates
+    assert "frontal_structure" in cfg["active_subsets"]
+
+    # Steps 1-3 resolve without touching S3.
+    channel = prun.channel_for_root(_RUN_CFG, cfg["gradb2_root"],
+                                    depth_suffix=cfg["finding_suffix"])
+    assert channel == "gradb2"
+    assert prun.subset_for_channel(_RUN_CFG, channel) == "frontal_structure"
+
+    # The finding config it names actually exists.
+    from fronts.finding import config as find_config
+    assert os.path.isfile(find_config.config_filename(cfg["finding_config"]))
+
+
+@pytest.mark.skipif(not os.path.exists(_RUN_CFG), reason="config not present")
+def test_shipped_config_dates_match_the_transfer_config():
+    """Every date is one of the timesteps sitting in LLC4320_RAW/SURFACE."""
+    cfg = prun.read_build_config(_RUN_CFG)
+    for date in cfg["date_iterations"]:
+        prefix = date_to_run_id(date)               # raises if out of range
+        assert len(prefix) == 15 and prefix[8] == "_"
 
 
 def test_generate_global_dataset_builds_the_right_command(monkeypatch):

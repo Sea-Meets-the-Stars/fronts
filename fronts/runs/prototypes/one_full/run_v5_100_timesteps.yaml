@@ -1,0 +1,180 @@
+# ---------------------------------------------------------------------------
+# build_v5 -- SURF pipeline, 100 timesteps.
+#
+# Produces, for each of the 100 snapshots below:
+#     LLC4320_{timestamp}_gradb2_V5_surf_100.nc     (step 1)
+#     LLC4320_{timestamp}_V5_surf_100_bfronts.npy   (step 2)
+#     the label map + front-group tables               (step 3)
+#
+# under $OS_OGCM/LLC/Fronts/V5_surf_100/{YYYYMMDD_HHMMSS}/.
+#
+# The dates are the 100 timesteps transferred to LLC4320_RAW/SURFACE by
+# llc4320-native-grid-preprocessing/configs/transfer/run_surface_100.yaml.
+#
+# SURF reads Theta and Salt (all gradb2 needs) from the OSN kerchunk endpoints
+# and the forcing fields from that transferred store, so no depth transfer is
+# required.  Channel lists and dataset names live in
+# dbof.global_dataset_creation.subset_definitions, keyed by pipeline -- not here.
+#
+#   python build_v5.py 1 run_v5_100_timesteps.yaml --ndates 1   # smoke test
+#   python build_v5.py 1 run_v5_100_timesteps.yaml              # all 100
+# ---------------------------------------------------------------------------
+
+pipeline: "SURF"
+
+run:
+  # Used verbatim as both the output directory and the NetCDF filename suffix.
+  run_id: "V5_surf_100"
+  log_dir: "./logs/"
+
+output:
+  s3_endpoint: "https://s3-west.nrp-nautilus.io"
+  bucket: "dbof/"
+  # folder resolves to surface_fields/ for SURF; dataset_name is per-subset.
+
+runtime:
+  zarr_async_concurrency: 8
+  dask_scheduler: "distributed"
+  dask_n_workers: 4
+  dask_threads_per_worker: 4
+
+# ---------------------------------------------------------------------------
+# Subsets to produce.  Steps 1-3 only ever touch the subset that owns gradb2,
+# so frontal_structure is all that is needed here; icearea is listed because
+# the ice mask is read from it.  Uncomment the rest before running step 4 --
+# they are what gets co-located, and they are the expensive part.
+# ---------------------------------------------------------------------------
+active_subsets:
+  - frontal_structure   # gradb2, gradsalt2, gradtheta2, gradeta2, gradrho2,
+                        # turner_angle, density, buoyancy
+  - icearea             # SIarea
+  # - kinematic         # relative_vorticity, strain_*, divergence,
+  #                     # rossby_number, okubo_weiss, coriolis_f
+  # - frontogenesis     # frontogenesis_tendency/geo/ageo, ug, vg
+  # - native_fields     # Theta, Salt, Eta, W (+ computed U, V)
+  # - surface_wind      # oceTAUX, oceTAUY, oceQnet, wind_stress_curl,
+  #                     # ekman_pumping, u_ekman, v_ekman
+
+# depth_suffixes has no effect on SURF -- every channel is inherently 2D.
+
+# ---------------------------------------------------------------------------
+# build_v5 knobs.  Every key has a default in
+# fronts.properties.run.BUILD_DEFAULTS, so this block is optional.
+# ---------------------------------------------------------------------------
+build:
+  # Front-finding config -> fronts/finding/configs/finding_config_D.yaml
+  finding_config: "D"
+
+  # Ice masking, per step.  Fronts are found on the unmasked gradb2 field;
+  # the mask is applied later, to the fields the fronts are co-located with.
+  # Setting ice_mask_find true makes step 1 build icearea.zarr as well.
+  ice_mask_find:  false
+  ice_mask_props: true
+
+  # Extra percentile columns per co-located channel (step 4), alongside the
+  # default mean/std/median.
+  percentiles: [25, 75, 90]
+
+data:
+  # ISO 'YYYY-MM-DD HH:MM:SS'.  100 timesteps, 2011-12-04 to 2012-11-15.
+  date_iterations:
+    - '2011-12-04 00:00:00'
+    - '2011-12-06 18:00:00'
+    - '2011-12-09 19:00:00'
+    - '2011-12-12 11:00:00'
+    - '2011-12-16 03:00:00'
+    - '2011-12-18 17:00:00'
+    - '2011-12-22 08:00:00'
+    - '2011-12-25 15:00:00'
+    - '2011-12-29 16:00:00'
+    - '2012-01-04 11:00:00'
+    - '2012-01-07 09:00:00'
+    - '2012-01-11 19:00:00'
+    - '2012-01-13 21:00:00'
+    - '2012-01-17 18:00:00'
+    - '2012-01-22 13:00:00'
+    - '2012-01-25 05:00:00'
+    - '2012-01-28 09:00:00'
+    - '2012-01-31 14:00:00'
+    - '2012-02-04 04:00:00'
+    - '2012-02-08 23:00:00'
+    - '2012-02-10 04:00:00'
+    - '2012-02-15 14:00:00'
+    - '2012-02-18 14:00:00'
+    - '2012-02-19 18:00:00'
+    - '2012-02-24 15:00:00'
+    - '2012-02-29 18:00:00'
+    - '2012-03-03 05:00:00'
+    - '2012-03-04 21:00:00'
+    - '2012-03-10 23:00:00'
+    - '2012-03-14 08:00:00'
+    - '2012-03-18 06:00:00'
+    - '2012-03-19 10:00:00'
+    - '2012-03-22 15:00:00'
+    - '2012-03-28 20:00:00'
+    - '2012-03-29 09:00:00'
+    - '2012-04-03 18:00:00'
+    - '2012-04-05 15:00:00'
+    - '2012-04-09 22:00:00'
+    - '2012-04-14 01:00:00'
+    - '2012-04-17 08:00:00'
+    - '2012-04-20 19:00:00'
+    - '2012-04-23 00:00:00'
+    - '2012-04-26 10:00:00'
+    - '2012-04-30 08:00:00'
+    - '2012-05-03 11:00:00'
+    - '2012-05-09 07:00:00'
+    - '2012-05-12 07:00:00'
+    - '2012-05-16 06:00:00'
+    - '2012-05-18 09:00:00'
+    - '2012-05-23 03:00:00'
+    - '2012-05-27 04:00:00'
+    - '2012-05-29 08:00:00'
+    - '2012-06-02 03:00:00'
+    - '2012-06-07 12:00:00'
+    - '2012-06-10 08:00:00'
+    - '2012-06-14 11:00:00'
+    - '2012-06-15 21:00:00'
+    - '2012-06-20 11:00:00'
+    - '2012-06-24 21:00:00'
+    - '2012-06-27 08:00:00'
+    - '2012-07-01 13:00:00'
+    - '2012-07-04 12:00:00'
+    - '2012-07-08 02:00:00'
+    - '2012-07-10 11:00:00'
+    - '2012-07-15 16:00:00'
+    - '2012-07-16 14:00:00'
+    - '2012-07-21 16:00:00'
+    - '2012-07-25 16:00:00'
+    - '2012-07-29 15:00:00'
+    - '2012-08-01 00:00:00'
+    - '2012-08-04 00:00:00'
+    - '2012-08-07 07:00:00'
+    - '2012-08-11 04:00:00'
+    - '2012-08-14 22:00:00'
+    - '2012-08-19 06:00:00'
+    - '2012-08-23 08:00:00'
+    - '2012-08-24 00:00:00'
+    - '2012-08-30 12:00:00'
+    - '2012-09-01 15:00:00'
+    - '2012-09-04 13:00:00'
+    - '2012-09-09 03:00:00'
+    - '2012-09-12 07:00:00'
+    - '2012-09-14 16:00:00'
+    - '2012-09-18 11:00:00'
+    - '2012-09-23 08:00:00'
+    - '2012-09-26 09:00:00'
+    - '2012-09-29 14:00:00'
+    - '2012-10-02 13:00:00'
+    - '2012-10-07 12:00:00'
+    - '2012-10-09 17:00:00'
+    - '2012-10-13 00:00:00'
+    - '2012-10-18 12:00:00'
+    - '2012-10-19 20:00:00'
+    - '2012-10-23 05:00:00'
+    - '2012-10-28 09:00:00'
+    - '2012-10-31 14:00:00'
+    - '2012-11-02 03:00:00'
+    - '2012-11-05 18:00:00'
+    - '2012-11-10 06:00:00'
+    - '2012-11-15 09:00:00'

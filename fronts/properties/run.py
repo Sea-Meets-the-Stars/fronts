@@ -3,6 +3,7 @@
 import os
 import sys
 import subprocess
+import tempfile
 import yaml
 
 import numpy as np
@@ -366,6 +367,62 @@ def read_build_config(config_file: str) -> dict:
     if not out['run_id']:
         raise ValueError(f"'run.run_id' must be set in {config_file}")
     return out
+
+
+def write_date_subset_config(config_file: str, dates: list = None,
+                             ndates: int = None, out_dir: str = None) -> str:
+    """Write a copy of *config_file* restricted to a subset of its dates.
+
+    Both the preprocessing driver and the fronts steps read their date list
+    from the config, so narrowing a run to a few timesteps means narrowing the
+    config itself.  Everything else is copied verbatim, which keeps one file as
+    the source of truth for a smoke test and the full run alike.
+
+    Parameters
+    ----------
+    config_file : str
+        Path to the (thin) global YAML config.
+    dates : list of str, optional
+        Explicit ISO dates to keep.  Each must appear in the config.
+    ndates : int, optional
+        Keep the first *ndates* dates.  Ignored if *dates* is given.
+    out_dir : str, optional
+        Where to write the copy.  Defaults to a temporary directory.
+
+    Returns
+    -------
+    str
+        Path to the reduced config.  The original is never modified.
+    """
+    with open(config_file) as fh:
+        raw = yaml.safe_load(fh) or {}
+
+    available = (raw.get('data') or {}).get('date_iterations') or []
+    if dates:
+        missing = [d for d in dates if d not in available]
+        if missing:
+            raise ValueError(
+                f"Date(s) {missing} are not in {config_file}.  "
+                f"First few available: {available[:3]}")
+        keep = list(dates)
+    elif ndates:
+        keep = available[:ndates]
+    else:
+        return config_file
+
+    raw.setdefault('data', {})['date_iterations'] = keep
+
+    if out_dir is None:
+        out_dir = tempfile.mkdtemp(prefix='fronts_build_')
+    os.makedirs(out_dir, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(config_file))[0]
+    out_path = os.path.join(out_dir, f'{stem}_{len(keep)}dates.yaml')
+    with open(out_path, 'w') as fh:
+        yaml.safe_dump(raw, fh, sort_keys=False, default_flow_style=False)
+
+    print(f"Restricted to {len(keep)} of {len(available)} date(s) "
+          f"-> {out_path}")
+    return out_path
 
 
 def channel_for_root(config_file: str, root: str,
