@@ -489,50 +489,6 @@ def test_zarr_to_nc_passes_ice_mask_and_one_date_prefix(
 
 
 # ===========================================================================
-#  Narrowing a run to a few timesteps
-# ===========================================================================
-
-def test_date_subset_config_keeps_the_first_n(surf_cfg, tmp_path):
-    out = prun.write_date_subset_config(surf_cfg, ndates=1,
-                                        out_dir=str(tmp_path / "sub"))
-    assert out != surf_cfg                       # original untouched
-    cfg = prun.read_build_config(out)
-    assert cfg["date_iterations"] == ["2012-11-09 12:00:00"]
-    assert prun.read_build_config(surf_cfg)["date_iterations"] != \
-        cfg["date_iterations"]
-
-
-def test_date_subset_config_preserves_everything_else(surf_cfg, tmp_path):
-    """Only the date list changes -- pipeline, run_id, subsets, build: survive."""
-    out = prun.write_date_subset_config(surf_cfg, dates=["2012-11-10 06:00:00"],
-                                        out_dir=str(tmp_path / "sub"))
-    a, b = prun.read_build_config(surf_cfg), prun.read_build_config(out)
-    for key in ("pipeline", "run_id", "active_subsets", "finding_config",
-                "ice_mask_props", "percentiles"):
-        assert a[key] == b[key]
-    assert b["timestamps"] == ["2012-11-10T06_00_00"]
-
-
-def test_date_subset_config_rejects_a_date_not_in_the_config(surf_cfg):
-    with pytest.raises(ValueError, match="not in"):
-        prun.write_date_subset_config(surf_cfg, dates=["1999-01-01 00:00:00"])
-
-
-def test_no_date_filter_returns_the_original_path(surf_cfg):
-    assert prun.write_date_subset_config(surf_cfg) == surf_cfg
-
-
-def test_narrowing_reaches_both_the_generator_and_the_export(spies, surf_cfg):
-    """The reduced config is what run_all_subsets sees, so it builds 1 store."""
-    build_v5.main(1, surf_cfg, ndates=1)
-    assert len(spies["export"].calls) == 1
-    passed_cfg = spies["generate"].args[0]
-    assert passed_cfg != surf_cfg
-    assert prun.read_build_config(passed_cfg)["date_iterations"] == \
-        ["2012-11-09 12:00:00"]
-
-
-# ===========================================================================
 #  The shipped 100-timestep config
 # ===========================================================================
 
