@@ -296,17 +296,46 @@ def grab_velocity(cutout:pandas.core.series.Series, ds=None,
                     
 def zarr_to_nc(timestamp: str, config_file: str, subset: str,
                 field: str = None, channels: list = None,
-                version: str = None, run_id: str = None):
-    """Write netcdf from the S3 zarr store.
+                version: str = None, run_id: str = None,
+                ice_mask: bool = False,
+                ice_mask_dataset_name: str = 'icearea.zarr'):
+    """Write netcdf from the S3 zarr store, for ONE timestamp.
 
     Pass either `field` (single field, e.g. 'gradb2_sfc') or `channels` (list
     of field names for multi-channel subsets). The output path is placed under
-    ``PATH/V{version}/YYYYMMDD_HHMMSS/``.  Use :func:`set_fronts_path` to
+    ``PATH/{version}/YYYYMMDD_HHMMSS/``.  Use :func:`set_fronts_path` to
     override the root directory.
 
     The S3 location and zarr store name are resolved from the (thin, global)
     config YAML plus the canonical ``subset_definitions`` in the preprocessing
     package -- the ``subsets:`` block no longer lives in the YAML.
+
+    Parameters
+    ----------
+    timestamp : str
+        Snapshot timestamp, e.g. '2012-11-09T12_00_00'.  ONLY this snapshot is
+        converted: the date_prefix is derived from it and handed to
+        ``zarr_to_netcdf`` explicitly.  (Previously the whole
+        ``data.date_iterations`` list was passed, which raises upstream as soon
+        as the config holds more than one date -- fine for a 1-date config,
+        fatal for e.g. a 100-timestep run.)
+    config_file : str
+        Path to the (thin) global YAML config.
+    subset : str
+        dbof subset owning the channel(s), e.g. 'frontal_structure'.
+    field : str, optional
+        Single fully-expanded channel name.
+    channels : list, optional
+        Multiple channel names (mutually exclusive with *field*).
+    version : str
+        Run tag (the run_id), used verbatim in the output path.
+    run_id : str, optional
+        Override the run_id read from the config.
+    ice_mask : bool
+        NaN-mask ice-covered points (SIarea > 0) during the export.  Requires
+        ``icearea.zarr`` to exist for the same run_id + date_prefix.
+    ice_mask_dataset_name : str
+        Zarr store holding SIarea.  Only used when *ice_mask* is True.
     """
     name = field if field is not None else subset
     full_path = derived_filename(timestamp, name, version=version)
@@ -331,6 +360,12 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
     # folder is pipeline-derived unless explicitly overridden in the YAML.
     folder = output.get('folder') or default_output_folder(pipeline)
 
+    # ONE snapshot per call: derive its date_prefix ('YYYYMMDD_HHMMSS') rather
+    # than handing over every date in the config.
+    date_prefix = _format_timestamp(timestamp)
+
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
     zarr_to_netcdf.main(
         os.path.dirname(full_path),
         output_filename=os.path.basename(full_path),
@@ -339,7 +374,9 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
         s3_endpoint=output.get('s3_endpoint', 'https://s3-west.nrp-nautilus.io'),
         bucket=output.get('bucket', 'dbof/'),
         channels=[field] if field is not None else channels,
-        dates=data_cfg.get('date_iterations'),
+        date_prefix=date_prefix,
         dataset_name=dataset_name,
-        folder=folder)
+        folder=folder,
+        ice_mask=ice_mask,
+        ice_mask_dataset_name=ice_mask_dataset_name)
     return full_path
