@@ -121,9 +121,10 @@ def colocate_fronts(timestamp: str, config: str, version: str,
     if output_dir is None:
         output_dir = fdir
 
-    # Check if output already exists
-    time_str = timestamp.replace('_', ':')   # '2012-11-09T12:00:00'
-    run_tag  = f'{version}_bin_{config}'     # e.g. 'Vtest_bin_D' (version = run_id)
+    # Check if output already exists.  The run_tag must be derived from the
+    # binary-fronts filename with the same parser group_fronts() used when it
+    # wrote the label map, or the two disagree and the label map is not found.
+    time_str, run_tag, _ = prop_algorithms._parse_fronts_filename(fronts_file)
     out_file = properties_io.get_global_front_output_path(
         output_dir, time_str, 'properties', run_tag)
     if os.path.isfile(out_file) and not clobber:
@@ -307,6 +308,8 @@ def expand_property_roots(property_roots: list, config_file: str) -> list:
 
 #: Defaults for the optional ``build:`` block in a run YAML.
 BUILD_DEFAULTS = {
+    'build_version':    'V5',     # products land under {root}/{version}/{pipeline}/
+                                  # (drivers override this with their own)
     'finding_config':   'D',      # fronts/finding/configs/finding_config_D.yaml
     'gradb2_root':      'gradb2',
     'finding_suffix':   'sfc',    # which depth suffix to find fronts in (DEPTH)
@@ -317,8 +320,8 @@ BUILD_DEFAULTS = {
 }
 
 
-def read_build_config(config_file: str) -> dict:
-    """Read a run YAML into everything build_v5 needs to drive a run.
+def read_build_config(config_file: str, build_version: str = None) -> dict:
+    """Read a run YAML into everything a build driver needs.
 
     Single source of truth: pipeline, run_id, dates and subsets all come from
     the config, so a driver script holds no run-specific state.
@@ -327,6 +330,10 @@ def read_build_config(config_file: str) -> dict:
     ----------
     config_file : str
         Path to the (thin) global YAML config.
+    build_version : str, optional
+        Overrides ``build.build_version``.  Drivers pass their own version so
+        the output directory is a property of the code that made the products,
+        not of the dataset they were made from.
 
     Returns
     -------
@@ -334,7 +341,8 @@ def read_build_config(config_file: str) -> dict:
         ``pipeline``, ``run_id``, ``active_subsets``, ``depth_suffixes``,
         ``date_iterations`` (ISO strings from the YAML), ``date_prefixes``
         (``YYYYMMDD_HHMMSS``), ``timestamps`` (``YYYY-MM-DDTHH_MM_SS``, the
-        form used in every fronts filename), plus every key in
+        form used in every fronts filename), the S3 ``bucket``/``folder``, and
+        ``run_dir`` (``{build_version}/{pipeline}``), plus every key in
         :data:`BUILD_DEFAULTS` merged with the YAML's ``build:`` block.
     """
     with open(config_file) as fh:
@@ -352,6 +360,8 @@ def read_build_config(config_file: str) -> dict:
 
     active = raw.get('active_subsets') or valid_subsets(pipeline)
 
+    output = raw.get('output') or {}
+
     out = dict(BUILD_DEFAULTS)
     out.update(raw.get('build') or {})
     out.update({
@@ -362,9 +372,16 @@ def read_build_config(config_file: str) -> dict:
         'date_iterations': list(dates),
         'date_prefixes':   prefixes,
         'timestamps':      [prefix_to_filename_date(p) for p in prefixes],
+        'bucket':          output.get('bucket', 'dbof/'),
+        'folder':          output.get('folder'),
     })
+    if build_version:
+        out['build_version'] = build_version
     if not out['run_id']:
         raise ValueError(f"'run.run_id' must be set in {config_file}")
+    # Products are organised by the build that made them; filenames keep the
+    # source run_id so they stay traceable to the dataset they came from.
+    out['run_dir'] = f"{out['build_version']}/{pipeline}"
     return out
 
 

@@ -2,11 +2,16 @@
 # build_v5 -- SURF pipeline, 100 timesteps.
 #
 # Produces, for each of the 100 snapshots below:
-#     LLC4320_{timestamp}_gradb2_V5_surf_100.nc     (step 1)
-#     LLC4320_{timestamp}_V5_surf_100_bfronts.npy   (step 2)
-#     the label map + front-group tables               (step 3)
+#     LLC4320_{timestamp}_gradb2_v2_2_01.nc      (step 1)
+#     LLC4320_{timestamp}_v2_2_01_bfronts.npy    (step 2)
+#     the label map + front-group tables            (step 3)
 #
-# under $OS_OGCM/LLC/Fronts/V5_surf_100/{YYYYMMDD_HHMMSS}/.
+# under $OS_OGCM/LLC/Fronts/V5/SURF/{YYYYMMDD_HHMMSS}/, then copied back to
+# s3://dbof/globals_for_cutouts/v2_2_01/{YYYYMMDD_HHMMSS}/Fronts/  (step 5).
+#
+# The zarr stores already exist; step 1 only exports from them.  To build them:
+#   run-all-subsets --config <cfg> --netcdf-base <dir> \
+#       --subsets frontal_structure --generate-only
 #
 # The dates are the 100 timesteps transferred to LLC4320_RAW/SURFACE by
 # llc4320-native-grid-preprocessing/configs/transfer/run_surface_100.yaml.
@@ -16,9 +21,10 @@
 # required.  Channel lists and dataset names live in
 # dbof.global_dataset_creation.subset_definitions, keyed by pipeline -- not here.
 #
-#   python build_v5.py 1 run_v5_100_timesteps.yaml   # gradb2
+#   python build_v5.py 1 run_v5_100_timesteps.yaml   # export gradb2
 #   python build_v5.py 2 run_v5_100_timesteps.yaml   # find
 #   python build_v5.py 3 run_v5_100_timesteps.yaml   # group
+#   python build_v5.py 5 run_v5_100_timesteps.yaml   # push to S3
 #
 # To try one timestep first, comment out the other dates below.
 # ---------------------------------------------------------------------------
@@ -26,14 +32,18 @@
 pipeline: "SURF"
 
 run:
-  # Used verbatim as both the output directory and the NetCDF filename suffix.
-  run_id: "V5_surf_100"
+  # The source dataset.  Locates the zarr stores on S3 and is stamped into
+  # every output filename; the output *directory* comes from build_version.
+  run_id: "v2_2_01"
   log_dir: "./logs/"
 
 output:
   s3_endpoint: "https://s3-west.nrp-nautilus.io"
   bucket: "dbof/"
-  # folder resolves to surface_fields/ for SURF; dataset_name is per-subset.
+  # Stores live at {bucket}/{folder}/{run_id}/{date_prefix}/{subset}.zarr, i.e.
+  #   s3://dbof/globals_for_cutouts/v2_2_01/20111204_000000/frontal_structure.zarr
+  # Without this key the folder would resolve to surface_fields/ for SURF.
+  folder: "globals_for_cutouts/"
 
 runtime:
   zarr_async_concurrency: 8
@@ -42,10 +52,12 @@ runtime:
   dask_threads_per_worker: 4
 
 # ---------------------------------------------------------------------------
-# Subsets to produce.  Steps 1-3 only ever touch the subset that owns gradb2,
-# so frontal_structure is all that is needed here; icearea is listed because
-# the ice mask is read from it.  Uncomment the rest before running step 4 --
-# they are what gets co-located, and they are the expensive part.
+# Subsets to read.  Steps 1-3 only ever touch the subset that owns gradb2, so
+# frontal_structure is all that is needed here; icearea is listed because the
+# ice mask is read from it.  Uncomment the rest before running step 4 -- they
+# are what gets co-located.
+#
+# Each name must have a matching {name}.zarr under the run_id above.
 # ---------------------------------------------------------------------------
 active_subsets:
   - frontal_structure   # gradb2, gradsalt2, gradtheta2, gradeta2, gradrho2,
@@ -65,6 +77,9 @@ active_subsets:
 # fronts.properties.run.BUILD_DEFAULTS, so this block is optional.
 # ---------------------------------------------------------------------------
 build:
+  # Products land in $OS_OGCM/LLC/Fronts/V5/SURF/ -- the V5 comes from
+  # build_v5.py itself, not from here.
+
   # Front-finding config -> fronts/finding/configs/finding_config_D.yaml
   finding_config: "D"
 
