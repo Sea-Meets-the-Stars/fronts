@@ -19,6 +19,8 @@ Steps 1–3 are self-contained. If all you want is a map of where the fronts are
 stop after 3 and never pay for the other ~140 channels.
 
 ```bash
+cd fronts/runs/prototypes/one_full
+
 python build_v5.py 1 run_v5_100_timesteps.yaml   # gradb2
 python build_v5.py 2 run_v5_100_timesteps.yaml   # find
 python build_v5.py 3 run_v5_100_timesteps.yaml   # group
@@ -26,6 +28,16 @@ python build_v5.py 4 run_v5_100_timesteps.yaml   # everything else + co-locate
 ```
 
 Everything is re-runnable: existing zarr stores and `.nc` files are skipped.
+
+**Testing on a few timesteps.** `--ndates N` takes the first N dates, `--date`
+takes a specific one (repeatable). A reduced copy of the config is written to a
+temp file and used for every stage, so the generator builds one store rather
+than a hundred. The config itself is never edited.
+
+```bash
+python build_v5.py 1 run_v5_100_timesteps.yaml --ndates 1
+python build_v5.py 1 run_v5_100_timesteps.yaml --date '2012-08-01 00:00:00'
+```
 
 ## Why this differs from build_v4
 
@@ -108,8 +120,8 @@ $OS_OGCM/LLC/Fronts/{run_id}/{YYYYMMDD_HHMMSS}/LLC4320_{timestamp}_{channel}_{ru
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-33 tests, fully offline — no S3, no OSN, no data. They cover the contract with
-the preprocessing repo (Phase 1), that step 1 builds one subset and exports one
-channel (Phase 2), pipeline resolution (Phase 3), and the two ice-mask toggles
-(Phase 4). If the preprocessing repo changes shape underneath us, these fail
-fast and name what moved.
+40 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+the preprocessing repo, that step 1 builds one subset and exports one channel,
+pipeline resolution, the two ice-mask toggles, date narrowing, and the shipped
+100-timestep config. If the preprocessing repo changes shape underneath us,
+these fail fast and name what moved.
