@@ -16,8 +16,11 @@
 # required.  Channel lists and dataset names live in
 # dbof.global_dataset_creation.subset_definitions, keyed by pipeline -- not here.
 #
-#   python build_v5.py 1 run_v5_100_timesteps.yaml --ndates 1   # smoke test
-#   python build_v5.py 1 run_v5_100_timesteps.yaml              # all 100
+#   python build_v5.py 1 run_v5_100_timesteps.yaml   # gradb2
+#   python build_v5.py 2 run_v5_100_timesteps.yaml   # find
+#   python build_v5.py 3 run_v5_100_timesteps.yaml   # group
+#
+# To try one timestep first, comment out the other dates below.
 # ---------------------------------------------------------------------------
 
 pipeline: "SURF"

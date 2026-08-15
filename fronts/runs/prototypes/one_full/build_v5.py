@@ -18,14 +18,10 @@
 #
 # Usage
 # -----
-#     python build_v5.py <step> [config.yaml] [--ndates N | --date DATE ...]
-#
-# --ndates / --date narrow the run to a few timesteps without touching the
-# config: a reduced copy is written to a temp file and used for every stage, so
-# the smoke test and the full run share one source of truth.
+#     python build_v5.py <step> [config.yaml]
 
-import argparse
 import os
+import sys
 
 from fronts.llc import io as llc_io
 
@@ -40,19 +36,13 @@ from fronts.properties.run import (
     group_fronts,
     read_build_config,
     subset_for_channel,
-    write_date_subset_config,
 )
 
 DEFAULT_CONFIG = './run_v5_100_timesteps.yaml'
 
 
-def main(flg, config_file: str = DEFAULT_CONFIG,
-         dates: list = None, ndates: int = None):
+def main(flg, config_file: str = DEFAULT_CONFIG):
     flg = int(flg)
-
-    if dates or ndates:
-        config_file = write_date_subset_config(config_file, dates=dates,
-                                               ndates=ndates)
 
     cfg        = read_build_config(config_file)
     run_id     = cfg['run_id']            # the run tag, used verbatim
@@ -137,15 +127,11 @@ def main(flg, config_file: str = DEFAULT_CONFIG,
 
 # Command line execution
 if __name__ == '__main__':
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('step', type=int, choices=[1, 2, 3, 4],
-                   help='1 gradb2, 2 find, 3 group, 4 colocate')
-    p.add_argument('config', nargs='?', default=DEFAULT_CONFIG,
-                   help=f'run YAML (default: {DEFAULT_CONFIG})')
-    p.add_argument('--date', dest='dates', action='append', metavar='DATE',
-                   help="Run only this date, e.g. '2011-12-04 00:00:00'.  "
-                        "Repeatable.")
-    p.add_argument('--ndates', type=int, metavar='N',
-                   help='Run only the first N dates in the config.')
-    a = p.parse_args()
-    main(a.step, a.config, dates=a.dates, ndates=a.ndates)
+    if len(sys.argv) == 1:
+        flg = 0
+        pass
+    else:
+        flg = sys.argv[1]
+    config_file = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_CONFIG
+
+    main(flg, config_file)

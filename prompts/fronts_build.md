@@ -29,15 +29,8 @@ python build_v5.py 4 run_v5_100_timesteps.yaml   # everything else + co-locate
 
 Everything is re-runnable: existing zarr stores and `.nc` files are skipped.
 
-**Testing on a few timesteps.** `--ndates N` takes the first N dates, `--date`
-takes a specific one (repeatable). A reduced copy of the config is written to a
-temp file and used for every stage, so the generator builds one store rather
-than a hundred. The config itself is never edited.
-
-```bash
-python build_v5.py 1 run_v5_100_timesteps.yaml --ndates 1
-python build_v5.py 1 run_v5_100_timesteps.yaml --date '2012-08-01 00:00:00'
-```
+To try a single timestep first, comment out the other dates in the config's
+`date_iterations` list.
 
 ## Why this differs from build_v4
 
@@ -120,8 +113,8 @@ $OS_OGCM/LLC/Fronts/{run_id}/{YYYYMMDD_HHMMSS}/LLC4320_{timestamp}_{channel}_{ru
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-40 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+35 tests, fully offline — no S3, no OSN, no data. They cover the contract with
 the preprocessing repo, that step 1 builds one subset and exports one channel,
-pipeline resolution, the two ice-mask toggles, date narrowing, and the shipped
-100-timestep config. If the preprocessing repo changes shape underneath us,
+pipeline resolution, the two ice-mask toggles, and the shipped 100-timestep
+config. If the preprocessing repo changes shape underneath us,
 these fail fast and name what moved.
