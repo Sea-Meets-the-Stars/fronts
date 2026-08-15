@@ -314,11 +314,9 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
     ----------
     timestamp : str
         Snapshot timestamp, e.g. '2012-11-09T12_00_00'.  ONLY this snapshot is
-        converted: the date_prefix is derived from it and handed to
-        ``zarr_to_netcdf`` explicitly.  (Previously the whole
-        ``data.date_iterations`` list was passed, which raises upstream as soon
-        as the config holds more than one date -- fine for a 1-date config,
-        fatal for e.g. a 100-timestep run.)
+        converted: its date_prefix is derived here and handed to
+        ``zarr_to_netcdf`` explicitly, so the call is safe for a config holding
+        any number of dates.
     config_file : str
         Path to the (thin) global YAML config.
     subset : str
@@ -360,8 +358,7 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
     # folder is pipeline-derived unless explicitly overridden in the YAML.
     folder = output.get('folder') or default_output_folder(pipeline)
 
-    # ONE snapshot per call: derive its date_prefix ('YYYYMMDD_HHMMSS') rather
-    # than handing over every date in the config.
+    # One snapshot per call -- 'YYYYMMDD_HHMMSS'.
     date_prefix = _format_timestamp(timestamp)
 
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
