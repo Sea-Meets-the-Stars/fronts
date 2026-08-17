@@ -1,0 +1,1 @@
+"""Bivariate maps page."""

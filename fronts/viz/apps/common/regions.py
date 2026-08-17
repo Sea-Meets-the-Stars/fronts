@@ -1,0 +1,152 @@
+"""The six named regions for page 2.
+
+Each region is a point on the globe.  That point resolves to one 720x720
+tile on the rect grid via the preprocessing repo's ``rect_ij_to_tile``.
+The resolved index is what the tile filenames carry, so it is recorded
+here once the resolution has been run -- see ``resolve_all``.
+
+The centres below are **placeholders chosen from the region names**, not
+from the science.  Replace them before generating tiles; the numbers here
+only need to land inside the intended current system, since a tile spans
+roughly 15 degrees.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+from fronts.viz.apps import config
+
+
+@dataclass(frozen=True)
+class Region:
+    """One named region."""
+
+    key: str
+    name: str
+    lat: float
+    lon: float
+    #: Resolved rect tile index.  ``None`` until ``resolve_all`` has run
+    #: against the real grid and the value has been written back here.
+    tile_idx: int | None = None
+
+    def label(self) -> str:
+        ns = "N" if self.lat >= 0 else "S"
+        ew = "E" if self.lon >= 0 else "W"
+        return f"{self.name} ({abs(self.lat):.1f}{ns}, {abs(self.lon):.1f}{ew})"
+
+
+REGIONS: tuple[Region, ...] = (
+    Region("southern_ocean", "Southern Ocean", -55.0, 40.0),
+    Region("gulf_stream", "Gulf Stream", 38.0, -68.0),
+    Region("california", "California Current System", 36.4, -124.2),
+    Region("eq_pacific", "Equatorial Tropical Pacific", 0.5, -140.0),
+    Region("agulhas", "Agulhas Current", -37.0, 22.0),
+    Region("ne_greenland", "NE of Greenland", 78.0, -5.0),
+)
+
+BY_KEY = {r.key: r for r in REGIONS}
+
+
+def names() -> list[str]:
+    """Display names, for the dropdown."""
+    return [r.name for r in REGIONS]
+
+
+def by_name(name: str) -> Region:
+    for r in REGIONS:
+        if r.name == name:
+            return r
+    raise KeyError(f"no region named {name!r}")
+
+
+def nearest(lat: float, lon: float, *, max_deg: float = 25.0) -> Region | None:
+    """The region nearest a clicked point, or ``None`` if the click missed.
+
+    Longitude difference is wrapped, and scaled by cos(lat) so a degree of
+    longitude counts for less at high latitude.
+    """
+    import math
+
+    best, best_d = None, float("inf")
+    for r in REGIONS:
+        dlon = (lon - r.lon + 180.0) % 360.0 - 180.0
+        dlon *= math.cos(math.radians(0.5 * (lat + r.lat)))
+        d = math.hypot(lat - r.lat, dlon)
+        if d < best_d:
+            best, best_d = r, d
+    return best if best_d <= max_deg else None
+
+
+# --------------------------------------------------------------------------
+# Tile resolution
+# --------------------------------------------------------------------------
+
+def _import_tile_mapping():
+    """Import the preprocessing repo's ``tile_mapping``, robustly.
+
+    Resolution order matches ``dev/mld/density_utils.py``: the installed
+    ``dbof`` package first, then ``LLC4320_PREPROC_SRC``.
+    """
+    try:
+        from dbof.tiles import tile_mapping
+        return tile_mapping
+    except ImportError:
+        pass
+
+    src = os.environ.get("LLC4320_PREPROC_SRC")
+    if src:
+        import sys
+        for cand in (src, os.path.join(src, "src")):
+            if os.path.isdir(cand) and cand not in sys.path:
+                sys.path.insert(0, cand)
+        try:
+            from dbof.tiles import tile_mapping
+            return tile_mapping
+        except ImportError:
+            pass
+
+    raise ImportError(
+        "Could not import dbof.tiles.tile_mapping.  Either `pip install -e` "
+        "the llc4320-native-grid-preprocessing repo, or set "
+        "LLC4320_PREPROC_SRC to its src/ directory."
+    )
+
+
+def resolve_tile(region: Region, latlon_to_ij) -> int:
+    """Resolve a region's centre to a rect tile index.
+
+    Parameters
+    ----------
+    region : Region
+    latlon_to_ij : callable
+        ``(lat, lon) -> (i_rect, j_rect)``.  Supplied by the caller so this
+        module does not depend on how the coordinate lookup is done -- the
+        real one is ``fronts.llc.coords``, and tests pass a stub.
+
+    Returns
+    -------
+    int
+        The flat rect tile index, 0..431.
+    """
+    tile_mapping = _import_tile_mapping()
+    i_rect, j_rect = latlon_to_ij(region.lat, region.lon)
+    return tile_mapping.rect_ij_to_tile(int(i_rect), int(j_rect)).tile_idx
+
+
+def resolve_all(latlon_to_ij) -> dict[str, int]:
+    """Resolve every region.  Print the result into ``REGIONS`` afterwards."""
+    return {r.key: resolve_tile(r, latlon_to_ij) for r in REGIONS}
+
+
+def synthetic_tile_idx(region: Region) -> int:
+    """A stable pseudo-tile index for synthetic mode.
+
+    The synthetic world has no LLC face geometry, so tiles are just blocks
+    of the fake grid.  This keeps each region pointing at its own block.
+    """
+    nj, ni = config.SYNTH_SHAPE
+    n = config.SYNTH_TILE_SIZE
+    n_tiles = max((nj // n) * (ni // n), 1)
+    return REGIONS.index(region) % n_tiles

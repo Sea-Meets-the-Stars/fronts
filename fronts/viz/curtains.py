@@ -62,12 +62,15 @@ log = logging.getLogger(__name__)
 def _decompose_front_branches(front_mask: np.ndarray):
     """Lazily import the 3-D module's branch decomposition.
 
-    ``fronts/viz/fronts_3d.py`` imports PyVista at module load, but the branch
-    decomposition itself is pure NumPy/SciPy.  Importing it lazily here keeps
-    the 2-D curtain viewer usable without a 3-D rendering stack installed,
-    while still reusing the identical skeleton-handling code.
+    This used to import lazily from ``fronts/viz/fronts_3d.py``, on the
+    reasoning that the decomposition is pure NumPy/SciPy even though that
+    module is not.  Deferring did not help: the first call still executed
+    ``fronts_3d``'s module body, and with it ``import pyvista`` -- so the
+    2-D curtain figures were unusable without a 3-D stack after all.  The
+    function now lives in ``fronts/viz/geometry.py``, which imports nothing
+    heavier than SciPy, and the fallback works as intended.
     """
-    from fronts.viz.fronts_3d import decompose_front_branches
+    from fronts.viz.geometry import decompose_front_branches
     return decompose_front_branches(front_mask)
 
 
