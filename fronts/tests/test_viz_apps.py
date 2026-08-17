@@ -709,3 +709,162 @@ def test_tiles_state_caps_fields_and_tracks_dirty(provider):
     st.fields = ["Ri", "N2", "wB", "Theta", "Salt"]
     assert len(st.fields) == TilesState.MAX_FIELDS
     assert st.field in st.fields
+
+
+# ==========================================================================
+# Evolution
+# ==========================================================================
+
+def test_chunk_window_is_consecutive_hours(provider):
+    chunk = provider.chunks()[0]
+    times = provider.chunk_timesteps(chunk)
+    assert len(times) == config.EVOLUTION_N_STEPS
+
+    hours = [int(t.split("T")[1].split("_")[0]) for t in times]
+    # Consecutive modulo the day boundary.
+    for a, b in zip(hours, hours[1:]):
+        assert (b - a) % 24 == 1
+
+
+def test_chunk_step_is_shaped_like_a_tile(provider):
+    """A chunk step must be interchangeable with a tile, or the whole
+    Tiles pipeline would need a second code path."""
+    chunk = provider.chunks()[0]
+    ds = provider.chunk_tile(chunk, 0, "density")
+
+    for key in ("tile_index", "face_index", "rect_i_start", "rect_j_start",
+                "timestamp"):
+        assert key in ds.attrs, key
+    var = list(ds.data_vars)[0]
+    assert ds[var].ndim == 3
+    assert {"XC", "YC", "Z"} <= set(ds.coords)
+
+
+def test_chunk_front_persists_across_the_window(provider):
+    """Label 1 must exist at every step, or nothing can be followed."""
+    chunk = provider.chunks()[0]
+    for step in range(0, config.EVOLUTION_N_STEPS, 6):
+        labels = provider.chunk_labels(chunk, step)
+        assert (labels == 1).sum() > 0, step
+
+
+def test_chunk_actually_evolves(provider):
+    """A movie of a static field is not a movie.
+
+    The front must move: its centroid should travel a visible distance
+    between the first and last step.
+    """
+    chunk = provider.chunks()[0]
+    first = provider.chunk_labels(chunk, 0) == 1
+    last = provider.chunk_labels(chunk, config.EVOLUTION_N_STEPS - 1) == 1
+
+    def centroid(mask):
+        jj, ii = np.nonzero(mask)
+        return np.array([jj.mean(), ii.mean()])
+
+    assert np.linalg.norm(centroid(last) - centroid(first)) > 3.0
+
+
+def test_persistent_labels_exclude_flickering_ones(provider):
+    from fronts.viz.apps.evolution import timeseries as TS
+
+    chunk = provider.chunks()[0]
+    labels = TS.common_labels(provider, chunk, min_steps=4)
+    assert 1 in labels
+
+    strict = TS.common_labels(provider, chunk, min_steps=24)
+    assert set(strict) <= set(labels)
+
+
+def test_orientation_matches_the_geometry_convention():
+    """0 = north-south, 90 = east-west, always in 0-90."""
+    from fronts.viz.apps.evolution import timeseries as TS
+
+    vertical = np.zeros((20, 20), dtype=bool)
+    vertical[2:18, 10] = True                      # runs along j -> N-S
+    assert TS.orientation_deg(vertical) == pytest.approx(0.0, abs=1.0)
+
+    horizontal = np.zeros((20, 20), dtype=bool)
+    horizontal[10, 2:18] = True                    # runs along i -> E-W
+    assert TS.orientation_deg(horizontal) == pytest.approx(90.0, abs=1.0)
+
+    assert np.isnan(TS.orientation_deg(np.zeros((5, 5), dtype=bool)))
+
+
+def test_evolution_series_has_a_value_per_step(provider):
+    from fronts.viz.apps.evolution import timeseries as TS
+
+    chunk = provider.chunks()[0]
+    series = TS.build(provider, chunk, 1, "Ri")
+
+    assert series.n == config.EVOLUTION_N_STEPS
+    assert len(series.length_km) == series.n
+    assert len(series.orientation) == series.n
+    for name in config.DEFAULT_EVOLUTION_STAT_LINES:
+        assert name in series.stats
+        assert len(series.stats[name]) == series.n
+
+    assert series.present().sum() > series.n // 2
+    assert np.nanmax(series.length_km) > np.nanmin(series.length_km)
+
+
+def test_evolution_series_orientation_is_in_range(provider):
+    from fronts.viz.apps.evolution import timeseries as TS
+
+    series = TS.build(provider, provider.chunks()[0], 1, "Ri")
+    finite = series.orientation[np.isfinite(series.orientation)]
+    assert finite.size and finite.min() >= 0.0 and finite.max() <= 90.0
+
+
+def test_shared_settings_fix_the_transect_and_colour_scale(provider):
+    """Every frame must share these, or the movie appears to pulse."""
+    from fronts.viz.apps.evolution import pipeline as EP
+
+    shared = EP.shared_settings(provider, provider.chunks()[0], "Ri", 1)
+    assert isinstance(shared["perp_index"], int)
+    assert shared["clim"] is not None
+    assert shared["clim"][0] < shared["clim"][1]
+
+
+def test_build_step_rejects_an_absent_front(provider):
+    from fronts.viz.apps.evolution import pipeline as EP
+    from fronts.viz.apps.tiles import pipeline as TP
+
+    with pytest.raises(TP.NoSuchFront):
+        EP.build_step(provider, provider.chunks()[0], 0, "Ri", 999_999)
+
+
+def test_build_step_restores_the_patched_lookup(provider):
+    """The label patch must not leak into the Tiles page."""
+    from fronts.viz.apps.evolution import pipeline as EP
+    from fronts.viz.apps.tiles import pipeline as TP
+
+    before = TP.tile_labels
+    EP.build_step(provider, provider.chunks()[0], 0, "Ri", 1)
+    assert TP.tile_labels is before
+
+    with pytest.raises(Exception):
+        EP.build_step(provider, provider.chunks()[0], 0, "Ri", 999_999)
+    assert TP.tile_labels is before
+
+
+def test_evolution_state_invalidates_on_change(provider):
+    from fronts.viz.apps.evolution.app import EvolutionState
+
+    st = EvolutionState(provider=provider)
+    st.built = True
+    st.field = "N2"
+    assert st.built is False
+
+    st.built = True
+    st.front_label = 3
+    assert st.built is False
+
+
+def test_chunk_provider_reports_the_indexing_blocker():
+    """The S3 provider must name the real obstacle, not just 'unsupported'."""
+    p = sources.S3Provider()
+    with pytest.raises(sources.NotWiredUp) as exc:
+        p.chunk_tile("california_current", 0, "Ri")
+    message = str(exc.value)
+    assert "face-local" in message and "720" in message

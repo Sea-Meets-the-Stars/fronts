@@ -127,6 +127,24 @@ class DataProvider(ABC):
             raise KeyError(f"unknown depth level {depth!r}")
         return f"{field}_{suffix}"
 
+    # -- evolution chunks -------------------------------------------------
+
+    def chunks(self) -> list[str]:
+        """Named chunks available for the Evolution page."""
+        return list(config.EVOLUTION_CHUNKS)
+
+    def chunk_timesteps(self, chunk: str) -> list[str]:
+        """The consecutive timestamps saved for a chunk."""
+        raise NotWiredUp(f"the timestep list for chunk {chunk!r}")
+
+    def chunk_tile(self, chunk: str, step: int, prop: str):
+        """One timestep of a chunk, as a tile-shaped Dataset."""
+        raise NotWiredUp(f"the store layout for chunk {chunk!r}")
+
+    def chunk_labels(self, chunk: str, step: int):
+        """Labelled fronts for one timestep of a chunk."""
+        raise NotWiredUp(f"the labelled fronts for chunk {chunk!r}")
+
     def front_stats(self, date: str) -> list[str]:
         """Per-front statistic suffixes actually present in the colocation table.
 
@@ -246,6 +264,20 @@ class SyntheticProvider(DataProvider):
     def tile(self, date, tile_idx, prop):
         return self._world(date).tile_dataset(tile_idx, prop)
 
+    # -- evolution chunks -------------------------------------------------
+
+    def chunk_timesteps(self, chunk):
+        from fronts.viz.apps.common import chunks as chunk_mod
+        return chunk_mod.get_chunk(chunk).times
+
+    def chunk_tile(self, chunk, step, prop):
+        from fronts.viz.apps.common import chunks as chunk_mod
+        return chunk_mod.get_chunk(chunk).dataset(int(step), prop)
+
+    def chunk_labels(self, chunk, step):
+        from fronts.viz.apps.common import chunks as chunk_mod
+        return chunk_mod.get_chunk(chunk).labels(int(step))
+
 
 _DEPTH_SUFFIXES = set(config.DEPTH_LEVELS.values())
 
@@ -345,6 +377,27 @@ class S3Provider(DataProvider):
 
     def colocation(self, date):
         raise NotWiredUp("the colocation parquet filename")
+
+    def chunk_timesteps(self, chunk):
+        raise NotWiredUp(
+            f"the timestep list for chunk {chunk!r}",
+            "List s3://dbof/LLC4320_RAW/CHUNKS/{chunk}/ -- one "
+            "YYYYMMDD_HHMMSS.zarr per step.",
+        )
+
+    def chunk_tile(self, chunk, step, prop):
+        raise NotWiredUp(
+            f"tile generation from chunk {chunk!r}",
+            "tile_utils._load_timestep_tile slices a full 4320x4320 face by "
+            "absolute face-local index, so it cannot read a store that is "
+            "already 720x720.  Either write chunks preserving face-local "
+            "j/i as coordinates (isel -> sel), or add a chunk mode that "
+            "skips the slice and validates the extent instead.  See "
+            "docs/viz/apps/DATA.md.",
+        )
+
+    def chunk_labels(self, chunk, step):
+        raise NotWiredUp(f"the labelled fronts for chunk {chunk!r}")
 
     def tile(self, date, tile_idx, prop):
         """Read a pre-generated tile NetCDF.

@@ -1,6 +1,6 @@
-"""Server entry point for the three front visualisation pages.
+"""Server entry point for the front visualisation pages.
 
-One process, three routes::
+One process, five routes::
 
     python -m fronts.viz.apps.serve --show
 

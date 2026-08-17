@@ -185,3 +185,33 @@ TILE_FIELDS_3D: tuple[str, ...] = (
 
 #: Field used for the 3-D geometry.  Always density.
 TILE_GEOMETRY_FIELD = "density"
+
+
+# --------------------------------------------------------------------------
+# Evolution
+# --------------------------------------------------------------------------
+#: Named chunks: one spatial box, saved at many consecutive timesteps.
+#: A chunk is the same size as a tile (720 x 720) but comes from
+#: ``s3://dbof/LLC4320_RAW/CHUNKS/{chunk}/YYYYMMDD_HHMMSS.zarr`` rather
+#: than from the full 3-D store.
+EVOLUTION_CHUNKS: tuple[str, ...] = (
+    "california_current",
+    "gulf_stream",
+)
+
+#: Consecutive hourly steps per chunk.
+EVOLUTION_N_STEPS: int = 24
+
+#: First timestamp of the synthetic evolution window.
+EVOLUTION_START: str = "2012-05-16T00_00_00"
+
+#: Per-front statistics drawn as separate, toggleable lines on the field
+#: time series.
+EVOLUTION_STAT_LINES: tuple[str, ...] = ("mean", "median", "p25", "p75", "p90")
+
+DEFAULT_EVOLUTION_STAT_LINES: tuple[str, ...] = ("median", "p90")
+
+#: Fixed camera for the 3-D frame.  The scene must not be rotatable during
+#: playback -- a moving camera and moving data are impossible to read
+#: together -- so every frame is rendered from this azimuth/elevation.
+EVOLUTION_CAMERA = {"azimuth": 45.0, "elevation": 28.0, "zoom": 1.05}
