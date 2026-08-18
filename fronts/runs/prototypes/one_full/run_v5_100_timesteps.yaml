@@ -88,7 +88,7 @@ build:
   # co-located with.  Either flag requires icearea.zarr to exist for the same
   # run_id and date -- the mask is read from it at export time.
   ice_mask_find:  false
-  ice_mask_props: true
+  ice_mask_props: false
 
   # Extra percentile columns per co-located channel (step 4), alongside the
   # default mean/std/median.
