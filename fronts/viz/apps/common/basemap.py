@@ -86,6 +86,64 @@ def _affordable_width(width: int) -> int:
                   if cells(w) <= MAX_DIRECT_CELLS]
     return max(affordable) if affordable else min(config.PYRAMID_WIDTHS)
 
+
+def _visible_fraction(extent) -> float:
+    """Fraction of the raster's area a zoom window covers."""
+    if extent is None:
+        return 1.0
+    (lon0, lon1), (lat0, lat1) = extent
+    lat_lo, lat_hi = config.PYRAMID_LAT_RANGE
+    flon = min(abs(lon1 - lon0) / 360.0, 1.0)
+    flat = min(abs(lat1 - lat0) / (lat_hi - lat_lo), 1.0)
+    return max(flon * flat, 1e-6)
+
+
+def width_for_extent(extent) -> int:
+    """The finest pyramid width whose *visible* cells fit the budget.
+
+    Zooming used to change only the axis limits, so a region kept the
+    resolution of the global view no matter how far in you went.  The
+    pyramid exists precisely so that does not have to happen: a window
+    covering a hundredth of the globe can carry a ten-times finer raster
+    for the same number of cells on screen.
+    """
+    lat0, lat1 = config.PYRAMID_LAT_RANGE
+    frac = _visible_fraction(extent)
+
+    def visible_cells(w):
+        h = max(int(round(w * (lat1 - lat0) / 360.0)), 2)
+        return w * h * frac
+
+    ok = [w for w in config.PYRAMID_WIDTHS
+          if visible_cells(w) <= MAX_DIRECT_CELLS]
+    return max(ok) if ok else min(config.PYRAMID_WIDTHS)
+
+
+def _crop(lon, lat, arr, extent):
+    """Slice a raster down to the zoom window, with a margin.
+
+    Only the visible part is sent to the browser, which is what makes a
+    finer level affordable.  A window that straddles the 0/360 seam is not
+    contiguous in this array, so it is left uncropped rather than rolled.
+    """
+    if extent is None:
+        return lon, lat, arr
+
+    (lon0, lon1), (lat0, lat1) = extent
+    if lon0 < lon[0] or lon1 > lon[-1]:            # crosses the seam
+        return lon, lat, arr
+
+    mlon = 0.05 * (lon1 - lon0)
+    mlat = 0.05 * (lat1 - lat0)
+    ix = np.searchsorted(lon, [lon0 - mlon, lon1 + mlon])
+    iy = np.searchsorted(lat, [lat0 - mlat, lat1 + mlat])
+
+    xs = slice(max(int(ix[0]) - 1, 0), int(ix[1]) + 1)
+    ys = slice(max(int(iy[0]) - 1, 0), int(iy[1]) + 1)
+    if lon[xs].size < 2 or lat[ys].size < 2:
+        return lon, lat, arr
+    return lon[xs], lat[ys], arr[ys, xs]
+
 # Longitude ticks for a Pacific-centred 0..360 axis, labelled in E/W.
 _LON_TICKS = [
     (0, "0"), (60, "60E"), (120, "120E"), (180, "180"),
@@ -144,8 +202,8 @@ def _image(lon, lat, arr, label, group):
     )
 
 
-def field_layer(provider, date, name, width=config.PYRAMID_WIDTHS[1],
-                *, tools=("box_select",)):
+def field_layer(provider, date, name, width=None,
+                *, tools=("box_select",), extent=None):
     """The field raster, datashaded.
 
     ``tools`` has to be attached to a concrete element, not to the
@@ -153,8 +211,11 @@ def field_layer(provider, date, name, width=config.PYRAMID_WIDTHS[1],
     nothing added just logs "could not be found" and the box-select never
     appears.
     """
+    if width is None:
+        width = width_for_extent(extent)
     lon, lat, arr = pyramid.level(provider, date, name,
                                   _affordable_width(width))
+    lon, lat, arr = _crop(lon, lat, arr, extent)
     values, clim, label = field_display(arr, name)
     img = _image(lon, lat, values, label, "Field")
     cmap = _FIELD_CMAPS.get(name, "viridis")
@@ -164,10 +225,13 @@ def field_layer(provider, date, name, width=config.PYRAMID_WIDTHS[1],
     )
 
 
-def land_layer(provider, date, width=config.PYRAMID_WIDTHS[1]):
+def land_layer(provider, date, width=None, *, extent=None):
     """Land in gray, from the model's own mask."""
+    if width is None:
+        width = width_for_extent(extent)
     lon, lat, arr = pyramid.level(provider, date, "__land__",
                                   _affordable_width(width), reduce="any")
+    lon, lat, arr = _crop(lon, lat, arr, extent)
     masked = np.where(arr > 0, 1.0, np.nan)
     img = _image(lon, lat, masked, "land", "Land")
     return _rasterize(img).opts(
@@ -175,10 +239,13 @@ def land_layer(provider, date, width=config.PYRAMID_WIDTHS[1]):
     )
 
 
-def fronts_layer(provider, date, width=config.PYRAMID_WIDTHS[2]):
+def fronts_layer(provider, date, width=None, *, extent=None):
     """Binary fronts, drawn on top of the field."""
+    if width is None:
+        width = width_for_extent(extent)
     lon, lat, arr = pyramid.level(provider, date, "__fronts__",
                                   _affordable_width(width), reduce="any")
+    lon, lat, arr = _crop(lon, lat, arr, extent)
     masked = np.where(arr > 0, 1.0, np.nan)
     img = _image(lon, lat, masked, "front", "Fronts")
     return _rasterize(img).opts(
@@ -232,27 +299,34 @@ def global_map(
     title: str = "",
     tools=("box_select",),
     active_tools=("box_select",),
+    extent=None,
 ):
     """Assemble the full Pacific-centred map.
 
+    ``extent`` is the ``((lon0, lon1), (lat0, lat1))`` the map will be
+    shown at.  Every layer picks its pyramid level from it and is cropped
+    to it, so zooming in genuinely buys resolution instead of just
+    enlarging the same pixels.
+
     Returns a HoloViews ``Overlay`` on a 0..360 longitude axis.
     """
-    layers = [field_layer(provider, date, field, tools=tools),
-              land_layer(provider, date)]
+    layers = [field_layer(provider, date, field, tools=tools, extent=extent),
+              land_layer(provider, date, extent=extent)]
 
     coast = coastline_layer()
     if coast is not None:
         layers.append(coast)
 
     if show_fronts:
-        layers.append(fronts_layer(provider, date))
+        layers.append(fronts_layer(provider, date, extent=extent))
 
+    xlim, ylim = extent if extent else ((0, 360), config.PYRAMID_LAT_RANGE)
     return hv.Overlay(layers).opts(
         hv.opts.Overlay(
             width=width, height=height, title=title,
             xlabel="longitude", ylabel="latitude",
             xticks=_LON_TICKS, yticks=_LAT_TICKS,
             show_grid=True, active_tools=list(active_tools),
-            xlim=(0, 360), ylim=config.PYRAMID_LAT_RANGE,
+            xlim=tuple(xlim), ylim=tuple(ylim),
         )
     )

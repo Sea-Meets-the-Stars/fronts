@@ -81,23 +81,63 @@ class NoSuchFront(ValueError):
     """The requested label is absent from this tile."""
 
 
-def tile_labels(provider, date: str, tile_idx: int, shape) -> np.ndarray:
+def _dev_mld():
+    """The ``dev/mld`` helpers the 3-D and curtain scripts already use."""
+    import sys
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[4] / "dev" / "mld"
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+    import density_utils
+    return density_utils
+
+
+def tile_window(ds) -> tuple[slice, slice]:
+    """The tile's window on the global rect grid, from its provenance attrs."""
+    j0 = int(np.asarray(ds.attrs["rect_j_start"]).item())
+    i0 = int(np.asarray(ds.attrs["rect_i_start"]).item())
+    n = int(ds.sizes.get("j", 720))
+    return slice(j0, j0 + n), slice(i0, i0 + n)
+
+
+def tile_lookup(ds, *, synthetic: bool = False):
+    """Face-local index maps for a real tile, or ``None`` for a synthetic one.
+
+    ``fronts_viz_curtain`` and ``fronts_viz_3d`` both remap the *tile* into
+    the rect frame and then slice the global labels by the rect window.
+    Doing the same here keeps the page and the scripts on one convention.
+
+    The synthetic world carries the same provenance attrs on purpose, so
+    the caller says which kind of tile this is rather than guessing.
+    """
+    if synthetic or "rect_j_start" not in ds.attrs:
+        return None
+    return _dev_mld().build_tile_lookup(
+        int(np.asarray(ds.attrs["rect_i_start"]).item()),
+        int(np.asarray(ds.attrs["rect_j_start"]).item()),
+        int(np.asarray(ds.attrs["face_index"]).item()),
+    )
+
+
+def tile_labels(provider, date: str, tile_idx: int, shape, ds=None
+                ) -> np.ndarray:
     """The global label mask, sliced to a tile window.
 
     In synthetic mode the tile slices come from the fabricated world; with
-    real data the tile's ``rect_j_start`` / ``rect_i_start`` attrs give the
-    window directly.
+    real data the window comes from the tile's own ``rect_j_start`` /
+    ``rect_i_start`` attrs, so it needs the Dataset.
     """
     labels = provider.labels(date)
-    nj, ni = shape
     if provider.synthetic:
         from fronts.viz.apps.common import synthetic
         js, iss = synthetic.get_world(date).tile_slices(tile_idx)
         return labels[js, iss]
-    raise NotImplementedError(
-        "Slice the global labels with the tile's rect_j_start / rect_i_start "
-        "attrs once the real store is wired up."
-    )
+
+    if ds is None:
+        ds = provider.tile(date, tile_idx, "density")
+    js, iss = tile_window(ds)
+    return np.asarray(labels[js, iss])
 
 
 def remap_to_rect(arr, lookup=None):
@@ -154,6 +194,9 @@ def build_scene(
 
     _check_provenance(ds_rho, ds_fld)
 
+    if lookup is None:
+        lookup = tile_lookup(ds_rho, synthetic=provider.synthetic)
+
     # 2 -- remap onto the rect frame.
     sigma0 = remap_to_rect(np.asarray(ds_rho[rho_var].values), lookup)
     colour = remap_to_rect(np.asarray(ds_fld[fld_var].values), lookup)
@@ -162,7 +205,7 @@ def build_scene(
     Z = np.asarray(ds_rho["Z"].values)
 
     # 3 -- labels for this window.
-    labels = tile_labels(provider, date, tile_idx, sigma0.shape[1:])
+    labels = tile_labels(provider, date, tile_idx, sigma0.shape[1:], ds=ds_rho)
     if label <= 0 or not np.any(labels == label):
         raise NoSuchFront(f"label {label} is not in tile {tile_idx}")
 

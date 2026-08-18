@@ -120,11 +120,59 @@ S3_ROOT = os.environ.get(
     "FRONTS_APP_S3_ROOT", "s3://dbof/globals_for_cutouts/v2_2_01"
 )
 
+#: S3 layout, matching GlobalZarrDatasetReader's
+#: {bucket}/{folder}/{run_id}/{date_prefix}/{dataset_name}.
+def _default_endpoint() -> str:
+    """The endpoint the preprocessing repo already uses."""
+    try:
+        from dbof.global_dataset_creation.data_sources import LLC_DEPTH_SOURCE
+        return LLC_DEPTH_SOURCE["s3_endpoint"]
+    except Exception:
+        return "https://s3-west.nrp-nautilus.io"
+
+
+S3_ENDPOINT = os.environ.get("FRONTS_APP_S3_ENDPOINT") or _default_endpoint()
+S3_BUCKET = os.environ.get("FRONTS_APP_S3_BUCKET", "dbof")
+
+SURFACE_FOLDER = os.environ.get("FRONTS_APP_SURFACE_FOLDER",
+                                "globals_for_cutouts")
+SURFACE_RUN_ID = os.environ.get("FRONTS_APP_SURFACE_RUN_ID", "v2_2_01")
+
+DEPTH_FOLDER = os.environ.get("FRONTS_APP_DEPTH_FOLDER", "depth_fields")
+DEPTH_RUN_ID = os.environ.get("FRONTS_APP_DEPTH_RUN_ID", "V5")
+
+#: The 2-D (rect) grid, read by GlobalGridZarrReader -- XC/YC and hFacC for
+#: the whole 12960 x 17280 grid.  Distinct from the per-face grid.zarr in
+#: LLC4320_RAW/{SURFACE,DEPTH}, which is what tile_utils reads.
+GRID_FOLDER = os.environ.get("FRONTS_APP_GRID_FOLDER", "LLC4320_GRID_2D")
+GRID_STORE = os.environ.get("FRONTS_APP_GRID_STORE", "llc4320_grid.zarr")
+
+#: Where build_v5 step 5 puts the front products, inside each date's
+#: directory alongside the zarr stores they came from.  See
+#: ``fronts.llc.publish``.
+FRONTS_SUBFOLDER = os.environ.get("FRONTS_APP_FRONTS_SUBFOLDER", "Fronts")
+
+#: Raw 3-D and chunk stores, for tile generation.
+RAW_DEPTH_FOLDER = os.environ.get("FRONTS_APP_RAW_DEPTH_FOLDER",
+                                  "LLC4320_RAW/DEPTH")
+CHUNK_FOLDER = os.environ.get("FRONTS_APP_CHUNK_FOLDER",
+                              "LLC4320_RAW/CHUNKS")
+
+#: Per-chunk grid store, written once by the transfer alongside the
+#: timestep stores.  Carries the chunk's own XC/YC, so its location is
+#: read rather than configured.
+CHUNK_GRID_STORE = "grid.zarr"
+
 TILE_DIR = Path(os.environ.get("FRONTS_APP_TILE_DIR", "./tiles")).expanduser()
 
 CACHE_DIR = Path(
     os.environ.get("FRONTS_APP_CACHE", "~/.cache/fronts-viz")
 ).expanduser()
+
+#: Disk budget for everything under CACHE_DIR -- cached coordinate planes,
+#: pyramid levels, and statistics.  Least-recently-used files are evicted
+#: once the total goes over.  XC and YC alone are 0.9 GB each.
+CACHE_CAP_BYTES = int(float(os.environ.get("FRONTS_APP_CACHE_GB", "10")) * 2**30)
 
 
 # --------------------------------------------------------------------------
@@ -188,18 +236,43 @@ TILE_GEOMETRY_FIELD = "density"
 
 
 # --------------------------------------------------------------------------
+# Sea ice
+# --------------------------------------------------------------------------
+#: Cells under sea ice carry values that are not comparable with the open
+#: ocean -- gradients under the ice pack are large enough to set the colour
+#: limits for the whole map and swamp everything else.  They are dropped
+#: from both the display and the statistics.
+ICE_CHANNEL = "SIarea"
+
+#: Ice concentration above which a cell counts as ice-covered.  0.15 is the
+#: usual sea-ice-extent convention.
+ICE_THRESHOLD = float(os.environ.get("FRONTS_APP_ICE_THRESHOLD", "0.15"))
+
+#: Channels that describe the ice itself, and so are never ice-masked.
+ICE_EXEMPT: frozenset[str] = frozenset({ICE_CHANNEL, "__land__"})
+
+
+# --------------------------------------------------------------------------
 # Evolution
 # --------------------------------------------------------------------------
 #: Named chunks: one spatial box, saved at many consecutive timesteps.
 #: A chunk is the same size as a tile (720 x 720) but comes from
 #: ``s3://dbof/LLC4320_RAW/CHUNKS/{chunk}/YYYYMMDD_HHMMSS.zarr`` rather
 #: than from the full 3-D store.
+#:
+#: This is an **allow-list**, not a listing.  The chunks folder also holds
+#: partial transfers -- amundsen, bellingshausen, ross, weddell each have
+#: a couple of timesteps rather than a window -- and offering those on the
+#: page just produces a movie that cannot be built.  Add a name here once
+#: its transfer is complete.  An empty tuple means "offer whatever is on
+#: S3", which is what the checks use.
 EVOLUTION_CHUNKS: tuple[str, ...] = (
-    "california_current",
-    "gulf_stream",
+    "monterey_bay",
 )
 
-#: Consecutive hourly steps per chunk.
+#: Steps per chunk in synthetic mode.  With real data the window is
+#: whatever the chunk folder holds -- run_chunks_monterey_bay.yaml has 17
+#: timesteps, a daily sequence plus a 3-hourly day, not 24 hourly ones.
 EVOLUTION_N_STEPS: int = 24
 
 #: First timestamp of the synthetic evolution window.

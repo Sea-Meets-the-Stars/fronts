@@ -39,12 +39,6 @@ FRONT_PALETTE = (
     "#f032e6", "#bfef45", "#fabed4", "#469990", "#dcbeff", "#9a6324",
 )
 
-#: Chunk centres, for the boxes on the overview map.  Placeholders, like
-#: the tile regions -- replace with the real chunk extents.
-CHUNK_LOCATIONS = {
-    "california_current": (36.4, -124.2),
-    "gulf_stream": (38.0, -68.0),
-}
 BOX_HALF = (7.5, 5.0)
 
 
@@ -101,6 +95,36 @@ class EvolutionState(PageState):
         default=list(config.DEFAULT_EVOLUTION_STAT_LINES),
         doc="Statistics drawn on the field time series.")
     built = param.Boolean(False, doc="Frames exist for the current settings.")
+
+    def __init__(self, provider=None, **params):
+        super().__init__(provider=provider, **params)
+        chunks = self.usable_chunks()
+        self.param.chunk.objects = chunks
+        if self.chunk not in chunks:
+            self.chunk = chunks[0]
+        self._set_step_bounds()
+
+    def usable_chunks(self) -> list[str]:
+        """Chunks on S3 that are also complete enough to play.
+
+        ``config.EVOLUTION_CHUNKS`` is the allow-list; the intersection
+        keeps a name from appearing before its transfer has finished, and
+        keeps a configured name from appearing before it exists at all.
+        """
+        found = self.provider.chunks()
+        allowed = config.EVOLUTION_CHUNKS
+        if not allowed:
+            return found
+        usable = [c for c in found if c in allowed]
+        return usable or found[:1]
+
+    @param.depends("chunk", watch=True)
+    def _set_step_bounds(self):
+        """A chunk holds however many timesteps were transferred for it."""
+        n = max(1, len(self.times()))
+        self.param.step.bounds = (0, n - 1)
+        if self.step > n - 1:
+            self.step = n - 1
 
     @param.depends("chunk", "field", "front_label", "n_offsets",
                    "perp_half_width", "include_3d", watch=True)
@@ -219,7 +243,11 @@ class EvolutionPage:
             return
 
         boxes, labels = [], []
-        for name, (lat, lon) in CHUNK_LOCATIONS.items():
+        for name in s.usable_chunks():
+            try:
+                lat, lon = s.provider.chunk_location(name)
+            except Exception:                               # noqa: BLE001
+                continue                    # a chunk with no grid of its own
             x = lon % 360.0
             boxes.append((x - BOX_HALF[0], lat - BOX_HALF[1],
                           x + BOX_HALF[0], lat + BOX_HALF[1]))
@@ -242,27 +270,40 @@ class EvolutionPage:
             ds = s.provider.chunk_tile(s.chunk, step, s.field)
             var = list(ds.data_vars)[0]
             surface = np.asarray(ds[var].values)[0]
-            labels = s.provider.chunk_labels(s.chunk, step)
         except Exception as exc:                            # noqa: BLE001
             self._chunkmap.object = None
             self._status.object = f"**Chunk unavailable:** {exc}"
             return
 
+        # The field comes from the chunk store; the labels come from the
+        # front detection, which may not have been run over this window.
+        # Missing labels cost the overlay, not the map.
+        try:
+            labels = s.provider.chunk_labels(s.chunk, step)
+        except Exception as exc:                            # noqa: BLE001
+            labels = None
+            self._status.object = f"*Fronts not overlaid:* {exc}"
+
         self._labels_step = labels
 
-        overlay = (
-            hv.Image((np.arange(surface.shape[1]),
-                      np.arange(surface.shape[0]), surface),
-                     kdims=["i", "j"], vdims=[s.field]
-                     ).opts(cmap="viridis", colorbar=True)
-            * hv.RGB((np.arange(labels.shape[1]),
-                      np.arange(labels.shape[0]),
-                      *_label_rgba(labels, s.front_label)),
-                     kdims=["i", "j"], vdims=["R", "G", "B", "A"])
-        ).opts(hv.opts.Overlay(
+        overlay = hv.Image(
+            (np.arange(surface.shape[1]), np.arange(surface.shape[0]),
+             surface), kdims=["i", "j"], vdims=[s.field],
+        ).opts(cmap="viridis", colorbar=True)
+
+        if labels is not None:
+            overlay = overlay * hv.RGB(
+                (np.arange(labels.shape[1]), np.arange(labels.shape[0]),
+                 *_label_rgba(labels, s.front_label)),
+                kdims=["i", "j"], vdims=["R", "G", "B", "A"])
+
+        frame_opts = dict(
             width=520, height=400, active_tools=["tap"],
             title=f"{s.chunk} — step {step} — {s.times()[step]}",
-            xlabel="i", ylabel="j"))
+            xlabel="i", ylabel="j")
+        overlay = overlay.opts(
+            hv.opts.Overlay(**frame_opts) if labels is not None
+            else hv.opts.Image(**frame_opts))
 
         hv.streams.Tap(source=overlay).add_subscriber(self._on_tap)
         self._chunkmap.object = overlay

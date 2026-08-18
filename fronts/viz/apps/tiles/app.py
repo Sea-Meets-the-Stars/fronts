@@ -181,14 +181,26 @@ class TilesPage:
             tile_idx = s.tile_index()
             ds = s.provider.tile(s.date, tile_idx, s.field)
             var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
-            surface = np.asarray(ds[var].values)[0]
-            labels = pipeline.tile_labels(s.provider, s.date, tile_idx,
-                                          surface.shape)
+            # Remap to the rect frame first, so the surface and the labels
+            # share one orientation -- the convention fronts_viz_curtain
+            # and fronts_viz_3d already use.
+            lookup = pipeline.tile_lookup(ds, synthetic=s.provider.synthetic)
+            surface = pipeline.remap_to_rect(
+                np.asarray(ds[var].values), lookup)[0]
         except Exception as exc:                            # noqa: BLE001
             self._tilemap.object = None
             self._status.object = f"**Tile unavailable:** {exc}"
             self.w_avail.options = []
             return
+
+        # A tile without fronts is still worth drawing -- the label map is
+        # a separate product and may not have been built for this date.
+        try:
+            labels = pipeline.tile_labels(s.provider, s.date, tile_idx,
+                                          surface.shape, ds=ds)
+        except Exception as exc:                            # noqa: BLE001
+            labels = np.zeros(surface.shape, dtype=np.int32)
+            self._status.object = f"*Fronts not overlaid:* {exc}"
 
         self._labels_tile = labels
         available = pipeline.available_fronts(labels)

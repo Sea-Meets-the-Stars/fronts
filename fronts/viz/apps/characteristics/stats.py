@@ -41,6 +41,10 @@ class RegionSamples:
     missing : tuple of str
         Roles that could not be resolved to a channel, so the joint PDFs
         cannot be drawn.  Empty when everything is present.
+    unavailable : str
+        Why this column could not be built at all, or ``""`` when it was.
+        Used for the fronts column while the front products are still
+        being generated.
     """
 
     values: np.ndarray
@@ -48,6 +52,7 @@ class RegionSamples:
     sigma_f: np.ndarray
     n_cells: int
     missing: tuple[str, ...] = ()
+    unavailable: str = ""
 
     @property
     def n(self) -> int:
@@ -101,6 +106,13 @@ def extract(
     sel = bbox_mask(XC, YC, box)
     n_cells = int(sel.sum())
 
+    # Ice-covered cells are excluded from every sample set, for the same
+    # reason they are dropped from the map: they are a different regime,
+    # and they dominate the distributions where they occur.
+    ice = provider.ice_mask(date)
+    if ice is not None:
+        sel = sel & ~ice
+
     if fronts_only:
         sel = sel & (provider.labels(date) > 0)
 
@@ -148,18 +160,27 @@ def extract_both(provider, date, field, box, *, resolve=None, tag="") -> dict:
     ``tag`` distinguishes cache entries that differ only by the resolver --
     the depth level, in practice.
     """
-    key = cache.make_key("samples-v2", provider.mode, date, field, tag,
+    key = cache.make_key("samples-v3-ice", provider.mode, date, field, tag,
                          box.key())
     hit = cache.get(key)
     if hit is not None:
         return hit
 
-    out = {
-        "all": extract(provider, date, field, box, fronts_only=False,
-                       resolve=resolve),
-        "fronts": extract(provider, date, field, box, fronts_only=True,
-                          resolve=resolve),
-    }
+    out = {"all": extract(provider, date, field, box, fronts_only=False,
+                          resolve=resolve)}
+
+    # The left column describes grid cells and owes nothing to the front
+    # detection.  Only the right column needs the labels, so a build_v5
+    # step that has not run yet costs that column and no more.
+    try:
+        out["fronts"] = extract(provider, date, field, box, fronts_only=True,
+                                resolve=resolve)
+    except Exception as exc:                            # noqa: BLE001
+        out["fronts"] = RegionSamples(
+            values=np.empty(0), zeta_f=np.empty(0), sigma_f=np.empty(0),
+            n_cells=0, unavailable=str(exc),
+        )
+
     cache.put(key, out)
     return out
 

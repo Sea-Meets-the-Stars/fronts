@@ -80,9 +80,13 @@ def regrid(
     y = np.asarray(YC).ravel()
     v = np.asarray(values).ravel()
 
-    ix = np.clip(((x + 180.0) / 360.0 * width).astype(np.int64), 0, width - 1)
+    # int32 throughout: the largest raster this is ever asked for is well
+    # under 2**31 cells, and the index arrays are one per native point --
+    # 224 million of them, so the dtype is the difference between a 0.9 GB
+    # temporary and a 1.8 GB one.
+    ix = np.clip(((x + 180.0) / 360.0 * width).astype(np.int32), 0, width - 1)
     iy = np.clip(
-        ((y - lat0) / (lat1 - lat0) * height).astype(np.int64), 0, height - 1
+        ((y - lat0) / (lat1 - lat0) * height).astype(np.int32), 0, height - 1
     )
 
     good = np.isfinite(v) & (y >= lat0) & (y <= lat1)
@@ -99,10 +103,12 @@ def regrid(
         np.maximum.at(out, flat, vg.astype(np.int64))
         return lon, lat, out.reshape(height, width)
 
-    sums = np.zeros(height * width, dtype=np.float64)
-    counts = np.zeros(height * width, dtype=np.int64)
-    np.add.at(sums, flat, vg)
-    np.add.at(counts, flat, 1)
+    # bincount, not np.add.at: both accumulate into bins, but ufunc.at is
+    # unbuffered and runs at roughly a tenth the speed.  At 224 million
+    # native points that is the difference between seconds and a minute.
+    size = height * width
+    sums = np.bincount(flat, weights=vg, minlength=size)
+    counts = np.bincount(flat, minlength=size)
 
     with np.errstate(invalid="ignore", divide="ignore"):
         out = np.where(counts > 0, sums / counts, np.nan)
@@ -186,8 +192,13 @@ def _cache_path(key: str) -> Path:
     return d / f"{key}.npz"
 
 
+#: Bump when a change alters what a level *contains*, so already-cached
+#: levels from an older build are not served.  ``ice`` = ice-masked.
+_LEVEL_VERSION = "ice"
+
+
 def _key(date, name, width, reduce, shape) -> str:
-    raw = f"{date}|{name}|{width}|{reduce}|{shape}"
+    raw = f"{_LEVEL_VERSION}|{date}|{name}|{width}|{reduce}|{shape}"
     return hashlib.sha1(raw.encode()).hexdigest()[:20]
 
 
@@ -235,7 +246,7 @@ def _layer_values(provider, date: str, name: str) -> np.ndarray:
         return provider.front_binary(date).astype(np.float32)
     if name == "__labels__":
         return provider.labels(date).astype(np.float64)
-    return provider.field(date, name)
+    return provider.drop_ice(date, name, provider.field(date, name))
 
 
 def clear_cache() -> int:

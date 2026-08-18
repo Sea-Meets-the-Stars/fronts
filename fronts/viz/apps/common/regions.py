@@ -140,6 +140,37 @@ def resolve_all(latlon_to_ij) -> dict[str, int]:
     return {r.key: resolve_tile(r, latlon_to_ij) for r in REGIONS}
 
 
+def nearest_ij(XC, YC, lat: float, lon: float) -> tuple[int, int]:
+    """The rect pixel closest to a lat/lon, by search over the real grid.
+
+    The rect grid is stitched from rotated faces, so there is no formula
+    from lat/lon to (i, j) -- the only correct answer is a search.  One
+    pass over 224 million cells in float32 is about a second, and XC/YC
+    are memory-mapped by then, so this is cheap enough to do on demand
+    rather than baking a table of indices into the source.
+    """
+    import numpy as np
+
+    dlon = (np.asarray(XC, dtype=np.float32) - np.float32(lon) + 180.0)
+    dlon %= 360.0
+    dlon -= 180.0
+    dlon *= np.float32(np.cos(np.radians(lat)))     # degrees -> comparable
+    dlat = np.asarray(YC, dtype=np.float32) - np.float32(lat)
+
+    d2 = dlon * dlon
+    d2 += dlat * dlat
+    j, i = np.unravel_index(int(np.argmin(d2)), d2.shape)
+    return int(i), int(j)
+
+
+def tile_index_for(provider, date: str, region: Region) -> int:
+    """Resolve a region to its rect tile index against the provider's grid."""
+    XC, YC = provider.coords(date)
+    tile_mapping = _import_tile_mapping()
+    i_rect, j_rect = nearest_ij(XC, YC, region.lat, region.lon)
+    return tile_mapping.rect_ij_to_tile(i_rect, j_rect).tile_idx
+
+
 def synthetic_tile_idx(region: Region) -> int:
     """A stable pseudo-tile index for synthetic mode.
 

@@ -213,12 +213,14 @@ class CharacteristicsPage:
 
     def redraw_map(self):
         s = self.state
+        extent = self._zoom_limits()
         try:
             channel = self.resolve(s.field)
             overlay = basemap.global_map(
                 s.provider, s.date, channel,
                 show_fronts=s.show_fronts,
                 title=f"{channel}  —  {s.date}",
+                extent=extent,
             )
         except Exception as exc:                        # noqa: BLE001
             self._map.object = None
@@ -229,7 +231,7 @@ class CharacteristicsPage:
         if outline is not None:
             overlay = overlay * outline
 
-        xlim, ylim = self._zoom_limits()
+        xlim, ylim = extent
         overlay = overlay.opts(hv.opts.Overlay(xlim=xlim, ylim=ylim))
 
         # The stream must be attached before the pane renders, or the
@@ -265,20 +267,27 @@ class CharacteristicsPage:
 
         for col, samples in columns.items():
             head = "all points" if col == "all" else "fronts only"
-            figs = (
-                P.figure_pdf(samples, s.field, bins, title=head),
-                P.figure_jpdf(samples, title=head),
-                P.figure_jpdf_conditional(samples, s.field, title=head),
-            )
+            if samples.unavailable:
+                figs = (P._blank(samples.unavailable), P._blank("—"),
+                        P._blank("—"))
+            else:
+                figs = (
+                    P.figure_pdf(samples, s.field, bins, title=head),
+                    P.figure_jpdf(samples, title=head),
+                    P.figure_jpdf_conditional(samples, s.field, title=head),
+                )
             for row, fig in enumerate(figs):
                 pane = self._panes[(col, row)]
                 pane.object = fig
                 pane.loading = False
 
         cells = columns["all"].n_cells
+        fronts = columns["fronts"]
+        on_fronts = ("fronts pending" if fronts.unavailable
+                     else f"{fronts.n:,} on fronts")
         self._status.object = (
             f"region: **{s.box.label()}** — {cells:,} grid cells, "
-            f"{columns['all'].n:,} samples, {columns['fronts'].n:,} on fronts"
+            f"{columns['all'].n:,} samples, {on_fronts}"
             "  ·  exact, full resolution"
         )
 

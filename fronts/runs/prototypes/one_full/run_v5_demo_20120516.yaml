@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# build_v5 -- one timestep, for the Tiles page demo.
+#
+# Identical to run_v5_100_timesteps.yaml except that `date_iterations` holds
+# a single date.  Step 2 (find) has already been run for it on profx, so the
+# binary front map is on disk; steps 3 and 5 turn that into labelled fronts
+# and put them where the web app can read them:
+#
+#   python build_v5.py 3 run_v5_demo_20120516.yaml   # label + geometry
+#   python build_v5.py 5 run_v5_demo_20120516.yaml   # push to S3
+#
+# Step 4 (co-location) is deliberately not run.  It needs the other subsets
+# and the Tiles page does not use its output -- only the label map.
+#
+# Products land in
+#   $OS_OGCM/LLC/Fronts/V5/SURF/20120516_060000/
+# then in
+#   s3://dbof/globals_for_cutouts/v2_2_01/20120516_060000/Fronts/
+# ---------------------------------------------------------------------------
+
+pipeline: "SURF"
+
+run:
+  run_id: "v2_2_01"
+  log_dir: "./logs/"
+
+output:
+  s3_endpoint: "https://s3-west.nrp-nautilus.io"
+  bucket: "dbof/"
+  folder: "globals_for_cutouts/"
+
+runtime:
+  zarr_async_concurrency: 8
+  dask_scheduler: "distributed"
+  dask_n_workers: 4
+  dask_threads_per_worker: 4
+
+# Steps 3 and 5 only touch the subset that owns gradb2; icearea is listed
+# because the ice mask is read from it.
+active_subsets:
+  - frontal_structure
+  - icearea
+
+build:
+  finding_config: "D"
+  ice_mask_find:  false
+  ice_mask_props: true
+  percentiles: [25, 75, 90]
+
+data:
+  # The one date with 3-D raw data AND fronts already found.
+  date_iterations:
+    - '2012-05-16 06:00:00'

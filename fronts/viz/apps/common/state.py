@@ -11,12 +11,25 @@ does exactly that.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import param
 
 from fronts.viz.apps import config
 from fronts.viz.apps.common import regions as regions_mod
 from fronts.viz.apps.common import sources
 from fronts.viz.apps.common.selection import BBox
+
+
+@lru_cache(maxsize=32)
+def _resolved_tile(provider, date: str, key: str) -> int:
+    """Region -> tile index, searched once per region and remembered.
+
+    The grid does not change between dates, but the provider supplies the
+    coordinates, so the date is carried along for the lookup.
+    """
+    return regions_mod.tile_index_for(provider, date,
+                                      regions_mod.BY_KEY[key])
 
 
 class PageState(param.Parameterized):
@@ -209,13 +222,9 @@ class TilesState(PageState):
         r = self.region_obj
         if self.synthetic:
             return regions_mod.synthetic_tile_idx(r)
-        if r.tile_idx is None:
-            raise ValueError(
-                f"Region {r.name!r} has no resolved tile index yet.  Run "
-                "regions.resolve_all() against the real grid and record the "
-                "result in regions.REGIONS."
-            )
-        return r.tile_idx
+        if r.tile_idx is not None:
+            return r.tile_idx
+        return _resolved_tile(self.provider, self.date, r.key)
 
     def select_front(self, label) -> bool:
         """Set the selected front.  Returns True when it changed."""

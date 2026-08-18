@@ -127,13 +127,43 @@ def test_tables_line_up_with_the_label_mask(provider, date):
     assert coloc["npix"].sum() == int((labels > 0).sum())
 
 
-def test_s3_provider_reports_what_it_needs():
-    """The unwired provider must say what is missing, not fail obscurely."""
-    p = sources.S3Provider()
+def test_front_products_are_found_by_pattern(monkeypatch):
+    """The pushed products are matched as globs; the run tag is not known."""
+    from fronts.viz.apps.common import s3source
+
+    pushed = [
+        "x/LLC4320_20120516T06_00_00_v2_2_01_bfronts.npy",
+        "x/labeled_fronts_global_20120516T06_00_00_v2_2_01_bfronts.npy",
+        "x/global_front_geometry_20120516T06_00_00_v2_2_01_bfronts.parquet",
+        "x/metadata_20120516T06_00_00_v2_2_01_bfronts.json",
+    ]
+
+    class FS:
+        def ls(self, prefix):
+            return pushed
+
+    monkeypatch.setattr(s3source, "_filesystems", lambda: (None, FS()))
+
+    for kind, expect in (("binary", "LLC4320_"),
+                         ("labels", "labeled_fronts_global_"),
+                         ("geometry", "global_front_geometry_")):
+        path = s3source._product_path("f", "r", "2012-05-16T06_00_00", kind)
+        assert expect in path
+
+    # Step 4 has not run, so colocation must name the step that is missing.
     with pytest.raises(sources.NotWiredUp) as exc:
-        p.field_names("2012-05-16T06_00_00")
-    assert "channel list" in str(exc.value)
-    assert "WIRING" in str(exc.value)
+        s3source._product_path("f", "r", "2012-05-16T06_00_00", "colocation")
+    assert "step 4" in str(exc.value)
+
+
+def test_binary_glob_does_not_swallow_the_label_map():
+    """Both end in _bfronts.npy; the label map must not match 'binary'."""
+    import fnmatch
+    from fronts.viz.apps.common.s3source import PRODUCT_GLOBS
+
+    label_file = "labeled_fronts_global_20120516T06_00_00_v1_bfronts.npy"
+    assert not fnmatch.fnmatch(label_file, PRODUCT_GLOBS["binary"]), (
+        "the binary pattern must exclude the label map")
 
 
 # --------------------------------------------------------------------------
@@ -861,10 +891,178 @@ def test_evolution_state_invalidates_on_change(provider):
     assert st.built is False
 
 
-def test_chunk_provider_reports_the_indexing_blocker():
-    """The S3 provider must name the real obstacle, not just 'unsupported'."""
-    p = sources.S3Provider()
-    with pytest.raises(sources.NotWiredUp) as exc:
-        p.chunk_tile("california_current", 0, "Ri")
-    message = str(exc.value)
-    assert "face-local" in message and "720" in message
+def test_tile_utils_supports_chunk_and_in_memory_output():
+    """The two changes the app depends on, on the chunk-transfer branch."""
+    import inspect
+
+    tile_utils = pytest.importorskip("dbof.tiles.tile_utils")
+
+    run_args = inspect.signature(tile_utils.run).parameters
+    assert run_args["chunk"].default is False
+    assert run_args["write"].default is True
+
+    load_args = inspect.signature(
+        tile_utils._load_tracers_for_tile).parameters
+    assert load_args["chunk"].default is False
+
+
+def test_tile_origin_round_trips():
+    from fronts.viz.apps.common.s3source import _tile_origin
+
+    for tile_idx in (0, 1, 330, 431):
+        i, j = _tile_origin(tile_idx)
+        assert i % config.TILE_SIZE == 0 and j % config.TILE_SIZE == 0
+        assert (j // config.TILE_SIZE) * config.N_TILE_I \
+            + (i // config.TILE_SIZE) == tile_idx
+
+
+# --------------------------------------------------------------------------
+# Disk cache for grid-sized arrays
+# --------------------------------------------------------------------------
+
+def test_cached_array_is_built_once_and_memory_mapped(tmp_path, monkeypatch):
+    from fronts.viz.apps.common import cache
+
+    monkeypatch.setattr(config, "CACHE_DIR", tmp_path)
+    calls = []
+
+    def build():
+        calls.append(1)
+        return np.arange(12, dtype=np.float32).reshape(3, 4)
+
+    first = cache.array("plane", build)
+    second = cache.array("plane", build)
+
+    assert len(calls) == 1                      # the second call was a hit
+    assert np.array_equal(first, second)
+    assert isinstance(second, np.memmap)        # not resident
+
+
+def test_trim_evicts_oldest_until_under_the_cap(tmp_path, monkeypatch):
+    from fronts.viz.apps.common import cache
+
+    monkeypatch.setattr(config, "CACHE_DIR", tmp_path)
+    block = np.zeros(4096, dtype=np.float32)    # 16 KB each
+    for i in range(4):
+        cache.array(f"p{i}", lambda b=block: b)
+
+    removed = cache.trim(cap_bytes=40_000)
+    assert removed >= 2
+    total = sum(p.stat().st_size for p in tmp_path.rglob("*") if p.is_file())
+    assert total <= 40_000
+
+
+# --------------------------------------------------------------------------
+# Zoom, ice, and degrading without the front products
+# --------------------------------------------------------------------------
+
+def test_zooming_in_asks_for_a_finer_pyramid_level():
+    from fronts.viz.apps.common import basemap
+
+    globe = basemap.width_for_extent(None)
+    region = basemap.width_for_extent(((290, 310), (30, 45)))
+    assert region > globe, "a zoomed view must buy resolution, not just crop"
+    assert region in config.PYRAMID_WIDTHS
+
+
+def test_cropping_keeps_the_window_and_shrinks_the_raster():
+    from fronts.viz.apps.common import basemap
+
+    lon = np.linspace(0.125, 359.875, 1440)
+    lat = np.linspace(-79.9, 79.9, 640)
+    arr = np.zeros((640, 1440), dtype=np.float32)
+
+    lon2, lat2, arr2 = basemap._crop(lon, lat, arr, ((300, 310), (35, 45)))
+    assert arr2.shape[0] < arr.shape[0] and arr2.shape[1] < arr.shape[1]
+    assert lon2[0] <= 300 and lon2[-1] >= 310
+    assert lat2[0] <= 35 and lat2[-1] >= 45
+
+
+def test_seam_crossing_window_is_not_cropped():
+    from fronts.viz.apps.common import basemap
+
+    lon = np.linspace(0.125, 359.875, 1440)
+    lat = np.linspace(-79.9, 79.9, 640)
+    arr = np.zeros((640, 1440), dtype=np.float32)
+
+    _, _, arr2 = basemap._crop(lon, lat, arr, ((350, 370), (0, 10)))
+    assert arr2.shape == arr.shape
+
+
+def test_ice_covered_cells_are_dropped_from_a_field():
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+    shape = provider.coords(date)[0].shape
+
+    class Icy:
+        """A provider whose northern third is under ice."""
+        mode, synthetic = "test", True
+        drop_ice = sources.DataProvider.drop_ice
+        ice_mask = sources.DataProvider.ice_mask
+
+        def field_names(self, date):
+            return [config.ICE_CHANNEL, "gradb2"]
+
+        def field(self, date, name):
+            if name == config.ICE_CHANNEL:
+                area = np.zeros(shape, dtype=np.float32)
+                area[: shape[0] // 3] = 0.9
+                return area
+            return np.ones(shape, dtype=np.float32)
+
+    icy = Icy()
+    out = icy.drop_ice(date, "gradb2", icy.field(date, "gradb2"))
+    assert np.isnan(out[: shape[0] // 3]).all(), "ice should be masked"
+    assert np.isfinite(out[shape[0] // 3:]).all(), "open ocean should survive"
+
+    # The ice channel itself is never masked by its own mask.
+    area = icy.field(date, config.ICE_CHANNEL)
+    assert np.array_equal(icy.drop_ice(date, config.ICE_CHANNEL, area), area)
+
+
+def test_all_points_column_survives_missing_front_products():
+    from fronts.viz.apps.characteristics import stats
+    from fronts.viz.apps.common.sources import NotWiredUp
+
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+
+    class NoFronts:
+        """Everything works except the front detection."""
+        def __getattr__(self, name):
+            return getattr(provider, name)
+
+        def labels(self, date):
+            raise NotWiredUp("the labelled-fronts filename")
+
+    columns = stats.extract_both(NoFronts(), date, provider.field_names(date)[0],
+                                 BBox.globe(), tag="nofronts")
+    assert columns["all"].n > 0, "grid-cell statistics do not need fronts"
+    assert columns["fronts"].unavailable
+    assert columns["fronts"].n == 0
+
+
+def test_evolution_offers_only_the_allow_listed_chunks(monkeypatch):
+    from fronts.viz.apps.evolution.app import EvolutionState
+
+    provider = sources.get_provider()
+
+    class ManyChunks:
+        def __getattr__(self, name):
+            return getattr(provider, name)
+
+        def chunks(self):
+            return ["amundsen", "monterey_bay", "ross", "weddell"]
+
+        def chunk_timesteps(self, chunk):
+            return provider.chunk_timesteps("monterey_bay")
+
+    monkeypatch.setattr(config, "EVOLUTION_CHUNKS", ("monterey_bay",))
+    state = EvolutionState(provider=ManyChunks())
+    assert list(state.param.chunk.objects) == ["monterey_bay"]
+    assert state.chunk == "monterey_bay"
+
+    # With no allow-list, everything found is offered.
+    monkeypatch.setattr(config, "EVOLUTION_CHUNKS", ())
+    state = EvolutionState(provider=ManyChunks())
+    assert len(state.param.chunk.objects) == 4

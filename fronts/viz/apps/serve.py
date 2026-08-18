@@ -125,6 +125,17 @@ ROUTES = {
 }
 
 
+def _local_origins(port: int) -> list[str]:
+    """Both spellings of the loopback address, for the given port.
+
+    Bokeh compares the browser's Origin header literally, so a server told
+    to allow ``localhost:5006`` refuses ``127.0.0.1:5006`` -- the page
+    shell loads and the websocket carrying every widget is rejected, which
+    looks exactly like a blank page.  They are the same machine; allow both.
+    """
+    return [f"localhost:{port}", f"127.0.0.1:{port}"]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port", type=int, default=5006)
@@ -143,6 +154,8 @@ def main(argv=None):
     ensure_display()
     pn.extension("vtk", notifications=True)
 
+    origins = args.allow_websocket_origin or _local_origins(args.port)
+
     provider = sources.get_provider()
     print(f"[fronts-viz] provider={provider.mode} "
           f"synthetic={provider.synthetic}")
@@ -153,7 +166,7 @@ def main(argv=None):
         port=args.port,
         address=args.address,
         show=args.show,
-        websocket_origin=args.allow_websocket_origin,
+        websocket_origin=origins,
         title=TITLE,
     )
 

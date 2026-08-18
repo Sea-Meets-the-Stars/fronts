@@ -6,10 +6,10 @@ One small interface, two implementations:
     Fabricates everything (:mod:`~fronts.viz.apps.common.synthetic`).  The
     default, so the app runs before any data is wired up.
 
-``S3Provider``
-    Reads the real stores.  Every method that needs a store layout we have
-    not confirmed raises :class:`NotWiredUp` with the exact question it
-    needs answered, rather than guessing a path and failing obscurely.
+``S3Provider`` (:mod:`~fronts.viz.apps.common.s3source`)
+    Reads the real stores through the preprocessing repo's readers.
+    Anything the pipeline has not produced yet raises :class:`NotWiredUp`
+    naming which build_v5 step is outstanding.
 
 Pages never construct a provider directly; they call :func:`get_provider`.
 """
@@ -184,6 +184,27 @@ class DataProvider(ABC):
             reference = "gradb2" if "gradb2" in names else names[0]
         return ~np.isfinite(self.field(date, reference))
 
+    def ice_mask(self, date: str) -> np.ndarray | None:
+        """Cells under sea ice, or ``None`` when the store has no ice channel.
+
+        Values under the ice pack are not comparable with the open ocean
+        and are extreme enough to set the colour limits for a whole
+        hemisphere, so both the map and the statistics drop them.
+        """
+        if config.ICE_CHANNEL not in self.field_names(date):
+            return None
+        area = np.asarray(self.field(date, config.ICE_CHANNEL))
+        return np.isfinite(area) & (area > config.ICE_THRESHOLD)
+
+    def drop_ice(self, date: str, name: str, values: np.ndarray) -> np.ndarray:
+        """NaN the ice-covered cells of *values*, unless *name* is the ice."""
+        if name in config.ICE_EXEMPT:
+            return values
+        ice = self.ice_mask(date)
+        if ice is None:
+            return values
+        return np.where(ice, np.nan, values)
+
     def resolve_channels(self, date: str) -> dict[str, str | None]:
         """Map the kinematic roles onto whatever this store calls them.
 
@@ -309,119 +330,6 @@ def _cached_colocation(date):
 # S3
 # --------------------------------------------------------------------------
 
-class S3Provider(DataProvider):
-    """Reads the real global products and pre-generated tiles.
-
-    Deliberately incomplete.  The store layout under
-    ``globals_for_cutouts/v2_2_01/`` has not been confirmed, so the methods
-    that need it raise :class:`NotWiredUp` naming exactly what to check.
-    Filling these in is a small, mechanical job once the listing exists --
-    see ``docs/viz/apps/WIRING.md``.
-    """
-
-    mode = "s3"
-    synthetic = False
-
-    def __init__(self, root: str | None = None, tile_dir=None):
-        self.root = (root or config.S3_ROOT).rstrip("/")
-        self.tile_dir = tile_dir or config.TILE_DIR
-
-    # -- helpers ---------------------------------------------------------
-
-    def _prefix(self, date: str) -> str:
-        return f"{self.root}/{config.date_to_prefix(date)}"
-
-    def _fs(self):
-        import s3fs
-        return s3fs.S3FileSystem(anon=False)
-
-    def listing(self, date: str) -> list[str]:
-        """Everything in the date's directory.  Used by the wiring script."""
-        fs = self._fs()
-        return sorted(fs.ls(self._prefix(date).replace("s3://", "")))
-
-    # -- interface -------------------------------------------------------
-
-    def dates(self):
-        return list(config.DATES)
-
-    def coords(self, date):
-        raise NotWiredUp(
-            "the coordinate source for the global grid",
-            "Confirm whether XC/YC ship inside the per-date store or come "
-            "from a separate LLC_coords_lat_lon.nc, then fill in "
-            "S3Provider.coords.",
-        )
-
-    def field_names(self, date):
-        raise NotWiredUp(
-            "the channel list for a date",
-            "Run the listing command in docs/viz/apps/WIRING.md; the names "
-            "decide whether kinematic channels carry depth suffixes.",
-        )
-
-    def field(self, date, name):
-        raise NotWiredUp(
-            f"the file layout for channel {name!r}",
-            "Need one example filename to pin the naming convention.",
-        )
-
-    def front_binary(self, date):
-        raise NotWiredUp("the binary-fronts filename")
-
-    def labels(self, date):
-        raise NotWiredUp("the labelled-fronts filename")
-
-    def geometry(self, date):
-        raise NotWiredUp("the geometry parquet filename")
-
-    def colocation(self, date):
-        raise NotWiredUp("the colocation parquet filename")
-
-    def chunk_timesteps(self, chunk):
-        raise NotWiredUp(
-            f"the timestep list for chunk {chunk!r}",
-            "List s3://dbof/LLC4320_RAW/CHUNKS/{chunk}/ -- one "
-            "YYYYMMDD_HHMMSS.zarr per step.",
-        )
-
-    def chunk_tile(self, chunk, step, prop):
-        raise NotWiredUp(
-            f"tile generation from chunk {chunk!r}",
-            "tile_utils._load_timestep_tile slices a full 4320x4320 face by "
-            "absolute face-local index, so it cannot read a store that is "
-            "already 720x720.  Either write chunks preserving face-local "
-            "j/i as coordinates (isel -> sel), or add a chunk mode that "
-            "skips the slice and validates the extent instead.  See "
-            "docs/viz/apps/DATA.md.",
-        )
-
-    def chunk_labels(self, chunk, step):
-        raise NotWiredUp(f"the labelled fronts for chunk {chunk!r}")
-
-    def tile(self, date, tile_idx, prop):
-        """Read a pre-generated tile NetCDF.
-
-        This one *is* implemented -- the tile layout is known, because
-        ``dbof.cli.generate_tile`` writes it and ``density_utils.load_tile``
-        validates it.  It just needs the files to exist.
-        """
-        from pathlib import Path
-        import xarray as xr
-
-        stamp = config.date_to_tile_stamp(date)
-        prefix = "density" if prop in ("density", "sigma0") else prop.lower()
-        path = Path(self.tile_dir) / f"{prefix}_tile{tile_idx}_{stamp}.nc"
-        if not path.exists():
-            raise NotWiredUp(
-                f"tile file {path}",
-                "Generate it with `python -m dbof.cli.generate_tile "
-                f"--i <I> --j <J> --timestamp '<TS>' --property {prop} "
-                "--output $TILES` (see docs/viz/apps/WIRING.md).",
-            )
-        return xr.open_dataset(path)
-
-
 # --------------------------------------------------------------------------
 # Selection
 # --------------------------------------------------------------------------
@@ -442,6 +350,7 @@ def get_provider() -> DataProvider:
     if _OVERRIDE is not None:
         return _OVERRIDE
     mode = os.environ.get("FRONTS_APP_DATA", config.DATA_MODE).lower()
-    if mode == "s3":
+    if mode in ("s3", "profx"):
+        from fronts.viz.apps.common.s3source import S3Provider
         return S3Provider()
     return SyntheticProvider()
