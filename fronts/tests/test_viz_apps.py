@@ -1275,3 +1275,184 @@ def test_tile_window_uses_the_tile_size_of_the_dataset():
     js, iss = TP.tile_window(ds)
     assert (js.start, js.stop) == (0, 8)
     assert (iss.start, iss.stop) == (config.TILE_SIZE, config.TILE_SIZE + 8)
+
+
+# --------------------------------------------------------------------------
+# Tile map: same colours as the curtains, real labels in the overlay
+# --------------------------------------------------------------------------
+
+def test_bokeh_cmap_resolves_the_cmocean_names_field_styles_uses():
+    """field_styles names cmocean maps Bokeh has never heard of."""
+    from fronts.viz.apps.common import basemap
+
+    for name in ("dense", "thermal", "haline"):
+        colours = basemap.bokeh_cmap(name, n=8)
+        assert len(colours) == 8
+        assert all(c.startswith("#") for c in colours)
+
+    # Distinct colormaps must not collapse onto the same fallback.
+    assert basemap.bokeh_cmap("RdBu_r", 8) != basemap.bokeh_cmap("viridis", 8)
+    # An unknown name falls back rather than raising.
+    assert basemap.bokeh_cmap("not_a_colormap", 8) == \
+        basemap.bokeh_cmap("viridis", 8)
+
+
+def test_every_demo_field_has_a_resolvable_colormap():
+    from fronts.viz import field_styles
+    from fronts.viz.apps.common import basemap
+
+    for field in config.TILE_STORE_DEFAULT_FIELDS + ("sigma0",):
+        style = field_styles.get_style(field)
+        assert len(basemap.bokeh_cmap(style.cmap, 4)) == 4, field
+
+
+def test_front_overlay_carries_the_true_label_not_the_palette_index():
+    """The dropdown shows global labels; hover must show the same number."""
+    import holoviews as hv
+    hv.extension("bokeh")
+
+    labels = np.zeros((6, 6), dtype=np.int64)
+    labels[1:3, 1:3] = 41953
+    labels[4:6, 4:6] = 44615
+
+    xs, ys = np.arange(6), np.arange(6)
+    palette_idx = np.where(labels > 0, (labels - 1) % 8, np.nan).astype(float)
+    true_label = np.where(labels > 0, labels, np.nan).astype(float)
+
+    img = hv.Image((xs, ys, palette_idx, true_label),
+                   kdims=["i", "j"], vdims=["front", "label"])
+
+    shown = img.dimension_values("label", flat=False)
+    assert np.nanmax(shown) == 44615
+    assert 41953 in np.unique(shown[np.isfinite(shown)])
+    # The palette index is deliberately not the label.
+    assert np.nanmax(img.dimension_values("front", flat=False)) < 8
+
+
+def test_label_markers_sit_on_their_fronts():
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    labels = np.zeros((20, 20), dtype=np.int64)
+    labels[2:6, 2:6] = 41953          # centroid ~ (3.5, 3.5)
+    labels[14:18, 14:18] = 44615      # centroid ~ (15.5, 15.5)
+
+    markers = TilesPage._label_markers(None, labels, [41953, 44615])
+    rows = {row[2]: (row[0], row[1]) for row in markers.data.itertuples(index=False)} \
+        if hasattr(markers.data, "itertuples") else None
+
+    text = list(markers.dimension_values("text"))
+    assert set(text) == {"41953", "44615"}
+    i_vals = markers.dimension_values("i")
+    j_vals = markers.dimension_values("j")
+    assert np.allclose(sorted(i_vals), [3.5, 15.5])
+    assert np.allclose(sorted(j_vals), [3.5, 15.5])
+
+
+def test_squared_gradient_fields_are_displayed_in_log10():
+    """gradb2 spans orders of magnitude; linear limits hide every front."""
+    from fronts.viz import field_styles
+
+    for name in ("gradb2", "gradrho2", "gradtheta2", "gradsalt2"):
+        style = field_styles.get_style(name)
+        assert style.transform == "log10", name
+        assert "log10" in style.title, name
+
+
+def test_gradb2_log10_drops_non_positive_values_rather_than_flooring_them():
+    from fronts.viz import field_styles
+
+    style = field_styles.get_style("gradb2")
+    vals = np.array([[1e-14, 1e-12], [0.0, -1e-14]])
+    disp = field_styles.apply_transform(vals, style)
+
+    assert disp[0, 0] == pytest.approx(-14.0)
+    assert disp[0, 1] == pytest.approx(-12.0)
+    assert np.isnan(disp[1, 0]), "zero must be NaN, not a floor value"
+    assert np.isnan(disp[1, 1]), "negative must be NaN"
+
+
+def test_the_two_d_map_and_the_tile_map_agree_that_gradb2_is_logged():
+    """The global map has its own display table; it must not disagree."""
+    from fronts.viz import field_styles
+    from fronts.viz.apps.common import basemap
+
+    assert "gradb2" in basemap._LOG_FIELDS
+    assert field_styles.get_style("gradb2").transform == "log10"
+
+    _, _, label = basemap.field_display(np.array([[1e-14, 1e-12]]), "gradb2")
+    assert label == "log10(gradb2)"
+
+
+# --------------------------------------------------------------------------
+# Tiles page: zoom follows the selection, columns match the request
+# --------------------------------------------------------------------------
+
+def _tiles_page():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+    return TilesPage(provider=sources.get_provider())
+
+
+def test_tile_map_zooms_to_the_selected_front():
+    page = _tiles_page()
+
+    def limits():
+        return page._tilemap.object.opts.get().kwargs
+
+    whole = limits()
+    available = [int(v) for v in page.w_avail.options]
+    assert available, "fixture tile needs at least one front"
+
+    page.state.select_front(available[0])
+    zoomed = limits()
+
+    labels = page._labels_tile
+    js, iss = np.nonzero(labels == available[0])
+
+    xlim, ylim = zoomed["xlim"], zoomed["ylim"]
+    assert xlim[0] <= iss.min() and xlim[1] >= iss.max()
+    assert ylim[0] <= js.min() and ylim[1] >= js.max()
+
+    nj, ni = labels.shape
+    assert (xlim[1] - xlim[0]) < ni or (ylim[1] - ylim[0]) < nj, \
+        "selecting a front must tighten the view, not keep the whole tile"
+    assert (whole["xlim"], whole["ylim"]) != (xlim, ylim)
+
+
+def test_deselecting_returns_the_whole_tile():
+    page = _tiles_page()
+    available = [int(v) for v in page.w_avail.options]
+    page.state.select_front(available[0])
+    page.state.front_label = 0
+
+    opts = page._tilemap.object.opts.get().kwargs
+    nj, ni = page._labels_tile.shape
+    assert opts["xlim"] == (0, ni - 1)
+    assert opts["ylim"] == (0, nj - 1)
+
+
+def test_regenerate_does_not_leave_a_stale_column_behind():
+    """Columns must equal the requested fields, not accumulate."""
+    page = _tiles_page()
+    assert len(page._columns.objects) == 1        # default single field
+
+    page.state.fields = ["Ri", "N2", "gradb2"]
+    page.schedule_figures()
+
+    assert len(page._columns.objects) == 3
+    assert page._column_fields == ["Ri", "N2", "gradb2"]
+    assert {f for f, _ in page._panes} == {"Ri", "N2", "gradb2"}
+
+
+def test_over_the_limit_keeps_the_newest_fields_not_the_default():
+    from fronts.viz.apps.common.state import TilesState
+
+    state = TilesState(provider=sources.get_provider())
+    assert state.fields == ["Ri"]
+
+    state.fields = ["Ri", "N2", "gradb2", "turner_angle"]
+    assert len(state.fields) == state.MAX_FIELDS
+    assert "turner_angle" in state.fields, \
+        "the most recent pick must survive the cap"
+    assert "Ri" not in state.fields, "the stale default should be the one to go"

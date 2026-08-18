@@ -26,6 +26,8 @@ import holoviews as hv
 import numpy as np
 import panel as pn
 
+from fronts.viz import field_styles
+from fronts.viz.geometry import front_bbox_and_crop
 from fronts.viz.apps import config
 from fronts.viz.apps.common import basemap, regions as regions_mod, widgets
 from fronts.viz.apps.common.state import TilesState
@@ -43,6 +45,9 @@ FRONT_PALETTE = (
     "#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#42d4f4",
     "#f032e6", "#bfef45", "#fabed4", "#469990", "#dcbeff", "#9a6324",
 )
+
+#: Padding around the selected front when the tile map zooms to it.
+TILE_ZOOM_MARGIN = 60
 
 ROW_KEYS = ("vtk",) + F.FIGURE_ORDER
 ROW_LABELS = {
@@ -68,8 +73,15 @@ class TilesPage:
         #: One column of panes per field, built on demand.
         self._columns = pn.Row(sizing_mode="stretch_width")
         self._panes: dict[tuple[str, str], pn.viewable.Viewable] = {}
+        #: Fields the current column skeleton was built for, so Regenerate
+        #: can tell whether the layout is stale.
+        self._column_fields: list[str] = []
 
         self._labels_tile = None
+        #: Last tile drawn, so re-selecting a front does not re-fetch it.
+        #: Redrawing is now driven by front_label too, and every redraw
+        #: hitting S3 would make picking a front feel broken.
+        self._tile_cache: tuple[tuple, object] | None = None
         self._token = 0
 
         self._build_controls()
@@ -105,8 +117,11 @@ class TilesPage:
             name="Regenerate figures", button_type="primary", width=185)
         self.w_regen.on_click(lambda _: self.schedule_figures())
 
+        # front_label is in here so selecting a front redraws the map: that
+        # is what moves the zoom onto it and highlights it.
         s.param.watch(lambda *_: self.draw_tile(),
-                      ["region", "field", "show_fronts", "date"])
+                      ["region", "field", "show_fronts", "date",
+                       "front_label"])
         s.param.watch(lambda *_: self._render_columns(), ["fields"])
         s.param.watch(lambda *_: self._reflect_dirty(), ["dirty"])
         self._reflect_dirty()
@@ -179,7 +194,7 @@ class TilesPage:
         s = self.state
         try:
             tile_idx = s.tile_index()
-            ds = s.provider.tile(s.date, tile_idx, s.field, s.region)
+            ds = self._cached_tile(s.date, tile_idx, s.field, s.region)
             var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
             # Remap to the rect frame first, so the surface and the labels
             # share one orientation -- the convention fronts_viz_curtain
@@ -207,25 +222,51 @@ class TilesPage:
         available = pipeline.available_fronts(labels)
         self.w_avail.options = [str(l) for l in available]
 
+        # Same style the curtains and the 3-D scene use, so a field looks
+        # the same wherever it appears.
+        style = field_styles.get_style(
+            ds.attrs.get("tile_var_name") or var)
+        shown_surface = field_styles.apply_transform(surface, style)
+        clim = field_styles.default_clim(shown_surface, style)
+
+        xs = np.arange(surface.shape[1])
+        ys = np.arange(surface.shape[0])
+
         img = hv.Image(
-            (np.arange(surface.shape[1]), np.arange(surface.shape[0]), surface),
-            kdims=["i", "j"], vdims=[s.field],
-        ).opts(cmap="viridis", colorbar=True, tools=["hover"])
+            (xs, ys, shown_surface), kdims=["i", "j"], vdims=[s.field],
+        ).opts(cmap=basemap.bokeh_cmap(style.cmap), clim=clim,
+               colorbar=True, tools=["hover"])
 
         layers = [img]
         if s.show_fronts:
-            shown = np.where(labels > 0, (labels - 1) % len(FRONT_PALETTE),
-                             np.nan).astype(float)
+            # Two value dimensions: the first colours the overlay, the
+            # second carries the real label so hover reports the number
+            # the dropdown uses.  Colouring by label directly would give
+            # 500 near-identical shades.
+            palette_idx = np.where(labels > 0,
+                                   (labels - 1) % len(FRONT_PALETTE),
+                                   np.nan).astype(float)
+            true_label = np.where(labels > 0, labels, np.nan).astype(float)
             layers.append(hv.Image(
-                (np.arange(labels.shape[1]), np.arange(labels.shape[0]), shown),
-                kdims=["i", "j"], vdims=["front"],
+                (xs, ys, palette_idx, true_label),
+                kdims=["i", "j"], vdims=["front", "label"],
             ).opts(cmap=list(FRONT_PALETTE), colorbar=False, tools=["hover"],
                    clim=(0, len(FRONT_PALETTE) - 1)))
 
+            layers.append(self._label_markers(labels, available))
+
+            if s.front_label:
+                picked = np.where(labels == s.front_label, 1.0, np.nan)
+                layers.append(hv.Image(
+                    (xs, ys, picked), kdims=["i", "j"], vdims=["selected"],
+                ).opts(cmap=["#00e5ff"], colorbar=False, clim=(0, 1)))
+
+        xlim, ylim = self._tile_zoom(labels, surface.shape)
         overlay = hv.Overlay(layers).opts(hv.opts.Overlay(
             width=560, height=420, active_tools=["tap"],
             title=f"{s.region}  —  tile {tile_idx}  —  {s.field}",
-            xlabel="i (tile pixels)", ylabel="j (tile pixels)"))
+            xlabel="i (tile pixels)", ylabel="j (tile pixels)",
+            xlim=xlim, ylim=ylim))
 
         hv.streams.Tap(source=overlay).add_subscriber(self._on_tile_tap)
         hv.streams.PointerXY(source=overlay).add_subscriber(self._on_pointer)
@@ -235,6 +276,64 @@ class TilesPage:
             f"tile **{tile_idx}** · {len(available)} fronts with 25+ pixels"
             if available else
             f"tile **{tile_idx}** · no fronts with 25+ pixels here")
+
+    def _cached_tile(self, date, tile_idx, field, region):
+        key = (date, tile_idx, field, region)
+        if self._tile_cache is not None and self._tile_cache[0] == key:
+            return self._tile_cache[1]
+        ds = self.state.provider.tile(date, tile_idx, field, region)
+        self._tile_cache = (key, ds)
+        return ds
+
+    def _tile_zoom(self, labels, shape):
+        """Axis limits for the tile map: the selected front, or the tile.
+
+        A front is a filament in a 720 x 720 window, so showing the whole
+        tile means the thing that was selected is a few pixels wide.  The
+        window is the same crop the figures use, so what is on the map and
+        what is in the panels below are the same piece of ocean.
+        """
+        nj, ni = shape
+        full = ((0, ni - 1), (0, nj - 1))
+
+        label = int(self.state.front_label or 0)
+        if not label or labels is None or not np.any(labels == label):
+            return full
+
+        try:
+            j_slice, i_slice = front_bbox_and_crop(
+                labels, label, margin=TILE_ZOOM_MARGIN)
+        except Exception:                                   # noqa: BLE001
+            return full
+        return ((i_slice.start, i_slice.stop - 1),
+                (j_slice.start, j_slice.stop - 1))
+
+    def _label_markers(self, labels, available, *, top: int = 15):
+        """The front number printed on the map, at each front's centroid.
+
+        Hover gives one label at a time; this makes the biggest fronts
+        readable at a glance, so the dropdown and the picture can be
+        matched up without pointing at anything.
+        """
+        rows = []
+        for label in available[:top]:
+            js, iss = np.nonzero(labels == label)
+            if js.size:
+                rows.append((float(iss.mean()), float(js.mean()), str(label)))
+
+        if not rows:
+            return hv.Labels([], kdims=["i", "j"], vdims=["text"])
+
+        # A dark chip behind the text, not a bare colour.  A label sits at
+        # its front's centroid, which lands on the bright end of the
+        # greyscale ramp or on a saturated overlay colour about as often
+        # as it lands on the background -- so no single text colour is
+        # readable everywhere, and the background is what fixes it.
+        return hv.Labels(rows, kdims=["i", "j"], vdims=["text"]).opts(
+            text_color="white", text_font_size="8pt", text_align="center",
+            text_baseline="middle", text_font_style="bold",
+            background_fill_color="#101010", background_fill_alpha=0.72,
+            padding=2, border_radius=2)
 
     def _lookup_label(self, x, y):
         if self._labels_tile is None or x is None or y is None:
@@ -261,6 +360,7 @@ class TilesPage:
         """Rebuild the column skeleton for the selected fields."""
         fields = list(self.state.fields)
         self._panes = {}
+        self._column_fields = fields
         columns = []
 
         for field in fields:
@@ -283,6 +383,13 @@ class TilesPage:
 
     def schedule_figures(self):
         """Build every column.  Explicitly triggered by Regenerate."""
+        # Reconcile the skeleton with the selection first.  The columns are
+        # normally rebuilt by the ``fields`` watcher, but Regenerate is the
+        # point at which what is on screen must match what was asked for,
+        # so it is rebuilt here rather than trusted to be current.
+        if self._column_fields != list(self.state.fields):
+            self._render_columns()
+
         self._token += 1
         token = self._token
 

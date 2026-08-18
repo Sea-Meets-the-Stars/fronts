@@ -43,7 +43,9 @@ REGIONS: tuple[Region, ...] = (
     Region("california", "California Current System", 36.4, -124.2),
     Region("eq_pacific", "Equatorial Tropical Pacific", 0.5, -140.0),
     Region("agulhas", "Agulhas Current", -37.0, 22.0),
-    Region("ne_greenland", "NE of Greenland", 78.0, -5.0),
+    # tile_idx supplied directly, so the centre is only used to place the
+    # box on the overview map -- the tile is 407 whatever the search says.
+    Region("se_greenland", "SE of Greenland", 62.0, -40.0, tile_idx=407),
 )
 
 BY_KEY = {r.key: r for r in REGIONS}

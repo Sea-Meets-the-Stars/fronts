@@ -214,9 +214,14 @@ class TilesState(PageState):
 
     @param.depends("fields", watch=True)
     def _cap_fields(self):
-        """Keep the selection within the comparable-columns limit."""
+        """Keep the selection within the comparable-columns limit.
+
+        Over the limit, the *oldest* entries go.  Truncating from the end
+        would drop what the user just picked and keep whatever was there
+        by default, which reads as the page ignoring the click.
+        """
         if len(self.fields) > self.MAX_FIELDS:
-            self.fields = self.fields[: self.MAX_FIELDS]
+            self.fields = self.fields[-self.MAX_FIELDS:]
         elif not self.fields:
             self.fields = [self.field]
         if self.field not in self.fields:

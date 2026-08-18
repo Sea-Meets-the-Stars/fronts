@@ -173,6 +173,34 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         transform="linear", cmap="twilight_shifted",
         title="Tu [deg]", center=0.0,
     ),
+    # Squared buoyancy gradient: strictly positive and spanning many orders
+    # of magnitude, so linear limits put every front in the top percent of
+    # the bar and the rest of the field at zero.  Same treatment as the
+    # other squared-gradient channels below.
+    # No clip: values <= 0 already become NaN before the log, and the 2/98
+    # percentiles set the limits from the data, which is safer than pinning
+    # a range across a field that spans many orders of magnitude.
+    # Greyscale, dark background to bright fronts: this is the field the
+    # labelled fronts are drawn on top of, and a coloured base competes
+    # with the colours identifying the fronts.  ``gray`` runs black at the
+    # minimum to white at the maximum, so the fronts read as the bright
+    # structure and the overlay colours stay legible.
+    "gradb2": FieldStyle(
+        transform="log10", cmap="gray",
+        title="log10(|grad b|^2 [s^-4])",
+    ),
+    "gradrho2": FieldStyle(
+        transform="log10", cmap="magma",
+        title="log10(|grad rho|^2 [kg^2 m^-8])",
+    ),
+    "gradtheta2": FieldStyle(
+        transform="log10", cmap="magma",
+        title="log10(|grad Theta|^2 [degC^2 m^-2])",
+    ),
+    "gradsalt2": FieldStyle(
+        transform="log10", cmap="magma",
+        title="log10(|grad S|^2 [psu^2 m^-2])",
+    ),
     "wB": FieldStyle(
         # Signed vertical buoyancy flux (down/up-gradient); symlog + diverging
         # map centred on 0, like okubo_weiss / Fs.  linthresh is a starting

@@ -119,6 +119,35 @@ def width_for_extent(extent) -> int:
     return max(ok) if ok else min(config.PYRAMID_WIDTHS)
 
 
+def bokeh_cmap(name: str, n: int = 256) -> list[str]:
+    """Resolve a field-style colormap name to hex colours Bokeh can use.
+
+    ``fronts.viz.field_styles`` names colormaps for matplotlib and PyVista,
+    including cmocean ones (``dense``, ``thermal``, ``haline``) that Bokeh
+    has never heard of.  Resolving them here is what lets the tile map use
+    the same colours as the curtains rather than a hardcoded viridis.
+    """
+    import matplotlib as mpl
+    import matplotlib.colors as mcolors
+
+    cmap = None
+    for candidate in (name, f"cmo.{name}"):
+        try:
+            cmap = mpl.colormaps[candidate]
+            break
+        except (KeyError, AttributeError):
+            continue
+
+    if cmap is None:
+        try:
+            import cmocean
+            cmap = getattr(cmocean.cm, name)
+        except Exception:                                   # noqa: BLE001
+            cmap = mpl.colormaps["viridis"]
+
+    return [mcolors.to_hex(cmap(i / (n - 1))) for i in range(n)]
+
+
 def _crop(lon, lat, arr, extent):
     """Slice a raster down to the zoom window, with a margin.
 
@@ -153,7 +182,9 @@ _LAT_TICKS = [(v, f"{abs(v)}{'N' if v > 0 else 'S' if v < 0 else ''}")
               for v in (-60, -30, 0, 30, 60)]
 
 _FIELD_CMAPS = {
-    "gradb2": "magma",
+    # Greyscale for the same reason as the tile map: the fronts overlay is
+    # drawn on top of this, and a coloured base fights with it.
+    "gradb2": "gray",
     "relative_vorticity": "RdBu_r",
     "divergence": "RdBu_r",
     "okubo_weiss": "RdBu_r",
