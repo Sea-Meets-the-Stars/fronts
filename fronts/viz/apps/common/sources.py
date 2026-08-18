@@ -88,7 +88,8 @@ class DataProvider(ABC):
         """Per-front colocated property table."""
 
     @abstractmethod
-    def tile(self, date: str, tile_idx: int, prop: str):
+    def tile(self, date: str, tile_idx: int, prop: str,
+             region: str | None = None):
         """A 3-D tile as an :class:`xarray.Dataset`."""
 
     # -- depth ------------------------------------------------------------
@@ -101,6 +102,25 @@ class DataProvider(ABC):
         """
         available = set(self.dates())
         return [d for d in config.DATES_3D if d in available]
+
+    def has_fronts(self, date: str) -> bool:
+        """Whether the labelled fronts exist for a date."""
+        try:
+            self.labels(date)
+        except Exception:                                   # noqa: BLE001
+            return False
+        return True
+
+    def dates_with_fronts(self, candidates=None) -> list[str]:
+        """The subset of *candidates* that has a label map.
+
+        build_v5 runs date by date, so for a long while only some dates
+        have fronts.  A page that needs them offers only those, rather
+        than a dropdown where most entries fail.
+        """
+        if candidates is None:
+            candidates = self.dates()
+        return [d for d in candidates if self.has_fronts(d)]
 
     def depth_levels(self, date: str) -> list[str]:
         """Depth-level labels available for a date.
@@ -282,7 +302,7 @@ class SyntheticProvider(DataProvider):
     def colocation(self, date):
         return _cached_colocation(date)
 
-    def tile(self, date, tile_idx, prop):
+    def tile(self, date, tile_idx, prop, region=None):
         return self._world(date).tile_dataset(tile_idx, prop)
 
     # -- evolution chunks -------------------------------------------------

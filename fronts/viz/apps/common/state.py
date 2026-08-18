@@ -182,11 +182,24 @@ class TilesState(PageState):
 
     def __init__(self, provider=None, **params):
         super().__init__(provider=provider, **params)
-        dates = self.provider.dates_3d()
+        dates = self.usable_dates()
         if dates:
             self.param.date.objects = dates
             if self.date not in dates:
                 self.date = dates[0]
+
+    def usable_dates(self) -> list[str]:
+        """Dates this page can actually show something for.
+
+        A tile needs 3-D raw data *and* a label map, and build_v5 has only
+        run for some dates.  Offering a date with no fronts gives a page
+        that loads a tile and then says there is nothing on it, so those
+        are left out -- unless none qualify, in which case the 3-D dates
+        are offered and the page explains what is missing.
+        """
+        dates_3d = self.provider.dates_3d()
+        with_fronts = self.provider.dates_with_fronts(dates_3d)
+        return with_fronts or dates_3d
 
     @param.depends("region", "date", "fields", "front_label", "n_offsets",
                    "perp_half_width", watch=True)

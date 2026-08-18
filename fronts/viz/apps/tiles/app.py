@@ -179,7 +179,7 @@ class TilesPage:
         s = self.state
         try:
             tile_idx = s.tile_index()
-            ds = s.provider.tile(s.date, tile_idx, s.field)
+            ds = s.provider.tile(s.date, tile_idx, s.field, s.region)
             var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
             # Remap to the rect frame first, so the surface and the labels
             # share one orientation -- the convention fronts_viz_curtain
@@ -197,7 +197,8 @@ class TilesPage:
         # a separate product and may not have been built for this date.
         try:
             labels = pipeline.tile_labels(s.provider, s.date, tile_idx,
-                                          surface.shape, ds=ds)
+                                          surface.shape, ds=ds,
+                                          region=s.region)
         except Exception as exc:                            # noqa: BLE001
             labels = np.zeros(surface.shape, dtype=np.int32)
             self._status.object = f"*Fronts not overlaid:* {exc}"
@@ -322,7 +323,7 @@ class TilesPage:
             try:
                 scene = pipeline.build_scene(s.provider, s.date,
                                              s.tile_index(), field,
-                                             s.front_label)
+                                             s.front_label, region=s.region)
             except Exception as exc:                        # noqa: BLE001
                 failed.append((field, exc))
                 for key in ROW_KEYS:

@@ -1066,3 +1066,212 @@ def test_evolution_offers_only_the_allow_listed_chunks(monkeypatch):
     monkeypatch.setattr(config, "EVOLUTION_CHUNKS", ())
     state = EvolutionState(provider=ManyChunks())
     assert len(state.param.chunk.objects) == 4
+
+
+def test_tiles_offers_only_dates_that_have_fronts():
+    """build_v5 runs date by date; the page should not offer empty ones."""
+    from fronts.viz.apps.common.state import TilesState
+
+    base = sources.get_provider()
+    all_3d = base.dates_3d()
+    assert len(all_3d) > 1, "fixture needs more than one 3-D date"
+    built = all_3d[:1]
+
+    class PartlyBuilt(type(base)):
+        def has_fronts(self, date):
+            return date in built
+
+    state = TilesState(provider=PartlyBuilt())
+    assert list(state.param.date.objects) == built
+    assert state.date == built[0]
+
+
+def test_tiles_falls_back_when_no_date_has_fronts():
+    """With nothing built yet the page still loads, and says why."""
+    from fronts.viz.apps.common.state import TilesState
+
+    base = sources.get_provider()
+
+    class NothingBuilt(type(base)):
+        def has_fronts(self, date):
+            return False
+
+    state = TilesState(provider=NothingBuilt())
+    assert list(state.param.date.objects) == base.dates_3d()
+
+
+# --------------------------------------------------------------------------
+# The S3 tile store
+# --------------------------------------------------------------------------
+
+def test_tile_store_path_is_the_agreed_layout():
+    from fronts.viz.apps.common import tilestore
+
+    p = tilestore.path("2012-05-16T06_00_00", "California Current System", "Ri")
+    assert p == (f"{config.S3_BUCKET}/{config.TILE_STORE_FOLDER}/"
+                 "20120516_060000/california_current_system/Ri.zarr")
+
+
+def test_tile_store_round_trips_a_dataset_with_its_provenance(tmp_path,
+                                                              monkeypatch):
+    """The rect/face attrs decide label alignment, so they must survive."""
+    import xarray as xr
+    from fronts.viz.apps.common import tilestore
+
+    ds = xr.Dataset(
+        {"sigma0": (("k", "j", "i"), np.arange(8.0).reshape(2, 2, 2))},
+        attrs={"rect_i_start": np.int64(720), "rect_j_start": np.int32(1440),
+               "face_index": np.array(1), "tile_var_name": "sigma0"},
+    )
+
+    store = tmp_path / "Ri.zarr"
+    monkeypatch.setattr(tilestore, "path", lambda *a, **k: str(store))
+    monkeypatch.setattr(tilestore, "_filesystems",
+                        lambda: (_Local(), _Local()))
+
+    assert tilestore.write(ds, "2012-05-16T06_00_00", "r", "Ri")
+    back = tilestore.read("2012-05-16T06_00_00", "r", "Ri")
+
+    assert back.attrs["rect_i_start"] == 720
+    assert back.attrs["rect_j_start"] == 1440
+    assert back.attrs["face_index"] == 1
+    assert np.array_equal(back["sigma0"].values, ds["sigma0"].values)
+
+    # A second write without clobber must not overwrite.
+    assert tilestore.write(ds, "2012-05-16T06_00_00", "r", "Ri") is None
+
+
+class _Local:
+    """Stand-in for the S3 filesystem, backed by ordinary paths."""
+
+    def get_mapper(self, path):
+        return path
+
+    def exists(self, path):
+        import os
+        return os.path.exists(path)
+
+
+def test_tile_is_composed_without_the_branch_only_run_arguments():
+    """The in-memory path must not depend on run(write=...) existing.
+
+    ``write=False`` lives on one branch of the preprocessing repo; the
+    helpers composed here are on all of them.
+    """
+    import xarray as xr
+    from fronts.viz.apps.common import s3source
+
+    calls = []
+
+    class FakeTileUtils:
+        """Only the helpers that exist on every branch."""
+
+        class _Prop:
+            vars_needed = ("Theta", "Salt")
+            out_name = "sigma0"
+
+        @staticmethod
+        def resolve_property(name):
+            calls.append(("resolve_property", name))
+            return FakeTileUtils._Prop()
+
+        @staticmethod
+        def _resolve_s3_source(path):
+            return {"bucket": "dbof"}
+
+        @staticmethod
+        def rect_ij_to_tile(i, j):
+            calls.append(("rect_ij_to_tile", i, j))
+            return f"tile({i},{j})"
+
+        @staticmethod
+        def _load_grid_for_tile(cfg, tile):
+            return xr.Dataset()
+
+        @staticmethod
+        def _load_tracers_for_tile(cfg, stamp, tile, vars_needed):
+            calls.append(("tracers", stamp, tuple(vars_needed)))
+            return xr.Dataset()
+
+        @staticmethod
+        def _build_tile_context(tracers, grid):
+            return xr.Dataset(), object()
+
+        @staticmethod
+        def compute_tile_property(merge, xgrid, prop, mask_land):
+            assert mask_land is True
+            return "field"
+
+        @staticmethod
+        def mit_date_to_iteration(stamp):
+            return 12345
+
+        @staticmethod
+        def _build_output_dataset(**kw):
+            calls.append(("output", kw["rect_i_user"], kw["rect_j_user"]))
+            return xr.Dataset(attrs={"iteration": kw["iteration"]})
+
+        def run(self, *a, **k):                    # pragma: no cover
+            raise AssertionError("run() must not be called for a plain tile")
+
+    ds = s3source._compose_tile(FakeTileUtils(), "2012-05-16 06:00:00",
+                                720, 1440, "density")
+
+    assert ds.attrs["iteration"] == 12345
+    assert ("rect_ij_to_tile", 720, 1440) in calls
+    assert ("output", 720, 1440) in calls
+    assert ("tracers", "2012-05-16 06:00:00", ("Theta", "Salt")) in calls
+
+
+# --------------------------------------------------------------------------
+# Tile provenance -- the attrs that decide label alignment
+# --------------------------------------------------------------------------
+
+def _tile_with(attrs, n=720):
+    import xarray as xr
+    return xr.Dataset(
+        {"sigma0": (("k", "j", "i"), np.zeros((2, n, n), dtype=np.float32))},
+        attrs=attrs,
+    )
+
+
+def test_rect_origin_accepts_either_provenance_convention():
+    """Different tile_utils versions record the origin differently."""
+    from fronts.viz.apps.tiles import pipeline as TP
+
+    explicit = _tile_with({"rect_i_start": 1440, "rect_j_start": 2160,
+                           "face_index": 1}, n=8)
+    by_tile = _tile_with({"tile_i_rect": 2, "tile_j_rect": 3,
+                          "face_index": 1}, n=8)
+
+    assert TP.rect_origin(explicit) == (1440, 2160)
+    assert TP.rect_origin(by_tile) == (2 * config.TILE_SIZE,
+                                       3 * config.TILE_SIZE)
+    # Both conventions describe the same tile, so they must agree.
+    assert TP.rect_origin(explicit) == TP.rect_origin(by_tile)
+
+
+def test_rect_origin_refuses_a_tile_with_no_origin():
+    from fronts.viz.apps.tiles import pipeline as TP
+
+    with pytest.raises(KeyError):
+        TP.rect_origin(_tile_with({"face_index": 1}, n=8))
+
+
+def test_real_tile_without_an_origin_does_not_silently_skip_the_remap():
+    """Returning None there would misalign labels on every rotated face."""
+    from fronts.viz.apps.tiles import pipeline as TP
+
+    ds = _tile_with({"face_index": 1}, n=8)
+    assert TP.tile_lookup(ds, synthetic=True) is None       # synthetic is fine
+    with pytest.raises(KeyError):
+        TP.tile_lookup(ds, synthetic=False)
+
+
+def test_tile_window_uses_the_tile_size_of_the_dataset():
+    from fronts.viz.apps.tiles import pipeline as TP
+
+    ds = _tile_with({"tile_i_rect": 1, "tile_j_rect": 0, "face_index": 0}, n=8)
+    js, iss = TP.tile_window(ds)
+    assert (js.start, js.stop) == (0, 8)
+    assert (iss.start, iss.stop) == (config.TILE_SIZE, config.TILE_SIZE + 8)

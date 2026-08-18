@@ -64,7 +64,9 @@ class ChunkStep:
         self.mode = provider.mode
         self.synthetic = provider.synthetic
 
-    def tile(self, date, tile_idx, prop):
+    def tile(self, date, tile_idx, prop, region=None):
+        # A chunk is its own store, so there is no tile-store slot to
+        # consult -- region is accepted and ignored.
         return self.provider.chunk_tile(self.chunk, self.step, prop)
 
     def labels_for_step(self):

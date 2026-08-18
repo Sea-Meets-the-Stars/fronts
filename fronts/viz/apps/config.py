@@ -147,6 +147,24 @@ DEPTH_RUN_ID = os.environ.get("FRONTS_APP_DEPTH_RUN_ID", "V5")
 GRID_FOLDER = os.environ.get("FRONTS_APP_GRID_FOLDER", "LLC4320_GRID_2D")
 GRID_STORE = os.environ.get("FRONTS_APP_GRID_STORE", "llc4320_grid.zarr")
 
+#: Pre-generated 3-D tiles, one zarr per (date, region, field):
+#: ``s3://{bucket}/{TILE_STORE_FOLDER}/{date_prefix}/{region}/{field}.zarr``.
+#: Generating a tile is ~15 s, so the page reads these when they exist.
+TILE_STORE_FOLDER = os.environ.get("FRONTS_APP_TILE_STORE", "tiles")
+
+#: Whether a tile generated on demand is written back to the store.  With
+#: this on, the store fills in as the page is used and the batch builder is
+#: a warm-up rather than a prerequisite.
+TILE_STORE_WRITE_BACK = (
+    os.environ.get("FRONTS_APP_TILE_WRITE_BACK", "1") != "0")
+
+#: Fields the batch builder does by default -- the ones the demo needs,
+#: not all of TILE_FIELDS_3D.  density is always included: the 3-D geometry
+#: is built from it whatever field is being coloured.
+TILE_STORE_DEFAULT_FIELDS: tuple[str, ...] = (
+    "density", "Ri", "N2", "relative_vorticity", "gradb2", "turner_angle",
+)
+
 #: Where build_v5 step 5 puts the front products, inside each date's
 #: directory alongside the zarr stores they came from.  See
 #: ``fronts.llc.publish``.

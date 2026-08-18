@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from fronts.viz.apps import config
-from fronts.viz.apps.common import cache
+from fronts.viz.apps.common import cache, tilestore
 from fronts.viz.apps.common.sources import DataProvider, NotWiredUp
 
 
@@ -104,8 +104,42 @@ class S3Provider(DataProvider):
     def colocation(self, date: str) -> pd.DataFrame:
         return _product_table(self.folder, self.run_id, date, "colocation")
 
-    def tile(self, date: str, tile_idx: int, prop: str):
-        return _generate_tile(date, tile_idx, prop, chunk=None)
+    def has_fronts(self, date: str) -> bool:
+        """Cheap existence check: list the prefix, do not read the map.
+
+        The base implementation loads the labels, which here would mean
+        downloading a grid-sized array to answer a yes/no question.
+        """
+        try:
+            _product_path(self.folder, self.run_id, date, "labels")
+        except Exception:                                   # noqa: BLE001
+            return False
+        return True
+
+    def tile(self, date: str, tile_idx: int, prop: str, region: str | None = None):
+        """A 3-D tile: from the store when it is there, generated when not.
+
+        *region* names the store slot.  It is only a label -- the data is
+        decided by *tile_idx* -- so a caller that has no region falls back
+        to the tile number, which is stable and unambiguous.
+        """
+        slot = region or f"tile_{int(tile_idx):03d}"
+        try:
+            return tilestore.read(date, slot, prop)
+        except FileNotFoundError:
+            pass
+        except Exception as exc:                            # noqa: BLE001
+            print(f"[tilestore] ignoring unreadable store for "
+                  f"{slot}/{prop}: {exc}")
+
+        ds = _generate_tile(date, tile_idx, prop, chunk=None)
+
+        if config.TILE_STORE_WRITE_BACK:
+            try:
+                tilestore.write(ds, date, slot, prop)
+            except Exception as exc:                        # noqa: BLE001
+                print(f"[tilestore] could not store {slot}/{prop}: {exc}")
+        return ds
 
     # -- chunks ----------------------------------------------------------
 
@@ -181,6 +215,7 @@ _STEP = {"binary": "step 2 (find)", "labels": "step 3 (group)",
          "index": "step 3 (group)"}
 
 
+@lru_cache(maxsize=64)
 def _product_path(folder, run_id, date: str, kind: str) -> str:
     """Locate one pushed front product on S3, or say which step is missing."""
     import fnmatch
@@ -268,20 +303,50 @@ def _cached_index(folder, run_id, date_prefix, pipeline):
 
 
 def _generate_tile(date: str, tile_idx: int, prop: str, chunk: str | None):
-    """Build a tile in memory, straight from zarr -- no NetCDF, no profx."""
-    from dbof.tiles import tile_utils
+    """Build a tile in memory, straight from zarr -- no NetCDF, no profx.
+
+    ``tile_utils.run`` does this and then writes a NetCDF, and its
+    in-memory variant lives on a branch of the preprocessing repo rather
+    than on all of them.  Rather than depend on which branch is checked
+    out, the same steps are composed here from helpers that exist on every
+    branch -- steps 1-7 of ``run``, stopping before it saves.
+    """
+    from dbof.tiles import tile_utils as T
 
     stamp = date.replace("T", " ").replace("_", ":")
+
     if chunk:
         lat, lon = _chunk_centre(chunk)
-        return tile_utils.run(lat=lat, lon=lon, timestamp=stamp,
-                              property=prop,
-                              config_path=_chunk_config(chunk),
-                              chunk=True, write=False)
+        return T.run(lat=lat, lon=lon, timestamp=stamp, property=prop,
+                     config_path=_chunk_config(chunk), chunk=True, write=False)
 
     i_rect, j_rect = _tile_origin(tile_idx)
-    return tile_utils.run(i_rect=i_rect, j_rect=j_rect, timestamp=stamp,
-                          property=prop, write=False)
+    return _compose_tile(T, stamp, i_rect, j_rect, prop)
+
+
+def _compose_tile(T, stamp: str, i_rect: int, j_rect: int, prop_name: str):
+    """Steps 1-7 of ``tile_utils.run``, returning the Dataset it would save."""
+    import xarray as xr
+
+    prop = T.resolve_property(prop_name)
+    s3_cfg = T._resolve_s3_source(None)
+    tile = T.rect_ij_to_tile(i_rect, j_rect)
+
+    ds_grid = T._load_grid_for_tile(s3_cfg, tile)
+    ds_tracers = (
+        T._load_tracers_for_tile(s3_cfg, stamp, tile,
+                                 vars_needed=list(prop.vars_needed))
+        if prop.vars_needed else xr.Dataset()
+    )
+
+    ds_merge, xgrid = T._build_tile_context(ds_tracers, ds_grid)
+    field = T.compute_tile_property(ds_merge, xgrid, prop, mask_land=True)
+
+    return T._build_output_dataset(
+        field=field, ds_grid_tile=ds_grid, tile=tile, prop=prop,
+        date_str=stamp, iteration=T.mit_date_to_iteration(stamp),
+        rect_i_user=i_rect, rect_j_user=j_rect,
+    )
 
 
 @lru_cache(maxsize=8)

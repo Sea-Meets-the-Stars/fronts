@@ -20,6 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from fronts.llc.analysis import mixed_layer_depth_field
+from fronts.viz.apps import config
 from fronts.viz import curtains, field_styles
 from fronts.viz.geometry import front_bbox_and_crop, truncate_depth
 
@@ -93,11 +94,39 @@ def _dev_mld():
     return density_utils
 
 
+def _attr(ds, name):
+    """One provenance attr as a plain int, or ``None`` if absent."""
+    if name not in ds.attrs:
+        return None
+    return int(np.asarray(ds.attrs[name]).item())
+
+
+def rect_origin(ds) -> tuple[int, int]:
+    """``(i0, j0)`` of the tile on the global rect grid.
+
+    Which attrs carry this depends on the version of ``tile_utils`` that
+    made the tile: some write ``rect_i_start`` / ``rect_j_start``
+    directly, others only the tile row and column.  Both say the same
+    thing, so either is accepted rather than requiring one branch.
+    """
+    i0, j0 = _attr(ds, "rect_i_start"), _attr(ds, "rect_j_start")
+    if i0 is not None and j0 is not None:
+        return i0, j0
+
+    ti, tj = _attr(ds, "tile_i_rect"), _attr(ds, "tile_j_rect")
+    if ti is not None and tj is not None:
+        return ti * config.TILE_SIZE, tj * config.TILE_SIZE
+
+    raise KeyError(
+        "tile carries no rect origin: expected rect_i_start/rect_j_start "
+        f"or tile_i_rect/tile_j_rect, got {sorted(ds.attrs)}"
+    )
+
+
 def tile_window(ds) -> tuple[slice, slice]:
-    """The tile's window on the global rect grid, from its provenance attrs."""
-    j0 = int(np.asarray(ds.attrs["rect_j_start"]).item())
-    i0 = int(np.asarray(ds.attrs["rect_i_start"]).item())
-    n = int(ds.sizes.get("j", 720))
+    """The tile's window on the global rect grid, as ``(j_slice, i_slice)``."""
+    i0, j0 = rect_origin(ds)
+    n = int(ds.sizes.get("j", config.TILE_SIZE))
     return slice(j0, j0 + n), slice(i0, i0 + n)
 
 
@@ -109,19 +138,23 @@ def tile_lookup(ds, *, synthetic: bool = False):
     Doing the same here keeps the page and the scripts on one convention.
 
     The synthetic world carries the same provenance attrs on purpose, so
-    the caller says which kind of tile this is rather than guessing.
+    the caller says which kind of tile this is rather than guessing.  A
+    real tile whose origin cannot be read raises: returning ``None`` would
+    skip the remap and misalign the labels on every rotated face, which is
+    wrong in a way nothing downstream could notice.
     """
-    if synthetic or "rect_j_start" not in ds.attrs:
+    if synthetic:
         return None
-    return _dev_mld().build_tile_lookup(
-        int(np.asarray(ds.attrs["rect_i_start"]).item()),
-        int(np.asarray(ds.attrs["rect_j_start"]).item()),
-        int(np.asarray(ds.attrs["face_index"]).item()),
-    )
+
+    i0, j0 = rect_origin(ds)
+    face = _attr(ds, "face_index")
+    if face is None:
+        raise KeyError("tile carries no face_index; cannot build the remap")
+    return _dev_mld().build_tile_lookup(i0, j0, face)
 
 
-def tile_labels(provider, date: str, tile_idx: int, shape, ds=None
-                ) -> np.ndarray:
+def tile_labels(provider, date: str, tile_idx: int, shape, ds=None,
+                region: str | None = None) -> np.ndarray:
     """The global label mask, sliced to a tile window.
 
     In synthetic mode the tile slices come from the fabricated world; with
@@ -135,7 +168,8 @@ def tile_labels(provider, date: str, tile_idx: int, shape, ds=None
         return labels[js, iss]
 
     if ds is None:
-        ds = provider.tile(date, tile_idx, "density")
+        ds = provider.tile(date, tile_idx, "density", region)
+
     js, iss = tile_window(ds)
     return np.asarray(labels[js, iss])
 
@@ -179,6 +213,7 @@ def build_scene(
     n_below: int = 3,
     n_isopycnals: int = 8,
     lookup=None,
+    region: str | None = None,
 ) -> FrontScene:
     """Run the ingest pipeline for one front.
 
@@ -186,8 +221,8 @@ def build_scene(
     documented in ``docs/viz/fronts_curtain.md``.
     """
     # 1 -- load the two tiles.
-    ds_rho = provider.tile(date, tile_idx, "density")
-    ds_fld = provider.tile(date, tile_idx, field)
+    ds_rho = provider.tile(date, tile_idx, "density", region)
+    ds_fld = provider.tile(date, tile_idx, field, region)
 
     rho_var = ds_rho.attrs.get("tile_var_name") or _sole_3d(ds_rho)
     fld_var = ds_fld.attrs.get("tile_var_name") or _sole_3d(ds_fld)
@@ -205,7 +240,8 @@ def build_scene(
     Z = np.asarray(ds_rho["Z"].values)
 
     # 3 -- labels for this window.
-    labels = tile_labels(provider, date, tile_idx, sigma0.shape[1:], ds=ds_rho)
+    labels = tile_labels(provider, date, tile_idx, sigma0.shape[1:],
+                         ds=ds_rho, region=region)
     if label <= 0 or not np.any(labels == label):
         raise NoSuchFront(f"label {label} is not in tile {tile_idx}")
 
