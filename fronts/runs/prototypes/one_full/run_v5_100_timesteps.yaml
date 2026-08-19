@@ -9,9 +9,8 @@
 # under $OS_OGCM/LLC/Fronts/V5/SURF/{YYYYMMDD_HHMMSS}/, then copied back to
 # s3://dbof/globals_for_cutouts/v2_2_01/{YYYYMMDD_HHMMSS}/Fronts/  (step 5).
 #
-# The zarr stores already exist; step 1 only exports from them.  To build them:
-#   run-all-subsets --config <cfg> --netcdf-base <dir> \
-#       --subsets frontal_structure --generate-only
+# The zarr stores already exist, so step 1 finds them complete and skips
+# straight to the export.
 #
 # The dates are the 100 timesteps transferred to LLC4320_RAW/SURFACE by
 # llc4320-native-grid-preprocessing/configs/transfer/run_surface_100.yaml.
@@ -21,7 +20,7 @@
 # required.  Channel lists and dataset names live in
 # dbof.global_dataset_creation.subset_definitions, keyed by pipeline -- not here.
 #
-#   python build_v5.py 1 run_v5_100_timesteps.yaml   # export gradb2
+#   python build_v5.py 1 run_v5_100_timesteps.yaml   # build store + export gradb2
 #   python build_v5.py 2 run_v5_100_timesteps.yaml   # find
 #   python build_v5.py 3 run_v5_100_timesteps.yaml   # group
 #   python build_v5.py 5 run_v5_100_timesteps.yaml   # push to S3

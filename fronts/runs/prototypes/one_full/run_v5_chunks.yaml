@@ -15,12 +15,10 @@
 # under $OS_OGCM/LLC/Fronts/V5/SURF/{YYYYMMDD_HHMMSS}/, then copied back to
 # s3://dbof/globals_for_chunks/V5/{YYYYMMDD_HHMMSS}/Fronts/  (step 5).
 #
-# The zarr stores must exist before step 1.  Build them from the preprocessing
-# repo with this same config:
-#   run-all-subsets --config <this file> --netcdf-base /tmp/unused \
-#       --subsets frontal_structure --generate-only
+# Step 1 builds frontal_structure.zarr if it is not already complete, then
+# exports gradb2 from it.
 #
-#   python build_v5.py 1 run_v5_chunks.yaml   # export gradb2
+#   python build_v5.py 1 run_v5_chunks.yaml   # build store + export gradb2
 #   python build_v5.py 2 run_v5_chunks.yaml   # find
 #   python build_v5.py 3 run_v5_chunks.yaml   # group
 #   python build_v5.py 5 run_v5_chunks.yaml   # push to S3
@@ -57,7 +55,6 @@ runtime:
 active_subsets:
   - frontal_structure   # gradb2, gradsalt2, gradtheta2, gradeta2, gradrho2,
                         # turner_angle, density, buoyancy
-  - icearea
 
 # ---------------------------------------------------------------------------
 # build_v5 knobs.  Every key has a default in

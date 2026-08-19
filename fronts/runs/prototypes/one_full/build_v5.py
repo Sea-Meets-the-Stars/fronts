@@ -1,6 +1,6 @@
 # Front finding and co-location for LLC4320.
 #
-#   1  gradb2      export the gradb2 channel from the frontal-structure store
+#   1  gradb2      build the frontal-structure store, export the gradb2 channel
 #   2  find        threshold gradb2 -> binary front map
 #   3  group       label the fronts + geometric properties
 #   4  colocate    build the remaining subsets, then co-locate
@@ -9,10 +9,10 @@
 # Steps 1-3 are self-contained: a front-binary map costs one NetCDF.  Step 4 is
 # the only step that needs the other fields.
 #
-# Step 1 reads a zarr store that already exists.  Build one first with the
-# preprocessing repo:
-#     run-all-subsets --config <cfg> --netcdf-base <dir> \
-#         --subsets frontal_structure --generate-only
+# Steps 1 and 4 hand store-building to dbof.run_all_subsets, which decides per
+# subset and date: a store that is already complete is skipped, so re-running is
+# a few S3 metadata reads.  The export is always done here, because
+# run_all_subsets has no way to export a single channel.
 #
 # Everything run-specific -- pipeline, run_id, dates, subsets, ice masking --
 # comes from the YAML config.  See prompts/fronts_build.md.
@@ -78,9 +78,18 @@ def main(flg, config_file: str = DEFAULT_CONFIG):
     # =======================================================================
     # STEP 1 -- gradb2
     # =======================================================================
-    # Export the one channel steps 2-3 read.  The subset holds 8 channels on
-    # SURF and 21 on DEPTH; the rest wait for step 4.
+    # Build the store that owns gradb2, then export that one channel.  The
+    # subset holds 8 channels on SURF and 21 on DEPTH; the rest wait for step 4.
     if flg == 1:
+        subsets = [gradb2_subset]
+        if cfg['ice_mask_find']:
+            # The mask is read from icearea.zarr at export time, so it has to
+            # exist for the same run_id and date.
+            subsets.append('icearea')
+
+        generate_global_dataset(config_file, llc_io.run_root(run_id),
+                                subsets=subsets, generate_only=True)
+
         llc_meta.write_run_meta(cfg, config_file,
                                 extra={'gradb2_channel': gradb2_channel,
                                        'gradb2_subset': gradb2_subset})

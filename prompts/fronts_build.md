@@ -10,7 +10,7 @@ fields. Data production is delegated to the preprocessing repo
 
 | Step | What it does | Cost |
 |------|--------------|------|
-| **1** | Export **gradb2 only** from the frontal-structure store → `gradb2.nc` | 1 NetCDF |
+| **1** | Build the frontal-structure store, export **gradb2 only** → `gradb2.nc` | 1 NetCDF |
 | **2** | Threshold gradb2 → binary front map (`*_bfronts.npy`) | cheap, local |
 | **3** | Label the fronts + geometric properties (`label_map`, groups) | cheap, local |
 | **4** | Build + export **every other subset**, then co-locate | expensive |
@@ -36,22 +36,17 @@ To try a single timestep first, comment out the other dates in the config's
 
 ## Where the zarr stores come from
 
-Step 1 reads a store that already exists. Building one is a preprocessing-repo
-job, run separately:
+Steps 1 and 4 both call `run_all_subsets` with `--generate-only`, which decides
+per subset and date: a store that is already complete is skipped, so re-running
+costs a few S3 metadata reads. Step 1 asks for one subset (the one owning
+gradb2, plus `icearea` when masking); step 4 asks for all of `active_subsets`.
 
-```bash
-run-all-subsets --config <cfg> --netcdf-base <dir> \
-    --subsets frontal_structure --generate-only
-```
-
-Step 4 does call `run_all_subsets`, but only to build stores
-(`--generate-only`). Both steps export through `export_channels`, so every
-product lands in this build's directory. `run_all_subsets` exports to
-`{netcdf_base}/{run_id}/{date_prefix}/`, which is a different place — using it
-would scatter the property files where co-location does not look.
-
-Step 1 does not call it at all, because it has no `--channels` flag: its export
-phase writes all 8 SURF channels (21 on DEPTH) when only gradb2 is wanted.
+Neither lets `run_all_subsets` do the export, for two reasons. It has no
+`--channels` flag, so its export phase writes all 8 SURF channels (21 on DEPTH)
+when only gradb2 is wanted. And it writes to
+`{netcdf_base}/{run_id}/{date_prefix}/`, which is not where this build keeps its
+products — co-location would look for property files in a directory nothing
+wrote to. Both steps export through `export_channels` instead.
 
 ## Why this differs from build_v4
 
@@ -217,7 +212,7 @@ not call it.
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-58 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+59 tests, fully offline — no S3, no OSN, no data. They cover the contract with
 the preprocessing repo, that step 1 builds one subset and exports one channel,
 pipeline resolution, the two ice-mask toggles, the output layout, the S3 push,
 the run descriptor, both naming schemes across all three pipelines, and the

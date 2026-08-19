@@ -293,10 +293,22 @@ def spies(monkeypatch, tmp_path):
     return s
 
 
-def test_step1_reads_an_existing_store(spies, surf_cfg):
-    """Step 1 exports only; building the store is a preprocessing-repo job."""
+def test_step1_builds_only_the_subset_that_owns_gradb2(spies, surf_cfg):
+    """Step 1 must not build kinematic / frontogenesis / native_fields."""
     build_v5.main(1, surf_cfg)
-    assert spies["generate"].calls == []
+    kw = spies["generate"].kwargs
+    assert kw["subsets"] == ["frontal_structure"]
+
+
+def test_step1_never_exports_through_run_all_subsets(spies, surf_cfg):
+    """generate_only: the store is built there, the channel is exported here.
+
+    run_all_subsets has no --channels flag, so letting it export would write
+    all 8 SURF channels (21 on DEPTH) when only gradb2 is wanted.
+    """
+    build_v5.main(1, surf_cfg)
+    assert spies["generate"].kwargs["generate_only"] is True
+    assert len(spies["export"].calls) == 2          # one per date, in fronts
 
 
 def test_step1_exports_exactly_one_channel_per_timestamp(spies, surf_cfg):
@@ -475,12 +487,13 @@ def test_find_and_props_masks_are_independent(spies, surf_cfg):
     assert spies["export"].calls[-1][1]["ice_mask"] is True    # masked properties
 
 
-def test_masking_gradb2_reaches_the_export(spies, tmp_path):
-    """ice_mask_find travels to the export, which reads icearea.zarr."""
+def test_masking_gradb2_also_builds_icearea(spies, tmp_path):
+    """The mask is read from icearea.zarr, so step 1 has to produce it too."""
     cfg = _write(tmp_path, "masked.yaml",
                  _SURF_YAML.replace("ice_mask_find: false",
                                     "ice_mask_find: true"))
     build_v5.main(1, cfg)
+    assert spies["generate"].kwargs["subsets"] == ["frontal_structure", "icearea"]
     assert spies["export"].calls[0][1]["ice_mask"] is True
 
 
@@ -510,7 +523,7 @@ def test_zarr_to_nc_passes_ice_mask_and_one_date_prefix(
 
 
 # ===========================================================================
-#  Reading zarr stores that already exist
+#  Locating the source stores
 # ===========================================================================
 
 def test_store_folder_override_reaches_the_export(monkeypatch, tmp_path):
