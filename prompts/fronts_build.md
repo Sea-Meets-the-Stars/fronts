@@ -178,10 +178,17 @@ want them.
 Step 1 writes one YAML file at the top of the run directory:
 
 ```
-$OS_OGCM/LLC/Fronts/V5/SURF/fronts_meta_V5_SURF_from_globals_for_cutouts_v2_2_01.meta
+$OS_OGCM/LLC/Fronts/V5/SURF/
+    fronts_meta_V5_SURF_from_globals_for_cutouts_v2_2_01_run_v5_100_timesteps.meta
+    fronts_meta_V5_SURF_from_globals_for_chunks_V5_run_v5_chunks.meta
+    fronts_meta_V5_SURF_from_globals_for_chunks_V5_run_v5_SO_chunks.meta
 ```
 
-The name says which dataset the fronts came from without opening anything.
+The name says which dataset the fronts came from and which config drove the run,
+without opening anything. The config stem is what keeps two date lists against
+the same dataset apart — the last two above share build, pipeline, folder and
+run_id.
+
 Inside: pipeline, S3 store URI, subsets, the resolved gradb2 channel, the
 front-finding config, ice-mask flags, date count and range, and the git SHA of
 both repos at the time of the run.
@@ -212,7 +219,7 @@ not call it.
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-59 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+60 tests, fully offline — no S3, no OSN, no data. They cover the contract with
 the preprocessing repo, that step 1 builds one subset and exports one channel,
 pipeline resolution, the two ice-mask toggles, the output layout, the S3 push,
 the run descriptor, both naming schemes across all three pipelines, and the

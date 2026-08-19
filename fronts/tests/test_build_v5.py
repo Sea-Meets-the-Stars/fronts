@@ -800,6 +800,20 @@ def test_meta_filename_names_its_source():
     assert name == "fronts_meta_V5_SURF_from_globals_for_cutouts_v2_2_01.meta"
 
 
+def test_meta_filename_separates_configs_that_share_everything_else():
+    """Two date lists against one dataset must not share a descriptor.
+
+    build_version, pipeline, folder and run_id can all be identical; the
+    config filename is the only thing left to tell them apart.
+    """
+    args = ("V5", "SURF", "globals_for_chunks/", "V5")
+    a = llc_meta.meta_filename(*args, config_stem="run_v5_chunks")
+    b = llc_meta.meta_filename(*args, config_stem="run_v5_SO_chunks")
+    assert a != b
+    assert a.endswith("_V5_run_v5_chunks.meta")
+    assert b.endswith("_V5_run_v5_SO_chunks.meta")
+
+
 def test_meta_is_written_at_the_run_root_and_is_readable(tmp_path):
     import yaml as _yaml
     cfg_path = _write(tmp_path, "src.yaml", _SURF_YAML + """
@@ -816,7 +830,7 @@ output:
                                           "gradb2_subset": "frontal_structure"})
     assert os.path.dirname(path).endswith("V5/SURF")
     assert os.path.basename(path) == \
-        "fronts_meta_V5_SURF_from_globals_for_cutouts_V5test.meta"
+        "fronts_meta_V5_SURF_from_globals_for_cutouts_V5test_src.meta"
 
     doc = _yaml.safe_load(open(path))
     assert doc["build"]["pipeline"] == "SURF"
@@ -834,7 +848,7 @@ def test_step1_writes_the_descriptor(spies, surf_cfg):
     build_v5.main(1, surf_cfg)
     root = llc_io.run_root("V5test")
     metas = [f for f in os.listdir(root) if f.endswith(".meta")]
-    assert metas == ["fronts_meta_V5_SURF_from_surface_fields_V5test.meta"]
+    assert metas == ["fronts_meta_V5_SURF_from_surface_fields_V5test_run_surf.meta"]
 
 
 # ===========================================================================

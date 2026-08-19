@@ -1,8 +1,8 @@
 # ---------------------------------------------------------------------------
-# build_v5 -- SURF pipeline, globals_for_chunks dataset.
+# build_v5 -- SURF pipeline, globals_for_chunks dataset, Southern Ocean chunks.
 #
-# 21 snapshots: a 9-day daily sequence around 2012-07-03, a 3-hourly sub-daily
-# sequence through 2012-07-03 itself, and four singles spread over the year.
+# 20 snapshots centred on 2012-11-03: three daily before, hourly 01-13 through
+# the day itself, four daily after.
 #
 # Steps 1-3 only.  No co-location, so frontal_structure is the only subset
 # needed and nothing but gradb2 is ever exported.
@@ -18,10 +18,10 @@
 # Step 1 builds frontal_structure.zarr if it is not already complete, then
 # exports gradb2 from it.
 #
-#   python build_v5.py 1 run_v5_chunks.yaml   # build store + export gradb2
-#   python build_v5.py 2 run_v5_chunks.yaml   # find
-#   python build_v5.py 3 run_v5_chunks.yaml   # group
-#   python build_v5.py 5 run_v5_chunks.yaml   # push to S3
+#   python build_v5.py 1 run_v5_SO_chunks.yaml   # build store + export gradb2
+#   python build_v5.py 2 run_v5_SO_chunks.yaml   # find
+#   python build_v5.py 3 run_v5_SO_chunks.yaml   # group
+#   python build_v5.py 5 run_v5_SO_chunks.yaml   # push to S3
 #
 # To try one timestep first, comment out the other dates below.
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ output:
   s3_endpoint: "https://s3-west.nrp-nautilus.io"
   bucket: "dbof/"
   # Stores live at {bucket}/{folder}/{run_id}/{date_prefix}/{subset}.zarr, i.e.
-  #   s3://dbof/globals_for_chunks/V5/20120703_120000/frontal_structure.zarr
+  #   s3://dbof/globals_for_chunks/V5/20121103_120000/frontal_structure.zarr
   # Without this key the folder would resolve to surface_fields/ for SURF.
   folder: "globals_for_chunks/"
 
@@ -55,7 +55,7 @@ runtime:
 active_subsets:
   - frontal_structure   # gradb2, gradsalt2, gradtheta2, gradeta2, gradrho2,
                         # turner_angle, density, buoyancy
-  - icearea             # ice area
+  - icearea
 
 # ---------------------------------------------------------------------------
 # build_v5 knobs.  Every key has a default in
@@ -75,29 +75,28 @@ build:
   ice_mask_props: false
 
 data:
-  # ISO 'YYYY-MM-DD HH:MM:SS'.
+  # ISO 'YYYY-MM-DD HH:MM:SS'.  One entry per {YYYYMMDDTHH}.zarr raw store.
   date_iterations:
-    # -- daily, 2012-06-29 to 2012-07-07 ------------------------------------
-    - '2012-06-29 12:00:00'
-    - '2012-06-30 12:00:00'
-    - '2012-07-01 12:00:00'
-    - '2012-07-02 12:00:00'
-    - '2012-07-03 12:00:00'
-    - '2012-07-04 12:00:00'
-    - '2012-07-05 12:00:00'
-    - '2012-07-06 12:00:00'
-    - '2012-07-07 12:00:00'
-    # -- 3-hourly through 2012-07-03 ----------------------------------------
-    - '2012-07-03 00:00:00'
-    - '2012-07-03 03:00:00'
-    - '2012-07-03 06:00:00'
-    - '2012-07-03 09:00:00'
-    - '2012-07-03 15:00:00'
-    - '2012-07-03 18:00:00'
-    - '2012-07-03 21:00:00'
-    - '2012-07-04 00:00:00'
-    # -- singles ------------------------------------------------------------
-    - '2012-05-16 06:00:00'
-    - '2012-02-29 18:00:00'
-    - '2012-09-18 12:00:00'
-    - '2012-11-09 12:00:00'
+    # -- daily, 2012-10-31 to 2012-11-02 ------------------------------------
+    - '2012-10-31 12:00:00'
+    - '2012-11-01 12:00:00'
+    - '2012-11-02 12:00:00'
+    # -- hourly through 2012-11-03 ------------------------------------------
+    - '2012-11-03 01:00:00'
+    - '2012-11-03 02:00:00'
+    - '2012-11-03 03:00:00'
+    - '2012-11-03 04:00:00'
+    - '2012-11-03 05:00:00'
+    - '2012-11-03 06:00:00'
+    - '2012-11-03 07:00:00'
+    - '2012-11-03 08:00:00'
+    - '2012-11-03 09:00:00'
+    - '2012-11-03 10:00:00'
+    - '2012-11-03 11:00:00'
+    - '2012-11-03 12:00:00'
+    - '2012-11-03 13:00:00'
+    # -- daily, 2012-11-04 to 2012-11-07 ------------------------------------
+    - '2012-11-04 12:00:00'
+    - '2012-11-05 12:00:00'
+    - '2012-11-06 12:00:00'
+    - '2012-11-07 12:00:00'
