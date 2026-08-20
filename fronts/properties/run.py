@@ -1,6 +1,7 @@
 """ High-level routines to run bits and pieces of fronts.properties
 """
 import os
+import shutil
 import sys
 import subprocess
 import yaml
@@ -81,13 +82,32 @@ def generate_global_dataset(config_file: str, netcdf_base: str,
     subprocess.run(cmd, check=True)
 
 
+def _zarr_loader(config_file: str, timestamp: str, version: str,
+                 ice_mask: bool = False):
+    """Return ``loader(channel) -> ndarray`` reading from the S3 zarr stores."""
+    def loader(channel):
+        subset = subset_for_channel(config_file, channel)
+        print(f"  reading {channel} from {subset}.zarr")
+        return llc_io.read_channel(config_file, timestamp, subset, channel,
+                                   run_id=version, ice_mask=ice_mask)
+    return loader
+
+
+def _zarr_channels(config_file: str, property_names: list) -> list:
+    """Which of *property_names* the active subsets actually produce."""
+    channel_to_subset, _ = _resolve_channel_maps(config_file)
+    return [n for n in property_names if n in channel_to_subset]
+
+
 def colocate_fronts(timestamp: str, config: str, version: str,
                     property_names: list,
                     output_dir: str = None,
                     stats: list = None, percentiles: list = None,
                     min_npix: int = 1, nan_policy: str = 'omit',
                     dilation_radius: int = 1, clobber: bool = False,
-                    skip_missing: bool = False):
+                    skip_missing: bool = False,
+                    config_file: str = None, source: str = 'zarr',
+                    ice_mask: bool = False):
     """Co-locate labeled fronts with physical property fields.
 
     All paths are resolved from ``PATH/V{version}/YYYYMMDD_HHMMSS/``
@@ -111,9 +131,16 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         dilation_radius (int): Pixels to dilate each front before stats.
             Defaults to 0.
         clobber (bool): Overwrite existing output. Defaults to False.
-        skip_missing (bool): If True, silently drop requested properties whose
-            .nc file is absent (co-locate only what exists) instead of raising.
+        skip_missing (bool): If True, silently drop requested properties that
+            are absent (co-locate only what exists) instead of raising.
             Defaults to False (strict: raise if any are missing).
+        config_file (str, optional): Path to the run YAML.  Required when
+            source='zarr'.
+        source (str): 'zarr' reads each field from the S3 store one at a time,
+            writing no NetCDF; 'netcdf' reads the per-property .nc files in the
+            timestamp directory.  Defaults to 'zarr'.
+        ice_mask (bool): NaN-mask ice-covered points.  Only used by the zarr
+            source; the .nc files were masked when they were exported.
     """
     fdir = llc_io.fronts_dir(version, timestamp)
     fronts_file = finding_io.binary_filename(timestamp, config, version)
@@ -131,27 +158,40 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         print(f"Properties file {out_file} exists and clobber is False. Returning")
         return
 
-    # Validate all property files exist before doing any heavy work
-    missing = [
-        name for name in property_names
-        if not os.path.isfile(
-            os.path.join(property_dir, f'LLC4320_{timestamp}_{name}_{version}.nc'))
-    ]
+    # Work out which properties are actually available, and how to read them.
+    if source == 'zarr':
+        if config_file is None:
+            raise ValueError("source='zarr' requires config_file")
+        loader = _zarr_loader(config_file, timestamp, version,
+                              ice_mask=ice_mask)
+        available = _zarr_channels(config_file, property_names)
+        where = 'the zarr stores on S3'
+    elif source == 'netcdf':
+        loader = None                      # algorithms falls back to .nc
+        available = [
+            n for n in property_names
+            if os.path.isfile(
+                os.path.join(property_dir, f'LLC4320_{timestamp}_{n}_{version}.nc'))
+        ]
+        where = property_dir
+    else:
+        raise ValueError(f"source must be 'zarr' or 'netcdf', got {source!r}")
+
+    missing = [n for n in property_names if n not in available]
     if missing:
         if skip_missing:
-            print(f"WARNING: skipping {len(missing)} missing property file(s) "
+            print(f"WARNING: skipping {len(missing)} missing property/ies "
                   f"(co-locating only what exists): {missing}")
-            property_names = [n for n in property_names if n not in missing]
+            property_names = available
             if not property_names:
-                print(f"No requested property files present in {property_dir}; "
+                print(f"No requested properties present in {where}; "
                       f"nothing to co-locate. Returning.")
                 return
         else:
             raise FileNotFoundError(
-                f"Missing property file(s) for: {missing}\n"
-                f"Run generate_properties() first for the subset containing these fields, "
-                f"or pass skip_missing=True to co-locate only what exists, "
-                f"or check that property_dir is correct: {property_dir}"
+                f"Missing property/ies: {missing}\n"
+                f"Not found in {where}.  Pass skip_missing=True to co-locate "
+                f"only what exists."
             )
 
     # Load label map
@@ -159,6 +199,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         fdir, time_str, 'label_map', run_tag)
     labeled = np.load(labeled_file)
 
+    ckpt_dir = os.path.join(fdir, f'colocate_ckpt_{run_tag}')
     prop_algorithms.colocate_fronts(
         labeled=labeled,
         property_names=property_names,
@@ -171,7 +212,10 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         min_npix=min_npix,
         nan_policy=nan_policy,
         dilation_radius=dilation_radius,
+        loader=loader,
+        checkpoint_dir=ckpt_dir,
     )
+    shutil.rmtree(ckpt_dir, ignore_errors=True)
 
 
 def _resolve_channel_maps(config_file: str):
@@ -315,6 +359,7 @@ BUILD_DEFAULTS = {
     'finding_suffix':   'sfc',    # which depth suffix to find fronts in (DEPTH)
     'ice_mask_find':    False,    # step 1: mask gradb2 BEFORE finding fronts
     'ice_mask_props':   False,    # step 4: mask the co-located property fields
+    'colocate_source':  'zarr',   # step 4 reads fields from: zarr | netcdf
     'percentiles':      [25, 75, 90],
     'exclude_roots':    [],       # roots to leave out of co-location
 }

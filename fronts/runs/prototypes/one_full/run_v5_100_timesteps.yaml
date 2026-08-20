@@ -87,11 +87,15 @@ build:
   # co-located with.  Either flag requires icearea.zarr to exist for the same
   # run_id and date -- the mask is read from it at export time.
   ice_mask_find:  false
-  ice_mask_props: false
+  ice_mask_props: true
 
   # Extra percentile columns per co-located channel (step 4), alongside the
   # default mean/std/median.
   percentiles: [25, 75, 90]
+
+  # Step 4 reads each field from the zarr store and never writes it to disk.
+  # Set to netcdf to read per-property .nc files from the timestamp directory.
+  colocate_source: zarr
 
 data:
   # ISO 'YYYY-MM-DD HH:MM:SS'.  100 timesteps, 2011-12-04 to 2012-11-15.

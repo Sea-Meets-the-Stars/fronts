@@ -8,6 +8,7 @@ fronts.finding.algorithms — file I/O and path setup live in the caller
 """
 
 import re
+from functools import partial
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -201,6 +202,8 @@ def colocate_fronts(
     nan_policy: str = 'omit',
     dilation_radius: int = 0,
     version: str = None,
+    loader=None,
+    checkpoint_dir: str = None,
 ) -> pd.DataFrame:
     """
     Co-locate labeled fronts with property fields and save per-front statistics.
@@ -248,6 +251,13 @@ def colocate_fronts(
     dilation_radius : int, optional
         Dilate each front by this many pixels before computing stats.
         Useful for capturing the near-front environment. Default 0.
+    loader : callable, optional
+        ``loader(property_name) -> np.ndarray``.  Called one property at a
+        time, so only one field is held in memory.  Defaults to reading the
+        per-property NetCDF from *property_dir*.
+    checkpoint_dir : str, optional
+        Cache each property's columns so an interrupted run resumes part-way
+        through the property list.
 
     Returns
     -------
@@ -265,28 +275,27 @@ def colocate_fronts(
         # which is '{run_id}_bin_{config}' (e.g. 'Vtest_bin_D' -> 'Vtest').
         version = run_tag.rsplit('_bin_', 1)[0]
 
-    # --- Load property arrays from standardised filenames ---
-    # Property NetCDFs are tagged with the run_id verbatim (== run_id used by
-    # dbof.run_all_subsets), no 'V' prefix.
-    property_arrays = {}
-    for prop_name in property_names:
-        prop_file = Path(property_dir) / f'LLC4320_{timestamp_raw}_{prop_name}_{version}.nc'
-        print(f"Loading {prop_name} from {prop_file.name}...")
-        with xr.open_dataset(prop_file) as ds:
-            property_arrays[prop_name] = ds[prop_name].values.squeeze()
+    if loader is None:
+        def loader(prop_name):
+            # Property NetCDFs are tagged with the run_id verbatim, no 'V' prefix.
+            prop_file = Path(property_dir) / f'LLC4320_{timestamp_raw}_{prop_name}_{version}.nc'
+            print(f"  loading {prop_file.name}")
+            with xr.open_dataset(prop_file) as ds:
+                return ds[prop_name].values.squeeze()
 
-    print(f"Co-locating {len(property_arrays)} properties with "
+    print(f"Co-locating {len(property_names)} properties with "
           f"{(labeled > 0).sum():,} front pixels "
           f"(dilation_radius={dilation_radius})...")
 
     df = colocation.colocate_fronts_with_properties(
         labeled_fronts=labeled,
-        properties=property_arrays,
+        properties={name: partial(loader, name) for name in property_names},
         stats=stats,
         percentiles=percentiles,
         min_npix=min_npix,
         nan_policy=nan_policy,
         dilation_radius=dilation_radius,
+        checkpoint_dir=checkpoint_dir,
     )
     print(f"Co-located {len(df):,} fronts")
 

@@ -11,6 +11,9 @@ import pandas
 from dbof.cli import zarr_to_netcdf
 from dbof.global_dataset_creation.config import default_output_folder
 from dbof.global_dataset_creation.subset_definitions import get_subset_definition
+from dbof.global_dataset_creation.zarr_dataset_global import GlobalZarrDatasetReader
+from dbof.io.filesystems import create_s3_filesystems
+from dbof.preprocessing.ice_mask import load_siarea_mask, apply_ice_mask
 
 
 from IPython import embed
@@ -352,6 +355,76 @@ def grab_velocity(cutout:pandas.core.series.Series, ds=None,
     # Return
     return output
                     
+def store_args(config_file: str, subset: str, run_id: str = None) -> dict:
+    """Resolve the S3 location of one subset's zarr store from a run config.
+
+    Returns
+    -------
+    dict
+        ``s3_endpoint``, ``bucket``, ``folder``, ``run_id``, ``dataset_name``.
+    """
+    with open(config_file) as fh:
+        raw = yaml.safe_load(fh) or {}
+
+    pipeline = raw.get('pipeline')
+    if pipeline is None:
+        raise ValueError(f"'pipeline' must be set in {config_file}")
+    pipeline = pipeline.upper()
+
+    output = raw.get('output') or {}
+    return {
+        's3_endpoint': output.get('s3_endpoint',
+                                  'https://s3-west.nrp-nautilus.io'),
+        'bucket': output.get('bucket', 'dbof/'),
+        'folder': output.get('folder') or default_output_folder(pipeline),
+        'run_id': run_id or (raw.get('run') or {}).get('run_id'),
+        'dataset_name': (output.get('dataset_name')
+                         or get_subset_definition(pipeline, subset)['dataset_name']),
+    }
+
+
+def read_channel(config_file: str, timestamp: str, subset: str, channel: str,
+                 run_id: str = None, ice_mask: bool = False,
+                 ice_mask_dataset_name: str = 'icearea.zarr') -> np.ndarray:
+    """Read one channel of one snapshot straight from the S3 zarr store.
+
+    The same array :func:`zarr_to_nc` would write to disk -- float32, no
+    regridding -- so it can be used wherever the exported NetCDF was.
+
+    Parameters
+    ----------
+    config_file : str
+        Path to the (thin) global YAML config.
+    timestamp : str
+        Snapshot timestamp, e.g. '2012-11-09T12_00_00'.
+    subset : str
+        dbof subset owning the channel, e.g. 'frontal_structure'.
+    channel : str
+        Fully-expanded channel name, e.g. 'gradb2' or 'N2_mld'.
+    run_id : str, optional
+        Override the run_id read from the config.
+    ice_mask : bool
+        NaN-mask ice-covered points (SIarea > 0).
+    ice_mask_dataset_name : str
+        Zarr store holding SIarea.  Only used when *ice_mask* is True.
+    """
+    args = store_args(config_file, subset, run_id)
+    date_prefix = _format_timestamp(timestamp)
+    _, fs = create_s3_filesystems(args['s3_endpoint'])
+
+    reader = GlobalZarrDatasetReader(
+        bucket=args['bucket'], folder=args['folder'], run_id=args['run_id'],
+        dataset_name=args['dataset_name'], fs=fs, date_prefix=date_prefix)
+    arr = reader.get_channel_snapshot(channel).astype(np.float32)
+
+    if ice_mask:
+        arr = apply_ice_mask(arr, load_siarea_mask(
+            bucket=args['bucket'], folder=args['folder'],
+            run_id=args['run_id'], date_prefix=date_prefix, fs=fs,
+            dataset_name=ice_mask_dataset_name))
+    return arr
+
+
 def zarr_to_nc(timestamp: str, config_file: str, subset: str,
                 field: str = None, channels: list = None,
                 version: str = None, run_id: str = None,
@@ -395,29 +468,7 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
     """
     name = field if field is not None else subset
     full_path = derived_filename(timestamp, name, version=version)
-
-    with open(config_file) as fh:
-        raw = yaml.safe_load(fh) or {}
-
-    pipeline = raw.get('pipeline')
-    if pipeline is None:
-        raise ValueError(f"'pipeline' must be set in {config_file}")
-    pipeline = pipeline.upper()
-
-    output = raw.get('output') or {}
-    run_cfg = raw.get('run') or {}
-    data_cfg = raw.get('data') or {}
-
-    # dataset_name comes from the canonical subset definition (source of truth);
-    # allow an explicit YAML override of output.dataset_name if present.
-    defn = get_subset_definition(pipeline, subset)
-    dataset_name = output.get('dataset_name') or defn['dataset_name']
-
-    # folder is pipeline-derived unless explicitly overridden in the YAML.
-    folder = output.get('folder') or default_output_folder(pipeline)
-
-    # One snapshot per call -- 'YYYYMMDD_HHMMSS'.
-    date_prefix = _format_timestamp(timestamp)
+    args = store_args(config_file, subset, run_id)
 
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
@@ -425,13 +476,13 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
         os.path.dirname(full_path),
         output_filename=os.path.basename(full_path),
         mode='snapshots',
-        run_id=run_id or run_cfg.get('run_id'),
-        s3_endpoint=output.get('s3_endpoint', 'https://s3-west.nrp-nautilus.io'),
-        bucket=output.get('bucket', 'dbof/'),
+        run_id=args['run_id'],
+        s3_endpoint=args['s3_endpoint'],
+        bucket=args['bucket'],
         channels=[field] if field is not None else channels,
-        date_prefix=date_prefix,
-        dataset_name=dataset_name,
-        folder=folder,
+        date_prefix=_format_timestamp(timestamp),
+        dataset_name=args['dataset_name'],
+        folder=args['folder'],
         ice_mask=ice_mask,
         ice_mask_dataset_name=ice_mask_dataset_name)
     return full_path

@@ -3,7 +3,7 @@
 #   1  gradb2      build the frontal-structure store, export the gradb2 channel
 #   2  find        threshold gradb2 -> binary front map
 #   3  group       label the fronts + geometric properties
-#   4  colocate    build the remaining subsets, then co-locate
+#   4  colocate    build the remaining subsets, co-locate straight from zarr
 #   5  push        copy the front products back to S3
 #
 # Steps 1-3 are self-contained: a front-binary map costs one NetCDF.  Step 4 is
@@ -112,9 +112,8 @@ def main(flg, config_file: str = DEFAULT_CONFIG):
     # =======================================================================
     # STEP 4 -- remaining subsets, then co-location
     # =======================================================================
-    # Build any zarr stores that are missing, then export every channel the
-    # active subsets produce.  The export runs through export_channels() -- the
-    # same path step 1 uses -- so every product lands in this build's directory.
+    # Build any zarr stores that are missing, then co-locate straight from
+    # them: each field is read one at a time and never written to disk.
     if flg == 4:
         generate_global_dataset(config_file, llc_io.run_root(run_id),
                                 generate_only=True)
@@ -139,18 +138,18 @@ def main(flg, config_file: str = DEFAULT_CONFIG):
         if flg == 3:
             group_fronts(timestamp, find_cfg, run_id)
 
-        # STEP 4 -- export the property fields, then co-locate.
-        # skip_missing=True: co-locate whatever exists rather than dying on a
-        # channel that failed to export.
+        # STEP 4 -- co-locate fronts with the property fields.
+        # skip_missing=True: co-locate whatever the stores hold rather than
+        # dying on a channel that was never generated.
         if flg == 4:
-            export_channels(config_file, timestamp, property_names,
-                            version=run_id,
-                            ice_mask=cfg['ice_mask_props'])
             colocate_fronts(timestamp, find_cfg, run_id,
                             property_names=property_names,
                             percentiles=cfg['percentiles'],
                             skip_missing=True,
-                            clobber=True)
+                            clobber=True,
+                            config_file=config_file,
+                            source=cfg['colocate_source'],
+                            ice_mask=cfg['ice_mask_props'])
 
 
 # Command line execution

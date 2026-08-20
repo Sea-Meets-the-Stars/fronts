@@ -6,14 +6,14 @@ Finds fronts in LLC4320 gradb2, groups them, and co-locates them with physical
 fields. Data production is delegated to the preprocessing repo
 (`dbof.cli.run_all_subsets`); fronts only finds, groups, and co-locates.
 
-## The four steps
+## The five steps
 
 | Step | What it does | Cost |
 |------|--------------|------|
 | **1** | Build the frontal-structure store, export **gradb2 only** → `gradb2.nc` | 1 NetCDF |
 | **2** | Threshold gradb2 → binary front map (`*_bfronts.npy`) | cheap, local |
 | **3** | Label the fronts + geometric properties (`label_map`, groups) | cheap, local |
-| **4** | Build + export **every other subset**, then co-locate | expensive |
+| **4** | Build **every other subset**, co-locate straight from the stores | slow, no disk |
 | **5** | Copy the front products back to S3 | network |
 
 Steps 1–3 are self-contained. If all you want is a map of where the fronts are,
@@ -41,12 +41,39 @@ per subset and date: a store that is already complete is skipped, so re-running
 costs a few S3 metadata reads. Step 1 asks for one subset (the one owning
 gradb2, plus `icearea` when masking); step 4 asks for all of `active_subsets`.
 
-Neither lets `run_all_subsets` do the export, for two reasons. It has no
-`--channels` flag, so its export phase writes all 8 SURF channels (21 on DEPTH)
-when only gradb2 is wanted. And it writes to
-`{netcdf_base}/{run_id}/{date_prefix}/`, which is not where this build keeps its
-products — co-location would look for property files in a directory nothing
-wrote to. Both steps export through `export_channels` instead.
+Neither lets `run_all_subsets` do the export. It has no `--channels` flag, so
+its export phase writes all 8 SURF channels (21 on DEPTH) when only gradb2 is
+wanted; and it writes to `{netcdf_base}/{run_id}/{date_prefix}/`, which is not
+where this build keeps its products. Step 1 exports gradb2 through
+`export_channels`; step 4 writes no NetCDF at all.
+
+## Co-location reads the stores directly
+
+Step 4 pulls each field from S3 one at a time via `llc_io.read_channel` and
+reduces it to per-front statistics before dropping it. Nothing is staged to
+disk: a global field is ~900 MB, so 100 timesteps x 9 SURF channels would be
+~800 GB, and a DEPTH run with 57 channels would need ~51 GB of RAM if they were
+all held at once.
+
+This is safe because `zarr_to_netcdf` never transformed anything — it cast the
+channel to float32 and added integer `y`/`x` coords. A field read from the store
+is the array the NetCDF would have contained, on the same grid as the label map
+(which descends from `gradb2.nc`, from the same store).
+
+**Checkpoints.** Each property's columns are cached at
+
+```
+{date_prefix}/colocate_ckpt_{run_tag}/{channel}.parquet
+```
+
+so a run killed at channel 40 of 57 resumes there rather than starting the
+timestamp over. The directory is removed once the timestamp's final parquet
+lands, and `publish.PRODUCT_PATTERNS` never matches it.
+
+**Reading NetCDF instead.** `build.colocate_source: netcdf` reads the
+per-property `.nc` files from the timestamp directory, as before. Useful for
+co-locating offline against files already on disk, or for checking the two paths
+agree — run one timestep each way and diff the parquets.
 
 ## Why this differs from build_v4
 
@@ -97,6 +124,7 @@ build:
   finding_suffix: "sfc"      # which depth suffix to find in (DEPTH only)
   ice_mask_find:  false      # step 1 — mask gradb2 BEFORE finding fronts
   ice_mask_props: true       # step 4 — mask the co-located property fields
+  colocate_source: zarr      # step 4 field source: zarr | netcdf
   percentiles:    [25, 75, 90]
   exclude_roots:  []         # roots to skip in co-location
 ```
@@ -219,9 +247,9 @@ not call it.
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-60 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+70 tests, fully offline — no S3, no OSN, no data. They cover the contract with
 the preprocessing repo, that step 1 builds one subset and exports one channel,
 pipeline resolution, the two ice-mask toggles, the output layout, the S3 push,
-the run descriptor, both naming schemes across all three pipelines, and the
-shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
+the run descriptor, both naming schemes across all three pipelines, lazy
+co-location with checkpoint resume, and the shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
 these fail fast and name what moved.

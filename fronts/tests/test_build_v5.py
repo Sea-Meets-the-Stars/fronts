@@ -15,6 +15,8 @@ import inspect
 import re
 import textwrap
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from dbof.cli import generate_global, run_all_subsets, zarr_to_netcdf
@@ -30,6 +32,7 @@ from fronts.finding import io as finding_io
 from fronts.llc import io as llc_io
 from fronts.llc import meta as llc_meta
 from fronts.llc import publish as llc_publish
+from fronts.properties import colocation
 from fronts.properties import run as prun
 from fronts.runs.prototypes.one_full import build_v5
 
@@ -341,18 +344,18 @@ def test_step4_covers_every_subset_and_colocates(spies, surf_cfg):
     assert len(spies["colocate"].calls) == 2              # one per date
 
 
-def test_step4_exports_through_the_same_path_as_step1(spies, surf_cfg):
-    """Both steps export via export_channels, so products share a directory.
+def test_step4_writes_no_property_netcdfs(spies, surf_cfg):
+    """Fields are read from the stores, so nothing lands on disk.
 
-    run_all_subsets writes to {netcdf_base}/{run_id}/{date_prefix}/, which is
-    not where this build keeps its products -- co-location would then look for
-    property files in a directory nothing wrote to.
+    At ~900 MB per global field, exporting them first costs ~800 GB for 100
+    timesteps x 9 SURF channels.
     """
     build_v5.main(4, surf_cfg)
-    assert spies["generate"].kwargs["generate_only"] is True   # no export there
-    assert len(spies["export"].calls) == 2                     # one per date
-    exported = spies["export"].calls[0][0][2]
-    assert set(exported) == set(spies["colocate"].calls[0][1]["property_names"])
+    assert spies["generate"].kwargs["generate_only"] is True
+    assert spies["export"].calls == []
+    kw = spies["colocate"].calls[0][1]
+    assert kw["source"] == "zarr"
+    assert kw["config_file"] == surf_cfg
 
 
 def test_steps_2_and_3_generate_nothing(spies, surf_cfg):
@@ -475,7 +478,7 @@ def test_ice_mask_off_everywhere_by_default(spies, depth_cfg):
     build_v5.main(1, depth_cfg)
     assert spies["export"].calls[0][1]["ice_mask"] is False
     build_v5.main(4, depth_cfg)
-    assert spies["export"].calls[-1][1]["ice_mask"] is False
+    assert spies["colocate"].calls[-1][1]["ice_mask"] is False
 
 
 def test_find_and_props_masks_are_independent(spies, surf_cfg):
@@ -484,7 +487,7 @@ def test_find_and_props_masks_are_independent(spies, surf_cfg):
     assert spies["export"].calls[0][1]["ice_mask"] is False   # unmasked gradb2
 
     build_v5.main(4, surf_cfg)
-    assert spies["export"].calls[-1][1]["ice_mask"] is True    # masked properties
+    assert spies["colocate"].calls[-1][1]["ice_mask"] is True  # masked properties
 
 
 def test_masking_gradb2_also_builds_icearea(spies, tmp_path):
@@ -1042,3 +1045,154 @@ def test_every_pipeline_resolves_a_full_path_set(tmp_path):
                              f"{cfg['date_prefixes'][0]}/Fronts")
         # local products stay under this build, never under the source run_id
         assert f"/Fronts/{cfg['run_dir']}/" in p["nc"]
+
+
+# ===========================================================================
+#  Co-locating straight from the zarr stores
+# ===========================================================================
+
+def _tiny_labels():
+    """A 6x6 label map with two fronts."""
+    lab = np.zeros((6, 6), dtype=np.int32)
+    lab[1, 1:4] = 1
+    lab[4, 2:5] = 2
+    return lab
+
+
+def test_a_callable_property_matches_the_array_it_returns():
+    """Lazy and eager sources produce identical columns."""
+    lab = _tiny_labels()
+    arr = np.arange(36, dtype=np.float32).reshape(6, 6)
+    kw = dict(stats=["mean", "std"], percentiles=[90], nan_policy="omit")
+
+    eager = colocation.colocate_fronts_with_properties(lab, {"f": arr}, **kw)
+    lazy = colocation.colocate_fronts_with_properties(lab, {"f": lambda: arr}, **kw)
+    pd.testing.assert_frame_equal(eager, lazy)
+
+
+def test_properties_are_loaded_one_at_a_time(tmp_path):
+    """Load and reduce interleave, so only one field is ever resident.
+
+    Each property's checkpoint is written before the next one loads, which only
+    holds if the loop is load -> reduce -> drop. Reading every field up front
+    would leave N x 896 MB resident on a global grid.
+    """
+    lab = _tiny_labels()
+    ck = tmp_path / "ckpt"
+    order = []
+
+    def make(name, prior):
+        def load():
+            order.append(name)
+            for done in prior:
+                assert (ck / f"{done}.parquet").is_file(), \
+                    f"{name} loaded before {done} was reduced"
+            return np.full((6, 6), len(order), dtype=np.float32)
+        return load
+
+    names = ["a", "b", "c"]
+    props = {n: make(n, names[:i]) for i, n in enumerate(names)}
+    df = colocation.colocate_fronts_with_properties(
+        lab, props, stats=["mean"], checkpoint_dir=str(ck))
+    assert order == names
+    assert list(df.columns) == ["flabel", "npix", "a_mean", "b_mean", "c_mean"]
+
+
+def test_checkpoint_caches_each_property_and_skips_it_next_time(tmp_path):
+    lab = _tiny_labels()
+    calls = []
+
+    def make(name, value):
+        def load():
+            calls.append(name)
+            return np.full((6, 6), value, dtype=np.float32)
+        return load
+
+    props = {"a": make("a", 1.0), "b": make("b", 2.0)}
+    ck = tmp_path / "ckpt"
+    first = colocation.colocate_fronts_with_properties(
+        lab, props, stats=["mean"], checkpoint_dir=str(ck))
+    assert calls == ["a", "b"]
+    assert sorted(f.name for f in ck.glob("*.parquet")) == ["a.parquet", "b.parquet"]
+
+    calls.clear()
+    second = colocation.colocate_fronts_with_properties(
+        lab, props, stats=["mean"], checkpoint_dir=str(ck))
+    assert calls == []                       # both served from cache
+    pd.testing.assert_frame_equal(first, second)
+
+
+def test_a_partial_checkpoint_resumes(tmp_path):
+    """A run killed after property 'a' only reloads 'b'."""
+    lab = _tiny_labels()
+    ck = tmp_path / "ckpt"
+    colocation.colocate_fronts_with_properties(
+        lab, {"a": lambda: np.full((6, 6), 1.0, dtype=np.float32)},
+        stats=["mean"], checkpoint_dir=str(ck))
+
+    calls = []
+
+    def load_b():
+        calls.append("b")
+        return np.full((6, 6), 2.0, dtype=np.float32)
+
+    df = colocation.colocate_fronts_with_properties(
+        lab, {"a": lambda: pytest.fail("should not reload a"), "b": load_b},
+        stats=["mean"], checkpoint_dir=str(ck))
+    assert calls == ["b"]
+    assert {"a_mean", "b_mean"} <= set(df.columns)
+
+
+def test_a_lazy_property_of_the_wrong_shape_still_raises():
+    lab = _tiny_labels()
+    with pytest.raises(ValueError, match="shape does not match"):
+        colocation.colocate_fronts_with_properties(
+            lab, {"f": lambda: np.zeros((3, 3), dtype=np.float32)})
+
+
+def test_read_channel_and_zarr_to_nc_resolve_the_same_store(surf_cfg):
+    """The .nc export is the zarr channel -- same store, same channel.
+
+    zarr_to_netcdf casts to float32 and adds integer y/x coords; it does not
+    regrid or roll, so a field read from the store is interchangeable with the
+    file that would have been written from it.
+    """
+    args = llc_io.store_args(surf_cfg, "frontal_structure")
+    assert args["bucket"] == "dbof/"
+    assert args["folder"] == "surface_fields/"
+    assert args["run_id"] == "V5test"
+    assert args["dataset_name"] == "frontal_structure.zarr"
+
+    src = inspect.getsource(llc_io.read_channel)
+    assert "get_channel_snapshot" in src and "astype(np.float32)" in src
+    export = inspect.getsource(zarr_to_netcdf.zarr_to_netcdf)
+    assert "get_channel_snapshot(ch).astype(np.float32)" in export
+
+
+def test_zarr_loader_routes_each_channel_to_its_owning_subset(monkeypatch, surf_cfg):
+    seen = {}
+    monkeypatch.setattr(llc_io, "read_channel",
+                        lambda cfg, ts, subset, ch, **kw: seen.setdefault(ch, subset))
+    loader = prun._zarr_loader(surf_cfg, "2012-11-09T12_00_00", "V5test")
+    loader("gradb2")
+    loader("SIarea")
+    assert seen == {"gradb2": "frontal_structure", "SIarea": "icearea"}
+
+
+def test_unknown_channels_are_reported_as_missing(surf_cfg):
+    avail = prun._zarr_channels(surf_cfg, ["gradb2", "N2_sfc", "SIarea"])
+    assert avail == ["gradb2", "SIarea"]        # N2 is DEPTH-only
+
+
+def test_colocate_rejects_an_unknown_source(tmp_path, surf_cfg):
+    llc_io.set_fronts_path(str(tmp_path / "Fronts"))
+    with pytest.raises(ValueError, match="must be 'zarr' or 'netcdf'"):
+        prun.colocate_fronts("2012-11-09T12_00_00", "D", "V5test",
+                             property_names=["gradb2"], source="hdf5")
+
+
+def test_zarr_source_needs_a_config(tmp_path):
+    llc_io.set_fronts_path(str(tmp_path / "Fronts"))
+    with pytest.raises(ValueError, match="requires config_file"):
+        prun.colocate_fronts("2012-11-09T12_00_00", "D", "V5test",
+                             property_names=["gradb2"], source="zarr")
