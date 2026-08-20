@@ -325,8 +325,8 @@ def global_map(
     field: str,
     *,
     show_fronts: bool = False,
-    width: int = 760,
-    height: int = 430,
+    width: int | None = None,
+    height: int = 480,
     title: str = "",
     tools=("box_select",),
     active_tools=("box_select",),
@@ -352,12 +352,18 @@ def global_map(
         layers.append(fronts_layer(provider, date, extent=extent))
 
     xlim, ylim = extent if extent else ((0, 360), config.PYRAMID_LAT_RANGE)
+
+    # width=None -> fill the container.  The pages give the maps the full
+    # page width now; a fixed width would leave them at their old size
+    # with whitespace beside them.  HoloViews spells this responsive=True
+    # (the Panel-style sizing_mode is not a valid Overlay option).
+    sizing = {"width": width} if width else {"responsive": True}
     return hv.Overlay(layers).opts(
         hv.opts.Overlay(
-            width=width, height=height, title=title,
+            height=height, title=title,
             xlabel="longitude", ylabel="latitude",
             xticks=_LON_TICKS, yticks=_LAT_TICKS,
             show_grid=True, active_tools=list(active_tools),
-            xlim=tuple(xlim), ylim=tuple(ylim),
+            xlim=tuple(xlim), ylim=tuple(ylim), **sizing,
         )
     )

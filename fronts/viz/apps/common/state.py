@@ -69,6 +69,18 @@ class CharacteristicsState(PageState):
     front_stat = param.Selector(objects=list(config.FRONT_STATS),
                                 default=config.DEFAULT_FRONT_STAT,
                                 doc="Per-front statistic for panels (e)/(f).")
+    dirty = param.Boolean(True, doc="Settings changed since the last build.")
+
+    #: Changing any of these stales the figures rather than rebuilding.
+    #: Statistics run on the native grid, so picking a field, then a
+    #: depth, then a region would pay for the whole computation three
+    #: times over for two results nobody looked at.
+    REBUILD_TRIGGERS = ("date", "field", "depth_level", "box", "show_fronts",
+                        "front_stat")
+
+    @param.depends(*REBUILD_TRIGGERS, watch=True)
+    def _mark_dirty(self):
+        self.dirty = True
 
     def __init__(self, provider=None, depth_mode=False, **params):
         self._depth_mode = bool(depth_mode)

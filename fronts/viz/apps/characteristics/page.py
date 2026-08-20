@@ -92,20 +92,20 @@ class CharacteristicsPage:
                                           depth_mode=mode.has_depth)
 
         self._map = pn.pane.HoloViews(sizing_mode="stretch_width",
-                                      min_height=440)
+                                      min_height=560)
         self._bounds = hv.streams.BoundsXY(bounds=None)
 
         self._panes = {
             (col, row): pn.pane.Matplotlib(
-                tight=True, format="png", dpi=110,
-                width=420, height=310, margin=(0, 4),
+                tight=True, format="png", dpi=120,
+                width=640, height=470, margin=(0, 6),
             )
             for col in ("all", "fronts")
             for row in range(3)
         }
         self._fp_panes = [
-            pn.pane.Matplotlib(tight=True, format="png", dpi=110,
-                               width=420, height=310, margin=(0, 4))
+            pn.pane.Matplotlib(tight=True, format="png", dpi=120,
+                               width=470, height=350, margin=(0, 6))
             for _ in range(6)
         ]
 
@@ -115,9 +115,9 @@ class CharacteristicsPage:
         self._fp_token = 0
 
         self._build_controls()
+        # The map is cheap and orients the user, so it is drawn up front;
+        # the panels wait for Rebuild.
         self.redraw_map()
-        self.schedule_stats()
-        self.schedule_front_props()
 
     # -- channel resolution ----------------------------------------------
 
@@ -149,34 +149,38 @@ class CharacteristicsPage:
         self.w_stat = pn.widgets.Select.from_param(s.param.front_stat,
                                                    width=140)
 
-        s.param.watch(lambda *_: (self.redraw_map(), self.schedule_stats(),
-                                  self.schedule_front_props()),
-                      ["date"])
-        s.param.watch(lambda *_: (self.redraw_map(), self.schedule_stats(),
-                                  self.schedule_front_props()),
-                      ["field"])
-        s.param.watch(lambda *_: self.redraw_map(), ["show_fronts"])
-        s.param.watch(lambda *_: self.schedule_front_props(), ["front_stat"])
-        if self.mode.has_depth:
-            s.param.watch(
-                lambda *_: (self.redraw_map(), self.schedule_stats()),
-                ["depth_level"])
+        self.w_build = pn.widgets.Button(name="Rebuild", width=150,
+                                         button_type="primary")
+        self.w_build.on_click(lambda _: self.rebuild())
+
+        # Nothing rebuilds on its own.
+        s.param.watch(lambda *_: self._reflect_dirty(), ["dirty"])
+        self._reflect_dirty()
 
     def _reset_region(self):
         self.state.reset_region()
+
+    def rebuild(self):
+        """Build everything for the current selection.  The only entry."""
         self.redraw_map()
         self.schedule_stats()
         self.schedule_front_props()
+        self.state.dirty = False
+
+    def _reflect_dirty(self):
+        if self.state.dirty:
+            self.w_build.button_type = "primary"
+            self._status.object = (
+                "⟳ **settings changed** — press *Rebuild*"
+                f"  ·  region: {self.state.box.label()}")
+        else:
+            self.w_build.button_type = "default"
 
     def _on_bounds(self, bounds):
+        """Record the box.  The map and panels follow on *Rebuild*."""
         if not bounds:
             return
         self.state.set_bounds(bounds)
-        # Redraw so the map zooms to the selection -- without this the
-        # panels describe a region the map never shows.
-        self.redraw_map()
-        self.schedule_stats()
-        self.schedule_front_props()
 
     # -- map -------------------------------------------------------------
 
@@ -390,9 +394,10 @@ class CharacteristicsPage:
         controls = [self.w_date]
         if self.w_depth is not None:
             controls.append(self.w_depth)
-        controls += [self.w_field, self.w_fronts, self.w_reset]
+        controls += [self.w_field, self.w_fronts, self.w_reset,
+                     self.w_build]
 
-        left = pn.Column(
+        top = pn.Column(
             pn.pane.Markdown(f"### {self.mode.title}", margin=(4, 10, 0, 10)),
             pn.Row(*controls, sizing_mode="stretch_width", margin=(0, 10)),
             self._status,
@@ -406,10 +411,11 @@ class CharacteristicsPage:
             sizing_mode="stretch_width",
         )
 
-        top = pn.Row(pn.Column(left, width=820), self._stats_grid(),
-                     sizing_mode="stretch_width")
-
-        body = pn.Column(top, self._front_props_section(),
+        # Map above, distributions below, each across the full width:
+        # side by side, both were squeezed into half a page for no reason
+        # -- they are read one after the other, not compared.
+        body = pn.Column(top, pn.layout.Divider(), self._stats_grid(),
+                         self._front_props_section(),
                          sizing_mode="stretch_width")
 
         notes = [n for n in (widgets.banner(self.state.provider),

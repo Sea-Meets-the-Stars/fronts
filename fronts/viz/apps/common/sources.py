@@ -225,6 +225,18 @@ class DataProvider(ABC):
             return values
         return np.where(ice, np.nan, values)
 
+    def ice_exclusion(self, date: str, name: str) -> np.ndarray | None:
+        """The ice mask to skip for *name*, or ``None`` if there is none.
+
+        The mask, not a masked copy.  Binning already walks the cells one
+        by one, so it can drop the ice ones for free -- whereas NaN-ing a
+        copy of the field costs a grid-sized allocation (~0.9 GB) on every
+        redraw of every layer.
+        """
+        if name in config.ICE_EXEMPT:
+            return None
+        return self.ice_mask(date)
+
     def resolve_channels(self, date: str) -> dict[str, str | None]:
         """Map the kinematic roles onto whatever this store calls them.
 

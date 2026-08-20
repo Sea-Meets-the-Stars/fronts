@@ -62,9 +62,9 @@ class TilesPage:
     def __init__(self, provider=None):
         self.state = TilesState(provider=provider)
 
-        self._overview = pn.pane.HoloViews(min_height=330,
+        self._overview = pn.pane.HoloViews(min_height=400,
                                            sizing_mode="stretch_width")
-        self._tilemap = pn.pane.HoloViews(min_height=430,
+        self._tilemap = pn.pane.HoloViews(min_height=620,
                                           sizing_mode="stretch_width")
         self._status = widgets.status()
         self._hover = widgets.status("hover a front to read its label")
@@ -152,7 +152,7 @@ class TilesPage:
         try:
             base = basemap.global_map(
                 s.provider, s.date, "gradb2",
-                width=760, height=300, title="Click a region",
+                height=380, title="Click a region",
                 tools=("tap",), active_tools=("tap",),
             )
         except Exception as exc:                            # noqa: BLE001
@@ -263,7 +263,7 @@ class TilesPage:
 
         xlim, ylim = self._tile_zoom(labels, surface.shape)
         overlay = hv.Overlay(layers).opts(hv.opts.Overlay(
-            width=560, height=420, active_tools=["tap"],
+            responsive=True, height=600, active_tools=["tap"],
             title=f"{s.region}  —  tile {tile_idx}  —  {s.field}",
             xlabel="i (tile pixels)", ylabel="j (tile pixels)",
             xlim=xlim, ylim=ylim))
@@ -514,11 +514,14 @@ class TilesPage:
                       self.w_offsets, self.w_perp, self.w_regen,
                       sizing_mode="stretch_width", margin=(0, 10))
 
-        maps = pn.Row(
-            pn.Column(pn.pane.Markdown("**Overview**", margin=(0, 10)),
-                      self._overview, width=790),
-            pn.Column(pn.pane.Markdown("**Tile**", margin=(0, 10)),
-                      self._tilemap, self._hover),
+        # Stacked, not side by side: each map gets the whole page width,
+        # which is what makes a 720 x 720 tile and a global map readable.
+        maps = pn.Column(
+            pn.pane.Markdown("**Overview**", margin=(0, 10)),
+            self._overview,
+            pn.pane.Markdown("**Tile**", margin=(8, 10, 0, 10)),
+            self._tilemap,
+            self._hover,
             sizing_mode="stretch_width",
         )
 

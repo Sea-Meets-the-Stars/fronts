@@ -1456,3 +1456,145 @@ def test_over_the_limit_keeps_the_newest_fields_not_the_default():
     assert "turner_angle" in state.fields, \
         "the most recent pick must survive the cap"
     assert "Ri" not in state.fields, "the stale default should be the one to go"
+
+
+# --------------------------------------------------------------------------
+# Re-applied after the perf revert: layout, rebuild, products, ice
+# --------------------------------------------------------------------------
+
+def test_native_resolution_window_path_is_not_reintroduced():
+    """The revert removed it for being slow; keep it removed."""
+    from fronts.viz.apps.common import basemap
+    assert not hasattr(pyramid, "regrid_window")
+    assert not hasattr(pyramid, "window")
+    assert not hasattr(basemap, "_layer_raster")
+    assert not hasattr(config, "MAP_WINDOW_RASTER")
+
+
+def test_global_map_fills_its_container_by_default():
+    from fronts.viz.apps.common import basemap
+
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+    overlay = basemap.global_map(provider, date, "gradb2")
+    opts = overlay.opts.get().kwargs
+    assert opts.get("responsive") is True
+    assert "width" not in opts
+
+    fixed = basemap.global_map(provider, date, "gradb2", width=700)
+    assert fixed.opts.get().kwargs.get("width") == 700
+
+
+def test_changing_a_setting_stales_rather_than_rebuilds():
+    from fronts.viz.apps.common.state import CharacteristicsState
+
+    state = CharacteristicsState(provider=sources.get_provider())
+    state.dirty = False
+    state.field = [f for f in state.param.field.objects if f != state.field][0]
+    assert state.dirty
+
+    state.dirty = False
+    state.set_bounds((100.0, 10.0, 120.0, 30.0))
+    assert state.dirty
+
+
+def test_characteristics_page_waits_for_rebuild():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage
+
+    page = CharacteristicsPage(provider=sources.get_provider())
+    assert page.state.dirty
+    assert page._map.object is not None, "the map is cheap and drawn up front"
+    assert all(p.object is None for p in page._panes.values())
+
+    page.rebuild()
+    assert not page.state.dirty
+    assert any(p.object is not None for p in page._panes.values())
+
+
+def test_front_properties_work_without_colocation():
+    from fronts.viz.apps.characteristics import front_props as FP
+    from fronts.viz.apps.common.sources import NotWiredUp
+
+    provider = sources.get_provider()
+
+    class NoColocation:
+        def __getattr__(self, name):
+            return getattr(provider, name)
+
+        def colocation(self, date):
+            raise NotWiredUp("the colocation parquet")
+
+    table = FP.merged_table(NoColocation(), provider.dates()[0])
+    assert not table.empty
+    for column in ("label", "centroid_lat", "centroid_lon", "length_km"):
+        assert column in table.columns
+
+
+def test_bivariate_fields_come_from_the_store_not_from_colocation():
+    from fronts.viz.apps.bivariate.app import BivariateState
+    from fronts.viz.apps.common.sources import NotWiredUp
+
+    provider = sources.get_provider()
+
+    class NoColocation:
+        def __getattr__(self, name):
+            return getattr(provider, name)
+
+        def colocation(self, date):
+            raise NotWiredUp("the colocation parquet")
+
+    state = BivariateState(provider=NoColocation())
+    assert state.field_a and state.field_b, "neither field may be None"
+    assert state.field_a in provider.field_names(state.date)
+    assert state.resolve(state.field_a) == state.field_a
+
+
+def test_bivariate_grid_figure_colours_a_raster():
+    from fronts.viz import bivariate as BV
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    lon = np.linspace(0, 20, 40)
+    lat = np.linspace(-5, 5, 20)
+    rng = np.random.default_rng(0)
+    a, b = rng.standard_normal((20, 40)), rng.standard_normal((20, 40))
+    a[0, 0] = np.nan
+
+    fig, scheme = BV.figure_bivariate_grid(lon, lat, a, b, n=2,
+                                           name_a="A", name_b="B")
+    assert scheme.n == 2
+    plt.close(fig)
+
+    with pytest.raises(ValueError):
+        BV.figure_bivariate_grid(lon, lat, np.zeros((3, 4)), np.zeros((3, 5)))
+
+
+def test_ice_is_excluded_at_bin_time_not_by_copying_the_field():
+    XC = np.array([[10.2, 12.3, 14.1]])
+    YC = np.array([[1.2, 3.3, 5.1]])
+    vals = np.array([[1.0, 2.0, 3.0]])
+    ice = np.array([[False, True, False]])
+
+    # Width 720 so the three points land in three cells: at a coarse
+    # width they share one and the mean of 1 and 3 is 2.0, which would
+    # make the assertion meaningless.
+    _, _, out = pyramid.regrid(vals, XC, YC, 720, fill_gaps=False,
+                               exclude=ice)
+    assert set(np.round(out[np.isfinite(out)], 3)) == {1.0, 3.0}
+
+
+def test_ice_exclusion_leaves_the_ice_channel_alone():
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+    assert provider.ice_exclusion(date, config.ICE_CHANNEL) is None
+    assert provider.ice_exclusion(date, "__land__") is None
+
+
+def test_depth_front_products_use_their_own_location():
+    assert config.DEPTH_FRONTS_FOLDER == "globals_for_chunks"
+    assert config.DEPTH_FRONTS_RUN_ID == "V5"
+    assert config.DEPTH_FRONTS_FOLDER != config.DEPTH_FOLDER
+    assert config.SURFACE_FRONTS_FOLDER == config.SURFACE_FOLDER

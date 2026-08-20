@@ -52,6 +52,12 @@ class S3Provider(DataProvider):
                        else config.SURFACE_FOLDER)
         self.run_id = (config.DEPTH_RUN_ID if pipeline == "DEPTH"
                        else config.SURFACE_RUN_ID)
+        # Front products are published to their own location, which for
+        # DEPTH is not the folder the depth fields live in.
+        self.fronts_folder = (config.DEPTH_FRONTS_FOLDER if pipeline == "DEPTH"
+                              else config.SURFACE_FRONTS_FOLDER)
+        self.fronts_run_id = (config.DEPTH_FRONTS_RUN_ID if pipeline == "DEPTH"
+                              else config.SURFACE_FRONTS_RUN_ID)
 
     # -- stores ----------------------------------------------------------
 
@@ -86,6 +92,20 @@ class S3Provider(DataProvider):
             lambda: self._reader(date, index[name]).get_channel_snapshot(name),
         )
 
+    def ice_mask(self, date: str):
+        """Cached to disk.  Rebuilding it per layer per redraw cost a
+        grid-sized comparison plus allocation every time."""
+        if config.ICE_CHANNEL not in self.field_names(date):
+            return None
+        key = cache.make_key("ice", self.folder, self.run_id, date,
+                             config.ICE_THRESHOLD)
+
+        def build():
+            area = np.asarray(self.field(date, config.ICE_CHANNEL))
+            return np.isfinite(area) & (area > config.ICE_THRESHOLD)
+
+        return cache.array(key, build)
+
     def land_mask(self, date: str, reference: str | None = None) -> np.ndarray:
         try:
             return _grid_plane("land_mask")
@@ -93,16 +113,20 @@ class S3Provider(DataProvider):
             return super().land_mask(date, reference)
 
     def front_binary(self, date: str) -> np.ndarray:
-        return _product_array(self.folder, self.run_id, date, "binary")
+        return _product_array(self.fronts_folder, self.fronts_run_id,
+                              date, "binary")
 
     def labels(self, date: str) -> np.ndarray:
-        return _product_array(self.folder, self.run_id, date, "labels")
+        return _product_array(self.fronts_folder, self.fronts_run_id,
+                              date, "labels")
 
     def geometry(self, date: str) -> pd.DataFrame:
-        return _product_table(self.folder, self.run_id, date, "geometry")
+        return _product_table(self.fronts_folder, self.fronts_run_id,
+                              date, "geometry")
 
     def colocation(self, date: str) -> pd.DataFrame:
-        return _product_table(self.folder, self.run_id, date, "colocation")
+        return _product_table(self.fronts_folder, self.fronts_run_id,
+                              date, "colocation")
 
     def has_fronts(self, date: str) -> bool:
         """Cheap existence check: list the prefix, do not read the map.
@@ -111,7 +135,8 @@ class S3Provider(DataProvider):
         downloading a grid-sized array to answer a yes/no question.
         """
         try:
-            _product_path(self.folder, self.run_id, date, "labels")
+            _product_path(self.fronts_folder, self.fronts_run_id,
+                          date, "labels")
         except Exception:                                   # noqa: BLE001
             return False
         return True

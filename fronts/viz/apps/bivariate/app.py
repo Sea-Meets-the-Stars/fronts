@@ -67,14 +67,28 @@ class BivariateState(PageState):
 
     @param.depends("date", watch=True)
     def refresh_fields(self):
-        """Field lists come from the colocation table's actual columns."""
+        """Field lists come from the store, not from the colocation table.
+
+        Map (a) colours grid cells and needs only the channels; deriving
+        the list from colocation meant that before step 4 had run there
+        were no fields to choose at all, and the selectors sat on ``None``
+        -- which surfaced as "no channel None for <date>".  Colocation,
+        when it exists, narrows the list to what map (b) can also draw.
+        """
         try:
-            table = FP.merged_table(self.provider, self.date)
+            names = list(self.provider.field_names(self.date))
         except Exception:                                   # noqa: BLE001
             return
-        names = FP.available_fields(table)
         if not names:
             return
+
+        try:
+            table = FP.merged_table(self.provider, self.date)
+            colocated = FP.available_fields(table)
+        except Exception:                                   # noqa: BLE001
+            table, colocated = None, []
+        if colocated:
+            names = [n for n in names if n in colocated] or names
 
         self.param.field_a.objects = names
         self.param.field_b.objects = names
@@ -83,14 +97,18 @@ class BivariateState(PageState):
         if self.field_b not in names:
             self.field_b = _prefer(names, "turner_angle", "relative_vorticity")
 
-        stats = [s for s in config.FRONT_STATS
-                 if any(c.endswith(f"_{s}") for c in table.columns)]
+        stats = ([s for s in config.FRONT_STATS
+                  if any(c.endswith(f"_{s}") for c in table.columns)]
+                 if table is not None and not table.empty else [])
         if stats:
             self.param.stat.objects = stats
             if self.stat not in stats:
                 self.stat = stats[0]
 
     def resolve(self, field: str) -> str:
+        if not field:
+            raise ValueError("no field selected -- the store listed no "
+                             "channels for this date")
         if self.mode != "Depth":
             return field
         return self.provider.channel(field, self.depth_level)
@@ -108,9 +126,15 @@ class BivariatePage:
 
     def __init__(self, provider=None):
         self.state = BivariateState(provider=provider)
+        # Two stacked maps: (a) every grid cell, (b) the fronts only.
+        # Same colour scheme, so the fronts can be read against the field.
+        self._grid_fig = pn.pane.Matplotlib(tight=False, format="png", dpi=110,
+                                            sizing_mode="stretch_width",
+                                            min_height=560)
         self._fig = pn.pane.Matplotlib(tight=False, format="png", dpi=110,
                                        sizing_mode="stretch_width",
-                                       min_height=520)
+                                       min_height=560)
+        self._grid_status = widgets.status()
         self._status = widgets.status()
         self._token = 0
 
@@ -133,9 +157,25 @@ class BivariatePage:
         self.w_deg = pn.widgets.FloatSlider.from_param(
             s.param.bin_degrees, name="Bin size [deg]", width=160)
 
-        s.param.watch(lambda *_: self.schedule(),
+        self.w_build = pn.widgets.Button(name="Rebuild", width=150,
+                                         button_type="primary")
+        self.w_build.on_click(lambda _: self.rebuild())
+
+        # Explicit rebuild, as on every page that builds figures: both maps
+        # bin the whole grid, so changing three settings in a row should
+        # cost one build, not three.
+        s.param.watch(lambda *_: self._mark_dirty(),
                       ["mode", "date", "depth_level", "field_a", "field_b",
                        "stat", "sections", "spatial_binning", "bin_degrees"])
+        self._mark_dirty()
+
+    def _mark_dirty(self):
+        self.w_build.button_type = "primary"
+        self._status.object = "⟳ **settings changed** — press *Rebuild*"
+        self._grid_status.object = ""
+
+    def rebuild(self):
+        self.w_build.button_type = "default"
         self.schedule()
 
     # -- rendering -------------------------------------------------------
@@ -144,7 +184,9 @@ class BivariatePage:
         self._token += 1
         token = self._token
         self._fig.loading = True
+        self._grid_fig.loading = True
         self._status.object = "building bivariate map…"
+        self._grid_status.object = "building all-points map…"
 
         try:
             asyncio.get_running_loop()
@@ -158,6 +200,52 @@ class BivariatePage:
         await asyncio.to_thread(self._build, token)
 
     def _build(self, token):
+        self._build_grid(token)
+        self._build_fronts(token)
+
+    def _build_grid(self, token):
+        """(a) every grid cell, straight from the two field rasters."""
+        s = self.state
+        try:
+            lon, lat, a, b, land = self._grid_rasters(s)
+            fig, _ = BV.figure_bivariate_grid(
+                lon, lat, a, b, n=s.sections,
+                name_a=s.resolve(s.field_a), name_b=s.resolve(s.field_b),
+                land=land,
+                title=f"{s.field_a}  x  {s.field_b}   —   all grid points"
+                      f"   —   {s.date}",
+            )
+        except Exception as exc:                            # noqa: BLE001
+            if token == self._token:
+                self._grid_fig.object = None
+                self._grid_fig.loading = False
+                self._grid_status.object = f"**Unavailable:** {exc}"
+            return
+
+        if token != self._token:
+            return
+        self._grid_fig.object = fig
+        self._grid_fig.loading = False
+        self._grid_status.object = (
+            f"every finite grid cell · {s.sections}x{s.sections} sections")
+
+    def _grid_rasters(self, s):
+        """The two fields and the land mask on one shared display raster."""
+        width = config.PYRAMID_WIDTHS[1]
+        lon, lat, a = pyramid.level(s.provider, s.date,
+                                    s.resolve(s.field_a), width)
+        _, _, b = pyramid.level(s.provider, s.date,
+                                s.resolve(s.field_b), width)
+        # Land on the *same* raster as the fields -- the default land
+        # level is coarser, and mismatched shapes cannot be overlaid.
+        try:
+            _, _, land = pyramid.level(s.provider, s.date, "__land__",
+                                       width, reduce="any", pacific=False)
+        except Exception:                                   # noqa: BLE001
+            land = None
+        return lon, lat, a, b, land
+
+    def _build_fronts(self, token):
         s = self.state
         try:
             table = FP.merged_table(s.provider, s.date)
@@ -224,7 +312,8 @@ class BivariatePage:
                    self.w_mode, self.w_date, self.w_depth,
                    margin=(0, 10)),
             pn.Row(self.w_a, self.w_b, self.w_stat, self.w_sections,
-                   self.w_binning, self.w_deg, margin=(0, 10)),
+                   self.w_binning, self.w_deg, self.w_build,
+                   margin=(0, 10)),
             sizing_mode="stretch_width",
         )
 
@@ -238,6 +327,12 @@ class BivariatePage:
                 "divided at zero).</small>",
                 margin=(0, 10)),
             controls,
+            pn.layout.Divider(),
+            pn.pane.Markdown("#### (a) All grid points", margin=(6, 10, 0, 10)),
+            self._grid_status,
+            self._grid_fig,
+            pn.layout.Divider(),
+            pn.pane.Markdown("#### (b) Fronts only", margin=(6, 10, 0, 10)),
             self._status,
             self._fig,
             sizing_mode="stretch_width",

@@ -141,9 +141,9 @@ class EvolutionPage:
     def __init__(self, provider=None):
         self.state = EvolutionState(provider=provider)
 
-        self._overview = pn.pane.HoloViews(min_height=300,
+        self._overview = pn.pane.HoloViews(min_height=400,
                                            sizing_mode="stretch_width")
-        self._chunkmap = pn.pane.HoloViews(min_height=400,
+        self._chunkmap = pn.pane.HoloViews(min_height=620,
                                            sizing_mode="stretch_width")
         self._series = pn.pane.HoloViews(min_height=260,
                                          sizing_mode="stretch_width")
@@ -235,7 +235,7 @@ class EvolutionPage:
         try:
             base = basemap.global_map(
                 s.provider, s.provider.dates_3d()[0], "gradb2",
-                width=740, height=290, title="Saved chunks",
+                height=380, title="Saved chunks",
                 tools=("tap",), active_tools=("tap",))
         except Exception as exc:                            # noqa: BLE001
             self._overview.object = None
@@ -298,7 +298,7 @@ class EvolutionPage:
                 kdims=["i", "j"], vdims=["R", "G", "B", "A"])
 
         frame_opts = dict(
-            width=520, height=400, active_tools=["tap"],
+            responsive=True, height=600, active_tools=["tap"],
             title=f"{s.chunk} — step {step} — {s.times()[step]}",
             xlabel="i", ylabel="j")
         overlay = overlay.opts(
@@ -461,12 +461,12 @@ class EvolutionPage:
                       self._progress, sizing_mode="stretch_width",
                       margin=(0, 10))
 
-        maps = pn.Row(
-            pn.Column(pn.pane.Markdown("**Chunks**", margin=(0, 10)),
-                      self._overview, width=770),
-            pn.Column(pn.pane.Markdown("**Chunk at this step**",
-                                       margin=(0, 10)),
-                      self._chunkmap),
+        # Stacked so each map gets the full page width.
+        maps = pn.Column(
+            pn.pane.Markdown("**Chunks**", margin=(0, 10)),
+            self._overview,
+            pn.pane.Markdown("**Chunk at this step**", margin=(8, 10, 0, 10)),
+            self._chunkmap,
             sizing_mode="stretch_width",
         )
 

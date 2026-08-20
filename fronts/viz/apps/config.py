@@ -170,6 +170,21 @@ TILE_STORE_DEFAULT_FIELDS: tuple[str, ...] = (
 #: ``fronts.llc.publish``.
 FRONTS_SUBFOLDER = os.environ.get("FRONTS_APP_FRONTS_SUBFOLDER", "Fronts")
 
+#: The front products do not always live beside the fields they came from.
+#: Surface: ``globals_for_cutouts/v2_2_01/{date}/Fronts/`` -- the same
+#: folder as the surface stores.  Depth: ``globals_for_chunks/V5/{date}/
+#: Fronts/``, which is *not* where the depth fields are, so it is
+#: configured separately rather than derived.
+SURFACE_FRONTS_FOLDER = os.environ.get(
+    "FRONTS_APP_SURFACE_FRONTS_FOLDER", "globals_for_cutouts")
+SURFACE_FRONTS_RUN_ID = os.environ.get(
+    "FRONTS_APP_SURFACE_FRONTS_RUN_ID", "v2_2_01")
+
+DEPTH_FRONTS_FOLDER = os.environ.get(
+    "FRONTS_APP_DEPTH_FRONTS_FOLDER", "globals_for_chunks")
+DEPTH_FRONTS_RUN_ID = os.environ.get(
+    "FRONTS_APP_DEPTH_FRONTS_RUN_ID", "V5")
+
 #: Raw 3-D and chunk stores, for tile generation.
 RAW_DEPTH_FOLDER = os.environ.get("FRONTS_APP_RAW_DEPTH_FOLDER",
                                   "LLC4320_RAW/DEPTH")

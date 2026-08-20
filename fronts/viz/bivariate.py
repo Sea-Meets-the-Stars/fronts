@@ -314,6 +314,65 @@ def plot_map(df, values_a, values_b, scheme: BivariateScheme, *,
     return fig, ax
 
 
+def figure_bivariate_grid(lon, lat, values_a, values_b, *, n=2,
+                          name_a="", name_b="", title="", land=None,
+                          figsize=(15.0, 7.0)):
+    """The same two-field colouring, over *every* grid cell.
+
+    ``figure_bivariate`` colours one point per front, from the colocation
+    table.  This colours a raster instead, so the fronts can be read
+    against the field they came out of rather than on their own.  The
+    colour scheme is built the same way, so a pair of maps shares a
+    legend and is directly comparable.
+
+    Parameters
+    ----------
+    lon, lat : numpy.ndarray
+        1-D cell centres of the display raster.
+    values_a, values_b : numpy.ndarray
+        ``(len(lat), len(lon))`` rasters of the two fields.
+    land : numpy.ndarray, optional
+        Same-shaped mask, non-zero where land, drawn in gray underneath.
+    """
+    import matplotlib.pyplot as plt
+
+    a = np.asarray(values_a, dtype=float)
+    b = np.asarray(values_b, dtype=float)
+    if a.shape != b.shape:
+        raise ValueError(f"field rasters differ: {a.shape} vs {b.shape}")
+
+    scheme = build_scheme(a.ravel(), b.ravel(), n=n,
+                          name_a=name_a, name_b=name_b)
+    rgb, ok, _, _ = colors_for(a.ravel(), b.ravel(), scheme)
+
+    # RGBA so cells with no data stay transparent rather than black --
+    # a zero RGB is a legitimate colour in this scheme.
+    rgba = np.zeros((a.size, 4))
+    rgba[:, :3] = rgb
+    rgba[ok, 3] = 1.0
+    rgba = rgba.reshape(a.shape + (4,))
+
+    fig = plt.figure(figsize=figsize)
+    grid = fig.add_gridspec(1, 2, width_ratios=[4.4, 1.0], wspace=0.18)
+    ax = fig.add_subplot(grid[0, 0])
+
+    extent = (float(lon[0]), float(lon[-1]), float(lat[0]), float(lat[-1]))
+    if land is not None:
+        ax.imshow(np.where(np.asarray(land) > 0, 1.0, np.nan),
+                  extent=extent, origin="lower", cmap="gray_r",
+                  vmin=0, vmax=1.6, interpolation="nearest")
+    ax.imshow(rgba, extent=extent, origin="lower", interpolation="nearest")
+
+    ax.set_xlabel("longitude")
+    ax.set_ylabel("latitude")
+    ax.set_title(title or f"{name_a}  x  {name_b}  -- all grid points",
+                 fontsize=11)
+    ax.set_aspect("auto")
+
+    plot_legend(scheme, ax=fig.add_subplot(grid[0, 1]))
+    return fig, scheme
+
+
 def _plot_binned(ax, lon, lat, ia, ib, scheme, deg, pacific):
     """Colour each spatial bin by its most common (a, b) category."""
     lon0 = 0.0 if pacific else -180.0

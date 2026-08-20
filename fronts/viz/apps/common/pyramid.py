@@ -38,6 +38,7 @@ def regrid(
     lat_range: tuple[float, float] = config.PYRAMID_LAT_RANGE,
     reduce: str = "mean",
     fill_gaps: bool = True,
+    exclude: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Bin an irregular field onto a regular lat/lon raster.
 
@@ -90,6 +91,8 @@ def regrid(
     )
 
     good = np.isfinite(v) & (y >= lat0) & (y <= lat1)
+    if exclude is not None:
+        good &= ~np.asarray(exclude).ravel()
     flat = iy[good] * width + ix[good]
     vg = v[good]
 
@@ -227,7 +230,10 @@ def level(
             lon, lat, arr = z["lon"], z["lat"], z["arr"]
     else:
         values = _layer_values(provider, date, name)
-        lon, lat, arr = regrid(values, XC, YC, width, reduce=reduce)
+        ice = (provider.ice_exclusion(date, name)
+               if hasattr(provider, "ice_exclusion") else None)
+        lon, lat, arr = regrid(values, XC, YC, width, reduce=reduce,
+                               exclude=ice)
         if use_cache:
             try:
                 np.savez_compressed(path, lon=lon, lat=lat, arr=arr)
@@ -246,7 +252,7 @@ def _layer_values(provider, date: str, name: str) -> np.ndarray:
         return provider.front_binary(date).astype(np.float32)
     if name == "__labels__":
         return provider.labels(date).astype(np.float64)
-    return provider.drop_ice(date, name, provider.field(date, name))
+    return provider.field(date, name)
 
 
 def clear_cache() -> int:

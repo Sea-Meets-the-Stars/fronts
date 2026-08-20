@@ -49,9 +49,19 @@ def merged_table(provider, date: str) -> pd.DataFrame:
     the entire preprocessing repo into the web server's import path.
     """
     geom = provider.geometry(date)
-    coloc = provider.colocation(date)
-    if geom.empty or coloc.empty:
+    if geom.empty:
         return pd.DataFrame()
+
+    # Colocation is step 4 and lands long after step 3.  Every geometric
+    # panel -- length, orientation, latitude -- comes from the geometry
+    # table alone, so a missing colocation costs the two panels that plot
+    # a colocated field and nothing else.
+    try:
+        coloc = provider.colocation(date)
+    except Exception:                                       # noqa: BLE001
+        return geom
+    if coloc.empty:
+        return geom
     return geom.merge(coloc, left_on="label", right_on="flabel", how="inner")
 
 
@@ -128,8 +138,14 @@ def _clean(values, log=False):
 def figure_length_pdf(df: pd.DataFrame, *, title=""):
     """(a) PDF of front length."""
     with MPL_LOCK:
-        if df.empty or "length_km" not in df:
+        if df.empty:
             return _blank("no geometry table for this region")
+        if "length_km" not in df:
+            # Naming the columns present turns "nothing drew" into a
+            # diagnosis: the geometry parquet is there, it just does not
+            # carry the column this panel needs.
+            return _blank("geometry table has no 'length_km' column; "
+                          f"columns: {', '.join(map(str, df.columns[:12]))}")
         v = _clean(df["length_km"], log=LOG_LENGTH)
         if v.size == 0:
             return _blank("no fronts in this region")
