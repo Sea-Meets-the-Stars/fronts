@@ -1,0 +1,118 @@
+# ---------------------------------------------------------------------------
+# build_v5 -- SURF pipeline, globals_for_chunks dataset.
+#
+# 41 snapshots: the run_v5_chunks and run_v5_SO_chunks date lists together.
+# Both read the same store (globals_for_chunks/V5) and their dates do not
+# overlap, so they can share one config.
+#
+# Produces, per snapshot:
+#     front_properties_{TS}_V5_bfronts.parquet   (step 4)
+#
+# under $OS_OGCM/LLC/Fronts/V5/SURF/{YYYYMMDD_HHMMSS}/, then copied back to
+# s3://dbof/globals_for_chunks/V5/{YYYYMMDD_HHMMSS}/Fronts/  (step 5).
+#
+# Steps 1-3 have already run for every date below.
+#
+#   python build_v5.py 4 run_v5_chunks_all.yaml   # co-locate
+#
+# To try one timestep first, comment out the other dates below.
+# ---------------------------------------------------------------------------
+
+pipeline: "SURF"
+
+run:
+  # The dataset tag.  Locates the zarr stores on S3 and is stamped into every
+  # output filename; the output *directory* comes from build_v5.py's version.
+  run_id: "V5"
+  log_dir: "./logs/"
+
+output:
+  s3_endpoint: "https://s3-west.nrp-nautilus.io"
+  bucket: "dbof/"
+  # Stores live at {bucket}/{folder}/{run_id}/{date_prefix}/{subset}.zarr, i.e.
+  #   s3://dbof/globals_for_chunks/V5/20120703_120000/frontal_structure.zarr
+  # Without this key the folder would resolve to surface_fields/ for SURF.
+  folder: "globals_for_chunks/"
+
+runtime:
+  zarr_async_concurrency: 8
+  dask_scheduler: "distributed"
+  dask_n_workers: 4
+  dask_threads_per_worker: 4
+
+# ---------------------------------------------------------------------------
+# Subsets.  frontal_structure owns gradb2, which is all steps 1-3 read.
+# icearea is absent because no masking is applied; add it if you turn a mask on.
+# ---------------------------------------------------------------------------
+active_subsets:
+  - frontal_structure   # gradb2, gradsalt2, gradtheta2, gradeta2, gradrho2,
+                        # turner_angle, density, buoyancy
+
+# ---------------------------------------------------------------------------
+# build_v5 knobs.  Every key has a default in
+# fronts.properties.run.BUILD_DEFAULTS, so this block is optional.
+# ---------------------------------------------------------------------------
+build:
+  # Products land in $OS_OGCM/LLC/Fronts/V5/SURF/ -- the V5 comes from
+  # build_v5.py itself, not from here.
+
+  # Front-finding config -> fronts/finding/configs/finding_config_D.yaml
+  finding_config: "D"
+
+  # No masking: fronts are found on the raw gradb2 field.  Turning either flag
+  # on requires icearea.zarr for the same run_id and date, and icearea added to
+  # active_subsets above.
+  ice_mask_find:  false
+  ice_mask_props: false
+
+  # Step 4 reads each field from the zarr store and never writes it to disk.
+  colocate_source: zarr
+
+data:
+  # ISO 'YYYY-MM-DD HH:MM:SS'.
+  date_iterations:
+    # -- daily, 2012-06-29 to 2012-07-07 ------------------------------------
+    - '2012-06-29 12:00:00'
+    - '2012-06-30 12:00:00'
+    - '2012-07-01 12:00:00'
+    - '2012-07-02 12:00:00'
+    - '2012-07-03 12:00:00'
+    - '2012-07-04 12:00:00'
+    - '2012-07-05 12:00:00'
+    - '2012-07-06 12:00:00'
+    - '2012-07-07 12:00:00'
+    # -- 3-hourly through 2012-07-03 ----------------------------------------
+    - '2012-07-03 00:00:00'
+    - '2012-07-03 03:00:00'
+    - '2012-07-03 06:00:00'
+    - '2012-07-03 09:00:00'
+    - '2012-07-03 15:00:00'
+    - '2012-07-03 18:00:00'
+    - '2012-07-03 21:00:00'
+    - '2012-07-04 00:00:00'
+    # -- singles ------------------------------------------------------------
+    - '2012-05-16 06:00:00'
+    - '2012-02-29 18:00:00'
+    - '2012-09-18 12:00:00'
+    - '2012-11-09 12:00:00'
+    # -- Southern Ocean chunks, 2012-10-31 to 2012-11-07 ---------------------
+    - '2012-10-31 12:00:00'
+    - '2012-11-01 12:00:00'
+    - '2012-11-02 12:00:00'
+    - '2012-11-03 01:00:00'
+    - '2012-11-03 02:00:00'
+    - '2012-11-03 03:00:00'
+    - '2012-11-03 04:00:00'
+    - '2012-11-03 05:00:00'
+    - '2012-11-03 06:00:00'
+    - '2012-11-03 07:00:00'
+    - '2012-11-03 08:00:00'
+    - '2012-11-03 09:00:00'
+    - '2012-11-03 10:00:00'
+    - '2012-11-03 11:00:00'
+    - '2012-11-03 12:00:00'
+    - '2012-11-03 13:00:00'
+    - '2012-11-04 12:00:00'
+    - '2012-11-05 12:00:00'
+    - '2012-11-06 12:00:00'
+    - '2012-11-07 12:00:00'
