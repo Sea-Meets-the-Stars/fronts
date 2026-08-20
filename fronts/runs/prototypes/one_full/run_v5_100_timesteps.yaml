@@ -62,11 +62,11 @@ active_subsets:
   - frontal_structure   # gradb2, gradsalt2, gradtheta2, gradeta2, gradrho2,
                         # turner_angle, density, buoyancy
   - icearea             # SIarea
-  # - kinematic         # relative_vorticity, strain_*, divergence,
+  - kinematic         # relative_vorticity, strain_*, divergence,
   #                     # rossby_number, okubo_weiss, coriolis_f
   # - frontogenesis     # frontogenesis_tendency/geo/ageo, ug, vg
-  # - native_fields     # Theta, Salt, Eta, W (+ computed U, V)
-  # - surface_wind      # oceTAUX, oceTAUY, oceQnet, wind_stress_curl,
+  - native_fields     # Theta, Salt, Eta, W (+ computed U, V)
+  - surface_wind      # oceTAUX, oceTAUY, oceQnet, wind_stress_curl,
   #                     # ekman_pumping, u_ekman, v_ekman
 
 # depth_suffixes has no effect on SURF -- every channel is inherently 2D.
