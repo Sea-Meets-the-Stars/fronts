@@ -9,6 +9,10 @@
 #         front_properties_{TS}_{run_id}_bfronts.parquet
 #         fields/tile{idx}_{ts}_{property}.nc     (cache, reused on re-run)
 #
+# A tile entry with chunk_name reads LLC4320_RAW/CHUNKS/{name} -- already the
+# tile's extent, so nothing is sliced or written.  With lon/lat or i_rect/j_rect
+# instead, the tile is cut out of the global full-depth store.
+#
 # Property names come from dbof.tiles.field_registry, not subset_definitions.
 # See prompts/fronts_build.md.
 #
@@ -44,17 +48,26 @@ def main(config_file: str = DEFAULT_CONFIG):
     print(f"products -> {llc_io.run_root(run_id)}")
 
     for loc in cfg['tiles']:
-        where = {k: loc[k] for k in ('lon', 'lat', 'i_rect', 'j_rect') if k in loc}
-        tile = llc_tiles.tile_for(**where)
-        print(f"\n=== {loc.get('name', 'tile')}: index {tile.tile_idx}, "
-              f"face {tile.face_idx}, rect j={tile.rect_j_slice.start} "
-              f"i={tile.rect_i_slice.start} ===")
+        chunk = loc.get('chunk_name')
+        if chunk:
+            # The chunk store is already the tile, and says which one it is.
+            tile = llc_tiles.tile_from_chunk_store(chunk)
+        else:
+            where = {k: loc[k] for k in ('lon', 'lat', 'i_rect', 'j_rect')
+                     if k in loc}
+            tile = llc_tiles.tile_for(**where)
+
+        print(f"\n=== {loc.get('name', chunk or 'tile')}: index "
+              f"{tile.tile_idx}, face {tile.face_idx}, rect "
+              f"j={tile.rect_j_slice.start} i={tile.rect_i_slice.start} ===")
 
         for timestamp in cfg['timestamps']:
             print(f"[{timestamp}]")
             colocate_tile(timestamp, find_cfg, run_id,
                           property_names=props, tile=tile,
-                          percentiles=cfg['percentiles'])
+                          percentiles=cfg['percentiles'],
+                          loader=(llc_tiles.chunk_loader(chunk, timestamp)
+                                  if chunk else None))
 
 
 # Command line execution

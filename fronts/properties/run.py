@@ -89,7 +89,7 @@ def colocate_tile(timestamp: str, config: str, version: str,
                   stats: list = None, percentiles: list = None,
                   min_npix: int = 1, nan_policy: str = 'omit',
                   dilation_radius: int = 1, clobber: bool = False,
-                  edge_margin: int = 0, level: int = 0):
+                  edge_margin: int = 0, level: int = 0, loader=None):
     """Co-locate the global fronts with properties computed on one tile.
 
     The label map is reoriented onto the tile's grid and each property is
@@ -112,6 +112,10 @@ def colocate_tile(timestamp: str, config: str, version: str,
         clobber (bool): Overwrite existing output.
         edge_margin (int): Zero this many label cells at the tile rim.
         level (int): ``k`` index to co-locate.  Defaults to 0 (surface).
+        loader (callable, optional): ``loader(name) -> 2D array`` on the tile
+            grid, e.g. from :func:`fronts.llc.tiles.chunk_loader`.  Defaults to
+            slicing the global full-depth store via
+            :func:`fronts.llc.tiles.tile_loader`.
     """
     fdir = llc_io.fronts_dir(version, timestamp)
     fronts_file = finding_io.binary_filename(timestamp, config, version)
@@ -149,7 +153,7 @@ def colocate_tile(timestamp: str, config: str, version: str,
         min_npix=min_npix,
         nan_policy=nan_policy,
         dilation_radius=dilation_radius,
-        loader=llc_tiles.tile_loader(
+        loader=loader or llc_tiles.tile_loader(
             timestamp, tile, cache_dir or os.path.join(output_dir, 'fields'),
             level=level),
         checkpoint_dir=ckpt_dir,

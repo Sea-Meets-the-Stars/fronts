@@ -206,24 +206,41 @@ want them.
 `fronts.properties.run.colocate_tile` pairs the global fronts with properties
 computed on one 720x720 tile, at the surface. Nothing global is read or written.
 
-```python
-from fronts.llc import io as llc_io, tiles as llc_tiles
-from fronts.properties.run import colocate_tile
+Driven by `colocate_tiles.py`, which reads build_v5's fronts and writes into
+the same V5 tree — no version bump, because the fronts are build_v5's fronts.
 
-llc_io.set_fronts_path(...)                     # as build_v5 does
-llc_io.set_run_layout('V5/SURF', file_tag='V5')
-
-tile = llc_tiles.tile_for(lon=-70, lat=40)      # or i_rect=, j_rect=
-colocate_tile('2012-07-03T12_00_00', 'D', 'V5',
-              property_names=['density', 'relative_vorticity', 'N2'],
-              tile=tile, percentiles=[90])
+```bash
+cd fronts/runs/prototypes/one_full
+python colocate_tiles.py run_v5_tiles_monterey.yaml
+python colocate_tiles.py run_v5_tiles_scotia_sea.yaml
 ```
 
-Results land in `{date_prefix}/tile{idx:03d}/`, with the per-property tile
-NetCDFs cached under `fields/` — small (~2 MB for a 2D field), and reused on a
-re-run. Property names come from `dbof.tiles.field_registry`, not from
-`subset_definitions`; the loader follows each property's `out_name` (`density`
-is stored as `sigma0`).
+Results land in `{date_prefix}/tile{idx:03d}/`. Property names come from
+`dbof.tiles.field_registry` (52 available, unsuffixed), not from
+`subset_definitions`.
+
+**Two field sources.** A tile entry with `chunk_name` reads
+`LLC4320_RAW/CHUNKS/{name}`, which *is* already the tile's 720×720 extent — so
+nothing is sliced and no field is written. The tile identity comes from that
+store's own `resolved_face` / `j_start` / `i_start` attrs, cross-checked against
+the rect lookup. With `lon`/`lat` or `i_rect`/`j_rect` instead, the tile is cut
+out of the global full-depth store via `tile_utils.run`, which caches one small
+NetCDF per property under `fields/` (~2 MB for a 2D field) and follows each
+property's `out_name` (`density` is stored as `sigma0`).
+
+A chunk store cannot go through `tile_utils.run`: it asks for `face_range=[face]`
+of a one-face store and slices positionally with face-global indices
+(`isel(j=slice(3600, 4320))` on a 720-long dim), which returns an empty
+selection rather than an error. Hence the separate path.
+
+Chunk `grid.zarr` is written by the transfer and may lack the comodo `axis`
+attrs xgcm needs; the loader stamps them if absent, so `_build_tile_context`
+finds its X and Y axes.
+
+**Dates must exist in both places** — a chunk store *and* a label map. The
+shipped configs use the intersection: 17 of 18 Monterey snapshots, 20 of 31
+Scotia Sea. Add the rest to the build_v5 configs and re-run steps 1–3 if you
+want them.
 
 **Orientation.** A tile is a window on the same rect grid as the label map, but
 its *data* is face-local, which on some LLC faces is a rotation of that window.
@@ -292,10 +309,10 @@ not call it.
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-81 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+88 tests, fully offline — no S3, no OSN, no data. They cover the contract with
 the preprocessing repo, that step 1 builds one subset and exports one channel,
 pipeline resolution, the two ice-mask toggles, the output layout, the S3 push,
 the run descriptor, both naming schemes across all three pipelines, lazy
-co-location with checkpoint resume, tile orientation across rotated faces, and
-the shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
+co-location with checkpoint resume, tile orientation across rotated faces, chunk-store
+tile resolution, and the shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
 these fail fast and name what moved.

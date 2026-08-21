@@ -1384,3 +1384,136 @@ def test_extra_columns_land_in_the_parquet(tmp_path):
     assert "tile_idx" not in df.columns
     params = inspect.signature(prop_algorithms.colocate_fronts).parameters
     assert "extra_columns" in params and "loader" in params
+
+
+# ===========================================================================
+#  Reading a tile from a CHUNKS store
+# ===========================================================================
+
+def test_chunk_store_date_name(monkeypatch, tmp_path):
+    """The store leaf is YYYYMMDDTHH, from the fronts timestamp."""
+    seen = {}
+
+    def fake_open(uri, endpoint):
+        seen[uri.rsplit("/", 1)[-1]] = True
+        import xarray as xr
+        return xr.Dataset()
+
+    monkeypatch.setattr(llc_tiles, "_open_chunk", fake_open)
+    monkeypatch.setattr(llc_tiles.tile_utils, "_build_tile_context",
+                        lambda a, b: (a, b))
+    llc_tiles.chunk_loader("monterey_bay", "2012-07-03T12_00_00")
+    assert "20120703T12.zarr" in seen and "grid.zarr" in seen
+
+
+def test_chunk_uri_layout():
+    assert llc_tiles._chunk_uri("monterey_bay", "grid.zarr") == \
+        "s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/grid.zarr"
+
+
+def test_comodo_attrs_are_stamped_when_the_store_lacks_them(monkeypatch):
+    """A transfer-written grid.zarr may not carry them; xgcm needs X and Y.
+
+    ``_build_tile_context`` raises rather than failing later inside a compute
+    callback, so the loader fills them in first.
+    """
+    import xarray as xr
+    grid = xr.Dataset(coords={d: ("i" if d.startswith("i") else "j",
+                                 np.arange(4)) for d in ("i", "j")})
+    grid = xr.Dataset(coords={"i": np.arange(4), "j": np.arange(4),
+                              "i_g": np.arange(4), "j_g": np.arange(4)})
+    tracers = xr.Dataset({"Theta": (("j", "i"), np.zeros((4, 4), np.float32))},
+                         coords={"j": np.arange(4), "i": np.arange(4)})
+    captured = {}
+
+    monkeypatch.setattr(llc_tiles, "_open_chunk",
+                        lambda uri, ep: tracers if "T12" in uri else grid)
+
+    def fake_ctx(ds_t, ds_g):
+        captured["axes"] = {d: ds_g[d].attrs.get("axis") for d in
+                            ("i", "j", "i_g", "j_g")}
+        captured["shift"] = ds_g["i_g"].attrs.get("c_grid_axis_shift")
+        return ds_t, None
+
+    monkeypatch.setattr(llc_tiles.tile_utils, "_build_tile_context", fake_ctx)
+    llc_tiles.chunk_loader("monterey_bay", "2012-07-03T12_00_00")
+    assert captured["axes"] == {"i": "X", "j": "Y", "i_g": "X", "j_g": "Y"}
+    assert captured["shift"] == -0.5
+
+
+def test_existing_comodo_attrs_are_left_alone(monkeypatch):
+    import xarray as xr
+    grid = xr.Dataset(coords={"i": np.arange(4), "j": np.arange(4)})
+    grid["i"].attrs["axis"] = "ALREADY"
+    tracers = xr.Dataset({"Theta": (("j", "i"), np.zeros((4, 4), np.float32))})
+    captured = {}
+    monkeypatch.setattr(llc_tiles, "_open_chunk",
+                        lambda uri, ep: tracers if "T12" in uri else grid)
+    monkeypatch.setattr(llc_tiles.tile_utils, "_build_tile_context",
+                        lambda t, g: (captured.setdefault("axis", g["i"].attrs["axis"]),
+                                      None))
+    llc_tiles.chunk_loader("monterey_bay", "2012-07-03T12_00_00")
+    assert captured["axis"] == "ALREADY"
+
+
+def test_tile_from_chunk_store_uses_the_stores_own_attrs(monkeypatch):
+    """face / j_start / i_start identify the tile -- no lon/lat lookup."""
+    import xarray as xr
+    from dbof.tiles.tile_mapping import TileInfo
+
+    ds = xr.Dataset(attrs={"resolved_face": 10, "j_start": 0,
+                           "i_start": 2880, "tile_size": TILE_SIZE})
+    monkeypatch.setattr(llc_tiles, "_open_chunk", lambda uri, ep: ds)
+
+    face_id = np.full((TILE_SIZE, TILE_SIZE), 10, np.int8)
+    jj, ii = np.meshgrid(np.arange(TILE_SIZE), np.arange(TILE_SIZE),
+                         indexing="ij")
+    monkeypatch.setattr(llc_tiles, "lookup_maps",
+                        lambda: (face_id, jj, ii + 2880))
+
+    resolved = {}
+    monkeypatch.setattr(llc_tiles, "rect_ij_to_tile",
+                        lambda i, j: resolved.setdefault(
+                            "t", _tile(0, j_face_start=0, i_face_start=2880)))
+    monkeypatch.setattr(llc_tiles, "rect_ij_to_tile",
+                        lambda i, j: TileInfo(
+                            tile_idx=7, tile_j_rect=0, tile_i_rect=0,
+                            rect_j_slice=slice(0, TILE_SIZE),
+                            rect_i_slice=slice(0, TILE_SIZE),
+                            face_idx=10,
+                            j_face_slice=slice(0, TILE_SIZE),
+                            i_face_slice=slice(2880, 2880 + TILE_SIZE)))
+
+    tile = llc_tiles.tile_from_chunk_store("monterey_bay")
+    assert (tile.face_idx, tile.j_face_slice.start, tile.i_face_slice.start) \
+        == (10, 0, 2880)
+
+
+def test_tile_from_chunk_store_rejects_a_layout_mismatch(monkeypatch):
+    """A store whose attrs disagree with the rect lookup must not be trusted."""
+    import xarray as xr
+    from dbof.tiles.tile_mapping import TileInfo
+
+    ds = xr.Dataset(attrs={"resolved_face": 10, "j_start": 0,
+                           "i_start": 2880, "tile_size": TILE_SIZE})
+    monkeypatch.setattr(llc_tiles, "_open_chunk", lambda uri, ep: ds)
+    face_id = np.full((TILE_SIZE, TILE_SIZE), 10, np.int8)
+    jj, ii = np.meshgrid(np.arange(TILE_SIZE), np.arange(TILE_SIZE),
+                         indexing="ij")
+    monkeypatch.setattr(llc_tiles, "lookup_maps",
+                        lambda: (face_id, jj, ii + 2880))
+    monkeypatch.setattr(llc_tiles, "rect_ij_to_tile",
+                        lambda i, j: TileInfo(
+                            tile_idx=7, tile_j_rect=0, tile_i_rect=0,
+                            rect_j_slice=slice(0, TILE_SIZE),
+                            rect_i_slice=slice(0, TILE_SIZE),
+                            face_idx=3,                      # disagrees
+                            j_face_slice=slice(0, TILE_SIZE),
+                            i_face_slice=slice(2880, 2880 + TILE_SIZE)))
+    with pytest.raises(ValueError, match="rect lookup resolves to face"):
+        llc_tiles.tile_from_chunk_store("monterey_bay")
+
+
+def test_colocate_tile_accepts_an_injected_loader():
+    params = inspect.signature(prun.colocate_tile).parameters
+    assert "loader" in params and params["loader"].default is None

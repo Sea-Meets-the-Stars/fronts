@@ -7,9 +7,12 @@ LLC faces is a rotation of the rect window -- hence
 :func:`labels_for_tile` scatters through the per-pixel lookup maps rather than
 slicing.
 
-Fields come from ``dbof.tiles.tile_utils.run``, which writes one small NetCDF
-per property per tile (~2 MB for a 2D field).  Those act as a cache: a second
-co-location of the same tile recomputes nothing.
+Two sources of field data:
+
+* :func:`tile_loader` -- ``dbof.tiles.tile_utils.run`` slices a tile out of the
+  global full-depth store and writes one small NetCDF per property (a cache).
+* :func:`chunk_loader` -- a ``LLC4320_RAW/CHUNKS/{name}`` store, which *is*
+  already the tile, so properties are computed in memory with nothing written.
 """
 import os
 from functools import lru_cache
@@ -22,6 +25,18 @@ from dbof.tiles.field_registry import resolve_property
 from dbof.tiles.tile_mapping import (
     TILE_SIZE, _build_lookup_arrays, rect_ij_to_tile,
 )
+
+CHUNKS_PREFIX = 'LLC4320_RAW/CHUNKS'
+
+#: comodo annotations xgcm needs to find its horizontal axes.  The transfer
+#: writes a chunk's grid.zarr straight from the source, which may not carry
+#: them; ``_build_tile_context`` raises if they are absent.
+_COMODO = {
+    'i':   {'axis': 'X'},
+    'j':   {'axis': 'Y'},
+    'i_g': {'axis': 'X', 'c_grid_axis_shift': -0.5},
+    'j_g': {'axis': 'Y', 'c_grid_axis_shift': -0.5},
+}
 
 
 @lru_cache(maxsize=1)
@@ -131,5 +146,89 @@ def tile_loader(timestamp: str, tile, cache_dir: str, clobber: bool = False,
             if 'k' in da.dims:
                 da = da.isel(k=level)
             return da.values.astype(np.float32)
+
+    return loader
+
+
+# ---------------------------------------------------------------------------
+# CHUNKS stores -- the chunk already is the tile
+# ---------------------------------------------------------------------------
+
+def _chunk_uri(chunk_name: str, leaf: str, bucket: str = 'dbof') -> str:
+    return f"s3://{bucket.strip('/')}/{CHUNKS_PREFIX}/{chunk_name}/{leaf}"
+
+
+def _open_chunk(uri: str, s3_endpoint: str) -> xr.Dataset:
+    """Open a chunk store lazily.  Metadata is not consolidated."""
+    return xr.open_zarr(
+        uri, consolidated=False,
+        storage_options={'client_kwargs': {'endpoint_url': s3_endpoint}})
+
+
+def tile_from_chunk_store(chunk_name: str, bucket: str = 'dbof',
+                          s3_endpoint: str = 'https://s3-west.nrp-nautilus.io'):
+    """Resolve the tile a CHUNKS store holds, from the store's own attrs.
+
+    The transfer records ``resolved_face``, ``j_start``, ``i_start`` and
+    ``tile_size``, so the tile is self-describing -- no lon/lat lookup.  The
+    rect-grid extent is recovered by locating that face-local corner in the
+    lookup maps, then re-resolved through ``rect_ij_to_tile`` so every field of
+    the returned TileInfo is mutually consistent.
+    """
+    ds = _open_chunk(_chunk_uri(chunk_name, 'grid.zarr', bucket), s3_endpoint)
+    face = int(ds.attrs['resolved_face'])
+    j0, i0 = int(ds.attrs['j_start']), int(ds.attrs['i_start'])
+    size = int(ds.attrs.get('tile_size', TILE_SIZE))
+    ds.close()
+
+    if size != TILE_SIZE:
+        raise ValueError(f"{chunk_name}: tile_size {size} != {TILE_SIZE}")
+
+    face_id, j_map, i_map = lookup_maps()
+    hit = np.argwhere((face_id == face) & (j_map == j0) & (i_map == i0))
+    if not len(hit):
+        raise ValueError(
+            f"{chunk_name}: face {face} face-local (j={j0}, i={i0}) is not on "
+            f"the rect grid")
+    j_rect, i_rect = (int(x) for x in hit[0])
+
+    tile = rect_ij_to_tile(i_rect, j_rect)
+    if (tile.face_idx, tile.j_face_slice.start, tile.i_face_slice.start) \
+            != (face, j0, i0):
+        raise ValueError(
+            f"{chunk_name}: store says face {face} (j={j0}, i={i0}) but the "
+            f"rect lookup resolves to face {tile.face_idx} "
+            f"(j={tile.j_face_slice.start}, i={tile.i_face_slice.start})")
+    return tile
+
+
+def chunk_loader(chunk_name: str, timestamp: str, bucket: str = 'dbof',
+                 s3_endpoint: str = 'https://s3-west.nrp-nautilus.io',
+                 level: int = 0, mask_land: bool = True):
+    """Return ``loader(property_name) -> 2D array`` from a CHUNKS store.
+
+    The store is already the tile's extent, so nothing is sliced and nothing is
+    written: each property is computed in memory and reduced to *level*.
+    """
+    date = timestamp[:13].replace('-', '').replace('_', '')   # YYYYMMDDTHH
+    ds_t = _open_chunk(_chunk_uri(chunk_name, f'{date}.zarr', bucket), s3_endpoint)
+    ds_g = _open_chunk(_chunk_uri(chunk_name, 'grid.zarr', bucket), s3_endpoint)
+
+    if 'time' in ds_t.dims:
+        ds_t = ds_t.isel(time=0)
+    for dim, attrs in _COMODO.items():
+        if dim in ds_g.coords and 'axis' not in ds_g[dim].attrs:
+            ds_g[dim].attrs.update(attrs)
+
+    ds_merge, grid = tile_utils._build_tile_context(ds_t, ds_g)
+
+    def loader(name):
+        prop = resolve_property(name)
+        print(f"  computing {name} on chunk {chunk_name}")
+        da = tile_utils.compute_tile_property(ds_merge, grid, prop,
+                                             mask_land=mask_land)
+        if 'k' in da.dims:
+            da = da.isel(k=level)
+        return da.values.astype(np.float32)
 
     return loader
