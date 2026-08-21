@@ -303,7 +303,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         fdir, time_str, 'label_map', run_tag)
     labeled = np.load(labeled_file)
 
-    ckpt_dir = os.path.join(fdir, f'colocate_ckpt_{run_tag}')
+    ckpt_dir = os.path.join(output_dir, f'colocate_ckpt_{run_tag}')
     if clobber:
         _clear_checkpoints(ckpt_dir, strict=True)
 

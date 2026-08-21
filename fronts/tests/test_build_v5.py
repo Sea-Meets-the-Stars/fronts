@@ -1568,3 +1568,15 @@ def test_both_colocators_clear_the_cache_before_a_clobber():
         src = inspect.getsource(fn)
         assert "_clear_checkpoints(ckpt_dir, strict=True)" in src, fn.__name__
         assert "if clobber:" in src, fn.__name__
+
+
+def test_checkpoints_live_with_the_output_not_the_timestamp():
+    """A custom output_dir must get its own cache.
+
+    Otherwise a side run sharing the timestamp directory would read -- and on
+    clobber delete -- the checkpoints of a production run in flight.
+    """
+    for fn in (prun.colocate_fronts, prun.colocate_tile):
+        src = inspect.getsource(fn)
+        assert "os.path.join(output_dir, f'colocate_ckpt_{run_tag}')" in src, \
+            fn.__name__
