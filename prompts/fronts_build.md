@@ -303,6 +303,72 @@ channels (`density`, `buoyancy`, ...) still works for gradb2. `run_all_subsets`
 would judge such a store incomplete and rebuild it — another reason step 1 does
 not call it.
 
+## Which sparkle version is in each global store
+
+Two global datasets exist for LLC4320, and they do not agree:
+
+| store | `gradb2` form | used by |
+|---|---|---|
+| `s3://dbof/globals_for_chunks/V5/` | square-before-interp (current) | the tiles |
+| `s3://dbof/globals_for_cutouts/v2_2_01/` | interp-then-square (superseded) | cutouts work |
+
+Measured on the Monterey chunk, 2012-07-04 12:00, in a 197 km box, against a
+tile computed on the fly (which runs today's code by construction):
+
+```
+globals_for_chunks/V5        vs tile      median |rel| 1.95e-04   p95 3.39e-04
+globals_for_cutouts/v2_2_01  vs tile      median |rel| 7.76e-02   p95 7.34e-01
+globals_for_chunks/V5        vs cutouts   median |rel| 8.39e-02   p95 2.77e+00
+```
+
+The two forms differ by an exact identity, per direction:
+
+```
+new - old = 1/4 [(g1 - g2)^2]
+```
+
+where `g1`, `g2` are the gradients on the staggered faces flanking a cell. So
+the difference is non-negative everywhere, and is a map of grid-scale gradient
+curvature: zero in smooth water, bright along filaments. The observed signs
+follow it — `cutouts - tile` is negative, `chunks - cutouts` positive — which is
+what rules out a grid or metric error, since those would be signed both ways.
+
+The artifact is *manufactured near-zeros*, not spikes. At a one-cell extremum
+the flanking slopes are `-a` and `+a`, interpolating them gives zero, and
+squaring locks in a hole. The current form squares first and keeps the real
+value, so it is larger wherever the gradient turns over inside a cell.
+
+### Why the metadata did not catch it
+
+`v2_2_01/run_meta.yaml` records `git_commit: 48f5031`, which *does* contain the
+fix. It is not evidence about what ran:
+
+* `_git_commit_hash()` in `dbof.global_dataset_creation.metadata` shells out to
+  `git rev-parse --short HEAD` with no `cwd` and no reference to
+  `dbof.__file__`. It records the HEAD of whatever repo the shell was standing
+  in, not the version of the package that got imported.
+* the entry is per **subset**, not per subset and date, and is rewritten on any
+  run that does work — so one regenerated date restamps all 100.
+
+The store's own chunk mtimes (`aws s3 ls`) are the only per-date provenance
+available.
+
+### Consequence
+
+Front finding on `globals_for_chunks/V5` is on the current field — steps 1-3
+there need nothing. Anything derived from `globals_for_cutouts/v2_2_01` is on
+the superseded field and needs regenerating.
+
+On one Monterey tile, refinding fronts across the two forms moved 20.3% of front
+pixels (369 fronts and 13,067 px -> 318 and 11,764; 2,650 old-only, 1,347
+new-only). Config D thresholds at a pooled 85th percentile, so changing the
+field moves the threshold with it and the front set shifts everywhere, not only
+where the artifact was. One tile at one timestep in energetic water is not a
+global number.
+
+`fronts/properties/nb/Colocate_Check.ipynb` sections 6-10 hold the diagnosis.
+
+
 ## Tests
 
 ```bash

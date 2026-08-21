@@ -19,6 +19,14 @@
 #
 # Properties come from dbof.tiles.field_registry (52 available), NOT
 # subset_definitions -- names are unsuffixed, co-location is at the surface.
+#
+# The 27 listed are the SURF-pipeline properties derivable from the raw model
+# fields a CHUNKS store carries.  Depth-resolved properties (N2, ertel_pv, Ri,
+# vertical_shear, mixed_layer_depth, ...) are absent because a surface front has
+# no depth to co-locate against.  So are the forcing and ice properties
+# (oceTAUX, oceTAUY, wind_stress_curl, ekman_pumping, u_ekman, v_ekman, SIarea):
+# they need channels the raw chunk does not hold, and the tile loader raises
+# rather than skipping a property it cannot compute.
 # ---------------------------------------------------------------------------
 
 pipeline: "SURF"
@@ -42,17 +50,43 @@ build:
     - name: monterey_bay
       chunk_name: monterey_bay
 
-  # Properties to co-locate, from dbof.tiles.field_registry.
+  # Properties to co-locate, from dbof.tiles.field_registry.  Every one is a
+  # SURF-pipeline quantity computable from the raw model fields the chunk store
+  # holds (Theta, Salt, U, V, W, Eta) plus the grid, so all 27 resolve without
+  # reaching outside the chunk.  Co-location is at the surface.
   tile_properties:
+    # raw model fields
+    - Theta
+    - Salt
+    - Eta
+    - U
+    - V
+    - W
+    # thermodynamic
     - density
+    - buoyancy
+    - turner_angle
+    # squared gradient magnitudes
     - gradb2
+    - gradtheta2
+    - gradsalt2
+    - gradrho2
+    - gradeta2
+    # kinematics
     - relative_vorticity
     - divergence
+    - strain_n
+    - strain_s
     - strain_mag
     - okubo_weiss
+    - rossby_number
+    - coriolis_f
+    # frontogenesis
     - frontogenesis_tendency
-    - N2
-    - mixed_layer_depth
+    - frontogenesis_geo
+    - frontogenesis_ageo
+    - ug
+    - vg
 
 data:
   # ISO 'YYYY-MM-DD HH:MM:SS'.
