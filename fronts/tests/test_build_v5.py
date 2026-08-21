@@ -1580,3 +1580,21 @@ def test_checkpoints_live_with_the_output_not_the_timestamp():
         src = inspect.getsource(fn)
         assert "os.path.join(output_dir, f'colocate_ckpt_{run_tag}')" in src, \
             fn.__name__
+
+
+def test_chunk_context_is_exposed_for_direct_compute():
+    """A caller can get (ds_merge, grid) without going through chunk_loader."""
+    assert callable(llc_tiles.chunk_context)
+    assert "chunk_context(" in inspect.getsource(llc_tiles.chunk_loader)
+
+
+def test_surface_reduces_a_tile_field_to_2d():
+    import xarray as xr
+    arr = np.arange(2 * 3 * 4 * 4, dtype=np.float32).reshape(2, 3, 4, 4)
+    da = xr.DataArray(arr, dims=('face', 'k', 'j', 'i')).isel(face=[0])
+    out = llc_tiles.surface(da)
+    assert out.shape == (4, 4) and out.dtype == np.float32
+    np.testing.assert_array_equal(out, arr[0, 0])
+
+    flat = xr.DataArray(np.zeros((4, 4), np.float32), dims=('j', 'i'))
+    assert llc_tiles.surface(flat).shape == (4, 4)

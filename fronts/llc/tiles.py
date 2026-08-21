@@ -202,13 +202,13 @@ def tile_from_chunk_store(chunk_name: str, bucket: str = 'dbof',
     return tile
 
 
-def chunk_loader(chunk_name: str, timestamp: str, bucket: str = 'dbof',
-                 s3_endpoint: str = 'https://s3-west.nrp-nautilus.io',
-                 level: int = 0, mask_land: bool = True):
-    """Return ``loader(property_name) -> 2D array`` from a CHUNKS store.
+def chunk_context(chunk_name: str, timestamp: str, bucket: str = 'dbof',
+                  s3_endpoint: str = 'https://s3-west.nrp-nautilus.io'):
+    """Return ``(ds_merge, grid)`` for one snapshot of a CHUNKS store.
 
-    The store is already the tile's extent, so nothing is sliced and nothing is
-    written: each property is computed in memory and reduced to *level*.
+    The store is already the tile's extent, so nothing is sliced.  Exposed so a
+    caller can run a compute callback directly -- comparing two formulations of
+    a field, say -- instead of going through :func:`chunk_loader`.
     """
     date = timestamp[:13].replace('-', '').replace('_', '')   # YYYYMMDDTHH
     ds_t = _open_chunk(_chunk_uri(chunk_name, f'{date}.zarr', bucket), s3_endpoint)
@@ -220,7 +220,27 @@ def chunk_loader(chunk_name: str, timestamp: str, bucket: str = 'dbof',
         if dim in ds_g.coords and 'axis' not in ds_g[dim].attrs:
             ds_g[dim].attrs.update(attrs)
 
-    ds_merge, grid = tile_utils._build_tile_context(ds_t, ds_g)
+    return tile_utils._build_tile_context(ds_t, ds_g)
+
+
+def surface(da, level: int = 0) -> np.ndarray:
+    """Squeeze a tile field to a 2D float32 array at *level*."""
+    if 'face' in getattr(da, 'dims', ()):
+        da = da.squeeze('face', drop=True)
+    if 'k' in getattr(da, 'dims', ()):
+        da = da.isel(k=level)
+    return np.asarray(da, dtype=np.float32)
+
+
+def chunk_loader(chunk_name: str, timestamp: str, bucket: str = 'dbof',
+                 s3_endpoint: str = 'https://s3-west.nrp-nautilus.io',
+                 level: int = 0, mask_land: bool = True):
+    """Return ``loader(property_name) -> 2D array`` from a CHUNKS store.
+
+    The store is already the tile's extent, so nothing is sliced and nothing is
+    written: each property is computed in memory and reduced to *level*.
+    """
+    ds_merge, grid = chunk_context(chunk_name, timestamp, bucket, s3_endpoint)
 
     def loader(name):
         prop = resolve_property(name)
