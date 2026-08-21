@@ -31,11 +31,17 @@ CHUNKS_PREFIX = 'LLC4320_RAW/CHUNKS'
 #: comodo annotations xgcm needs to find its horizontal axes.  The transfer
 #: writes a chunk's grid.zarr straight from the source, which may not carry
 #: them; ``_build_tile_context`` raises if they are absent.
+#:
+#: Copied from ``dbof.llc4320_ingestion.get_raw_data.get_llc_depth_gridfile``,
+#: which is where this dataset's convention is defined.  The shift sign decides
+#: which ``dxC`` a staggered difference is paired with, so it is load-bearing:
+#: get it wrong and every gradient field is off by one cell's metric while
+#: pointwise fields stay exact.
 _COMODO = {
-    'i':   {'axis': 'X'},
     'j':   {'axis': 'Y'},
-    'i_g': {'axis': 'X', 'c_grid_axis_shift': -0.5},
-    'j_g': {'axis': 'Y', 'c_grid_axis_shift': -0.5},
+    'j_g': {'axis': 'Y', 'c_grid_axis_shift': 0.5},
+    'i':   {'axis': 'X'},
+    'i_g': {'axis': 'X', 'c_grid_axis_shift': 0.5},
 }
 
 

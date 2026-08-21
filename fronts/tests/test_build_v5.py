@@ -1438,7 +1438,7 @@ def test_comodo_attrs_are_stamped_when_the_store_lacks_them(monkeypatch):
     monkeypatch.setattr(llc_tiles.tile_utils, "_build_tile_context", fake_ctx)
     llc_tiles.chunk_loader("monterey_bay", "2012-07-03T12_00_00")
     assert captured["axes"] == {"i": "X", "j": "Y", "i_g": "X", "j_g": "Y"}
-    assert captured["shift"] == -0.5
+    assert captured["shift"] == 0.5
 
 
 def test_existing_comodo_attrs_are_left_alone(monkeypatch):
@@ -1598,3 +1598,23 @@ def test_surface_reduces_a_tile_field_to_2d():
 
     flat = xr.DataArray(np.zeros((4, 4), np.float32), dims=('j', 'i'))
     assert llc_tiles.surface(flat).shape == (4, 4)
+
+
+def test_comodo_matches_the_datasets_own_convention():
+    """The shift sign decides which dxC a staggered difference pairs with.
+
+    Wrong sign => every gradient field is off by one cell's metric, everywhere,
+    while pointwise fields (density via _no_grid) stay exact.  The source of
+    truth is get_llc_depth_gridfile in the preprocessing repo.
+    """
+    from dbof.llc4320_ingestion import get_raw_data
+    src = inspect.getsource(get_raw_data)
+    canonical = re.search(
+        r"coord_meta = \{(.*?)\}\s*\n\s*coords_update", src, re.S).group(1)
+
+    for dim, attrs in llc_tiles._COMODO.items():
+        assert f"'{dim}':" in canonical, f"{dim} absent upstream"
+        if "c_grid_axis_shift" in attrs:
+            shift = attrs["c_grid_axis_shift"]
+            assert f"'c_grid_axis_shift': {shift}" in canonical, (
+                f"{dim} shift {shift} disagrees with the upstream convention")
