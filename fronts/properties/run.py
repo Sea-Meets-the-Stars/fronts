@@ -471,6 +471,7 @@ BUILD_DEFAULTS = {
     'tile_properties':  [],       # tile co-location: dbof.tiles.field_registry names
     'percentiles':      [25, 75, 90],
     'exclude_roots':    [],       # roots to leave out of co-location
+    'clobber':          False,    # recompute a timestamp whose output exists
 }
 
 

@@ -38,6 +38,11 @@ run:
   log_dir: "./logs/"
 
 build:
+  # Recompute a timestamp even if its parquet already exists.  This also clears
+  # the per-property checkpoint cache, which is the part that matters: deleting
+  # only the final parquet leaves the fragments behind and they are reused.
+  clobber: true
+
   # Front-finding config the fronts were made with.
   finding_config: "D"
 

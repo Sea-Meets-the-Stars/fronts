@@ -66,6 +66,7 @@ def main(config_file: str = DEFAULT_CONFIG):
             colocate_tile(timestamp, find_cfg, run_id,
                           property_names=props, tile=tile,
                           percentiles=cfg['percentiles'],
+                          clobber=cfg['clobber'],
                           loader=(llc_tiles.chunk_loader(chunk, timestamp)
                                   if chunk else None))
 
