@@ -19,6 +19,7 @@ from dbof.global_dataset_creation.iterations import (
 
 from fronts.finding import io as finding_io
 from fronts.llc import io as llc_io
+from fronts.llc import tiles as llc_tiles
 
 from fronts.properties import io as properties_io
 from fronts.properties import algorithms as prop_algorithms
@@ -80,6 +81,81 @@ def generate_global_dataset(config_file: str, netcdf_base: str,
         cmd.append('--dry-run')
     print('Running: ' + ' '.join(cmd))
     subprocess.run(cmd, check=True)
+
+
+def colocate_tile(timestamp: str, config: str, version: str,
+                  property_names: list, tile,
+                  output_dir: str = None, cache_dir: str = None,
+                  stats: list = None, percentiles: list = None,
+                  min_npix: int = 1, nan_policy: str = 'omit',
+                  dilation_radius: int = 1, clobber: bool = False,
+                  edge_margin: int = 0, level: int = 0):
+    """Co-locate the global fronts with properties computed on one tile.
+
+    The label map is reoriented onto the tile's grid and each property is
+    computed there on the fly, so nothing global is read or written.
+
+    Args:
+        timestamp (str): Snapshot timestamp, e.g. '2012-07-03T12_00_00'.
+        config (str): Front-finding config label.
+        version (str): Run tag (the run_id).
+        property_names (list): Tile property names (see
+            ``dbof.tiles.field_registry``).
+        tile: TileInfo from :func:`fronts.llc.tiles.tile_for`.
+        output_dir (str, optional): Defaults to ``{timestamp_dir}/tile{idx}/``.
+        cache_dir (str, optional): Where the per-property tile NetCDFs live.
+            Defaults to ``{output_dir}/fields/``.
+        stats, percentiles, min_npix, nan_policy, dilation_radius: as
+            :func:`colocate_fronts`.  Note percentiles and the median are not
+            combinable across tiles; a front clipped by the tile edge has
+            statistics for its clipped part only.
+        clobber (bool): Overwrite existing output.
+        edge_margin (int): Zero this many label cells at the tile rim.
+        level (int): ``k`` index to co-locate.  Defaults to 0 (surface).
+    """
+    fdir = llc_io.fronts_dir(version, timestamp)
+    fronts_file = finding_io.binary_filename(timestamp, config, version)
+    time_str, run_tag, _ = prop_algorithms._parse_fronts_filename(fronts_file)
+
+    if output_dir is None:
+        output_dir = os.path.join(fdir, f'tile{tile.tile_idx:03d}')
+    out_file = properties_io.get_global_front_output_path(
+        output_dir, time_str, 'properties', run_tag)
+    if os.path.isfile(out_file) and not clobber:
+        print(f"Properties file {out_file} exists and clobber is False. Returning")
+        return
+
+    labeled = np.load(properties_io.get_global_front_output_path(
+        fdir, time_str, 'label_map', run_tag))
+    labels_tile = llc_tiles.labels_for_tile(labeled, tile,
+                                            edge_margin=edge_margin)
+    n_fronts = len(np.unique(labels_tile)) - 1
+    print(f"Tile {tile.tile_idx} (face {tile.face_idx}): {n_fronts:,} fronts, "
+          f"{(labels_tile > 0).sum():,} front pixels")
+    if n_fronts < 1:
+        print("No fronts in this tile; nothing to co-locate. Returning.")
+        return
+
+    ckpt_dir = os.path.join(output_dir, f'colocate_ckpt_{run_tag}')
+    prop_algorithms.colocate_fronts(
+        labeled=labels_tile,
+        property_names=property_names,
+        property_dir=output_dir,
+        fronts_file=fronts_file,
+        output_dir=output_dir,
+        version=version,
+        stats=stats,
+        percentiles=percentiles,
+        min_npix=min_npix,
+        nan_policy=nan_policy,
+        dilation_radius=dilation_radius,
+        loader=llc_tiles.tile_loader(
+            timestamp, tile, cache_dir or os.path.join(output_dir, 'fields'),
+            level=level),
+        checkpoint_dir=ckpt_dir,
+        extra_columns={'tile_idx': tile.tile_idx, 'face_idx': tile.face_idx},
+    )
+    shutil.rmtree(ckpt_dir, ignore_errors=True)
 
 
 def _zarr_loader(config_file: str, timestamp: str, version: str,
@@ -360,6 +436,8 @@ BUILD_DEFAULTS = {
     'ice_mask_find':    False,    # step 1: mask gradb2 BEFORE finding fronts
     'ice_mask_props':   False,    # step 4: mask the co-located property fields
     'colocate_source':  'zarr',   # step 4 reads fields from: zarr | netcdf
+    'tiles':            [],       # tile co-location: locations to process
+    'tile_properties':  [],       # tile co-location: dbof.tiles.field_registry names
     'percentiles':      [25, 75, 90],
     'exclude_roots':    [],       # roots to leave out of co-location
 }

@@ -32,6 +32,7 @@ from fronts.finding import io as finding_io
 from fronts.llc import io as llc_io
 from fronts.llc import meta as llc_meta
 from fronts.llc import publish as llc_publish
+from fronts.properties import algorithms as prop_algorithms
 from fronts.properties import colocation
 from fronts.properties import run as prun
 from fronts.runs.prototypes.one_full import build_v5
@@ -1196,3 +1197,190 @@ def test_zarr_source_needs_a_config(tmp_path):
     with pytest.raises(ValueError, match="requires config_file"):
         prun.colocate_fronts("2012-11-09T12_00_00", "D", "V5test",
                              property_names=["gradb2"], source="zarr")
+
+
+# ===========================================================================
+#  Co-locating on a single tile
+# ===========================================================================
+
+from dbof.tiles.tile_mapping import TILE_SIZE, TileInfo   # noqa: E402
+from fronts.llc import tiles as llc_tiles                 # noqa: E402
+
+
+def _fake_maps(rot):
+    """Rect-grid j_face/i_face maps for a 2x1-tile world with one face.
+
+    *rot* picks the rect -> face-local mapping for the left tile:
+    'identity', 'transpose', or 'flip_j'.  The right tile is always identity,
+    offset by TILE_SIZE in i_face.
+    """
+    H, W = TILE_SIZE, 2 * TILE_SIZE
+    jj, ii = np.meshgrid(np.arange(H), np.arange(TILE_SIZE), indexing="ij")
+    j_map = np.zeros((H, W), np.int32)
+    i_map = np.zeros((H, W), np.int32)
+
+    if rot == "identity":
+        j_map[:, :TILE_SIZE], i_map[:, :TILE_SIZE] = jj, ii
+    elif rot == "transpose":
+        j_map[:, :TILE_SIZE], i_map[:, :TILE_SIZE] = ii, jj
+    elif rot == "flip_j":
+        j_map[:, :TILE_SIZE], i_map[:, :TILE_SIZE] = TILE_SIZE - 1 - jj, ii
+    else:
+        raise ValueError(rot)
+
+    j_map[:, TILE_SIZE:], i_map[:, TILE_SIZE:] = jj, ii + TILE_SIZE
+    return np.zeros((H, W), np.int8), j_map, i_map
+
+
+def _tile(i_tile, j_face_start=0, i_face_start=0):
+    return TileInfo(
+        tile_idx=i_tile, tile_j_rect=0, tile_i_rect=i_tile,
+        rect_j_slice=slice(0, TILE_SIZE),
+        rect_i_slice=slice(i_tile * TILE_SIZE, (i_tile + 1) * TILE_SIZE),
+        face_idx=0,
+        j_face_slice=slice(j_face_start, j_face_start + TILE_SIZE),
+        i_face_slice=slice(i_face_start, i_face_start + TILE_SIZE))
+
+
+@pytest.fixture
+def patch_maps(monkeypatch):
+    """Install synthetic lookup maps in place of the stitched LLC ones."""
+    def install(rot):
+        monkeypatch.setattr(llc_tiles, "lookup_maps", lambda: _fake_maps(rot))
+    return install
+
+
+def test_labels_for_tile_is_a_plain_slice_on_an_unrotated_face(patch_maps):
+    patch_maps("identity")
+    rng = np.random.default_rng(0)
+    glob = rng.integers(0, 5, size=(TILE_SIZE, 2 * TILE_SIZE), dtype=np.int32)
+    got = llc_tiles.labels_for_tile(glob, _tile(0))
+    np.testing.assert_array_equal(got, glob[:, :TILE_SIZE])
+
+
+def test_labels_for_tile_follows_a_rotated_face(patch_maps):
+    """A transposed face must transpose the labels, not just slice them.
+
+    Both arrays are 720x720, so a plain slice would look plausible while
+    pairing every front pixel with the wrong field value.
+    """
+    patch_maps("transpose")
+    rng = np.random.default_rng(1)
+    glob = rng.integers(0, 5, size=(TILE_SIZE, 2 * TILE_SIZE), dtype=np.int32)
+    got = llc_tiles.labels_for_tile(glob, _tile(0))
+    np.testing.assert_array_equal(got, glob[:, :TILE_SIZE].T)
+    assert not np.array_equal(got, glob[:, :TILE_SIZE])   # slicing would differ
+
+
+def test_labels_for_tile_follows_a_flipped_face(patch_maps):
+    patch_maps("flip_j")
+    rng = np.random.default_rng(2)
+    glob = rng.integers(0, 5, size=(TILE_SIZE, 2 * TILE_SIZE), dtype=np.int32)
+    got = llc_tiles.labels_for_tile(glob, _tile(0))
+    np.testing.assert_array_equal(got, glob[:, :TILE_SIZE][::-1, :])
+
+
+def test_labels_for_tile_honours_the_face_local_offset(patch_maps):
+    """The second tile sits at i_face 720..1439; indices must be rebased."""
+    patch_maps("identity")
+    glob = np.zeros((TILE_SIZE, 2 * TILE_SIZE), np.int32)
+    glob[3, TILE_SIZE + 7] = 9
+    got = llc_tiles.labels_for_tile(glob, _tile(1, i_face_start=TILE_SIZE))
+    assert got[3, 7] == 9
+    assert got.sum() == 9
+
+
+def test_labels_for_tile_keeps_global_label_values(patch_maps):
+    """Labels are not renumbered, so tile results join on flabel."""
+    patch_maps("identity")
+    glob = np.zeros((TILE_SIZE, 2 * TILE_SIZE), np.int32)
+    glob[5, 5:9] = 40317
+    got = llc_tiles.labels_for_tile(glob, _tile(0))
+    assert set(np.unique(got)) == {0, 40317}
+
+
+def test_edge_margin_zeroes_the_rim(patch_maps):
+    patch_maps("identity")
+    glob = np.ones((TILE_SIZE, 2 * TILE_SIZE), np.int32)
+    got = llc_tiles.labels_for_tile(glob, _tile(0), edge_margin=3)
+    assert got[3:-3, 3:-3].all()
+    assert not got[:3, :].any() and not got[-3:, :].any()
+    assert not got[:, :3].any() and not got[:, -3:].any()
+
+
+def test_tile_loader_computes_once_then_reads_the_cache(monkeypatch, tmp_path):
+    """The tile NetCDF is a cache: a second load recomputes nothing."""
+    import xarray as xr
+    tile = _tile(0)
+    calls = []
+
+    def fake_run(**kw):
+        calls.append(kw)
+        xr.Dataset({"sigma0": (("j", "i"), np.full((4, 4), 2.5, np.float32))}
+                   ).to_netcdf(kw["output"])
+        return kw["output"]
+
+    monkeypatch.setattr(llc_tiles.tile_utils, "run", fake_run)
+    loader = llc_tiles.tile_loader("2012-07-03T12_00_00", tile, str(tmp_path))
+
+    a = loader("density")
+    assert len(calls) == 1
+    assert calls[0]["property"] == "density"
+    assert calls[0]["timestamp"] == "2012-07-03 12:00:00"    # dbof DATE_FMT
+    assert calls[0]["i_rect"] == 0 and calls[0]["j_rect"] == 0
+
+    b = loader("density")
+    assert len(calls) == 1                                   # served from disk
+    np.testing.assert_array_equal(a, b)
+
+
+def test_tile_loader_reads_out_name_not_the_property_name(monkeypatch, tmp_path):
+    """'density' is written as 'sigma0'; the loader must follow out_name."""
+    import xarray as xr
+
+    def fake_run(**kw):
+        xr.Dataset({"sigma0": (("j", "i"), np.zeros((4, 4), np.float32))}
+                   ).to_netcdf(kw["output"])
+        return kw["output"]
+
+    monkeypatch.setattr(llc_tiles.tile_utils, "run", fake_run)
+    loader = llc_tiles.tile_loader("2012-07-03T12_00_00", _tile(0), str(tmp_path))
+    assert loader("density").shape == (4, 4)
+
+
+def test_tile_loader_takes_the_surface_level_of_a_3d_field(monkeypatch, tmp_path):
+    import xarray as xr
+    arr = np.arange(3 * 4 * 4, dtype=np.float32).reshape(3, 4, 4)
+
+    def fake_run(**kw):
+        xr.Dataset({"N2": (("k", "j", "i"), arr)}).to_netcdf(kw["output"])
+        return kw["output"]
+
+    monkeypatch.setattr(llc_tiles.tile_utils, "run", fake_run)
+    loader = llc_tiles.tile_loader("2012-07-03T12_00_00", _tile(0), str(tmp_path))
+    np.testing.assert_array_equal(loader("N2"), arr[0])
+
+
+def test_tile_colocation_reuses_the_global_colocation_kernel(patch_maps):
+    """A 720x720 pair goes through colocate_fronts_with_properties unchanged."""
+    patch_maps("identity")
+    glob = np.zeros((TILE_SIZE, 2 * TILE_SIZE), np.int32)
+    glob[10, 10:14] = 7
+    glob[20, 20:23] = 8
+    labels = llc_tiles.labels_for_tile(glob, _tile(0))
+
+    field = np.full((TILE_SIZE, TILE_SIZE), 3.0, np.float32)
+    df = colocation.colocate_fronts_with_properties(
+        labels, {"sigma0": lambda: field}, stats=["mean", "count"])
+    assert sorted(df["flabel"]) == [7, 8]
+    assert list(df["npix"]) == [4, 3]
+    assert (df["sigma0_mean"] == 3.0).all()
+
+
+def test_extra_columns_land_in_the_parquet(tmp_path):
+    lab = _tiny_labels()
+    df = colocation.colocate_fronts_with_properties(
+        lab, {"f": np.ones((6, 6), np.float32)}, stats=["mean"])
+    assert "tile_idx" not in df.columns
+    params = inspect.signature(prop_algorithms.colocate_fronts).parameters
+    assert "extra_columns" in params and "loader" in params

@@ -204,6 +204,7 @@ def colocate_fronts(
     version: str = None,
     loader=None,
     checkpoint_dir: str = None,
+    extra_columns: dict = None,
 ) -> pd.DataFrame:
     """
     Co-locate labeled fronts with property fields and save per-front statistics.
@@ -258,6 +259,8 @@ def colocate_fronts(
     checkpoint_dir : str, optional
         Cache each property's columns so an interrupted run resumes part-way
         through the property list.
+    extra_columns : dict, optional
+        Constant columns added to every row, e.g. ``{'tile_idx': 42}``.
 
     Returns
     -------
@@ -298,6 +301,9 @@ def colocate_fronts(
         checkpoint_dir=checkpoint_dir,
     )
     print(f"Co-located {len(df):,} fronts")
+
+    for col, value in (extra_columns or {}).items():
+        df[col] = value
 
     parquet_file = io.get_global_front_output_path(output_dir, time_str, 'properties', run_tag)
     df.to_parquet(parquet_file, index=False)

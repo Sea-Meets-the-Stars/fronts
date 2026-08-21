@@ -1,0 +1,80 @@
+# ---------------------------------------------------------------------------
+# Tile co-location -- Monterey Bay chunk
+#
+# Consumed by colocate_tiles.py, which reads the fronts build_v5 already made
+# and writes into the same V5 tree.  Run build_v5 steps 1-3 first.
+#
+# Per tile and timestamp:
+#   $OS_OGCM/LLC/Fronts/V5/SURF/{YYYYMMDD_HHMMSS}/tile{idx:03d}/
+#       front_properties_{TS}_V5_bfronts.parquet
+#       fields/                       # per-property tile NetCDFs (cache)
+#
+#   python colocate_tiles.py run_v5_tiles_monterey.yaml
+#
+# Fields are computed on the fly from s3://dbof/LLC4320_RAW/DEPTH, so every date
+# below must be present there.  Properties come from
+# dbof.tiles.field_registry (52 available), NOT subset_definitions -- names are
+# unsuffixed and co-location is always at the surface.
+# ---------------------------------------------------------------------------
+
+pipeline: "SURF"
+
+run:
+  # Must match the build_v5 run that made the fronts: it is the filename tag
+  # used to find the binary and label map under Fronts/V5/SURF/.
+  run_id: "V5"
+  log_dir: "./logs/"
+
+build:
+  # Front-finding config the fronts were made with.
+  finding_config: "D"
+
+  # Extra percentile columns per property.  Note: percentiles and the median
+  # are NOT combinable across tiles, and a front clipped by the tile edge has
+  # statistics for its clipped part only.
+  percentiles: [25, 75, 90]
+
+  # Tiles to process.  Give lon/lat (resolved to the nearest rect pixel and
+  # floored to the enclosing 720x720 tile) or i_rect/j_rect directly.
+  tiles:
+    - name: monterey_bay
+      lon: -121.9
+      lat: 36.8
+
+
+  # Properties to co-locate, from dbof.tiles.field_registry.
+  tile_properties:
+    - density
+    - gradb2
+    - relative_vorticity
+    - divergence
+    - strain_mag
+    - okubo_weiss
+    - frontogenesis_tendency
+    - N2
+    - mixed_layer_depth
+
+data:
+  # ISO 'YYYY-MM-DD HH:MM:SS'.
+  date_iterations:
+    - '2012-06-29 12:00:00'
+    - '2012-06-30 12:00:00'
+    - '2012-07-01 12:00:00'
+    - '2012-07-02 12:00:00'
+    - '2012-07-03 12:00:00'
+    - '2012-07-04 12:00:00'
+    - '2012-07-05 12:00:00'
+    - '2012-07-06 12:00:00'
+    - '2012-07-07 12:00:00'
+    - '2012-07-03 00:00:00'
+    - '2012-07-03 03:00:00'
+    - '2012-07-03 06:00:00'
+    - '2012-07-03 09:00:00'
+    - '2012-07-03 15:00:00'
+    - '2012-07-03 18:00:00'
+    - '2012-07-03 21:00:00'
+    - '2012-07-04 00:00:00'
+    - '2012-05-16 06:00:00'
+    - '2012-02-29 18:00:00'
+    - '2012-09-18 12:00:00'
+    - '2012-11-09 12:00:00'

@@ -201,6 +201,51 @@ The `.nc` exports are deliberately **not** pushed — they are exports of the za
 store sitting in the parent directory. Change `publish.PRODUCT_PATTERNS` if you
 want them.
 
+## Co-locating on a single tile
+
+`fronts.properties.run.colocate_tile` pairs the global fronts with properties
+computed on one 720x720 tile, at the surface. Nothing global is read or written.
+
+```python
+from fronts.llc import io as llc_io, tiles as llc_tiles
+from fronts.properties.run import colocate_tile
+
+llc_io.set_fronts_path(...)                     # as build_v5 does
+llc_io.set_run_layout('V5/SURF', file_tag='V5')
+
+tile = llc_tiles.tile_for(lon=-70, lat=40)      # or i_rect=, j_rect=
+colocate_tile('2012-07-03T12_00_00', 'D', 'V5',
+              property_names=['density', 'relative_vorticity', 'N2'],
+              tile=tile, percentiles=[90])
+```
+
+Results land in `{date_prefix}/tile{idx:03d}/`, with the per-property tile
+NetCDFs cached under `fields/` — small (~2 MB for a 2D field), and reused on a
+re-run. Property names come from `dbof.tiles.field_registry`, not from
+`subset_definitions`; the loader follows each property's `out_name` (`density`
+is stored as `sigma0`).
+
+**Orientation.** A tile is a window on the same rect grid as the label map, but
+its *data* is face-local, which on some LLC faces is a rotation of that window.
+`labels_for_tile` scatters the labels through the per-pixel `(j_face, i_face)`
+maps rather than slicing, so the pairing is right on every face. Slicing would
+look plausible — both arrays are 720x720 — while pairing every front pixel with
+the wrong value.
+
+**What the numbers mean.** Labels stay global, so rows join to the geometry
+table on `flabel`, and `tile_idx` / `face_idx` are added as columns. A front
+crossing the tile edge is clipped, so `npix` counts only its pixels inside the
+tile:
+
+- `mean`, `std`, `count` recombine across tiles (keep sum, sum-of-squares, n)
+- `median` and percentiles do **not**
+
+For uncontaminated percentiles, filter to fronts whose tile `npix` equals the
+global `npix` from the geometry table. `min_npix` filters on the clipped count,
+so prefer filtering afterwards on the global value. Stencil-based properties
+carry an `edge_margin` NaN rim that `nan_policy='omit'` already drops from the
+statistics; pass `edge_margin=` to keep those cells out of `npix` too.
+
 ## The run descriptor
 
 Step 1 writes one YAML file at the top of the run directory:
@@ -247,9 +292,10 @@ not call it.
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-70 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+81 tests, fully offline — no S3, no OSN, no data. They cover the contract with
 the preprocessing repo, that step 1 builds one subset and exports one channel,
 pipeline resolution, the two ice-mask toggles, the output layout, the S3 push,
 the run descriptor, both naming schemes across all three pipelines, lazy
-co-location with checkpoint resume, and the shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
+co-location with checkpoint resume, tile orientation across rotated faces, and
+the shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
 these fail fast and name what moved.
