@@ -28,20 +28,27 @@ from dbof.tiles.tile_mapping import (
 
 CHUNKS_PREFIX = 'LLC4320_RAW/CHUNKS'
 
-#: comodo annotations xgcm needs to find its horizontal axes.  The transfer
-#: writes a chunk's grid.zarr straight from the source, which may not carry
-#: them; ``_build_tile_context`` raises if they are absent.
+#: comodo annotations xgcm needs to find its horizontal axes.  A chunk's
+#: grid.zarr does not carry them, and ``_build_tile_context`` raises without
+#: them.
 #:
-#: Copied from ``dbof.llc4320_ingestion.get_raw_data.get_llc_depth_gridfile``,
-#: which is where this dataset's convention is defined.  The shift sign decides
-#: which ``dxC`` a staggered difference is paired with, so it is load-bearing:
-#: get it wrong and every gradient field is off by one cell's metric while
-#: pointwise fields stay exact.
+#: The chunk transfer slices ``i_g`` over the same index range as ``i``
+#: (``H_I_DIMS = ("i", "i_g")``, one ``slice(i0, i1)`` for both), so ``i_g[n]``
+#: is the lower face of cell ``i[n]`` -- a shift of ``-0.5``.  That makes
+#: ``grid.interp`` average ``i_g[n]`` with ``i_g[n+1]`` when it moves a
+#: staggered field to cell centres.
+#:
+#: The sign is load-bearing and the error it causes is asymmetric.  A field that
+#: *lives* on ``i_g`` and is interpolated once -- the velocity components, and
+#: everything derived from them -- lands a full cell away with the wrong sign.
+#: A tracer gradient differences onto ``i_g`` and interpolates the squares back
+#: to centres, so most of the error cancels and only a small metric mismatch
+#: survives; the damage is easy to miss there.
 _COMODO = {
     'j':   {'axis': 'Y'},
-    'j_g': {'axis': 'Y', 'c_grid_axis_shift': 0.5},
+    'j_g': {'axis': 'Y', 'c_grid_axis_shift': -0.5},
     'i':   {'axis': 'X'},
-    'i_g': {'axis': 'X', 'c_grid_axis_shift': 0.5},
+    'i_g': {'axis': 'X', 'c_grid_axis_shift': -0.5},
 }
 
 

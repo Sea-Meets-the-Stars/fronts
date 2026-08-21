@@ -369,6 +369,60 @@ global number.
 `fronts/properties/nb/Colocate_Check.ipynb` sections 6-10 hold the diagnosis.
 
 
+## The staggered-point convention on a chunk tile
+
+A chunk's `grid.zarr` carries no comodo attrs, so `fronts.llc.tiles._COMODO`
+supplies them. The shift sign must be **-0.5**:
+
+```python
+'i_g': {'axis': 'X', 'c_grid_axis_shift': -0.5}
+```
+
+The transfer slices `i_g` over the same index range as `i` (`H_I_DIMS = ("i",
+"i_g")`, one `slice(i0, i1)` for both), so `i_g[n]` is the lower face of cell
+`i[n]`. That is what `-0.5` means to xgcm, and it decides which pair
+`grid.interp` averages when it moves a staggered field to cell centres:
+
+| shift | centre `n` interpolates from |
+|---|---|
+| `-0.5` | `i_g[n]`, `i_g[n+1]` |
+| `+0.5` | `i_g[n-1]`, `i_g[n]` |
+
+One full cell apart. Measured against `globals_for_cutouts/v2_2_01` on the
+Monterey chunk, 2012-07-04 12:00, for the `U` channel:
+
+```
+shift -0.5   median |rel| 0.00e+00
+shift +0.5   median |rel| 2.38e-01
+```
+
+and a +/-1 roll scan around the `-0.5` result puts the minimum at `(0, 0)`, so
+no further offset is involved.
+
+### The error is asymmetric, which makes it easy to miss
+
+A field that *lives* on a staggered point and is interpolated **once** lands a
+full cell away: the velocity components, and everything built from them --
+`relative_vorticity`, `divergence`, `strain_n`, `strain_s`, `strain_mag`,
+`okubo_weiss`, `rossby_number`, `ug`, `vg`, `frontogenesis_*`.
+
+A tracer gradient differences *onto* the staggered points and interpolates the
+squares back to centres, so most of the error cancels and only a small metric
+mismatch survives. `gradb2` on the tile agreed with the global store to
+`1.95e-04` with the wrong sign in place -- close enough to read as float32 noise.
+
+Anything that compares a tile against a global store should therefore check a
+velocity-derived field, not a tracer. `U` is the cheapest probe: it is one
+`grid.interp` plus a rotation, so a mismatch there is unambiguous.
+
+`fronts/tests/test_build_v5.py::test_comodo_puts_the_staggered_point_at_the_lower_face`
+pins this behaviourally -- it builds a two-point xgcm grid and asserts centre 0
+interpolates to the mean of `i_g[0]` and `i_g[1]`. A test that instead compares
+the constant against `get_llc_depth_gridfile` cannot catch this: the global grid
+loader and a sliced chunk are different situations, and the global file's `+0.5`
+is not the tile's answer.
+
+
 ## Tests
 
 ```bash

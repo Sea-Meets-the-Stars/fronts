@@ -1438,7 +1438,7 @@ def test_comodo_attrs_are_stamped_when_the_store_lacks_them(monkeypatch):
     monkeypatch.setattr(llc_tiles.tile_utils, "_build_tile_context", fake_ctx)
     llc_tiles.chunk_loader("monterey_bay", "2012-07-03T12_00_00")
     assert captured["axes"] == {"i": "X", "j": "Y", "i_g": "X", "j_g": "Y"}
-    assert captured["shift"] == 0.5
+    assert captured["shift"] == -0.5
 
 
 def test_existing_comodo_attrs_are_left_alone(monkeypatch):
@@ -1600,21 +1600,33 @@ def test_surface_reduces_a_tile_field_to_2d():
     assert llc_tiles.surface(flat).shape == (4, 4)
 
 
-def test_comodo_matches_the_datasets_own_convention():
-    """The shift sign decides which dxC a staggered difference pairs with.
+def test_comodo_puts_the_staggered_point_at_the_lower_face():
+    """A staggered field must interpolate to centres using i_g[n] and i_g[n+1].
 
-    Wrong sign => every gradient field is off by one cell's metric, everywhere,
-    while pointwise fields (density via _no_grid) stay exact.  The source of
-    truth is get_llc_depth_gridfile in the preprocessing repo.
+    The chunk transfer slices i_g over the same index range as i, so i_g[n] is
+    the lower face of cell i[n].  If the shift sign says otherwise, xgcm pairs
+    each centre with the face below it instead, and every field that lives on a
+    staggered point -- the velocities, and all the kinematics built from them --
+    lands one full cell away.
     """
-    from dbof.llc4320_ingestion import get_raw_data
-    src = inspect.getsource(get_raw_data)
-    canonical = re.search(
-        r"coord_meta = \{(.*?)\}\s*\n\s*coords_update", src, re.S).group(1)
+    import xarray as xr
+    import xgcm
 
-    for dim, attrs in llc_tiles._COMODO.items():
-        assert f"'{dim}':" in canonical, f"{dim} absent upstream"
-        if "c_grid_axis_shift" in attrs:
-            shift = attrs["c_grid_axis_shift"]
-            assert f"'c_grid_axis_shift': {shift}" in canonical, (
-                f"{dim} shift {shift} disagrees with the upstream convention")
+    ds = xr.Dataset(coords={"i": ("i", np.arange(4)),
+                            "i_g": ("i_g", np.arange(4))})
+    ds["i"].attrs = {"axis": "X"}
+    ds["i_g"].attrs = dict(llc_tiles._COMODO["i_g"])
+    u = xr.DataArray([0.0, 10.0, 20.0, 30.0], dims="i_g",
+                     coords={"i_g": np.arange(4)})
+
+    grid = xgcm.Grid(ds)
+    try:                                    # xgcm renamed this keyword
+        out = grid.interp(u, "X", padding="fill")
+    except (TypeError, ValueError):
+        out = grid.interp(u, "X", boundary="fill")
+
+    # centre 0 sits between i_g[0] and i_g[1]: (0 + 10) / 2
+    assert out.values[0] == 5.0, (
+        f"interp put centre 0 at {out.values[0]}, so i_g is being read as the "
+        f"upper face; the velocity fields would be off by one cell")
+    assert out.values[1] == 15.0
