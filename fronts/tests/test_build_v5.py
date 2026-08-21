@@ -1517,3 +1517,54 @@ def test_tile_from_chunk_store_rejects_a_layout_mismatch(monkeypatch):
 def test_colocate_tile_accepts_an_injected_loader():
     params = inspect.signature(prun.colocate_tile).parameters
     assert "loader" in params and params["loader"].default is None
+
+
+# ===========================================================================
+#  clobber must invalidate the checkpoint cache
+# ===========================================================================
+
+def test_clear_checkpoints_removes_the_cache(tmp_path):
+    ck = tmp_path / "colocate_ckpt_x"
+    ck.mkdir()
+    (ck / "density.parquet").touch()
+    prun._clear_checkpoints(str(ck))
+    assert not ck.exists()
+
+
+def test_clear_checkpoints_is_a_noop_when_absent(tmp_path):
+    prun._clear_checkpoints(str(tmp_path / "nope"))      # must not raise
+
+
+def test_a_clobber_that_cannot_clear_the_cache_is_fatal(monkeypatch, tmp_path):
+    """Stale fragments would be served instead of recomputed values.
+
+    rmtree can fail on a network filesystem, and the cache wins over clobber
+    inside colocate_fronts_with_properties -- so a clobber that leaves the
+    cache in place silently returns the old numbers.
+    """
+    ck = tmp_path / "colocate_ckpt_x"
+    ck.mkdir()
+
+    def boom(_):
+        raise OSError("Stale file handle")
+
+    monkeypatch.setattr(prun.shutil, "rmtree", boom)
+    with pytest.raises(RuntimeError, match="stale fragments would be reused"):
+        prun._clear_checkpoints(str(ck), strict=True)
+
+
+def test_a_failed_cleanup_after_a_run_only_warns(monkeypatch, tmp_path, capsys):
+    """Litter left behind is not a reason to lose the result."""
+    ck = tmp_path / "colocate_ckpt_x"
+    ck.mkdir()
+    monkeypatch.setattr(prun.shutil, "rmtree",
+                        lambda _: (_ for _ in ()).throw(OSError("busy")))
+    prun._clear_checkpoints(str(ck))                     # must not raise
+    assert "left behind" in capsys.readouterr().out
+
+
+def test_both_colocators_clear_the_cache_before_a_clobber():
+    for fn in (prun.colocate_fronts, prun.colocate_tile):
+        src = inspect.getsource(fn)
+        assert "_clear_checkpoints(ckpt_dir, strict=True)" in src, fn.__name__
+        assert "if clobber:" in src, fn.__name__

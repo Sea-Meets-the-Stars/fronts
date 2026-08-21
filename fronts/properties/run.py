@@ -83,6 +83,27 @@ def generate_global_dataset(config_file: str, netcdf_base: str,
     subprocess.run(cmd, check=True)
 
 
+def _clear_checkpoints(ckpt_dir: str, strict: bool = False):
+    """Remove a checkpoint cache, reporting rather than swallowing failure.
+
+    With *strict* (a clobber), a cache that cannot be removed is fatal: its
+    stale fragments would be served instead of the recomputed values, so the
+    clobber would silently not clobber.
+    """
+    if not os.path.isdir(ckpt_dir):
+        return
+    try:
+        shutil.rmtree(ckpt_dir)
+    except OSError as exc:
+        if strict:
+            raise RuntimeError(
+                f"clobber requested but the checkpoint cache {ckpt_dir} could "
+                f"not be removed ({exc}); its stale fragments would be reused "
+                f"instead of recomputed.  Delete it by hand and re-run."
+            ) from exc
+        print(f"WARNING: left behind {ckpt_dir}: {exc}")
+
+
 def colocate_tile(timestamp: str, config: str, version: str,
                   property_names: list, tile,
                   output_dir: str = None, cache_dir: str = None,
@@ -141,6 +162,9 @@ def colocate_tile(timestamp: str, config: str, version: str,
         return
 
     ckpt_dir = os.path.join(output_dir, f'colocate_ckpt_{run_tag}')
+    if clobber:
+        _clear_checkpoints(ckpt_dir, strict=True)
+
     prop_algorithms.colocate_fronts(
         labeled=labels_tile,
         property_names=property_names,
@@ -159,7 +183,7 @@ def colocate_tile(timestamp: str, config: str, version: str,
         checkpoint_dir=ckpt_dir,
         extra_columns={'tile_idx': tile.tile_idx, 'face_idx': tile.face_idx},
     )
-    shutil.rmtree(ckpt_dir, ignore_errors=True)
+    _clear_checkpoints(ckpt_dir)
 
 
 def _zarr_loader(config_file: str, timestamp: str, version: str,
@@ -280,6 +304,9 @@ def colocate_fronts(timestamp: str, config: str, version: str,
     labeled = np.load(labeled_file)
 
     ckpt_dir = os.path.join(fdir, f'colocate_ckpt_{run_tag}')
+    if clobber:
+        _clear_checkpoints(ckpt_dir, strict=True)
+
     prop_algorithms.colocate_fronts(
         labeled=labeled,
         property_names=property_names,
@@ -295,7 +322,7 @@ def colocate_fronts(timestamp: str, config: str, version: str,
         loader=loader,
         checkpoint_dir=ckpt_dir,
     )
-    shutil.rmtree(ckpt_dir, ignore_errors=True)
+    _clear_checkpoints(ckpt_dir)
 
 
 def _resolve_channel_maps(config_file: str):
