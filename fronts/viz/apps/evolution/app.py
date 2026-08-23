@@ -26,6 +26,7 @@ import numpy as np
 import panel as pn
 import param
 
+from fronts.viz import field_styles
 from fronts.viz.apps import config
 from fronts.viz.apps.common import basemap, widgets
 from fronts.viz.apps.common.state import PageState
@@ -40,6 +41,10 @@ FRONT_PALETTE = (
 )
 
 BOX_HALF = (7.5, 5.0)
+
+#: Background for the regional chunk map.  The fronts were detected on
+#: gradb2, so it is the field they sit on most legibly.
+CHUNK_MAP_FIELD = "gradb2"
 
 
 def _label_rgba(labels, selected: int):
@@ -141,7 +146,7 @@ class EvolutionPage:
     def __init__(self, provider=None):
         self.state = EvolutionState(provider=provider)
 
-        self._overview = pn.pane.HoloViews(min_height=400,
+        self._overview = pn.pane.HoloViews(min_height=540,
                                            sizing_mode="stretch_width")
         self._chunkmap = pn.pane.HoloViews(min_height=620,
                                            sizing_mode="stretch_width")
@@ -151,6 +156,10 @@ class EvolutionPage:
         self._build_status = widgets.status()
         self._progress = pn.indicators.Progress(
             value=0, max=config.EVOLUTION_N_STEPS, width=320, visible=False)
+        #: Separate from the movie's progress: loading a chunk is three
+        #: reads, and "nothing is happening" was the previous experience.
+        self._chunk_progress = pn.indicators.Progress(
+            value=0, max=3, width=240, visible=False)
 
         self._frames: list[dict] = []
         self._series_data: TS.FrontSeries | None = None
@@ -163,16 +172,26 @@ class EvolutionPage:
         }
 
         self._build_controls()
+        # Only the 2-D overview at load.  draw_chunkmap reads a chunk
+        # store, and refresh_labels/draw_series walk the whole window --
+        # none of which should happen before a chunk has been chosen.
         self.draw_overview()
-        self.draw_chunkmap()
-        self.refresh_labels()
-        self.draw_series()
+        self._status.object = (
+            "pick a chunk, then press *Load chunk* — the regional map and "
+            "the front list are read only when you ask")
 
     # -- controls --------------------------------------------------------
 
     def _build_controls(self):
         s = self.state
         self.w_chunk = pn.widgets.Select.from_param(s.param.chunk, width=195)
+        # An explicit timestep, so the regional map is a known date rather
+        # than whatever `step` happened to be.  Front labels are per
+        # timestep, so which one you are looking at matters.
+        self.w_when = pn.widgets.Select(name="Timestep", options=[],
+                                        width=210)
+        self.w_when.param.watch(self._on_when, "value")
+        self._refresh_timesteps()
         self.w_field = pn.widgets.Select.from_param(s.param.field, width=155)
         self.w_label = pn.widgets.IntInput.from_param(
             s.param.front_label, name="Front label", width=110)
@@ -184,10 +203,14 @@ class EvolutionPage:
             s.param.n_offsets, name="Offsets per side", width=150)
         self.w_perp = pn.widgets.IntSlider.from_param(
             s.param.perp_half_width, name="Transect half-width", width=165)
-        self.w_3d = pn.widgets.Checkbox.from_param(
-            s.param.include_3d, name="Include 3-D (doubles build time)")
+        self.w_3d = pn.widgets.Checkbox.from_param(s.param.include_3d)
+        self.w_3d.label = "Include 3-D (doubles build time)"
         self.w_stats = pn.widgets.MultiChoice.from_param(
             s.param.stat_lines, name="Statistic lines", width=260)
+
+        self.w_loadchunk = pn.widgets.Button(
+            name="Load chunk", button_type="primary", width=140)
+        self.w_loadchunk.on_click(lambda _: self.load_chunk())
 
         self.w_build = pn.widgets.Button(name="Build movie",
                                          button_type="primary", width=170)
@@ -200,13 +223,66 @@ class EvolutionPage:
         )
         self.w_player.param.watch(self._on_step, "value")
 
-        s.param.watch(lambda *_: (self.draw_overview(), self.refresh_labels(),
-                                  self.draw_chunkmap()), ["chunk"])
+        s.param.watch(lambda *_: self._on_chunk_change(), ["chunk"])
         s.param.watch(lambda *_: self.draw_chunkmap(), ["step"])
         s.param.watch(lambda *_: self.draw_series(),
                       ["front_label", "field", "stat_lines"])
         s.param.watch(lambda *_: self._reflect_built(), ["built"])
         self._reflect_built()
+
+    def _refresh_timesteps(self):
+        """Fill the timestep list from the chunk's own store listing."""
+        try:
+            times = self.state.times()
+        except Exception:                                   # noqa: BLE001
+            times = []
+        self.w_when.options = list(times)
+        if times:
+            current = min(int(self.state.step), len(times) - 1)
+            self.w_when.value = times[current]
+
+    def _on_when(self, event):
+        if not event.new:
+            return
+        try:
+            self.state.step = list(self.w_when.options).index(event.new)
+        except ValueError:
+            pass
+
+    def _on_chunk_change(self):
+        """A different chunk is wanted.  Redraw the cheap map only."""
+        self._labels_step = None
+        self._chunkmap.object = None
+        self.w_loadchunk.button_type = "primary"
+        self._refresh_timesteps()
+        self.draw_overview()
+        self._status.object = (
+            f"**{self.state.chunk}** — press *Load chunk*")
+
+    def load_chunk(self):
+        """Read the chosen chunk: regional map, front list, time series.
+
+        Reading a chunk timestep takes seconds, so the button says so --
+        without that, a slow load and a silent failure look identical.
+        """
+        self.w_loadchunk.loading = True
+        self._chunk_progress.visible = True
+        steps = (("regional map", self.draw_chunkmap),
+                 ("front list", self.refresh_labels),
+                 ("time series", self.draw_series))
+        self._chunk_progress.max = len(steps)
+        try:
+            for n, (what, run) in enumerate(steps, start=1):
+                self._status.object = (
+                    f"reading **{self.state.chunk}** — {what} "
+                    f"({n}/{len(steps)}) …")
+                run()
+                self._chunk_progress.value = n
+        finally:
+            self.w_loadchunk.loading = False
+            self.w_loadchunk.button_type = "default"
+            self._chunk_progress.visible = False
+            self._chunk_progress.value = 0
 
     def _on_step(self, event):
         self.state.step = int(event.new)
@@ -235,7 +311,7 @@ class EvolutionPage:
         try:
             base = basemap.global_map(
                 s.provider, s.provider.dates_3d()[0], "gradb2",
-                height=380, title="Saved chunks",
+                height=520, title="Saved chunks",
                 tools=("tap",), active_tools=("tap",))
         except Exception as exc:                            # noqa: BLE001
             self._overview.object = None
@@ -263,16 +339,25 @@ class EvolutionPage:
         self._overview.object = overlay
 
     def draw_chunkmap(self):
-        """The chunk at the current step, with its fronts."""
+        """The chunk at the current step, with its fronts.
+
+        This is the regional map: 720 x 720 native cells over the chunk's
+        own box, so it is already at full resolution -- there is no
+        pyramid between it and the data.
+        """
         s = self.state
         step = int(s.step)
         try:
-            ds = s.provider.chunk_tile(s.chunk, step, s.field)
-            var = list(ds.data_vars)[0]
+            # gradb2 in the background, not the movie's colour field: this
+            # map is for finding a front, and gradb2 is what the fronts
+            # were detected on.
+            ds = s.provider.chunk_tile(s.chunk, step, CHUNK_MAP_FIELD)
+            var = ds.attrs.get("tile_var_name") or list(ds.data_vars)[0]
             surface = np.asarray(ds[var].values)[0]
         except Exception as exc:                            # noqa: BLE001
             self._chunkmap.object = None
-            self._status.object = f"**Chunk unavailable:** {exc}"
+            self._status.object = (
+                f"**Chunk unavailable** — {type(exc).__name__}: {exc}")
             return
 
         # The field comes from the chunk store; the labels come from the
@@ -286,10 +371,13 @@ class EvolutionPage:
 
         self._labels_step = labels
 
+        style = field_styles.get_style(var)
+        shown = field_styles.apply_transform(surface, style)
         overlay = hv.Image(
             (np.arange(surface.shape[1]), np.arange(surface.shape[0]),
-             surface), kdims=["i", "j"], vdims=[s.field],
-        ).opts(cmap="viridis", colorbar=True)
+             shown), kdims=["i", "j"], vdims=[CHUNK_MAP_FIELD],
+        ).opts(cmap=basemap.bokeh_cmap(style.cmap),
+               clim=field_styles.default_clim(shown, style), colorbar=True)
 
         if labels is not None:
             overlay = overlay * hv.RGB(
@@ -455,11 +543,25 @@ class EvolutionPage:
     # -- layout ----------------------------------------------------------
 
     def view(self):
-        row1 = pn.Row(self.w_chunk, self.w_field, self.w_avail, self.w_label,
-                      sizing_mode="stretch_width", margin=(0, 10))
-        row2 = pn.Row(self.w_offsets, self.w_perp, self.w_3d, self.w_build,
-                      self._progress, sizing_mode="stretch_width",
-                      margin=(0, 10))
+        # One row per stage, each ending in its own button.
+        # (a) chunk -> Load chunk
+        row_a = pn.Row(self.w_chunk, self.w_when,
+                       sizing_mode="stretch_width", margin=(0, 10))
+        row_a_go = pn.Row(pn.pane.Markdown("**a · chunk → regional map**",
+                                           margin=(8, 5, 0, 10)),
+                          self.w_loadchunk, self._chunk_progress,
+                          sizing_mode="stretch_width", margin=(0, 10))
+
+        # (b) everything the movie needs, then build it
+        row_b = pn.Row(self.w_field, self.w_avail, self.w_label,
+                       sizing_mode="stretch_width", margin=(0, 10))
+        row_b2 = pn.Row(self.w_offsets, self.w_perp, self.w_3d,
+                        self.w_stats,
+                        sizing_mode="stretch_width", margin=(0, 10))
+        row_b_go = pn.Row(pn.pane.Markdown("**b · field + front → movie**",
+                                           margin=(8, 5, 0, 10)),
+                          self.w_build, self._progress,
+                          sizing_mode="stretch_width", margin=(0, 10))
 
         # Stacked so each map gets the full page width.
         maps = pn.Column(
@@ -488,10 +590,12 @@ class EvolutionPage:
                 "moveable camera makes it impossible to tell what "
                 "changed.</small>",
                 margin=(0, 10)),
-            row1, row2, self._status, maps,
+            row_a, row_a_go, self._status, maps,
+            # The movie controls sit under the regional map, which is where
+            # the front is chosen -- not scattered above it.
+            row_b, row_b2, row_b_go,
             pn.layout.Divider(),
-            pn.Row(pn.pane.Markdown("### Time series", margin=(6, 10, 0, 10)),
-                   self.w_stats, margin=(0, 0)),
+            pn.pane.Markdown("### Time series", margin=(6, 10, 0, 10)),
             self._series,
             pn.layout.Divider(),
             pn.Row(pn.pane.Markdown("### Frames", margin=(6, 10, 0, 10)),

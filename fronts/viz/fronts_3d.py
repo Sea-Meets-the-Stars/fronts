@@ -865,10 +865,18 @@ def render_3d(
 
     # Axis bounds.  Bumping the bounds font_size makes the depth + i/j
     # tick labels legible alongside the larger scalar bars on the right.
+    # Depth ticks in metres, not in the exaggerated units.  The geometry
+    # is stretched by ``zscale`` so the volume is readable, which makes
+    # the raw z coordinates meaningless as numbers; ``axes_ranges``
+    # relabels the axis with the true range while leaving the geometry
+    # alone, so the ticks say what depth they are at.
+    _b = grid.bounds
     pl.show_bounds(
         xtitle="i (rect)",
         ytitle="j (rect)",
-        ztitle=f"depth x {zscale:.0f} [m]",
+        ztitle="depth [m]",
+        axes_ranges=[_b[0], _b[1], _b[2], _b[3],
+                     _b[4] / zscale, _b[5] / zscale],
         location="outer",
         ticks="both",
         font_size=font_size,

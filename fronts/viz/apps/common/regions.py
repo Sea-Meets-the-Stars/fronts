@@ -165,6 +165,50 @@ def nearest_ij(XC, YC, lat: float, lon: float) -> tuple[int, int]:
     return int(i), int(j)
 
 
+def tile_extent(provider, date: str, tile_idx: int):
+    """The lon/lat box a tile actually covers, from its own coordinates.
+
+    The overview used to draw each region at its *configured* centre,
+    which is not where the tile is: the centre is resolved to a grid cell
+    and then floored onto the 720-cell tile lattice, so the box and the
+    tile could be a long way apart.  Reading the corner coordinates of
+    the tile window is exact and cannot drift from the tile it labels.
+
+    Returns ``(lon0, lat0, lon1, lat1)`` on the 0..360 axis the maps use.
+    A tile straddling the seam comes back with ``lon1 > 360``.
+    """
+    import numpy as np
+
+    from fronts.viz.apps import config
+
+    XC, YC = provider.coords(date)
+    nj, ni = XC.shape
+
+    # The tile lattice is a property of the grid, not a constant: the
+    # synthetic world is smaller and uses a smaller tile.
+    n = (config.SYNTH_TILE_SIZE if getattr(provider, "synthetic", False)
+         else config.TILE_SIZE)
+    per_row = max(ni // n, 1)
+    tj, ti = divmod(int(tile_idx), per_row)
+
+    js = slice(min(tj * n, nj), min(tj * n + n, nj))
+    iss = slice(min(ti * n, ni), min(ti * n + n, ni))
+    if js.stop <= js.start or iss.stop <= iss.start:
+        raise IndexError(f"tile {tile_idx} is outside a {nj}x{ni} grid")
+
+    lon = np.asarray(XC[js, iss], dtype=float) % 360.0
+    lat = np.asarray(YC[js, iss], dtype=float)
+
+    lon0, lon1 = float(np.nanmin(lon)), float(np.nanmax(lon))
+    if lon1 - lon0 > 180.0:
+        # Straddles longitude 0: unwrap the low side so the box is one
+        # interval rather than spanning the whole map.
+        shifted = np.where(lon < 180.0, lon + 360.0, lon)
+        lon0, lon1 = float(np.nanmin(shifted)), float(np.nanmax(shifted))
+
+    return lon0, float(np.nanmin(lat)), lon1, float(np.nanmax(lat))
+
+
 def tile_index_for(provider, date: str, region: Region) -> int:
     """Resolve a region to its rect tile index against the provider's grid."""
     XC, YC = provider.coords(date)

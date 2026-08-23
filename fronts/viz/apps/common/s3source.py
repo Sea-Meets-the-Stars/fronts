@@ -107,10 +107,14 @@ class S3Provider(DataProvider):
         return cache.array(key, build)
 
     def land_mask(self, date: str, reference: str | None = None) -> np.ndarray:
-        try:
-            return _grid_plane("land_mask")
-        except Exception:
-            return super().land_mask(date, reference)
+        """Land from the reference field's NaNs.
+
+        The grid store's hFacC would also answer this, but it is another
+        grid-sized plane to fetch (~0.9 GB) for a coastline the field
+        already carries: LLC masks land with NaN, so the field being drawn
+        gives the same answer for free and cannot disagree with itself.
+        """
+        return super().land_mask(date, reference)
 
     def front_binary(self, date: str) -> np.ndarray:
         return _product_array(self.fronts_folder, self.fronts_run_id,
@@ -341,9 +345,7 @@ def _generate_tile(date: str, tile_idx: int, prop: str, chunk: str | None):
     stamp = date.replace("T", " ").replace("_", ":")
 
     if chunk:
-        lat, lon = _chunk_centre(chunk)
-        return T.run(lat=lat, lon=lon, timestamp=stamp, property=prop,
-                     config_path=_chunk_config(chunk), chunk=True, write=False)
+        return _compose_chunk_tile(T, chunk, date, prop)
 
     i_rect, j_rect = _tile_origin(tile_idx)
     return _compose_tile(T, stamp, i_rect, j_rect, prop)
@@ -374,6 +376,58 @@ def _compose_tile(T, stamp: str, i_rect: int, j_rect: int, prop_name: str):
     )
 
 
+def _chunk_stores(chunk: str, date: str):
+    """The chunk's timestep store and its own grid, as Datasets.
+
+    A chunk is a 720 x 720 box saved whole, so there is no face slicing
+    to do -- which is the only thing ``tile_utils`` would have added.
+    Reading the two stores here keeps the chunk path off the branch that
+    carries ``run(chunk=True)``.
+    """
+    import xarray as xr
+
+    fs, _ = _filesystems()
+    base = f"{config.S3_BUCKET}/{config.CHUNK_FOLDER}/{chunk}"
+    stamp = config.date_to_tile_stamp(date)               # 20121103T07
+
+    ds = xr.open_zarr(fs.get_mapper(f"{base}/{stamp}.zarr"))
+    if ds.sizes.get("time") == 1:
+        ds = ds.isel(time=0, drop=True)
+    grid = xr.open_zarr(
+        fs.get_mapper(f"{base}/{config.CHUNK_GRID_STORE}")).compute()
+    return ds.compute(), grid
+
+
+def _compose_chunk_tile(T, chunk: str, date: str, prop_name: str):
+    """One chunk timestep as a tile-shaped Dataset.
+
+    Same steps as :func:`_compose_tile`, but the tracers and the grid come
+    from the chunk's own stores rather than from a slice of the global
+    raw store.
+    """
+    prop = T.resolve_property(prop_name)
+    ds_tracers, ds_grid = _chunk_stores(chunk, date)
+
+    # Provenance: the transfer floors a chunk onto the 720-cell tile
+    # lattice, so it does correspond to a real rect tile -- which is what
+    # lets the label alignment work exactly as it does for a tile.
+    from fronts.viz.apps.common import regions as regions_mod
+    XC, YC = _grid_plane("XC"), _grid_plane("YC")
+    lat, lon = _chunk_centre(chunk)
+    i_rect, j_rect = regions_mod.nearest_ij(XC, YC, lat, lon)
+    tile = T.rect_ij_to_tile(i_rect, j_rect)
+
+    ds_merge, xgrid = T._build_tile_context(ds_tracers, ds_grid)
+    field = T.compute_tile_property(ds_merge, xgrid, prop, mask_land=True)
+
+    stamp = date.replace("T", " ").replace("_", ":")
+    return T._build_output_dataset(
+        field=field, ds_grid_tile=ds_grid, tile=tile, prop=prop,
+        date_str=stamp, iteration=T.mit_date_to_iteration(stamp),
+        rect_i_user=i_rect, rect_j_user=j_rect,
+    )
+
+
 @lru_cache(maxsize=8)
 def _chunk_centre(chunk: str) -> tuple[float, float]:
     """Centre of a chunk, from its own grid.zarr -- no hard-coded table."""
@@ -384,26 +438,6 @@ def _chunk_centre(chunk: str) -> tuple[float, float]:
              f"{config.CHUNK_GRID_STORE}")
     grid = xr.open_zarr(fs.get_mapper(store))
     return float(grid.YC.mean()), float(grid.XC.mean())
-
-
-@lru_cache(maxsize=8)
-def _chunk_config(chunk: str):
-    """A minimal s3_source YAML pointing tile_utils at a chunk folder.
-
-    grid_folder is the chunk folder too: the transfer writes a per-chunk
-    grid.zarr at the same extent as the tracers.
-    """
-    import tempfile
-    import yaml
-
-    path = pathlib.Path(tempfile.gettempdir()) / f"chunk_source_{chunk}.yaml"
-    path.write_text(yaml.safe_dump({"s3_source": {
-        "s3_endpoint": config.S3_ENDPOINT,
-        "bucket": config.S3_BUCKET,
-        "folder": f"{config.CHUNK_FOLDER}/{chunk}",
-        "grid_folder": f"{config.CHUNK_FOLDER}/{chunk}",
-    }}))
-    return path
 
 
 def _tile_origin(tile_idx: int) -> tuple[int, int]:

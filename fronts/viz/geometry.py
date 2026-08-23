@@ -226,3 +226,71 @@ def decompose_front_branches(
             visited_pixels[jy, ix] = True
 
     return branches
+
+
+def isopycnal_depth(sigma0: np.ndarray, Z: np.ndarray,
+                    sigma: float) -> np.ndarray:
+    """Depth of the ``sigma0 == sigma`` surface, per column.
+
+    Density increases downward, so the surface is where a column first
+    reaches *sigma*.  The depth is interpolated linearly between the two
+    model levels that bracket the crossing, rather than snapped to a
+    level -- the levels are tens of metres apart at depth, which would be
+    a visible staircase on a map.
+
+    Parameters
+    ----------
+    sigma0 : numpy.ndarray
+        ``(K, J, I)`` potential density.
+    Z : numpy.ndarray
+        ``(K,)`` depth of each level, negative downward.
+    sigma : float
+        The isopycnal to locate.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(J, I)`` depth of the surface, negative downward.  ``NaN``
+        marks a column where it does not exist -- either the whole column
+        is lighter than *sigma* (it lies below the model floor) or the
+        surface water is already denser (the isopycnal has **outcropped**).
+        Both are physical statements, not missing data, and the map draws
+        them in gray.
+    """
+    rho = np.asarray(sigma0, dtype=float)
+    z = np.asarray(Z, dtype=float)
+    if rho.ndim != 3:
+        raise ValueError(f"sigma0 must be (K, J, I), got {rho.shape}")
+    if z.shape[0] != rho.shape[0]:
+        raise ValueError(f"Z has {z.shape[0]} levels, sigma0 has {rho.shape[0]}")
+
+    dense = np.isfinite(rho) & (rho >= float(sigma))
+
+    # First level at or below the target density.  argmax returns 0 both
+    # for "crosses at level 0" and for "never crosses", so the two are
+    # separated by testing whether the column crosses at all.
+    k1 = np.argmax(dense, axis=0)
+    crosses = dense.any(axis=0)
+
+    # k1 == 0 means the shallowest level is already denser: the isopycnal
+    # is above the top of the column, i.e. outcropped.
+    ok = crosses & (k1 > 0)
+
+    out = np.full(rho.shape[1:], np.nan)
+    if not ok.any():
+        return out
+
+    j, i = np.nonzero(ok)
+    k_hi = k1[j, i]                      # first level >= sigma
+    k_lo = k_hi - 1                       # last level < sigma
+
+    rho_hi = rho[k_hi, j, i]
+    rho_lo = rho[k_lo, j, i]
+    z_hi, z_lo = z[k_hi], z[k_lo]
+
+    # Linear in density between the bracketing levels; a zero gradient
+    # would divide by zero, so those fall back to the upper level.
+    span = rho_hi - rho_lo
+    frac = np.where(np.abs(span) > 0, (float(sigma) - rho_lo) / span, 0.0)
+    out[j, i] = z_lo + frac * (z_hi - z_lo)
+    return out

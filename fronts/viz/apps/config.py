@@ -28,23 +28,36 @@ from pathlib import Path
 #: Timestamps offered on the surface page.  The real build has 100; the
 #: synthetic provider ships a handful so the selector is exercised.
 DATES: list[str] = [
-    "2012-05-16T06_00_00",
     "2012-02-29T18_00_00",
+    "2012-05-16T06_00_00",
+    "2012-09-18T11_00_00",
     "2012-11-09T12_00_00",
-    "2012-07-21T00_00_00",
-    "2012-09-02T12_00_00",
 ]
 
 #: The timestamps with full 3-D raw data.  Everything depth-resolved -- the
 #: Depth page, Tiles, Evolution, and the depth mode of Bivariate -- is
-#: limited to these.  A fourth may be added; it is only a list entry.
-DATES_3D: list[str] = [
-    "2012-05-16T06_00_00",
-    "2012-02-29T18_00_00",
-    "2012-11-09T12_00_00",
-]
+#: limited to these.  Same four: the V5 build covers exactly these dates.
+DATES_3D: list[str] = list(DATES)
 
 DEFAULT_DATE: str = DATES[0]
+
+
+# --------------------------------------------------------------------------
+# Which pages are served
+# --------------------------------------------------------------------------
+#: Routes ``serve.py`` publishes.  Dropping a name hides the page without
+#: touching its module -- the Depth page and the Bivariate depth mode are
+#: complete and tested, just not offered for now.  Put "depth" back here
+#: (and "Depth" in BIVARIATE_MODES) to bring them back.
+ENABLED_PAGES: tuple[str, ...] = (
+    "surface",
+    "bivariate",
+    "tiles",
+    "evolution",
+)
+
+#: Modes the Bivariate page offers.  ``("Surface", "Depth")`` for both.
+BIVARIATE_MODES: tuple[str, ...] = ("Surface",)
 
 
 # --------------------------------------------------------------------------
@@ -134,11 +147,16 @@ def _default_endpoint() -> str:
 S3_ENDPOINT = os.environ.get("FRONTS_APP_S3_ENDPOINT") or _default_endpoint()
 S3_BUCKET = os.environ.get("FRONTS_APP_S3_BUCKET", "dbof")
 
+#: The V5 build: subsets and Fronts/ products for the four dates above,
+#: all under one prefix --
+#: ``s3://dbof/globals_for_chunks/V5/{date}/{subset.zarr | Fronts/}``.
+#: Surface and depth read the same folder; they differ only in the channel
+#: names they ask for (depth channels carry a suffix).
 SURFACE_FOLDER = os.environ.get("FRONTS_APP_SURFACE_FOLDER",
-                                "globals_for_cutouts")
-SURFACE_RUN_ID = os.environ.get("FRONTS_APP_SURFACE_RUN_ID", "v2_2_01")
+                                "globals_for_chunks")
+SURFACE_RUN_ID = os.environ.get("FRONTS_APP_SURFACE_RUN_ID", "V5")
 
-DEPTH_FOLDER = os.environ.get("FRONTS_APP_DEPTH_FOLDER", "depth_fields")
+DEPTH_FOLDER = os.environ.get("FRONTS_APP_DEPTH_FOLDER", "globals_for_chunks")
 DEPTH_RUN_ID = os.environ.get("FRONTS_APP_DEPTH_RUN_ID", "V5")
 
 #: The 2-D (rect) grid, read by GlobalGridZarrReader -- XC/YC and hFacC for
@@ -176,9 +194,9 @@ FRONTS_SUBFOLDER = os.environ.get("FRONTS_APP_FRONTS_SUBFOLDER", "Fronts")
 #: Fronts/``, which is *not* where the depth fields are, so it is
 #: configured separately rather than derived.
 SURFACE_FRONTS_FOLDER = os.environ.get(
-    "FRONTS_APP_SURFACE_FRONTS_FOLDER", "globals_for_cutouts")
+    "FRONTS_APP_SURFACE_FRONTS_FOLDER", "globals_for_chunks")
 SURFACE_FRONTS_RUN_ID = os.environ.get(
-    "FRONTS_APP_SURFACE_FRONTS_RUN_ID", "v2_2_01")
+    "FRONTS_APP_SURFACE_FRONTS_RUN_ID", "V5")
 
 DEPTH_FRONTS_FOLDER = os.environ.get(
     "FRONTS_APP_DEPTH_FRONTS_FOLDER", "globals_for_chunks")
@@ -253,15 +271,19 @@ TILE_FIELDS_3D: tuple[str, ...] = (
     # kinematics
     "relative_vorticity", "rossby_number",
     "strain_mag", "strain_n", "strain_s", "divergence", "okubo_weiss",
-    # frontogenesis
-    "frontogenesis_tendency", "frontogenesis_geo", "frontogenesis_ageo",
+    # frontogenesis -- the total only.  The geostrophic and ageostrophic
+    # parts are surface-only quantities (they need the SSH-derived
+    # geostrophic velocity), so they have no meaning on a depth-resolved
+    # tile and are not offered here.
+    "frontogenesis_tendency",
     # potential vorticity
     "ertel_pv", "ertel_pv_vertical", "ertel_pv_tilt",
     # tracers and derived scalars
     "density", "buoyancy", "turner_angle", "Theta", "Salt", "KE",
     "gradb2", "gradrho2", "gradtheta2", "gradsalt2",
-    # velocity and buoyancy fluxes
-    "U", "V", "W", "ug", "vg", "uB", "vB", "wB",
+    # velocity and buoyancy fluxes.  ug / vg are surface-only for the same
+    # reason as the frontogenesis split, so they are left out too.
+    "U", "V", "W", "uB", "vB", "wB",
 )
 
 #: Field used for the 3-D geometry.  Always density.
@@ -301,6 +323,7 @@ ICE_EXEMPT: frozenset[str] = frozenset({ICE_CHANNEL, "__land__"})
 #: S3", which is what the checks use.
 EVOLUTION_CHUNKS: tuple[str, ...] = (
     "monterey_bay",
+    "southern_ocean_scotia_sea",
 )
 
 #: Steps per chunk in synthetic mode.  With real data the window is

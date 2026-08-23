@@ -127,24 +127,11 @@ def bokeh_cmap(name: str, n: int = 256) -> list[str]:
     has never heard of.  Resolving them here is what lets the tile map use
     the same colours as the curtains rather than a hardcoded viridis.
     """
-    import matplotlib as mpl
     import matplotlib.colors as mcolors
 
-    cmap = None
-    for candidate in (name, f"cmo.{name}"):
-        try:
-            cmap = mpl.colormaps[candidate]
-            break
-        except (KeyError, AttributeError):
-            continue
+    from fronts.viz import field_styles
 
-    if cmap is None:
-        try:
-            import cmocean
-            cmap = getattr(cmocean.cm, name)
-        except Exception:                                   # noqa: BLE001
-            cmap = mpl.colormaps["viridis"]
-
+    cmap = field_styles.resolve_cmap(name)
     return [mcolors.to_hex(cmap(i / (n - 1))) for i in range(n)]
 
 

@@ -23,13 +23,16 @@ from fronts.viz.apps.characteristics import front_props as FP
 from fronts.viz.apps.common import pyramid, sources, widgets
 from fronts.viz.apps.common.state import PageState
 
-MODES = ("Surface", "Depth")
+#: Modes this page offers.  ``config.BIVARIATE_MODES`` is the switch --
+#: the Depth code paths below are all still here and still tested; they
+#: are simply not offered while the list has one entry.
+MODES = tuple(config.BIVARIATE_MODES)
 
 
 class BivariateState(PageState):
     """Mode, a date, two fields, a statistic, and the section count."""
 
-    mode = param.Selector(objects=list(MODES), default="Surface",
+    mode = param.Selector(objects=list(MODES), default=MODES[0],
                           doc="Surface or depth-resolved channels.")
     depth_level = param.Selector(objects=["Surface"], default="Surface",
                                  doc="Depth level (depth mode only).")
@@ -52,8 +55,11 @@ class BivariateState(PageState):
     @param.depends("mode", watch=True)
     def refresh_dates(self):
         """Depth mode is limited to the timestamps with 3-D data."""
+        # offered_dates(), not provider.dates(): the store listing is not
+        # the allow-list, and reading it directly here is what let dates
+        # outside config.DATES back onto this page.
         dates = (self.provider.dates_3d() if self.mode == "Depth"
-                 else self.provider.dates())
+                 else self.offered_dates())
         if dates:
             self.param.date.objects = dates
             if self.date not in dates:
@@ -236,11 +242,14 @@ class BivariatePage:
                                     s.resolve(s.field_a), width)
         _, _, b = pyramid.level(s.provider, s.date,
                                 s.resolve(s.field_b), width)
-        # Land on the *same* raster as the fields -- the default land
-        # level is coarser, and mismatched shapes cannot be overlaid.
+        # Land on the *same* raster as the fields, and on the *same*
+        # longitude axis.  The fields take pyramid.level's default
+        # (Pacific-centred, 0..360); building the land with pacific=False
+        # put it on -180..180, so it was drawn shifted by half the globe
+        # -- the coastline sat where the ocean was.
         try:
             _, _, land = pyramid.level(s.provider, s.date, "__land__",
-                                       width, reduce="any", pacific=False)
+                                       width, reduce="any")
         except Exception:                                   # noqa: BLE001
             land = None
         return lon, lat, a, b, land
@@ -308,12 +317,16 @@ class BivariatePage:
 
     def view(self):
         controls = pn.Column(
-            pn.Row(pn.pane.Markdown("**Mode**", margin=(8, 5, 0, 10)),
-                   self.w_mode, self.w_date, self.w_depth,
+            # The mode and depth controls are only worth the space when
+            # there is more than one mode to choose.
+            pn.Row(*([pn.pane.Markdown("**Mode**", margin=(8, 5, 0, 10)),
+                      self.w_mode, self.w_date, self.w_depth]
+                     if len(MODES) > 1 else [self.w_date]),
                    margin=(0, 10)),
             pn.Row(self.w_a, self.w_b, self.w_stat, self.w_sections,
-                   self.w_binning, self.w_deg, self.w_build,
-                   margin=(0, 10)),
+                   self.w_binning, self.w_deg, margin=(0, 10)),
+            pn.Row(pn.pane.Markdown("**maps**", margin=(8, 5, 0, 10)),
+                   self.w_build, margin=(0, 10)),
             sizing_mode="stretch_width",
         )
 

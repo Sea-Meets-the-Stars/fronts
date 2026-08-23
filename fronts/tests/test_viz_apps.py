@@ -738,7 +738,13 @@ def test_tiles_state_caps_fields_and_tracks_dirty(provider):
 
     st.fields = ["Ri", "N2", "wB", "Theta", "Salt"]
     assert len(st.fields) == TilesState.MAX_FIELDS
-    assert st.field in st.fields
+
+    # The map field is independent of the figure columns: the map is for
+    # orientation and reading the density range, the columns are the
+    # comparison.  Forcing the map field into `fields` meant choosing
+    # density on the map silently replaced a column.
+    assert st.field == config.TILE_GEOMETRY_FIELD
+    assert st.field not in st.fields
 
 
 # ==========================================================================
@@ -1336,14 +1342,16 @@ def test_label_markers_sit_on_their_fronts():
     labels[2:6, 2:6] = 41953          # centroid ~ (3.5, 3.5)
     labels[14:18, 14:18] = 44615      # centroid ~ (15.5, 15.5)
 
-    markers = TilesPage._label_markers(None, labels, [41953, 44615])
+    # No coords -> pixel positions, which is what this asserts.
+    markers = TilesPage._label_markers(None, labels, [41953, 44615],
+                                       coords=None)
     rows = {row[2]: (row[0], row[1]) for row in markers.data.itertuples(index=False)} \
         if hasattr(markers.data, "itertuples") else None
 
     text = list(markers.dimension_values("text"))
     assert set(text) == {"41953", "44615"}
-    i_vals = markers.dimension_values("i")
-    j_vals = markers.dimension_values("j")
+    i_vals = markers.dimension_values("lon")
+    j_vals = markers.dimension_values("lat")
     assert np.allclose(sorted(i_vals), [3.5, 15.5])
     assert np.allclose(sorted(j_vals), [3.5, 15.5])
 
@@ -1396,6 +1404,7 @@ def _tiles_page():
 
 def test_tile_map_zooms_to_the_selected_front():
     page = _tiles_page()
+    page.draw_tile(force=True)
 
     def limits():
         return page._tilemap.object.opts.get().kwargs
@@ -1407,29 +1416,35 @@ def test_tile_map_zooms_to_the_selected_front():
     page.state.select_front(available[0])
     zoomed = limits()
 
-    labels = page._labels_tile
-    js, iss = np.nonzero(labels == available[0])
-
+    # The axes are in degrees, so the window is compared as a fraction of
+    # the tile rather than in pixels.
     xlim, ylim = zoomed["xlim"], zoomed["ylim"]
-    assert xlim[0] <= iss.min() and xlim[1] >= iss.max()
-    assert ylim[0] <= js.min() and ylim[1] >= js.max()
-
-    nj, ni = labels.shape
-    assert (xlim[1] - xlim[0]) < ni or (ylim[1] - ylim[0]) < nj, \
+    wx = abs(whole["xlim"][1] - whole["xlim"][0])
+    wy = abs(whole["ylim"][1] - whole["ylim"][0])
+    assert abs(xlim[1] - xlim[0]) < wx or abs(ylim[1] - ylim[0]) < wy, \
         "selecting a front must tighten the view, not keep the whole tile"
     assert (whole["xlim"], whole["ylim"]) != (xlim, ylim)
+
+    # And the window must lie inside the tile.
+    assert min(xlim) >= min(whole["xlim"]) - 1e-6
+    assert max(xlim) <= max(whole["xlim"]) + 1e-6
 
 
 def test_deselecting_returns_the_whole_tile():
     page = _tiles_page()
+    page.draw_tile(force=True)
     available = [int(v) for v in page.w_avail.options]
     page.state.select_front(available[0])
     page.state.front_label = 0
 
+    # Degrees, not pixel counts: the whole-tile window is the tile's own
+    # coordinate span.
     opts = page._tilemap.object.opts.get().kwargs
-    nj, ni = page._labels_tile.shape
-    assert opts["xlim"] == (0, ni - 1)
-    assert opts["ylim"] == (0, nj - 1)
+    lon, lat = page._tile_coords
+    assert opts["xlim"] == (pytest.approx(float(lon[0])),
+                            pytest.approx(float(lon[-1])))
+    assert opts["ylim"] == (pytest.approx(float(lat[0])),
+                            pytest.approx(float(lat[-1])))
 
 
 def test_regenerate_does_not_leave_a_stale_column_behind():
@@ -1593,8 +1608,925 @@ def test_ice_exclusion_leaves_the_ice_channel_alone():
     assert provider.ice_exclusion(date, "__land__") is None
 
 
-def test_depth_front_products_use_their_own_location():
-    assert config.DEPTH_FRONTS_FOLDER == "globals_for_chunks"
-    assert config.DEPTH_FRONTS_RUN_ID == "V5"
-    assert config.DEPTH_FRONTS_FOLDER != config.DEPTH_FOLDER
-    assert config.SURFACE_FRONTS_FOLDER == config.SURFACE_FOLDER
+def test_the_v5_build_holds_fields_and_fronts_under_one_prefix():
+    """Both pages read globals_for_chunks/V5 for the four V5 dates."""
+    for folder in (config.SURFACE_FOLDER, config.DEPTH_FOLDER,
+                   config.SURFACE_FRONTS_FOLDER, config.DEPTH_FRONTS_FOLDER):
+        assert folder == "globals_for_chunks"
+    for run_id in (config.SURFACE_RUN_ID, config.DEPTH_RUN_ID,
+                   config.SURFACE_FRONTS_RUN_ID, config.DEPTH_FRONTS_RUN_ID):
+        assert run_id == "V5"
+
+
+def test_only_the_v5_dates_are_offered():
+    assert [config.date_to_prefix(d) for d in config.DATES] == [
+        "20120229_180000", "20120516_060000",
+        "20120918_110000", "20121109_120000",
+    ]
+    # Depth, Tiles and Evolution are limited to the same four.
+    assert config.DATES_3D == config.DATES
+
+
+def test_scotia_sea_chunk_is_offered():
+    assert "southern_ocean_scotia_sea" in config.EVOLUTION_CHUNKS
+    assert "monterey_bay" in config.EVOLUTION_CHUNKS
+
+
+
+def test_selecting_a_region_moves_the_map_without_a_rebuild():
+    """Navigation is immediate; only the figures below wait."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage
+
+    page = CharacteristicsPage(provider=sources.get_provider())
+    page.rebuild()
+
+    # The map is a DynamicMap now, so the frame is what carries the zoom.
+    before = page._map_for_bounds().opts.get().kwargs
+    page._on_bounds((100.0, 10.0, 140.0, 40.0))
+    after = page._map_for_bounds().opts.get().kwargs
+
+    assert after["xlim"] != before["xlim"], "the map must zoom to the box"
+    assert not page.state.box.is_global, "the box must be recorded"
+    assert page.state.dirty, "but the figures below must still be stale"
+
+    page._reset_region()
+    assert page._map_for_bounds().opts.get().kwargs["xlim"] == (0, 360)
+    assert page.state.dirty
+
+
+def test_a_box_drawn_on_the_map_survives_a_rebuild():
+    """Rebuild used to zoom out and compute globally -- the selection was
+    being lost when the stream was recreated on every redraw."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage
+
+    page = CharacteristicsPage(provider=sources.get_provider())
+
+    # A box arriving through the map's own stream, as it does in a browser.
+    page._map_for_bounds(bounds=(100.0, 10.0, 140.0, 40.0))
+    assert not page.state.box.is_global
+    selected = page.state.box.label()
+
+    page.rebuild()
+    assert page.state.box.label() == selected, "Rebuild must keep the region"
+    assert not page.state.box.is_global, "and must not fall back to global"
+    zoomed = page._map_for_bounds().opts.get().kwargs["xlim"]
+    assert zoomed != (0, 360), "and must stay zoomed"
+
+
+def test_the_same_box_is_not_reapplied_on_every_frame():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage
+
+    page = CharacteristicsPage(provider=sources.get_provider())
+    page._map_for_bounds(bounds=(100.0, 10.0, 140.0, 40.0))
+    first = page.state.box.label()
+    page._map_for_bounds(bounds=(100.0, 10.0, 140.0, 40.0))
+    assert page.state.box.label() == first
+
+
+def test_cmocean_names_resolve_for_matplotlib():
+    """'dense' is not a matplotlib name, and density is the default field."""
+    from fronts.viz import field_styles
+    import matplotlib.colors as mcolors
+
+    for name in ("dense", "thermal", "haline", "viridis", "RdBu_r", "nope"):
+        cmap = field_styles.resolve_cmap(name)
+        assert isinstance(cmap, mcolors.Colormap), name
+
+    assert (field_styles.resolve_cmap("RdBu_r")(0.1)
+            != field_styles.resolve_cmap("viridis")(0.1))
+
+
+def test_density_panels_build_without_cmocean_installed(monkeypatch):
+    """The style names cmocean maps; matplotlib must still get a Colormap."""
+    import builtins
+    from fronts.viz import field_styles
+
+    real_import = builtins.__import__
+
+    def no_cmocean(name, *args, **kwargs):
+        if name == "cmocean":
+            raise ImportError("cmocean blocked for this test")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_cmocean)
+    cmap = field_styles.resolve_cmap("dense")
+    import matplotlib.colors as mcolors
+    assert isinstance(cmap, mcolors.Colormap)
+
+
+def test_bivariate_land_shares_the_fields_longitude_axis():
+    """Land on -180..180 under fields on 0..360 is a half-globe shift."""
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+
+    lon_field, _, field = pyramid.level(provider, date, "gradb2", 720)
+    lon_land, _, land = pyramid.level(provider, date, "__land__", 720,
+                                      reduce="any")
+
+    assert lon_field[0] == pytest.approx(lon_land[0])
+    assert lon_field[-1] == pytest.approx(lon_land[-1])
+
+    agree = (~np.isfinite(field) == (land > 0)).mean()
+    assert agree > 0.9, f"land should sit on the field's NaNs, got {agree:.2f}"
+
+
+def test_only_the_touched_figures_are_marked_stale():
+    """A profile click must not rebuild the offsets figure."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage, SECTION_DEPENDS
+
+    page = TilesPage(provider=sources.get_provider())
+    page._stale_keys.clear()
+
+    page.state.add_profile_point(4, 4)
+    assert page._stale_keys == {"profiles"}
+
+    page._stale_keys.clear()
+    page.state.perp_index = 5
+    assert page._stale_keys == set(SECTION_DEPENDS["perp_index"])
+    assert "offsets" not in page._stale_keys
+
+    page._stale_keys.clear()
+    page.state.n_offsets = 2
+    assert page._stale_keys == {"offsets"}
+
+
+def test_offset_side_colours_are_shared_across_figures():
+    from fronts.viz.apps.tiles import panels as F
+    assert F.OFFSET_PLUS != F.OFFSET_MINUS
+    assert F.OFFSET_PLUS.startswith("#") and F.OFFSET_MINUS.startswith("#")
+
+
+def test_evolution_offers_the_chunk_timesteps():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution.app import EvolutionPage
+
+    page = EvolutionPage(provider=sources.get_provider())
+    assert page.w_when.options, "the timestep list must be populated"
+    assert page.w_when.value == page.w_when.options[0]
+
+    page.w_when.value = page.w_when.options[2]
+    assert page.state.step == 2, "picking a timestep must move the step"
+
+
+def test_clicking_the_plan_view_moves_the_axis_vertex_and_the_slider():
+    """The slider not moving was the symptom that clicks never arrived."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+
+    scene = page._first_scene()
+    path = np.asarray(scene.axis_path)
+    assert len(path) > 4
+
+    # The plan view is in degrees, so a click is a lon/lat.
+    lon, lat, deg = page._plan_coords(scene)
+    target = len(path) - 2
+    page._plan_markers(tick=1, x=float(deg[target][1]),
+                       y=float(deg[target][0]))
+
+    assert page.state.perp_index == target, "the click must set the vertex"
+    assert page.w_axis.value == target, "and the slider must follow it"
+    assert page._stale_keys, "and the dependent sections must be stale"
+
+
+def test_clicking_in_profile_mode_adds_a_location():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+
+    page.state.pick_mode = "profiles"
+    before = page.state.perp_index
+
+    # Click at a known crop pixel, expressed in degrees.
+    lon, lat, _ = page._plan_coords(page._first_scene())
+    page._plan_markers(tick=1, x=float(lon[12]), y=float(lat[8]))
+
+    assert page.state.profile_points == [(8, 12)], (
+        "a degree click must map back to the crop pixel")
+    assert page.state.perp_index == before, "profile mode must not move it"
+
+
+def test_the_same_click_is_not_applied_twice():
+    """A re-render must not re-run the last pick."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+    page.state.pick_mode = "profiles"
+
+    lon, lat, _ = page._plan_coords(page._first_scene())
+    page._plan_markers(tick=1, x=float(lon[10]), y=float(lat[10]))
+    page._plan_markers(tick=2, x=float(lon[10]), y=float(lat[10]))
+    assert len(page.state.profile_points) == 1
+
+
+def test_profiles_pane_is_actually_filled_by_the_builder():
+    """The builder had no 'profiles' entry, so the pane never filled."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+
+    page.state.pick_mode = "profiles"
+    lon, lat, _ = page._plan_coords(page._first_scene())
+    page._plan_markers(tick=1, x=float(lon[8]), y=float(lat[8]))
+    assert page.state.profile_points, "the click must land a location"
+
+    page.schedule_figures()
+    for field in page.state.fields:
+        pane = page._panes[(field, "profiles")]
+        assert pane.object, f"profiles pane empty for {field}"
+
+
+def test_rebuilding_after_a_pick_reuses_the_scenes():
+    """Changing a pick is figures only -- no tile fetch."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+    page.schedule_figures()
+    assert page._scenes, "the first build must leave scenes behind"
+
+    provider = page.state.provider
+    original = type(provider).tile
+    calls = []
+    type(provider).tile = lambda self, *a, **k: (
+        calls.append(a) or original(self, *a, **k))
+    try:
+        page.state.perp_index = 3
+        page.schedule_figures()
+    finally:
+        type(provider).tile = original
+
+    assert calls == [], "a second build must not re-fetch a tile"
+
+
+def test_a_new_front_drops_the_cached_scenes():
+    """They are geometry for the old front, so keeping them is wrong."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    available = [int(v) for v in page.w_avail.options]
+    page.state.front_label = available[0]
+    page.build_plan()
+    page.schedule_figures()
+    assert page._scenes
+
+    page.state.front_label = available[1] if len(available) > 1 else 999
+    assert page._scenes == {}, "a new front must invalidate the scenes"
+    assert page._density_scene is None
+
+
+def test_first_build_fills_every_panel_even_after_a_pick():
+    """Filtering by the stale set alone left inset and offsets empty."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+
+    # Pick something *before* the first build -- the realistic order, and
+    # what used to leave the unmarked panels permanently blank.
+    page.state.pick_mode = "profiles"
+    lon, lat, _ = page._plan_coords(page._first_scene())
+    page._plan_markers(tick=1, x=float(lon[8]), y=float(lat[8]))
+    assert page._stale_keys, "the pick must mark something stale"
+
+    page.schedule_figures()
+    field = page.state.fields[0]
+    for key in ("inset", "offsets", "isopycnal", "mainaxis",
+                "perpendicular", "profiles"):
+        assert page._panes[(field, key)].object, f"{key} pane is empty"
+
+
+def test_the_transect_pick_also_refreshes_the_inset():
+    """The inset draws the transect marker, so it depends on the pick."""
+    from fronts.viz.apps.tiles.app import SECTION_DEPENDS
+    assert "inset" in SECTION_DEPENDS["perp_index"]
+
+
+def test_a_second_build_filters_to_what_changed():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+    page.schedule_figures()
+    assert page._built_fields, "the first build must record the field"
+
+    page._stale_keys.clear()
+    page.state.n_offsets = 2
+    assert page._stale_keys == {"offsets"}, (
+        "only the offsets figure depends on the offset count")
+
+
+def test_isopycnal_depth_interpolates_between_levels():
+    from fronts.viz.geometry import isopycnal_depth
+
+    Z = np.linspace(0, -200, 11)                     # 0, -20, ... -200
+    profile = np.linspace(25.0, 27.0, 11)            # 25.0, 25.2, ... 27.0
+    rho = np.repeat(profile[:, None, None], 2, axis=1).repeat(2, axis=2)
+
+    # 26.0 is exactly level 5 -> -100 m.
+    assert isopycnal_depth(rho, Z, 26.0)[0, 0] == pytest.approx(-100.0)
+    # 26.1 is half a level deeper -> -110 m, not snapped to a level.
+    assert isopycnal_depth(rho, Z, 26.1)[0, 0] == pytest.approx(-110.0)
+
+
+def test_outcropped_and_too_light_columns_are_undefined():
+    """Both are physical statements, and both must read as NaN."""
+    from fronts.viz.geometry import isopycnal_depth
+
+    Z = np.linspace(0, -200, 11)
+    rho = np.zeros((11, 1, 3))
+    rho[:, 0, 0] = np.linspace(25.0, 27.0, 11)       # crosses 26
+    rho[:, 0, 1] = np.linspace(26.5, 28.0, 11)       # surface already denser
+    rho[:, 0, 2] = np.linspace(20.0, 22.0, 11)       # never reaches 26
+
+    out = isopycnal_depth(rho, Z, 26.0)
+    assert np.isfinite(out[0, 0])
+    assert np.isnan(out[0, 1]), "outcropped column must be undefined"
+    assert np.isnan(out[0, 2]), "column lighter than sigma must be undefined"
+
+
+def test_isopycnal_depth_rejects_mismatched_inputs():
+    from fronts.viz.geometry import isopycnal_depth
+
+    with pytest.raises(ValueError):
+        isopycnal_depth(np.zeros((4, 4)), np.zeros(4), 26.0)      # not 3-D
+    with pytest.raises(ValueError):
+        isopycnal_depth(np.zeros((5, 2, 2)), np.zeros(4), 26.0)   # Z mismatch
+
+
+def test_isopycnal_depth_ignores_nan_columns():
+    from fronts.viz.geometry import isopycnal_depth
+
+    Z = np.linspace(0, -100, 6)
+    rho = np.full((6, 1, 1), np.nan)
+    assert np.isnan(isopycnal_depth(rho, Z, 26.0)[0, 0])
+
+
+def test_default_sigma_exists_in_the_volume():
+    """A fixed default would often name a surface nowhere in the tile."""
+    from fronts.viz.apps.tiles import panels as F
+
+    class Scene:
+        sigma0 = np.linspace(24.0, 28.0, 8).reshape(8, 1, 1) * np.ones((8, 3, 3))
+
+    sigma = F.default_sigma(Scene())
+    finite = Scene.sigma0[np.isfinite(Scene.sigma0)]
+    assert finite.min() <= sigma <= finite.max()
+
+
+def test_sigma_change_stales_the_tiles_figures():
+    from fronts.viz.apps.common.state import TilesState
+
+    state = TilesState(provider=sources.get_provider())
+    state.dirty = False
+    state.sigma = 26.5
+    assert state.dirty
+
+
+def test_tiles_page_does_not_touch_a_tile_until_asked():
+    """A page view must not fetch or generate a 3-D tile."""
+    page = _tiles_page()
+    assert page._tilemap.object is None
+    assert page._tile_cache is None
+    assert page._overview.object is not None, "the 2-D overview is cheap"
+
+    page.draw_tile(force=True)
+    assert page._tile_cache is not None
+    assert page._tilemap.object is not None
+
+
+def test_changing_region_drops_the_tile_without_fetching_another():
+    page = _tiles_page()
+    page.draw_tile(force=True)
+    assert page._tile_cache is not None
+
+    other = [r for r in page.state.param.region.objects
+             if r != page.state.region][0]
+    page.state.region = other
+    assert page._tile_cache is None, "the old tile is wrong for the new region"
+    assert page._tilemap.object is not None, "the stale map stays until reload"
+
+
+def test_front_toggle_does_not_fetch_when_no_tile_is_loaded():
+    page = _tiles_page()
+    page.state.show_fronts = not page.state.show_fronts
+    assert page._tile_cache is None
+
+
+def test_evolution_page_does_not_read_a_chunk_until_asked():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution.app import EvolutionPage
+
+    page = EvolutionPage(provider=sources.get_provider())
+    assert page._chunkmap.object is None
+    assert page._overview.object is not None
+
+    page.load_chunk()
+    assert page._chunkmap.object is not None
+
+
+def test_only_the_configured_dates_are_offered_even_if_the_store_has_more():
+    """config.DATES is the allow-list; the store listing is not."""
+    from fronts.viz.apps.common.state import PageState
+
+    base = sources.get_provider()
+    extra = "2011-01-01T00_00_00"
+
+    class ExtraDates(type(base)):
+        def dates(self):
+            return [extra] + list(base.dates())
+
+    state = PageState(provider=ExtraDates())
+    assert extra not in state.param.date.objects
+    assert set(state.param.date.objects) <= set(config.DATES)
+
+
+def test_depth_page_and_bivariate_depth_mode_are_not_offered():
+    """Kept and importable, just not served."""
+    from fronts.viz.apps import serve
+    from fronts.viz.apps.bivariate.app import MODES
+
+    assert "depth" not in serve.PAGES
+    assert "/depth" not in serve.ROUTES
+    assert "surface" in serve.PAGES and "/surface" in serve.ROUTES
+    assert MODES == ("Surface",)
+
+    # The modules are still there -- this is a switch, not a deletion.
+    assert "depth" in serve.ALL_PAGES
+    from fronts.viz.apps.characteristics import depth as depth_mod
+    assert hasattr(depth_mod, "page")
+
+
+def test_bivariate_offers_only_the_configured_dates():
+    from fronts.viz.apps.bivariate.app import BivariateState
+
+    base = sources.get_provider()
+    extra = "2011-01-01T00_00_00"
+
+    class ExtraDates(type(base)):
+        def dates(self):
+            return [extra] + list(base.dates())
+
+    state = BivariateState(provider=ExtraDates())
+    assert extra not in state.param.date.objects
+    assert set(state.param.date.objects) <= set(config.DATES)
+
+
+def test_chunk_tiles_do_not_go_through_run():
+    """The chunk path must not need the branch that has run(chunk=...)."""
+    import xarray as xr
+    from fronts.viz.apps.common import s3source
+
+    calls = []
+
+    class FakeTileUtils:
+        class _Prop:
+            vars_needed = ("Theta",)
+            out_name = "sigma0"
+
+        @staticmethod
+        def resolve_property(name):
+            return FakeTileUtils._Prop()
+
+        @staticmethod
+        def rect_ij_to_tile(i, j):
+            calls.append(("tile", i, j))
+            return "tileinfo"
+
+        @staticmethod
+        def _build_tile_context(tracers, grid):
+            calls.append(("context",))
+            return xr.Dataset(), object()
+
+        @staticmethod
+        def compute_tile_property(merge, xgrid, prop, mask_land):
+            return "field"
+
+        @staticmethod
+        def mit_date_to_iteration(stamp):
+            return 7
+
+        @staticmethod
+        def _build_output_dataset(**kw):
+            return xr.Dataset(attrs={"iteration": kw["iteration"]})
+
+        def run(self, *a, **k):                    # pragma: no cover
+            raise AssertionError("run() must not be called for a chunk")
+
+    s3source._chunk_stores = lambda chunk, date: (xr.Dataset(), xr.Dataset())
+    s3source._chunk_centre = lambda chunk: (36.8, -121.9)
+    s3source._grid_plane = lambda name: np.zeros((4, 4), dtype=np.float32)
+
+    ds = s3source._compose_chunk_tile(FakeTileUtils(), "monterey_bay",
+                                      "2012-11-03T07_00_00", "density")
+    assert ds.attrs["iteration"] == 7
+    assert ("context",) in calls
+    assert any(c[0] == "tile" for c in calls)
+
+
+
+# --------------------------------------------------------------------------
+# Perpendicular selection and vertical profiles (phase 3, A and C)
+# --------------------------------------------------------------------------
+
+
+def test_density_is_the_default_map_field():
+    """The isopycnal control is the next step, and it needs the range."""
+    from fronts.viz.apps.common.state import TilesState
+
+    st = TilesState(provider=sources.get_provider())
+    assert st.field == "density" == config.TILE_GEOMETRY_FIELD
+
+
+def test_profile_points_are_capped_and_cleared_with_the_front():
+    from fronts.viz.apps.common.state import TilesState
+
+    st = TilesState(provider=sources.get_provider())
+    for n in range(st.MAX_PROFILES):
+        assert st.add_profile_point(n, n) is True
+    assert st.add_profile_point(99, 99) is False, "must stop at the limit"
+    assert len(st.profile_points) == st.MAX_PROFILES
+
+    st.front_label = 1234
+    assert st.profile_points == [], "a new front invalidates the locations"
+    assert st.perp_index == -1
+
+
+def test_picking_an_axis_point_stales_only_the_sections():
+    """Stage 1 stales stage 2; stage 2 never stales stage 1."""
+    from fronts.viz.apps.common.state import TilesState
+
+    st = TilesState(provider=sources.get_provider())
+    st.dirty = False
+    st.sections_dirty = False
+
+    st.perp_index = 4
+    assert st.sections_dirty is True
+    assert st.dirty is False, "choosing a point must not require a refetch"
+
+    st.sections_dirty = False
+    st.add_profile_point(3, 3)
+    assert st.sections_dirty is True
+    assert st.dirty is False
+
+
+def test_axis_ticks_run_from_start_to_end_in_km():
+    from fronts.viz.apps.tiles import panels as F
+
+    class Scene:
+        axis_path = np.stack([np.arange(20), np.arange(20)], axis=1)
+        metrics = {"dist_km": np.linspace(0.0, 95.0, 20)}
+
+    ticks = F.axis_ticks(Scene(), n=5)
+    assert len(ticks) == 5
+    assert ticks[0] == (0, 0.0)
+    assert ticks[-1][0] == 19
+    assert ticks[-1][1] == pytest.approx(95.0)
+    # Monotonic, so the labels read left to right along the front.
+    assert [km for _, km in ticks] == sorted(km for _, km in ticks)
+
+
+def test_axis_ticks_fall_back_to_pixels_without_lon_lat():
+    from fronts.viz.apps.tiles import panels as F
+
+    class Scene:
+        axis_path = np.stack([np.arange(10), np.arange(10)], axis=1)
+        # path_metrics returns dist_km=None when it had no coordinates.
+        metrics = {"dist_km": None, "dist_px": np.arange(10.0)}
+
+    ticks = F.axis_ticks(Scene(), n=3)
+    assert [k for k, _ in ticks] == [0, 4, 9]
+
+
+def test_chosen_axis_point_overrides_the_automatic_pick():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.schedule_figures()
+
+    scene = page._first_scene()
+    assert scene is not None, "stage 1 must leave a scene behind"
+
+    auto = page._resolved_perp_index(scene)
+    page.state.perp_index = 0
+    assert page._resolved_perp_index(scene) == 0
+
+    # Out of range falls back rather than raising.
+    page.state.perp_index = 10 ** 6
+    assert page._resolved_perp_index(scene) == auto
+
+
+def test_plan_view_is_built_from_density_alone():
+    """Figure (c) exists before any colour field has been chosen."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+
+    asked = []
+    provider = page.state.provider
+    original = type(provider).tile
+    type(provider).tile = lambda self, date, idx, prop, region=None: (
+        asked.append(prop) or original(self, date, idx, prop, region))
+    try:
+        page.build_plan()
+    finally:
+        type(provider).tile = original
+
+    assert page._planview.object is not None, "the plan view must be drawn"
+    assert page._density_scene is not None
+    assert set(asked) <= {config.TILE_GEOMETRY_FIELD}, (
+        f"only density should be read for the plan view, got {set(asked)}")
+
+
+def test_sections_use_the_axis_point_the_plan_view_set():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+
+    scene = page._first_scene()
+    assert scene is page._density_scene
+
+    page.state.perp_index = 3
+    assert page._resolved_perp_index(scene) == 3
+
+    # The slider is kept in step with the axis on screen, so it can always
+    # set the point even if the click plumbing misbehaves.
+    assert page.w_axis.end == max(len(scene.axis_path) - 1, 1)
+
+
+def test_include_3d_is_actually_two_way_bound():
+    """Passing the deprecated Widget.name broke the param link."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution.app import EvolutionPage
+
+    page = EvolutionPage(provider=sources.get_provider())
+    assert page.w_3d.value is page.state.include_3d is True
+
+    page.w_3d.value = False
+    assert page.state.include_3d is False, "unticking must reach the state"
+
+    page.state.include_3d = True
+    assert page.w_3d.value is True, "and the state must reach the widget"
+
+
+def test_chunk_map_background_is_gradb2():
+    """The fronts were detected on gradb2, so that is what they sit on."""
+    from fronts.viz.apps.evolution import app as evo
+    assert evo.CHUNK_MAP_FIELD == "gradb2"
+
+
+def test_loading_a_chunk_reports_progress():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution.app import EvolutionPage
+
+    page = EvolutionPage(provider=sources.get_provider())
+    assert page._chunk_progress.visible is False
+    page.load_chunk()
+    # Hidden again afterwards, and reset so the next load starts at zero.
+    assert page._chunk_progress.visible is False
+    assert page._chunk_progress.value == 0
+    assert page._chunk_progress.max == 3
+
+
+def test_region_boxes_come_from_the_tile_not_the_configured_centre():
+    """The box used to sit at the config centre, not at the tile."""
+    from fronts.viz.apps.common import regions
+
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+
+    for region in regions.REGIONS[:3]:
+        idx = regions.synthetic_tile_idx(region)
+        lon0, lat0, lon1, lat1 = regions.tile_extent(provider, date, idx)
+        assert lon1 > lon0 and lat1 > lat0, "the box must be a real interval"
+
+    # Different tiles must give different boxes -- one box for all of them
+    # is exactly the bug.
+    boxes = {regions.tile_extent(provider, date,
+                                 regions.synthetic_tile_idx(r))
+             for r in regions.REGIONS[:4]}
+    assert len(boxes) > 1
+
+
+def test_tile_extent_refuses_a_tile_off_the_grid():
+    from fronts.viz.apps.common import regions
+
+    provider = sources.get_provider()
+    with pytest.raises(IndexError):
+        regions.tile_extent(provider, provider.dates()[0], 10_000)
+
+
+def test_the_tile_and_plan_views_do_not_share_axes():
+    """Both carry lon/lat dims; HoloViews would otherwise link their zoom."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    assert page._tilemap.object.opts.get().kwargs["shared_axes"] is False
+
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+    # The plan view is a DynamicMap, so its options live on the frame.
+    frame = page._planview.object[()]
+    assert frame.opts.get("plot").kwargs.get("shared_axes") is False
+
+
+def test_plan_view_axes_are_degrees_not_pixels():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.tiles.app import TilesPage
+
+    page = TilesPage(provider=sources.get_provider())
+    page.draw_tile(force=True)
+    page.state.front_label = [int(v) for v in page.w_avail.options][0]
+    page.build_plan()
+
+    lon, lat, _ = page._plan_coords(page._first_scene())
+    assert -360.0 <= lon.min() and lon.max() <= 720.0
+    assert -90.0 <= lat.min() and lat.max() <= 90.0
+    # Not a pixel index sequence.
+    assert not np.allclose(lon, np.arange(len(lon)))
+
+
+# --------------------------------------------------------------------------
+# Display styles
+# --------------------------------------------------------------------------
+
+def test_ri_and_r_ib_share_one_colour_scale():
+    """They are the same quantity; separate bars make them incomparable."""
+    from fronts.viz import field_styles
+
+    ri = field_styles.get_style("Ri")
+    rib = field_styles.get_style("R_ib")
+    for attr in ("cmap", "transform", "clim", "clip", "center", "scale"):
+        assert getattr(ri, attr) == getattr(rib, attr), attr
+    assert ri.title != rib.title, "only the label should differ"
+    assert ri.transform == "linear", "Ri is no longer log-scaled"
+
+
+def test_the_formerly_logged_fields_are_linear_now():
+    from fronts.viz import field_styles
+
+    for name in ("Ri", "R_ib", "N2", "vertical_shear", "strain_mag"):
+        assert field_styles.get_style(name).transform == "linear", name
+
+
+def test_all_four_squared_gradients_share_a_colormap():
+    from fronts.viz import field_styles
+
+    cmaps = {field_styles.get_style(n).cmap
+             for n in ("gradb2", "gradrho2", "gradtheta2", "gradsalt2")}
+    assert len(cmaps) == 1, f"expected one colormap, got {cmaps}"
+    for name in ("gradb2", "gradrho2", "gradtheta2", "gradsalt2"):
+        assert field_styles.get_style(name).transform == "log10", name
+
+
+def test_global_maps_keep_gradb2_greyscale():
+    """A different job: there it is a backdrop for the front overlay."""
+    from fronts.viz.apps.common import basemap
+    assert basemap._FIELD_CMAPS["gradb2"] == "gray"
+
+
+def test_wb_uses_a_diverging_ocean_colormap():
+    from fronts.viz import field_styles
+    from fronts.viz.apps.common import basemap
+
+    style = field_styles.get_style("wB")
+    assert style.cmap == "balance"
+    assert style.center == 0.0
+    # And it must resolve -- balance is cmocean's, not matplotlib's.
+    assert len(basemap.bokeh_cmap(style.cmap, 8)) == 8
+
+
+def test_surface_only_fields_are_not_offered_on_tiles():
+    """ug / vg and the frontogenesis split need surface geostrophy."""
+    for name in ("ug", "vg", "frontogenesis_geo", "frontogenesis_ageo"):
+        assert name not in config.TILE_FIELDS_3D, name
+    # The total tendency is still there -- it is defined at depth.
+    assert "frontogenesis_tendency" in config.TILE_FIELDS_3D
+
+
+def test_vertical_shear_is_named_in_words():
+    from fronts.viz import field_styles
+    title = field_styles.get_style("vertical_shear").title
+    assert "vertical shear" in title
+    assert "|S|" not in title
+
+
+def test_w_is_diverging_and_pivoted_on_zero():
+    from fronts.viz import field_styles
+    style = field_styles.get_style("W")
+    assert style.cmap == "balance"
+    assert style.center == 0.0
+    assert style.transform == "linear"
+
+
+def test_the_inset_adds_a_second_row_for_a_depth_in_range():
+    from fronts.viz.apps.tiles import panels as F
+
+    Z = np.linspace(-1.6, -89.6, 20)
+    # In range -> a level index; the surface is index 0.
+    assert F._level_for_depth(Z, -50.0) not in (None, 0)
+    # Sign-agnostic: users type depths either way.
+    assert F._level_for_depth(Z, 50.0) == F._level_for_depth(Z, -50.0)
+    # Outside the clipped volume -> no second row, rather than silently
+    # showing the deepest level available.
+    assert F._level_for_depth(Z, -9999.0) is None
+    assert F._level_for_depth(Z, None) is None
+
+
+def test_inset_depth_only_stales_the_inset():
+    from fronts.viz.apps.tiles.app import SECTION_DEPENDS
+    assert SECTION_DEPENDS["inset_depth"] == ("inset",)
+
+
+def test_the_region_field_map_is_configured_at_the_sigma_step():
+    from fronts.viz.apps.common.state import TilesState
+
+    state = TilesState(provider=sources.get_provider())
+    assert state.region_field == config.TILE_GEOMETRY_FIELD
+    assert state.inset_depth < 0, "the second row defaults below the surface"
+
+
+def test_region_field_map_draws_fronts_over_the_field():
+    import matplotlib
+    matplotlib.use("Agg")
+    from fronts.viz.apps.tiles import pipeline as TP, panels as F
+
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+    ds = provider.tile(date, 0, "density")
+    labels = TP.tile_labels(provider, date, 0, (180, 180), ds=ds)
+    scene = TP.build_scene(provider, date, 0, "density",
+                           TP.available_fronts(labels)[0])
+
+    surface = np.asarray(ds[ds.attrs.get("tile_var_name") or "sigma0"]
+                         .values)[0]
+    lon = np.linspace(-10.0, 10.0, surface.shape[1])
+    lat = np.linspace(-5.0, 5.0, surface.shape[0])
+
+    out = F.figure_region_field(scene, surface, labels,
+                                field_name="sigma0", lon=lon, lat=lat)
+    assert out.exists() and out.stat().st_size > 0

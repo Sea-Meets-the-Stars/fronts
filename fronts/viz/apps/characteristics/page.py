@@ -93,7 +93,10 @@ class CharacteristicsPage:
 
         self._map = pn.pane.HoloViews(sizing_mode="stretch_width",
                                       min_height=560)
+        #: One box-select stream for the life of the page.  Recreating it
+        #: per redraw is what lost the selection -- see ``redraw_map``.
         self._bounds = hv.streams.BoundsXY(bounds=None)
+        self._last_bounds = None
 
         self._panes = {
             (col, row): pn.pane.Matplotlib(
@@ -153,15 +156,34 @@ class CharacteristicsPage:
                                          button_type="primary")
         self.w_build.on_click(lambda _: self.rebuild())
 
-        # Nothing rebuilds on its own.
+        # The map keeps up with the selection -- it is a cached pyramid
+        # level, so redrawing is cheap.  The panels below are what wait.
+        map_triggers = ["date", "field", "show_fronts"]
+        if self.mode.has_depth:
+            map_triggers.append("depth_level")
+        s.param.watch(lambda *_: self.redraw_map(), map_triggers)
+
         s.param.watch(lambda *_: self._reflect_dirty(), ["dirty"])
         self._reflect_dirty()
 
     def _reset_region(self):
+        """Clear the box and un-zoom the map.  The panels stay stale.
+
+        Choosing a region is navigation, not computation: the map has to
+        keep up with the box or you cannot see what you selected.  Only
+        the figures below it cost real time, so only they wait.
+        """
         self.state.reset_region()
+        self._last_bounds = None
+        self._bounds.event(bounds=None)
+        self.redraw_map()
 
     def rebuild(self):
-        """Build everything for the current selection.  The only entry."""
+        """Build the figures for the current selection.
+
+        The map is already current -- it follows the selection directly --
+        so this is the panels, which are the expensive half.
+        """
         self.redraw_map()
         self.schedule_stats()
         self.schedule_front_props()
@@ -171,16 +193,24 @@ class CharacteristicsPage:
         if self.state.dirty:
             self.w_build.button_type = "primary"
             self._status.object = (
-                "⟳ **settings changed** — press *Rebuild*"
-                f"  ·  region: {self.state.box.label()}")
+                f"region: **{self.state.box.label()}** — "
+                "⟳ press *Rebuild* to compute the figures below")
         else:
             self.w_build.button_type = "default"
 
     def _on_bounds(self, bounds):
-        """Record the box.  The map and panels follow on *Rebuild*."""
+        """Apply a box as if it had been drawn on the map.
+
+        The map itself now takes the box through its own stream; this
+        stays as the programmatic entry point.
+        """
         if not bounds:
             return
-        self.state.set_bounds(bounds)
+        self._bounds.event(bounds=bounds)
+        if self.state.box.is_global:            # no renderer to run the
+            self._last_bounds = bounds          # DynamicMap (e.g. tests)
+            self.state.set_bounds(bounds)
+        self.redraw_map()
 
     # -- map -------------------------------------------------------------
 
@@ -216,7 +246,30 @@ class CharacteristicsPage:
         )
 
     def redraw_map(self):
+        """Rebuild the map as a DynamicMap driven by the box-select stream.
+
+        The stream is created **once** and lives as long as the page.  The
+        previous version made a new ``BoundsXY`` on every redraw and then
+        redrew from inside its own callback -- which tore down the plot the
+        tool belonged to, so the next interaction reported no selection and
+        the box fell back to global.  That is why *Rebuild* zoomed out and
+        computed over the whole globe.
+        """
+        self._map.object = hv.DynamicMap(self._map_for_bounds,
+                                         streams=[self._bounds])
+
+    def _map_for_bounds(self, bounds=None):
+        """One frame of the map.  A new box here *is* the selection."""
         s = self.state
+
+        # A box drawn on the map arrives as this argument.  Recording it
+        # here rather than in a separate subscriber is what keeps the tool
+        # and the state in step.
+        if bounds and bounds != self._last_bounds:
+            self._last_bounds = bounds
+            s.set_bounds(bounds)
+            self._reflect_dirty()
+
         extent = self._zoom_limits()
         try:
             channel = self.resolve(s.field)
@@ -227,23 +280,16 @@ class CharacteristicsPage:
                 extent=extent,
             )
         except Exception as exc:                        # noqa: BLE001
-            self._map.object = None
             self._status.object = f"**Map unavailable:** {exc}"
-            return
+            return hv.Overlay([hv.Curve([])])
 
         outline = self._selection_outline()
         if outline is not None:
             overlay = overlay * outline
 
         xlim, ylim = extent
-        overlay = overlay.opts(hv.opts.Overlay(xlim=xlim, ylim=ylim))
-
-        # The stream must be attached before the pane renders, or the
-        # box-select tool has nothing to report to.
-        box_stream = hv.streams.BoundsXY(source=overlay, bounds=None)
-        box_stream.add_subscriber(self._on_bounds)
-        self._bounds = box_stream
-        self._map.object = overlay
+        return overlay.opts(hv.opts.Overlay(xlim=xlim, ylim=ylim,
+                                            shared_axes=False))
 
     # -- distributions ---------------------------------------------------
 
@@ -394,12 +440,16 @@ class CharacteristicsPage:
         controls = [self.w_date]
         if self.w_depth is not None:
             controls.append(self.w_depth)
-        controls += [self.w_field, self.w_fronts, self.w_reset,
-                     self.w_build]
+        controls += [self.w_field, self.w_fronts, self.w_reset]
 
         top = pn.Column(
             pn.pane.Markdown(f"### {self.mode.title}", margin=(4, 10, 0, 10)),
             pn.Row(*controls, sizing_mode="stretch_width", margin=(0, 10)),
+            # The button on its own row: the controls above it change the
+            # selection, it is the thing that spends time on it.
+            pn.Row(pn.pane.Markdown("**figures**", margin=(8, 5, 0, 10)),
+                   self.w_build, sizing_mode="stretch_width",
+                   margin=(0, 10)),
             self._status,
             self._map,
             pn.pane.Markdown(

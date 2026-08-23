@@ -1,15 +1,18 @@
 """Server entry point for the front visualisation pages.
 
-One process, five routes::
+One process, one route per enabled page::
 
     python -m fronts.viz.apps.serve --show
 
     /                 index
     /surface          field statistics at the surface
-    /depth            the same, at four depth levels
     /bivariate        fronts coloured by two fields at once
     /tiles            one front in 3-D and cross-section
-    /evolution        placeholder
+    /evolution        one front through consecutive timesteps
+
+``config.ENABLED_PAGES`` decides which are published.  ``/depth`` -- the
+same page at four depth levels -- is built and tested but not currently
+offered; add ``"depth"`` back to that tuple to serve it again.
 
 The data source comes from ``FRONTS_APP_DATA``: ``synthetic`` (the
 default, which needs no data at all) or ``s3``.  See
@@ -23,17 +26,23 @@ import os
 
 import panel as pn
 
+from fronts.viz.apps import config
 from fronts.viz.apps.common import sources
 
 TITLE = "Fronts — LLC4320"
 
-PAGES = {
+ALL_PAGES = {
     "surface": "Field Characteristics — Surface",
     "depth": "Field Characteristics — Depth",
     "bivariate": "Bivariate maps",
     "tiles": "Tiles — one front in 3-D",
     "evolution": "Evolution",
 }
+
+#: Only the enabled ones are linked or routed.  See
+#: ``config.ENABLED_PAGES`` -- the modules stay importable either way.
+PAGES = {slug: title for slug, title in ALL_PAGES.items()
+         if slug in config.ENABLED_PAGES}
 
 
 def ensure_display() -> None:
@@ -112,17 +121,23 @@ def evolution():
     return _template("evolution", app.page())
 
 
-ROUTES = {
-    "/": index,
-    "/surface": surface,
-    "/depth": depth,
-    "/bivariate": bivariate,
-    "/tiles": tiles,
-    "/evolution": evolution,
+_HANDLERS = {
+    "surface": surface,
+    "depth": depth,
+    "bivariate": bivariate,
+    "tiles": tiles,
+    "evolution": evolution,
+}
+
+#: Only the enabled pages get a route, so a disabled one 404s rather than
+#: rendering a page nothing links to.
+ROUTES = {"/": index}
+ROUTES.update({f"/{slug}": fn for slug, fn in _HANDLERS.items()
+               if slug in config.ENABLED_PAGES})
+if "surface" in config.ENABLED_PAGES:
     # The Surface page was called "characteristics" before the Depth page
     # existed; keep the old URL working.
-    "/characteristics": surface,
-}
+    ROUTES["/characteristics"] = surface
 
 
 def _local_origins(port: int) -> list[str]:

@@ -31,6 +31,7 @@ made symmetric about 0 so the colormap midpoint sits at zero.
 
 # stdlib
 from __future__ import annotations
+import dataclasses as _dc
 from dataclasses import dataclass
 
 # numerical
@@ -94,20 +95,34 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         transform="linear", cmap="haline",
         title="Salt [psu]",
     ),
+    # Ri and R_ib share this style deliberately: they are the same
+    # quantity expressed two ways, and separate bars make them
+    # incomparable at a glance.  Linear, not log: the interesting range is
+    # around the O(1) instability threshold, and a log axis pushes it into
+    # the middle of the bar where it reads as nothing in particular.
     "Ri": FieldStyle(
-        transform="log10", clip=(1e-2, 1e4), cmap="RdYlBu",
-        title="log10(Ri)",
-        # Ri = 0.25 (log10 ~ -0.6) is the shear-instability threshold;
-        # this clim keeps the unstable range in the warm half of the bar.
-        clim=(-1.0, 2.0),
+        transform="linear", clip=(0.0, 5.0), cmap="RdYlBu",
+        # Ri < 0.25 is shear-unstable, so the clim keeps that in the warm
+        # end rather than compressed against the edge.
+        clim=(0.0, 2.0), title="Ri",
+    ),
+    # Same object with a different label, so a change to one is a change
+    # to both -- see RI_STYLE below.
+    "R_ib": None,        # filled in after the table, from "Ri"
+    # Vertical velocity is signed, so it gets cmocean's diverging
+    # ``balance`` with the midpoint pinned at zero -- up and down have to
+    # read as opposite, not as two ends of a sequential ramp.
+    "W": FieldStyle(
+        transform="linear", cmap="balance",
+        title="W [m/s]", center=0.0,
     ),
     "N2": FieldStyle(
-        transform="log10", clip=(1e-9, 1e-3), cmap="viridis",
-        title="log10(N^2 [s^-2])",
+        transform="linear", clip=(0.0, 1e-3), cmap="viridis",
+        title="N^2 [s^-2]",
     ),
     "vertical_shear": FieldStyle(
-        transform="log10", clip=(1e-6, 1e-1), cmap="viridis",
-        title="log10(|S| [s^-1])",
+        transform="linear", clip=(0.0, 1e-1), cmap="viridis",
+        title="vertical shear [s^-1]",
     ),
     "relative_vorticity": FieldStyle(
         transform="linear", cmap="RdBu_r",
@@ -118,8 +133,8 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         title="div [1/s]", center=0.0,
     ),
     "strain_mag": FieldStyle(
-        transform="log10", clip=(1e-8, 1e-3), cmap="viridis",
-        title="log10(strain [s^-1])",
+        transform="linear", clip=(0.0, 1e-3), cmap="viridis",
+        title="strain [s^-1]",
     ),
     # The registry also exposes the signed normal/shear strain components;
     # unlike the magnitude these change sign, so they get a diverging map.
@@ -180,13 +195,14 @@ FIELD_STYLES: dict[str, FieldStyle] = {
     # No clip: values <= 0 already become NaN before the log, and the 2/98
     # percentiles set the limits from the data, which is safer than pinning
     # a range across a field that spans many orders of magnitude.
-    # Greyscale, dark background to bright fronts: this is the field the
-    # labelled fronts are drawn on top of, and a coloured base competes
-    # with the colours identifying the fronts.  ``gray`` runs black at the
-    # minimum to white at the maximum, so the fronts read as the bright
-    # structure and the overlay colours stay legible.
+    # Same bar as the other squared gradients, so the four are comparable.
+    #
+    # Note the global maps keep gradb2 in greyscale -- see
+    # ``basemap._FIELD_CMAPS``.  That is a different job: there the field
+    # is a backdrop for the coloured front overlay, and a coloured base
+    # competes with it.  Here it is the subject.
     "gradb2": FieldStyle(
-        transform="log10", cmap="gray",
+        transform="log10", cmap="magma",
         title="log10(|grad b|^2 [s^-4])",
     ),
     "gradrho2": FieldStyle(
@@ -202,10 +218,14 @@ FIELD_STYLES: dict[str, FieldStyle] = {
         title="log10(|grad S|^2 [psu^2 m^-2])",
     ),
     "wB": FieldStyle(
-        # Signed vertical buoyancy flux (down/up-gradient); symlog + diverging
-        # map centred on 0, like okubo_weiss / Fs.  linthresh is a starting
-        # point -- retune per the field's magnitude if the centre washes out.
-        transform="symlog", cmap="RdBu_r",
+        # Signed vertical buoyancy flux (down/up-gradient).  cmocean's
+        # ``balance`` rather than RdBu_r: it is the oceanographic
+        # diverging map and is perceptually uniform either side of zero.
+        #
+        # The transform stays symlog, which is a separate question from
+        # the colormap: wB changes sign *and* spans decades, and a linear
+        # scale puts everything except the extremes at the midpoint.
+        transform="symlog", cmap="balance",
         title="symlog(wB [m^2 s^-3])", center=0.0, linthresh=1e-4,
     ),
 }
@@ -215,11 +235,43 @@ FIELD_STYLES: dict[str, FieldStyle] = {
 #: mapped to their current out-names.  Tiles already on disk keep their old
 #: variable name inside the NetCDF, so resolve through this before falling
 #: back to the default style.
+#: R_ib shares Ri's display policy exactly; only the label differs.  Set
+#: here rather than duplicated above so the two cannot drift apart.
+FIELD_STYLES["R_ib"] = _dc.replace(FIELD_STYLES["Ri"], title="R_ib")
+
+
 LEGACY_VAR_NAMES: dict[str, str] = {
     "vorticity": "relative_vorticity",
     "strain":    "strain_mag",
     "Fs":        "frontogenesis_tendency",
 }
+
+
+def resolve_cmap(name: str):
+    """Resolve a style's colormap name to something matplotlib accepts.
+
+    ``FieldStyle.cmap`` carries names for matplotlib *and* PyVista, and
+    the cmocean ones (``dense``, ``thermal``, ``haline``) are not
+    matplotlib names -- passing them straight to ``pcolormesh`` raises
+    ``ValueError: 'dense' is not a valid value for cmap``.  That made
+    every matplotlib panel fail for a density-styled field, which is
+    exactly the default on the Tiles page.
+
+    Returns a ``Colormap`` object, which every matplotlib entry point
+    accepts in place of a name.
+    """
+    import matplotlib as mpl
+
+    for candidate in (name, f"cmo.{name}"):
+        try:
+            return mpl.colormaps[candidate]
+        except (KeyError, AttributeError):
+            continue
+    try:
+        import cmocean
+        return getattr(cmocean.cm, name)
+    except Exception:                                       # noqa: BLE001
+        return mpl.colormaps["viridis"]
 
 
 def get_style(var_name: str) -> FieldStyle:

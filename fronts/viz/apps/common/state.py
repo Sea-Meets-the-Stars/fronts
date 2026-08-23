@@ -40,9 +40,25 @@ class PageState(param.Parameterized):
 
     def __init__(self, provider=None, **params):
         self._provider = provider or sources.get_provider()
-        params.setdefault("date", self._provider.dates()[0])
-        self.param.date.objects = self._provider.dates()
+        dates = self.offered_dates()
+        params.setdefault("date", dates[0])
+        self.param.date.objects = dates
         super().__init__(**params)
+
+    def offered_dates(self) -> list[str]:
+        """Dates this page offers: what the store has, narrowed by config.
+
+        The store listing on its own is not the answer -- a folder can
+        hold more timestamps than the build covers, and every page was
+        offering all of them because this read ``provider.dates()``
+        directly.  ``config.DATES`` is the allow-list; the intersection
+        keeps a configured date from appearing before it exists.
+        """
+        available = self._provider.dates()
+        allowed = list(config.DATES)
+        if not allowed:
+            return available
+        return [d for d in available if d in allowed] or available
 
     @property
     def provider(self):
@@ -181,7 +197,11 @@ class TilesState(PageState):
                                 default=["Ri"],
                                 doc="Up to three 3-D fields, compared "
                                     "side by side.")
-    field = param.Selector(objects=list(config.TILE_FIELDS_3D), default="Ri",
+    #: Field shown on the tile map.  Density by default: the isopycnal
+    #: control is the next thing the user touches, and the map is where
+    #: they read off which sigma values the volume actually contains.
+    field = param.Selector(objects=list(config.TILE_FIELDS_3D),
+                           default=config.TILE_GEOMETRY_FIELD,
                            doc="Field shown on the tile map.")
     show_fronts = param.Boolean(True, doc="Overlay the labelled fronts.")
     front_label = param.Integer(default=0, bounds=(0, None),
@@ -190,7 +210,68 @@ class TilesState(PageState):
                               doc="Offset rows per side in the offsets figure.")
     perp_half_width = param.Integer(default=30, bounds=(5, 120),
                                     doc="Half-width of the cross-front transect.")
+    #: Isopycnal for the depth map.  ``0`` means "use this volume's
+    #: median", resolved once a scene exists -- a fixed default would
+    #: often name a surface that is nowhere in the tile, and the map
+    #: would come back entirely gray.
+    sigma = param.Number(default=0.0, bounds=(0.0, 40.0),
+                         doc="Isopycnal for the depth map, kg/m^3.")
+
+    #: Field for the region map that sits beside the isopycnal depth --
+    #: chosen at the same step, before the per-column fields.
+    region_field = param.Selector(objects=list(config.TILE_FIELDS_3D),
+                                  default=config.TILE_GEOMETRY_FIELD,
+                                  doc="Field for the region overview map.")
+
+    #: Depth for the inset's second row.  0 keeps it at the surface, which
+    #: makes the second row a duplicate -- so it defaults deeper.
+    inset_depth = param.Number(default=-50.0, bounds=(-6000.0, 0.0),
+                               doc="Depth of the inset's second row, m.")
     dirty = param.Boolean(True, doc="Settings changed since the last build.")
+
+    #: Where along the front axis the cross-front transect is cut.
+    #: ``-1`` means "pick the field extremum", which is what the page did
+    #: before the plan view could be clicked.
+    perp_index = param.Integer(default=-1, bounds=(-1, None),
+                               doc="Axis vertex for the transect, -1 = auto.")
+
+    #: Locations for the vertical profiles, as (j, i) in the crop frame.
+    #: Cleared whenever the front changes: the same pixel on a different
+    #: front is a different place, so keeping them would quietly plot the
+    #: wrong column.
+    profile_points = param.List(default=[], item_type=tuple,
+                                doc="Up to MAX_PROFILES (j, i) locations.")
+    MAX_PROFILES = 5
+
+    #: What a click on the plan view does.
+    pick_mode = param.Selector(objects=["perpendicular", "profiles"],
+                               default="perpendicular",
+                               doc="What clicking the plan view sets.")
+
+    #: Stage 2 is stale.  Stage 1 (`dirty`) implies this; this never
+    #: implies stage 1 -- one arrow, so two buttons stay comprehensible.
+    sections_dirty = param.Boolean(True,
+                                   doc="Sections stale since the last build.")
+
+    @param.depends("perp_index", "profile_points", "perp_half_width",
+                   "n_offsets", watch=True)
+    def _stale_sections(self):
+        self.sections_dirty = True
+
+    @param.depends("front_label", watch=True)
+    def _clear_profiles(self):
+        self.profile_points = []
+        self.perp_index = -1
+
+    def add_profile_point(self, j: int, i: int) -> bool:
+        """Record a profile location.  False when already at the limit."""
+        if len(self.profile_points) >= self.MAX_PROFILES:
+            return False
+        self.profile_points = self.profile_points + [(int(j), int(i))]
+        return True
+
+    def clear_profile_points(self):
+        self.profile_points = []
 
     def __init__(self, provider=None, **params):
         super().__init__(provider=provider, **params)
@@ -214,7 +295,7 @@ class TilesState(PageState):
         return with_fronts or dates_3d
 
     @param.depends("region", "date", "fields", "front_label", "n_offsets",
-                   "perp_half_width", watch=True)
+                   "perp_half_width", "sigma", watch=True)
     def _mark_dirty(self):
         """Any change to the inputs stales the figures.
 
@@ -235,9 +316,11 @@ class TilesState(PageState):
         if len(self.fields) > self.MAX_FIELDS:
             self.fields = self.fields[-self.MAX_FIELDS:]
         elif not self.fields:
-            self.fields = [self.field]
-        if self.field not in self.fields:
-            self.field = self.fields[0]
+            self.fields = [config.TILE_GEOMETRY_FIELD]
+        # The map field is deliberately *not* forced into `fields`: the map
+        # is for orientation and reading the density range, the columns are
+        # the comparison.  Tying them meant choosing density on the map
+        # silently replaced a figure column.
 
     @property
     def region_obj(self) -> regions_mod.Region:
@@ -255,6 +338,12 @@ class TilesState(PageState):
         if r.tile_idx is not None:
             return r.tile_idx
         return _resolved_tile(self.provider, self.date, r.key)
+
+    def tile_index_of(self, region) -> int:
+        """The tile index for any region, not just the selected one."""
+        if region.tile_idx is not None:
+            return region.tile_idx
+        return _resolved_tile(self.provider, self.date, region.key)
 
     def select_front(self, label) -> bool:
         """Set the selected front.  Returns True when it changed."""
