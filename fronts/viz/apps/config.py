@@ -278,8 +278,10 @@ TILE_FIELDS_3D: tuple[str, ...] = (
     "frontogenesis_tendency",
     # potential vorticity
     "ertel_pv", "ertel_pv_vertical", "ertel_pv_tilt",
-    # tracers and derived scalars
-    "density", "buoyancy", "turner_angle", "Theta", "Salt", "KE",
+    # tracers and derived scalars.  KE is left out: it is built from the
+    # mixed-layer depth, so it exists at one level only and has nothing to
+    # section through.
+    "density", "buoyancy", "turner_angle", "Theta", "Salt",
     "gradb2", "gradrho2", "gradtheta2", "gradsalt2",
     # velocity and buoyancy fluxes.  ug / vg are surface-only for the same
     # reason as the frontogenesis split, so they are left out too.

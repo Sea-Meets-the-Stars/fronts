@@ -2530,3 +2530,73 @@ def test_region_field_map_draws_fronts_over_the_field():
     out = F.figure_region_field(scene, surface, labels,
                                 field_name="sigma0", lon=lon, lat=lat)
     assert out.exists() and out.stat().st_size > 0
+
+
+# ---------------------------------------------------------------------------
+# Tile dimension order
+# ---------------------------------------------------------------------------
+
+def test_field_values_puts_depth_first_whatever_the_stored_order():
+    """A ``(j, i, k)`` tile reads back as ``(k, j, i)``.
+
+    Tiles whose compute multiplies a 2-D field by a 3-D one come out
+    ``(j, i, k)`` -- xarray puts the first operand's dims first -- and get
+    written to the store that way.  The page must not care.
+    """
+    import xarray as xr
+    from fronts.viz.apps.tiles import pipeline
+
+    wrong = xr.Dataset(
+        {"field": (("j", "i", "k"), np.zeros((4, 5, 3)))})
+    right = xr.Dataset(
+        {"field": (("k", "j", "i"), np.zeros((3, 4, 5)))})
+
+    assert pipeline.field_values(wrong, "field").shape == (3, 4, 5)
+    assert pipeline.field_values(right, "field").shape == (3, 4, 5)
+
+
+def test_field_values_leaves_two_dimensional_fields_alone():
+    import xarray as xr
+    from fronts.viz.apps.tiles import pipeline
+
+    ds = xr.Dataset({"XC": (("j", "i"), np.zeros((4, 5)))})
+    assert pipeline.field_values(ds, "XC").shape == (4, 5)
+
+
+def test_remap_to_rect_names_the_shape_it_got():
+    """A misordered array must say so, not raise an opaque index error."""
+    from fronts.viz.apps.tiles import pipeline
+
+    j_face = np.zeros((4, 5), dtype=int)
+    i_face = np.arange(5)[None, :].repeat(4, 0)
+
+    with pytest.raises(ValueError, match=r"\(4, 5, 3\)"):
+        pipeline.remap_to_rect(np.zeros((4, 5, 3)), (j_face, i_face))
+
+
+def test_build_reports_every_column_failing_instead_of_crashing(monkeypatch):
+    """All columns failing must land in the status line, not a traceback.
+
+    The status line used to read the per-column ``wanted`` set after the
+    loop.  When every column raised, the loop skipped past that
+    assignment and the status line -- the one place that would have said
+    which field broke and why -- raised ``UnboundLocalError``, hiding the
+    real error behind an unretrieved asyncio task.
+    """
+    from fronts.viz.apps.common import sources
+    from fronts.viz.apps.tiles import app as tiles_app
+
+    page = tiles_app.TilesPage(provider=sources.get_provider())
+
+    def boom(*a, **k):
+        raise ValueError("no such tile")
+
+    monkeypatch.setattr(tiles_app.pipeline, "build_scene", boom)
+    page._scenes.clear()
+
+    page._build(page._token)                                # must not raise
+
+    status = page._build_status.object
+    assert "failed" in status
+    assert "no such tile" in status
+    assert "figures:" not in status                    # nothing was built

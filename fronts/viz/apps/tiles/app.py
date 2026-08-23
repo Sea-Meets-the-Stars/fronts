@@ -365,11 +365,11 @@ class TilesPage:
             # and fronts_viz_3d already use.
             lookup = pipeline.tile_lookup(ds, synthetic=s.provider.synthetic)
             surface = pipeline.remap_to_rect(
-                np.asarray(ds[var].values), lookup)[0]
+                pipeline.field_values(ds, var), lookup)[0]
             tile_lon = pipeline.remap_to_rect(
-                np.asarray(ds["XC"].values), lookup) % 360.0
+                pipeline.field_values(ds, "XC"), lookup) % 360.0
             tile_lat = pipeline.remap_to_rect(
-                np.asarray(ds["YC"].values), lookup)
+                pipeline.field_values(ds, "YC"), lookup)
 
             # Row/column centres of the tile's own coordinates, so every
             # layer below is in degrees rather than pixel counts.
@@ -639,6 +639,11 @@ class TilesPage:
         # meant that picking anything before the first build left the
         # panels nothing marked stale (inset, offsets) permanently empty.
         all_keys = {"inset", *SECTION_KEYS}
+        #: Accumulated across columns rather than read off the loop
+        #: variable at the end: if every field fails, the loop `continue`s
+        #: before `wanted` is ever bound and the status line -- the one
+        #: place that would have said *why* -- raises instead.
+        built_keys: set[str] = set()
 
         for field in fields:
             if token != self._token:
@@ -658,12 +663,14 @@ class TilesPage:
                         pane.objects = [widgets.error_card(exc, field)]
                     else:
                         pane.object = None
+                        pane.alt_text = f"{field} failed: {exc}"
                     pane.loading = False
                 continue
 
             self._scenes[field] = scene
             wanted = (all_keys if field not in self._built_fields
                       else (set(self._stale_keys) or all_keys))
+            built_keys |= wanted
 
             if shared_index is None:
                 # The axis comes from density, so the plan view's pick
@@ -719,8 +726,12 @@ class TilesPage:
         if shared_index is not None:
             parts.append(f"shared transect at column {shared_index}")
         if failed:
-            parts.append(f"{len(failed)} failed")
-        parts.append("figures: " + ", ".join(sorted(wanted)))  # last field
+            # Name them.  A bare count sent you to the terminal to find
+            # out which column broke and why.
+            parts.append("failed: " + "; ".join(
+                f"**{f}** ({type(e).__name__}: {e})" for f, e in failed))
+        if built_keys:
+            parts.append("figures: " + ", ".join(sorted(built_keys)))
         self._build_status.object = " · ".join(parts)
         self._stale_keys.clear()
         self.w_sections.button_type = "default"
@@ -824,7 +835,7 @@ class TilesPage:
             lookup = pipeline.tile_lookup(ds, synthetic=s.synthetic)
             var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
             surface = pipeline.remap_to_rect(
-                np.asarray(ds[var].values), lookup)[0]
+                pipeline.field_values(ds, var), lookup)[0]
             path = F.figure_region_field(
                 scene, surface, ctx.get("tile_labels"),
                 field_name=var,
@@ -855,9 +866,11 @@ class TilesPage:
             lookup = pipeline.tile_lookup(ds, synthetic=s.synthetic)
             var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
             sigma0 = pipeline.remap_to_rect(
-                np.asarray(ds[var].values), lookup)
-            XC = pipeline.remap_to_rect(np.asarray(ds["XC"].values), lookup)
-            YC = pipeline.remap_to_rect(np.asarray(ds["YC"].values), lookup)
+                pipeline.field_values(ds, var), lookup)
+            XC = pipeline.remap_to_rect(
+                pipeline.field_values(ds, "XC"), lookup)
+            YC = pipeline.remap_to_rect(
+                pipeline.field_values(ds, "YC"), lookup)
             labels = pipeline.tile_labels(s.provider, s.date, idx,
                                           sigma0.shape[1:], ds=ds,
                                           region=s.region)

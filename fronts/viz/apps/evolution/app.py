@@ -31,6 +31,7 @@ from fronts.viz.apps import config
 from fronts.viz.apps.common import basemap, widgets
 from fronts.viz.apps.common.state import PageState
 from fronts.viz.apps.evolution import pipeline as EP
+from fronts.viz.apps.tiles import pipeline as TP
 from fronts.viz.apps.evolution import timeseries as TS
 
 hv.extension("bokeh")
@@ -353,7 +354,7 @@ class EvolutionPage:
             # were detected on.
             ds = s.provider.chunk_tile(s.chunk, step, CHUNK_MAP_FIELD)
             var = ds.attrs.get("tile_var_name") or list(ds.data_vars)[0]
-            surface = np.asarray(ds[var].values)[0]
+            surface = TP.field_values(ds, var)[0]
         except Exception as exc:                            # noqa: BLE001
             self._chunkmap.object = None
             self._status.object = (

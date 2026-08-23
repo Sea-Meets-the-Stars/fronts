@@ -174,6 +174,34 @@ def tile_labels(provider, date: str, tile_idx: int, shape, ds=None,
     return np.asarray(labels[js, iss])
 
 
+#: The order every consumer here assumes for a 3-D tile variable.
+VERTICAL_DIMS = ("k", "k_l", "k_u", "k_p1", "Z", "Zl")
+
+
+def field_values(ds, name):
+    """A tile variable as numpy, with the vertical axis first.
+
+    Dim *order* is not guaranteed by anything upstream: a compute that
+    multiplies a 2-D field by a 3-D one comes back as ``(j, i, k)``,
+    because xarray puts the first operand's dims first.  That array then
+    reaches ``remap_to_rect``, which indexes positionally, and fails with
+    an opaque ``index 51 is out of bounds for axis 2 with size 51``.
+
+    Reading the order off the DataArray instead of assuming it makes the
+    page immune to that, including for tiles already written to the store
+    in the wrong order.
+    """
+    da = ds[name] if hasattr(ds, "__getitem__") else ds
+    dims = list(da.dims)
+
+    vertical = [d for d in dims if d in VERTICAL_DIMS]
+    if not vertical:
+        return np.asarray(da.values)
+
+    horizontal = [d for d in dims if d not in vertical]
+    return np.asarray(da.transpose(*vertical, *horizontal).values)
+
+
 def remap_to_rect(arr, lookup=None):
     """Map a face-local array onto the rect frame.
 
@@ -185,6 +213,19 @@ def remap_to_rect(arr, lookup=None):
     if lookup is None:
         return arr
     j_face, i_face = lookup
+
+    # Check the axes being indexed before indexing them, so a wrongly
+    # ordered array says so rather than raising an out-of-bounds index
+    # that names the vertical size and explains nothing.
+    plane = arr.shape[-2:]
+    if plane[0] <= int(j_face.max()) or plane[1] <= int(i_face.max()):
+        raise ValueError(
+            f"remap_to_rect got an array shaped {arr.shape}: its last two "
+            f"axes must be (j, i) and large enough for the lookup "
+            f"({int(j_face.max()) + 1}, {int(i_face.max()) + 1}).  A 3-D "
+            "tile variable must be (k, j, i) -- use field_values() to read "
+            "it rather than .values.")
+
     if arr.ndim == 2:
         return arr[j_face, i_face]
     return arr[:, j_face, i_face]
@@ -233,10 +274,10 @@ def build_scene(
         lookup = tile_lookup(ds_rho, synthetic=provider.synthetic)
 
     # 2 -- remap onto the rect frame.
-    sigma0 = remap_to_rect(np.asarray(ds_rho[rho_var].values), lookup)
-    colour = remap_to_rect(np.asarray(ds_fld[fld_var].values), lookup)
-    XC = remap_to_rect(np.asarray(ds_rho["XC"].values), lookup)
-    YC = remap_to_rect(np.asarray(ds_rho["YC"].values), lookup)
+    sigma0 = remap_to_rect(field_values(ds_rho, rho_var), lookup)
+    colour = remap_to_rect(field_values(ds_fld, fld_var), lookup)
+    XC = remap_to_rect(field_values(ds_rho, "XC"), lookup)
+    YC = remap_to_rect(field_values(ds_rho, "YC"), lookup)
     Z = np.asarray(ds_rho["Z"].values)
 
     # 3 -- labels for this window.
