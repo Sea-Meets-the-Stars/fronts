@@ -13,7 +13,6 @@ roughly 15 degrees.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 from fronts.viz.apps import config
@@ -86,34 +85,14 @@ def nearest(lat: float, lon: float, *, max_deg: float = 25.0) -> Region | None:
 # --------------------------------------------------------------------------
 
 def _import_tile_mapping():
-    """Import the preprocessing repo's ``tile_mapping``, robustly.
+    """Import the preprocessing repo's ``tile_mapping``.
 
-    Resolution order matches ``dev/mld/density_utils.py``: the installed
-    ``dbof`` package first, then ``LLC4320_PREPROC_SRC``.
+    Path resolution lives in :func:`config.ensure_dbof`, so every entry
+    point fails the same way with the same advice.
     """
-    try:
-        from dbof.tiles import tile_mapping
-        return tile_mapping
-    except ImportError:
-        pass
-
-    src = os.environ.get("LLC4320_PREPROC_SRC")
-    if src:
-        import sys
-        for cand in (src, os.path.join(src, "src")):
-            if os.path.isdir(cand) and cand not in sys.path:
-                sys.path.insert(0, cand)
-        try:
-            from dbof.tiles import tile_mapping
-            return tile_mapping
-        except ImportError:
-            pass
-
-    raise ImportError(
-        "Could not import dbof.tiles.tile_mapping.  Either `pip install -e` "
-        "the llc4320-native-grid-preprocessing repo, or set "
-        "LLC4320_PREPROC_SRC to its src/ directory."
-    )
+    config.ensure_dbof()
+    from dbof.tiles import tile_mapping
+    return tile_mapping
 
 
 def resolve_tile(region: Region, latlon_to_ij) -> int:

@@ -293,6 +293,45 @@ TILE_GEOMETRY_FIELD = "density"
 
 
 # --------------------------------------------------------------------------
+# The preprocessing repo
+# --------------------------------------------------------------------------
+def ensure_dbof() -> None:
+    """Make ``dbof`` importable, or say exactly how to fix it.
+
+    Resolution order is the one ``dev/mld/density_utils.py`` already uses:
+    the installed package first, then ``LLC4320_PREPROC_SRC``.  Idempotent,
+    so it is cheap to call from every entry point.
+
+    This exists because the failure it replaces was a bare
+    ``ModuleNotFoundError: No module named 'dbof'`` raised four frames deep
+    inside a page build, which says nothing about the actual cause -- an
+    interpreter without the repo, usually the wrong conda env.  Naming the
+    interpreter is what makes that obvious.
+    """
+    import importlib.util
+    import sys
+
+    if importlib.util.find_spec("dbof") is not None:
+        return
+
+    src = os.environ.get("LLC4320_PREPROC_SRC")
+    if src:
+        for cand in (src, os.path.join(src, "src")):
+            if os.path.isdir(cand) and cand not in sys.path:
+                sys.path.insert(0, cand)
+        importlib.invalidate_caches()
+        if importlib.util.find_spec("dbof") is not None:
+            return
+
+    raise ModuleNotFoundError(
+        "the llc4320-native-grid-preprocessing package (`dbof`) is not "
+        f"importable from this interpreter:\n    {sys.executable}\n"
+        "Either activate the environment it is installed in, `pip install "
+        "-e` the repo, or set LLC4320_PREPROC_SRC to its src/ directory."
+    )
+
+
+# --------------------------------------------------------------------------
 # Sea ice
 # --------------------------------------------------------------------------
 #: Cells under sea ice carry values that are not comparable with the open

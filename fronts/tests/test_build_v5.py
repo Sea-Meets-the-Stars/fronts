@@ -1630,3 +1630,33 @@ def test_comodo_puts_the_staggered_point_at_the_lower_face():
         f"interp put centre 0 at {out.values[0]}, so i_g is being read as the "
         f"upper face; the velocity fields would be off by one cell")
     assert out.values[1] == 15.0
+
+def test_push_finds_products_in_per_tile_subdirectories(tmp_path):
+    """Tile co-location writes one level deeper, and those files must ship.
+
+    colocate_tile puts its parquet in {timestamp_dir}/tile{idx:03d}/, so a
+    listing that only reads the timestamp directory silently uploads nothing
+    for a tile run.  The checkpoint cache sits at the same depth and must stay
+    out of it.
+    """
+    from fronts.llc import publish as llc_publish
+
+    ts_dir = tmp_path / "20120629_120000"
+    (ts_dir / "tile120").mkdir(parents=True)
+    (ts_dir / "colocate_ckpt_V5_bfronts").mkdir()
+
+    (ts_dir / "LLC4320_2012-06-29T12_00_00_V5_bfronts.npy").touch()
+    (ts_dir / "tile120" /
+     "front_properties_20120629T12_00_00_V5_bfronts.parquet").touch()
+    (ts_dir / "colocate_ckpt_V5_bfronts" / "density.parquet").touch()
+    (ts_dir /
+     "front_properties_20120629T12_00_00_v2_2_01_bfronts.parquet").touch()
+
+    got = [os.path.relpath(f, ts_dir)
+           for f in llc_publish.list_products(str(ts_dir), file_tag="V5")]
+
+    assert os.path.join("tile120",
+                        "front_properties_20120629T12_00_00_V5_bfronts.parquet") in got
+    assert "LLC4320_2012-06-29T12_00_00_V5_bfronts.npy" in got
+    assert not any("ckpt" in g for g in got), "checkpoint fragments are not products"
+    assert not any("v2_2_01" in g for g in got), "another dataset's file was picked up"

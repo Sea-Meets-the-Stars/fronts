@@ -20,6 +20,7 @@ from fronts.viz.apps.common.sources import DataProvider, NotWiredUp
 
 
 def _readers():
+    config.ensure_dbof()
     from dbof.global_dataset_creation.zarr_dataset_global import (
         GlobalZarrDatasetReader)
     from dbof.global_dataset_creation.zarr_grid_global import (
@@ -35,6 +36,7 @@ def _filesystems():
 
 
 def _subset_names(pipeline: str) -> list[str]:
+    config.ensure_dbof()
     from dbof.global_dataset_creation import subset_definitions as sd
     table = (sd.DEPTH_SUBSETS if pipeline == "DEPTH" else sd.SURFACE_SUBSETS)
     return [d["dataset_name"] for d in table.values()]
@@ -178,16 +180,22 @@ class S3Provider(DataProvider):
         return sorted(p.rsplit("/", 1)[-1] for p in fs_sync.ls(base))
 
     def chunk_timesteps(self, chunk: str) -> list[str]:
-        _, fs_sync = _filesystems()
-        base = f"{config.S3_BUCKET}/{config.CHUNK_FOLDER}/{chunk}"
-        out = []
-        for path in fs_sync.ls(base):
-            name = path.rsplit("/", 1)[-1]
-            if name.endswith(".zarr"):
-                stamp = name[:-5]                      # 20120629T12
-                out.append(f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}"
-                           f"T{stamp[9:11]}_00_00")
-        return sorted(out)
+        """Chunk snapshots that also have fronts, in time order.
+
+        The chunk folder holds every transferred snapshot, but fronts were
+        not found for all of them -- Monterey has 18 stores and 17 sets of
+        fronts.  Offering a step whose fronts are missing puts the failure
+        in the middle of a movie build instead of before it, so the
+        listing is intersected here.  ``has_fronts`` only lists a prefix,
+        so this costs one listing per snapshot and no grid-sized reads.
+
+        The cadence is **not** uniform: each chunk is a week of daily
+        snapshots wrapped around one intensive day (3-hourly for Monterey,
+        hourly for Scotia).  Anything that treats a step index as a
+        constant time increment is wrong -- use the timestamps.
+        """
+        return list(_chunk_times(chunk, self.fronts_folder,
+                                 self.fronts_run_id))
 
     def chunk_tile(self, chunk: str, step: int, prop: str):
         times = self.chunk_timesteps(chunk)
@@ -197,8 +205,47 @@ class S3Provider(DataProvider):
         return _chunk_centre(chunk)
 
     def chunk_labels(self, chunk: str, step: int):
-        raise NotWiredUp("labelled fronts for chunks",
-                         "Fronts have not been found for the chunk window.")
+        """Labelled fronts for one chunk step.
+
+        There is no chunk-specific front product: a chunk is floored onto
+        the 720-cell tile lattice, so it *is* a rect tile, and the fronts
+        for its timestamp are the global ones sliced to that window --
+        exactly what ``pipeline.tile_labels`` does for a tile.
+
+        Labels are assigned per date, so the same physical front carries a
+        different label at every step.  Nothing here tries to hide that;
+        following a front across steps is ``evolution.tracking``'s job.
+        """
+        times = self.chunk_timesteps(chunk)
+        if not times:
+            raise NotWiredUp(f"front-bearing timesteps for chunk {chunk!r}",
+                             "No snapshot in this chunk has fronts.")
+        date = times[int(step)]
+
+        # Cache the 720x720 *window*, not the global plane it came from.
+        # The label product is one 0.9 GB .npy with no partial reads, so
+        # the first visit to a step costs a full download -- but a chunk
+        # has ~17 steps, which is ~15 GB of global planes: more than the
+        # cache cap, so they would evict each other and every revisit
+        # would pay again.  The slices are ~2 MB each and all fit.
+        key = cache.make_key("chunk-labels-v1", self.fronts_folder,
+                             self.fronts_run_id, chunk, date)
+
+        def build():
+            js, iss = _chunk_window(chunk)
+            path = _product_path(self.fronts_folder, self.fronts_run_id,
+                                 date, "labels")
+            try:
+                return _product_window(path, js, iss)
+            except Exception as exc:                        # noqa: BLE001
+                # Fall back to the whole plane rather than failing: the
+                # band read depends on the .npy layout, and being slow is
+                # better than being broken if that ever changes.
+                print(f"[chunk_labels] band read failed ({exc}); "
+                      "falling back to the full plane", flush=True)
+                return np.asarray(self.labels(date)[js, iss])
+
+        return cache.array(key, build)
 
 
 # --------------------------------------------------------------------------
@@ -279,6 +326,54 @@ def _product_array(folder, run_id, date: str, kind: str) -> np.ndarray:
     return cache.array(cache.make_key("product", path), build)
 
 
+def _product_window(path: str, j_slice: slice, i_slice: slice) -> np.ndarray:
+    """Read only the rows a window needs out of a grid-sized ``.npy``.
+
+    The label map is 12960 x 17280 of **int64** -- ``measure.label``
+    returns ``np.intp`` and nothing downcasts it -- so the file is 1.67 GB
+    even though it is ~99% zeros, because ``.npy`` is uncompressed.  A
+    720-cell window is 4 MB of that, and pulling 1.67 GB to keep 4 MB is
+    what made an Evolution build spend twenty minutes downloading.
+
+    A C-order ``.npy`` stores rows contiguously, so the window's rows are
+    one contiguous byte range: seek past the header, read 720 rows
+    (95 MB, 5.6% of the file), then take the columns in memory.  An 18x
+    saving for a range request and no change to what is published.
+
+    Columns cannot be narrowed the same way -- they are strided -- so 95 MB
+    is the floor for this file layout.  Publishing the labels as a chunked,
+    compressed store instead would make it ~4 MB, but that is a change to
+    the products rather than to the app.
+    """
+    _, fs_sync = _filesystems()
+    with fs_sync.open(path, "rb") as fh:
+        version = np.lib.format.read_magic(fh)
+        if version == (1, 0):
+            shape, fortran, dtype = np.lib.format.read_array_header_1_0(fh)
+        elif version == (2, 0):
+            shape, fortran, dtype = np.lib.format.read_array_header_2_0(fh)
+        else:
+            raise ValueError(f"unsupported .npy version {version} for {path}")
+
+        if fortran or len(shape) != 2:
+            raise ValueError(
+                f"{path} is not a C-order 2-D array (shape={shape}, "
+                f"fortran={fortran}); a row-range read would be wrong")
+
+        start = int(j_slice.start or 0)
+        stop = int(j_slice.stop if j_slice.stop is not None else shape[0])
+        stop = min(stop, shape[0])
+        if start >= stop:
+            raise ValueError(f"empty row range {j_slice} for shape {shape}")
+
+        row_bytes = int(shape[1]) * dtype.itemsize
+        fh.seek(fh.tell() + start * row_bytes)
+        raw = fh.read((stop - start) * row_bytes)
+
+    rows = np.frombuffer(raw, dtype=dtype).reshape(stop - start, shape[1])
+    return np.ascontiguousarray(rows[:, i_slice])
+
+
 @lru_cache(maxsize=8)
 def _product_table(folder, run_id, date: str, kind: str) -> pd.DataFrame:
     """A parquet product.  Small enough to keep in memory."""
@@ -340,6 +435,7 @@ def _generate_tile(date: str, tile_idx: int, prop: str, chunk: str | None):
     out, the same steps are composed here from helpers that exist on every
     branch -- steps 1-7 of ``run``, stopping before it saves.
     """
+    config.ensure_dbof()
     from dbof.tiles import tile_utils as T
 
     stamp = date.replace("T", " ").replace("_", ":")
@@ -376,6 +472,36 @@ def _compose_tile(T, stamp: str, i_rect: int, j_rect: int, prop_name: str):
     )
 
 
+#: The comodo annotations xgcm uses to find its horizontal axes.
+#:
+#: On the global grid these are stamped at load time by
+#: ``get_llc_depth_gridfile``.  A chunk's own ``grid.zarr`` comes back
+#: without them -- coordinate attrs do not survive the transfer -- so
+#: ``Grid()`` silently finds zero axes and ``_build_tile_context`` raises
+#: "missing axes ['X', 'Y']" for every step of every chunk.  Same values
+#: as the preprocessing repo uses, so the two cannot drift apart.
+_COMODO_ATTRS = {
+    "j": {"axis": "Y"},
+    "j_g": {"axis": "Y", "c_grid_axis_shift": 0.5},
+    "i": {"axis": "X"},
+    "i_g": {"axis": "X", "c_grid_axis_shift": 0.5},
+}
+
+
+def _stamp_comodo(grid):
+    """Put the xgcm axis annotations back on a chunk grid."""
+    import xarray as xr
+
+    updates = {}
+    for dim, attrs in _COMODO_ATTRS.items():
+        if dim not in grid.dims:
+            continue
+        existing = (grid.coords[dim] if dim in grid.coords
+                    else xr.DataArray(np.arange(grid.sizes[dim]), dims=dim))
+        updates[dim] = existing.assign_attrs(attrs)
+    return grid.assign_coords(updates) if updates else grid
+
+
 def _chunk_stores(chunk: str, date: str):
     """The chunk's timestep store and its own grid, as Datasets.
 
@@ -383,6 +509,8 @@ def _chunk_stores(chunk: str, date: str):
     to do -- which is the only thing ``tile_utils`` would have added.
     Reading the two stores here keeps the chunk path off the branch that
     carries ``run(chunk=True)``.
+
+    The grid needs repair on the way through: see :data:`_COMODO_ATTRS`.
     """
     import xarray as xr
 
@@ -395,7 +523,11 @@ def _chunk_stores(chunk: str, date: str):
         ds = ds.isel(time=0, drop=True)
     grid = xr.open_zarr(
         fs.get_mapper(f"{base}/{config.CHUNK_GRID_STORE}")).compute()
-    return ds.compute(), grid
+
+    # Only the comodo repair.  Do NOT drop the `face` dimension:
+    # compute_tile_property selects on it, so removing it fails with
+    # "Dimensions {'face'} do not exist" for every step.
+    return ds.compute(), _stamp_comodo(grid)
 
 
 def _compose_chunk_tile(T, chunk: str, date: str, prop_name: str):
@@ -438,6 +570,64 @@ def _chunk_centre(chunk: str) -> tuple[float, float]:
              f"{config.CHUNK_GRID_STORE}")
     grid = xr.open_zarr(fs.get_mapper(store))
     return float(grid.YC.mean()), float(grid.XC.mean())
+
+
+@lru_cache(maxsize=8)
+def _chunk_times(chunk: str, fronts_folder: str, fronts_run_id: str):
+    """Chunk snapshots that have fronts, as a tuple so it can be cached."""
+    _, fs_sync = _filesystems()
+    base = f"{config.S3_BUCKET}/{config.CHUNK_FOLDER}/{chunk}"
+
+    stamps = []
+    for path in fs_sync.ls(base):
+        name = path.rsplit("/", 1)[-1]
+        if name.endswith(".zarr") and name != config.CHUNK_GRID_STORE:
+            stamp = name[:-5]                              # 20120629T12
+            stamps.append(f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}"
+                          f"T{stamp[9:11]}_00_00")
+
+    out = []
+    for date in sorted(stamps):
+        try:
+            _product_path(fronts_folder, fronts_run_id, date, "labels")
+        except NotWiredUp:
+            continue
+        out.append(date)
+    return tuple(out)
+
+
+@lru_cache(maxsize=8)
+def _chunk_window(chunk: str):
+    """The chunk's window on the global rect grid, as ``(j_slice, i_slice)``.
+
+    Derived the same way :func:`_compose_chunk_tile` derives the tile
+    identity -- centre from the chunk's own grid, then the enclosing tile
+    -- so the labels and the data cannot disagree about where the chunk is.
+
+    **This is expensive and the answer is four integers**, so it is cached
+    on disk rather than only per process.  Resolving a lat/lon on the rect
+    grid means a search -- the grid is stitched from rotated faces, so
+    there is no formula -- and that search reads both 0.9 GB coordinate
+    planes and makes several full-size temporaries.  Paying ~2 GB once per
+    chunk ever is fine; paying it on the first click after every server
+    restart is what made *Load chunk* look hung.
+    """
+    key = cache.make_key("chunk-window-v1", chunk)
+
+    def build():
+        config.ensure_dbof()
+        from dbof.tiles import tile_utils as T
+        from fronts.viz.apps.common import regions as regions_mod
+
+        lat, lon = _chunk_centre(chunk)
+        i_rect, j_rect = regions_mod.nearest_ij(
+            _grid_plane("XC"), _grid_plane("YC"), lat, lon)
+        info = T.rect_ij_to_tile(i_rect, j_rect)
+        return np.array([info.rect_j_slice.start, info.rect_j_slice.stop,
+                         info.rect_i_slice.start, info.rect_i_slice.stop])
+
+    j0, j1, i0, i1 = (int(v) for v in cache.array(key, build))
+    return slice(j0, j1), slice(i0, i1)
 
 
 def _tile_origin(tile_idx: int) -> tuple[int, int]:

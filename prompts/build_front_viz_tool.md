@@ -4,15 +4,15 @@ Four browser pages for exploring LLC4320 fronts, served by one
 `panel serve` process out of `fronts/viz/apps/`. Every page has the same
 shape: **global map → pick something → get figures for it.**
 
-Three of the four are built and in use. Evolution is specified but not
-finished; its section below is the outstanding work.
+Three of the four are built and in use. Evolution is part-built; §8 is
+the outstanding work and says what is already done.
 
 | Page | Route | What you look at | Status |
 |---|---|---|---|
 | **Field Characteristics** | `/surface` | statistics of a field over a lat/lon box you draw | built |
 | **Bivariate** | `/bivariate` | fronts coloured by a two-field scheme | built |
 | **Tiles** | `/tiles` | one front inside a 720×720 tile, in section and in 3-D | built |
-| **Evolution** | `/evolution` | one front over 24 hours, as a movie | **to build** |
+| **Evolution** | `/evolution` | one front over a week of snapshots, as a movie | **in progress** |
 
 A Depth twin of Field Characteristics, and a Depth mode for Bivariate,
 are complete and tested but not served — they are hidden by
@@ -360,27 +360,170 @@ Profiles are cleared per front because the points are picked in the
 front's *crop* frame: on a different front the same pixel is a different
 place, so keeping them would silently plot the wrong column.
 
-### Still to settle
+### The window is a week, not a day
 
-**Front tracking is the hard part, and it is a design question, not a
-bug.** Fronts are labelled per timestep, so the same physical front has a
-different label in every frame. A movie that follows a *label* will jump
-to an unrelated front. So the movie must anchor on the front's **lat/lon
-location** and keep that window, accepting that the label changes
-underneath it.
+Neither chunk is 24 hourly steps. Each is a **week of daily snapshots
+wrapped around one intensive day**:
 
-The rest of the outstanding asks:
+| chunk | steps | shape |
+|---|---|---|
+| `monterey_bay` | 17 | daily 06-29 → 07-07, **3-hourly** through 07-03 |
+| `southern_ocean_scotia_sea` | 20 | daily 10-31 → 11-07, **hourly** through 11-03 |
 
-- **(a)** the global map shows both regions outlined in red with `gradb2`
-  in the background; *Load chunk* has a progress bar, and finishing it
-  updates the "chunk at this step" map automatically;
-- **(b)** the chunk figure for one timestep: `gradb2` in the background
-  at higher resolution, with the fronts plotted over it;
-- a **date** control alongside the chunk control — which timestep the
-  regional map shows should be explicit, not implied;
-- `include_3d` must actually be configurable.
+All of them play, so the **datestamp is drawn at the top of every frame**
+— without it there is no way to tell that the interval between frames
+just changed by a factor of eight. For the same reason the time series
+are plotted against **real time, not step index**: on a step axis the
+intensive day is squeezed into the width of one daily gap, which hides
+the only part with any time resolution in it.
 
----
+`EVOLUTION_N_STEPS` and `EVOLUTION_START` are synthetic-mode only. They
+name a date neither chunk uses, so they are labelled as such rather than
+read as real config.
+
+### Fronts come from the global products
+
+There is no chunk-specific front detection, and none is needed. A chunk
+is floored onto the 720-cell tile lattice, so it **is** a rect tile, and
+its fronts are the global ones for that timestamp sliced to that window —
+the same thing `pipeline.tile_labels` does for a tile.
+
+`chunk_timesteps` intersects the chunk store listing with the timestamps
+that actually have a `Fronts/` store, so a snapshot without fronts
+(2012-07-09 for Monterey) disappears from the selector instead of failing
+in the middle of a movie build.
+
+### Following a front: location, not label
+
+Labels are assigned per date, so the same physical front is called
+something different in every frame. Following a *label* jumps to an
+unrelated front. `evolution/tracking.py` follows position instead:
+
+```mermaid
+flowchart LR
+    A["pick a front<br/>at the anchor step"] --> B["Anchor:<br/>centroid + frozen window"]
+    B --> C["walk outward,<br/>each step compared<br/>with the last one found"]
+    C --> D["nearest candidate<br/>within the drift radius"]
+    D --> E["Track: {step: label}<br/>gaps left as gaps"]
+```
+
+Three decisions carry the design:
+
+**The search radius scales with elapsed time, not step count.** This is
+what the uneven cadence forces. Across one hour a front moves ~2 km
+against ~2 km cells; across a day it moves 40 km and overlaps nothing. A
+single fixed radius would either drop every daily link or grab a
+neighbouring front inside the intensive day. So the radius is
+`MAX_DRIFT_MS × Δt`, from the timestamps.
+
+**Chain step to step, not back to the anchor.** Comparing every step with
+the anchor loses the front as soon as it advects its own width. Chaining
+follows the advection. Mask overlap breaks ties, which only matters
+inside the dense day — across a daily gap there is usually no overlap to
+break anything with.
+
+**The frozen window is a display crop, not a search gate.** A front that
+drifts out of shot over a week is still the same front, so gating the
+search on the window would turn a display limitation into missing data.
+`Track.first_escape` reports the step where the front leaves the frame,
+so the page can say so.
+
+Where nothing is close enough the step is a **gap** — the window is shown
+with no front highlighted. A movie with a hole in it is honest; one that
+confidently highlights the wrong front is not. A gap does not end the
+track: the reference is kept, so the front can be re-acquired later.
+
+### What the frozen window buys elsewhere
+
+`build_step` currently re-crops per front per step, which is why
+`shared_settings` exists — a hack to pin `perp_index` and `clim` so the
+movie neither jumps nor pulses. A window frozen at the anchor gives all of
+that for free: constant crop, constant axes, one colour range, and most of
+`shared_settings` goes away. `perp_index` becomes a **fraction along the
+axis** rather than an absolute column, so it means the same place as the
+axis length changes.
+
+### Page structure — three stages, like Tiles
+
+Evolution mirrors the Tiles flow. Each button builds only its own
+figures, which is what keeps the cost honest: nothing renders a curtain
+until you are in the transect section.
+
+```mermaid
+flowchart TB
+    A["chunk · timestep"] -->|"Load chunk"| B["(a) region at one step:<br/>density + all fronts labelled"]
+    B --> C["front · isopycnal sigma · region-map field"]
+    C -->|"Build region movie"| D["(b) isopycnal-depth movie<br/>+ region-field movie<br/>whole region, 2 renders/frame"]
+    D --> E["plan view: transect fraction<br/>+ profile points"]
+    E -->|"Build sections"| F["(c) section movie + time series<br/>uses the field chosen in (b)"]
+```
+
+**(a)** is one step, not a movie: the region with density behind it and
+every front labelled. The *global* overview keeps `gradb2` — that is the
+field the fronts were detected on. Anything else in the region figure
+comes from (b)'s field selector.
+
+**(b)** is the whole region, not a front crop, so it needs no curtains and
+no 3-D: two renders a frame. The selected front is drawn **red in every
+frame** via the tracker while the others stay cyan, which doubles as a
+visual check that the tracking works before any sections get built. A
+tracking gap draws no red front rather than guessing one.
+
+**(c)** has no "fields (max 3)" selector — Evolution is one field at a
+time, the one chosen in (b). Two things differ from Tiles here, and both
+follow from the frame being frozen:
+
+* **Profile points are fixed in lat/lon**, not in crop pixels. They are
+  currently picked in the front's crop frame, which moves with the front;
+  anchoring them geographically is what makes "the same location
+  throughout" actually true.
+* **The transect is a fraction along the front, not a column index.** You
+  set "40% along" once; because the front's length and shape change every
+  step, the transect walks with it. This is the `perp_index`-as-a-fraction
+  change — for Evolution it stops being an optimisation and becomes the
+  feature.
+
+The time series are built here too, not on load: they walk every step, so
+they belong with the only other thing that does.
+
+**No 3-D frame.** A fixed-camera still cost about as much as the other
+five figures together and read worst of all of them as a movie. The 3-D
+scene stays on Tiles, where it is interactive and built once.
+
+### Order of work
+
+| # | Step | State |
+|---|---|---|
+| 1 | `chunk_labels` + front-bearing `chunk_timesteps` | **done** |
+| 2 | `evolution/tracking.py`, tested headlessly | **done** |
+| 3 | drop the 3-D frame | **done** |
+| 4 | `load_chunk` off the server thread, per-stage timings | **done** |
+| 5 | three-stage layout: (a) region figure, (b) region movie, (c) sections | to do |
+| 6 | freeze the crop in `build_step`; transect as a fraction | to do |
+| 7 | profile points anchored in lat/lon | to do |
+| 8 | real-time series axis; datestamp on every frame | to do |
+
+Already in place from earlier work: the **Timestep** selector, *Load
+chunk* with its progress bar and automatic map redraw, and `gradb2`
+behind the global overview with both chunks boxed in red.
+
+### Open question: face-local vs rect alignment
+
+The chunk transfer records **face-local** provenance —
+`resolved_face`, `j_start`, `i_start` — while `chunk_labels` slices the
+**global** label map with a rect window. On a rotated face those frames do
+not correspond, so the labels could come back rotated relative to the
+chunk data, and nothing downstream would notice.
+
+Tiles already solves this: remap the tile into the rect frame first
+(`tile_lookup` + `remap_to_rect`), then slice global labels by the rect
+window. Chunks should go through the same path. `tile_mapping` has only
+`rect_ij_to_tile` — no inverse — which is why the current code resolves
+the location by searching the global coordinates instead.
+
+Cheapest check: on the region figure, do the fronts sit on the `gradb2`
+ridges or beside them? Monterey is on a lat-lon face and may look right
+either way; Scotia is the one that would expose a rotation.
 
 ## 9. Open
 

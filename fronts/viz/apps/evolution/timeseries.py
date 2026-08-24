@@ -106,14 +106,18 @@ def _stats_of(values: np.ndarray) -> dict:
     return out
 
 
-def build(provider, chunk: str, label: int, field: str) -> FrontSeries:
-    """Compute all three series for one front, cached.
+def build(provider, chunk: str, track, field: str) -> FrontSeries:
+    """Compute all three series for the tracked front, cached.
 
     Each step runs the same ingest pipeline the figures use, so the
     numbers and the pictures cannot disagree.
+
+    *track* rather than a label: the label changes every step, so a series
+    built from one label would be one point long.
     """
-    key = cache.make_key("evolution-series-v1", provider.mode, chunk, label,
-                         field)
+    label = track.anchor.label
+    key = cache.make_key("evolution-series-v2", provider.mode, chunk, label,
+                         field, tuple(sorted(track.labels.items())))
     hit = cache.get(key)
     if hit is not None:
         return hit
@@ -128,8 +132,11 @@ def build(provider, chunk: str, label: int, field: str) -> FrontSeries:
     stats = {s: np.full(n, np.nan) for s in config.EVOLUTION_STAT_LINES}
 
     for step in range(n):
+        step_label = track.label_at(step)
+        if step_label is None:
+            continue                        # tracking gap: leave it NaN
         try:
-            scene = EP.build_step(provider, chunk, step, field, label)
+            scene = EP.build_step(provider, chunk, step, field, step_label)
         except Exception:                                   # noqa: BLE001
             continue                                        # front absent here
 
@@ -151,17 +158,17 @@ def build(provider, chunk: str, label: int, field: str) -> FrontSeries:
 
 
 def common_labels(provider, chunk: str, *, min_steps: int = 4) -> list[int]:
-    """Front labels that survive at least *min_steps* of the window.
+    """Deprecated: use :func:`tracking.fronts_present` on one step.
 
-    A label that appears in one frame cannot be followed through a movie,
-    so the selector only offers the ones that persist.
+    This counted how many steps each label appeared in and offered the
+    survivors.  Labels are assigned per date, so it measured label reuse
+    rather than front persistence -- and it read a 0.9 GB label plane for
+    every step to do it, which is what made *Load chunk* take a quarter of
+    an hour.  Kept only so an old caller fails loudly instead of silently
+    doing the wrong thing slowly.
     """
-    times = provider.chunk_timesteps(chunk)
-    counts: dict[int, int] = {}
-    for step in range(len(times)):
-        labels = provider.chunk_labels(chunk, step)
-        for value in np.unique(labels):
-            if value:
-                counts[int(value)] = counts.get(int(value), 0) + 1
-    return sorted((l for l, c in counts.items() if c >= min_steps),
-                  key=lambda l: -counts[l])
+    raise NotImplementedError(
+        "common_labels followed front labels across steps, which is not "
+        "meaningful -- labels are per date.  Pick a front at one step with "
+        "tracking.fronts_present, then follow it with tracking.follow."
+    )

@@ -860,6 +860,7 @@ def plot_curtain_panel(
     mark_index: int | None = None,
     add_colorbar: bool = True,
     contour_color: str = "k",
+    xmax: float | None = None,
 ) -> None:
     """Draw a single curtain panel: color field + isopycnal contours.
 
@@ -965,6 +966,14 @@ def plot_curtain_panel(
         ax.axvline(dist_px[int(np.clip(mark_index, 0, L - 1))],
                    color="lime", lw=1.5, ls="-")
 
+    # A shared x extent, for use across a sequence of figures: the front
+    # then occupies a varying fraction of a fixed axis instead of the axis
+    # rescaling every frame, which is what makes a movie of curtains
+    # readable.  Only ever extends -- never below this panel's own data,
+    # so a frame longer than expected is drawn in full rather than clipped.
+    if xmax is not None:
+        ax.set_xlim(0.0, max(float(xmax), float(dist_px[-1])))
+
     ax.set_xlabel("distance along path [px]")
     ax.set_ylabel("depth [m]")
     if title:
@@ -985,8 +994,15 @@ def plot_curtain_panel(
     if dist_km is not None:
         ax_km = ax.twiny()
         ax_km.set_xlim(ax.get_xlim())
-        xticks = np.linspace(dist_px[0], dist_px[-1], 6)
-        km_at = np.interp(xticks, dist_px, dist_km)
+        lo, hi = ax.get_xlim()
+        xticks = np.linspace(lo, hi, 6)
+        if xmax is not None and dist_px[-1] > 0:
+            # Extrapolate rather than interpolate: with a fixed axis the
+            # ticks run past the data, and np.interp would clamp every one
+            # of them to the same final km value.
+            km_at = xticks * (float(dist_km[-1]) / float(dist_px[-1]))
+        else:
+            km_at = np.interp(xticks, dist_px, dist_km)
         ax_km.set_xticks(xticks)
         ax_km.set_xticklabels([f"{v:.1f}" for v in km_at])
         ax_km.set_xlabel("distance along path [km]")
@@ -1011,6 +1027,7 @@ def figure_main_axis(
     mld_curtain: np.ndarray | None = None,
     mark_index: int | None = None,
     title: str | None = None,
+    xmax: float | None = None,
 ):
     """Figure 1 -- the main-axis curtain (single panel).
 
@@ -1045,6 +1062,7 @@ def figure_main_axis(
     plot_curtain_panel(
         ax, metrics["dist_px"], Z, color_curtain, sigma0_curtain,
         dist_km=metrics["dist_km"], levels=levels, clim=clim, cmap=cmap,
+        xmax=xmax,
         color_title=color_title, mld_curtain=mld_curtain,
         mark_index=mark_index,
         title=title or "Main-axis curtain",
@@ -1071,6 +1089,7 @@ def figure_offsets(
     mark_index: int | None = None,
     title: str | None = None,
     trim: bool = True,
+    xmax: float | None = None,
 ):
     """Figure 2 -- along-front curtains: summary means + individual offsets.
 
@@ -1172,6 +1191,7 @@ def figure_offsets(
         plot_curtain_panel(
             ax, dist_px, Z, cc, ss,
             dist_km=dist_km, levels=levels, clim=clim, cmap=cmap,
+            xmax=xmax,
             color_title=color_title, overlap_flags=flags,
             mark_index=mk, title=title, add_colorbar=cbar,
         )
@@ -1342,6 +1362,7 @@ def figure_isopycnal_surface(
     color_title: str = "",
     mark_index: int | None = None,
     title: str | None = None,
+    xmax: float | None = None,
 ):
     """Figure 4 -- the front's isopycnal surface flattened to 2-D.
 
@@ -1407,7 +1428,7 @@ def figure_isopycnal_surface(
     plot_curtain_panel(
         ax, metrics["dist_px"], Z, curtain,
         np.full_like(curtain, np.nan),  # sigma0 is constant on the surface
-        dist_km=metrics["dist_km"], levels=None,
+        dist_km=metrics["dist_km"], levels=None, xmax=xmax,
         clim=clim, cmap=cmap, color_title=color_title,
         mark_index=mark_index,
         title=title or (f"Field on the sigma0={target_sigma0:.3f} "

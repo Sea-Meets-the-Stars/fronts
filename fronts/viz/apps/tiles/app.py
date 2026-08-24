@@ -513,7 +513,16 @@ class TilesPage:
         """
         rows = []
         lon, lat = coords if coords is not None else (None, None)
-        for label in available[:top]:
+
+        # `available` is in numerical order now, for the dropdown's sake --
+        # so rank by size here instead of trusting the incoming order.
+        # Taking the first N of a numerical list would annotate whichever
+        # fronts happen to have small numbers.
+        sized = sorted(
+            ((int((labels == label).sum()), int(label)) for label in available),
+            reverse=True)[:top]
+
+        for _, label in sized:
             js, iss = np.nonzero(labels == label)
             if not js.size:
                 continue

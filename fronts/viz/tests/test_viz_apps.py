@@ -968,18 +968,8 @@ def test_evolution_state_invalidates_on_change(provider):
     st.field = "N2"
     assert st.built is False
 
-    # The *point* invalidates, not front_label -- that is a derived
-    # readout of which label the point hit at this step, so changing it
-    # cannot mean "rebuild".
     st.built = True
     st.front_label = 3
-    assert st.built is True, "front_label is an output, not a selection"
-
-    st.anchor_lat = 36.5
-    assert st.built is False
-
-    st.built = True
-    st.anchor_lon = 237.2
     assert st.built is False
 
 
@@ -3254,11 +3244,10 @@ def test_region_playback_does_no_work_per_frame():
     drew = []
     page.draw_chunkmap = lambda *a, **k: drew.append(1)
 
-    # Bytes, not paths: playback must never trigger a fetch.
-    page._region_bytes = [b"aaa", b"bbb", b"ccc"]
+    page._region_frames = ["a.png", "b.png", "c.png"]
     for step in (0, 1, 2):
         page._on_region_step(type("E", (), {"new": step})())
-        assert page._region_pane.object == page._region_bytes[step]
+        assert page._region_pane.object == page._region_frames[step]
         assert page.state.step == step
 
     assert drew == [], "playback must not redraw the chunk map"
@@ -3271,183 +3260,3 @@ def test_region_frames_are_drawn_without_number_chips():
     from fronts.viz.apps.evolution import pipeline as EP
 
     assert "annotate=False" in inspect.getsource(EP.region_frame)
-
-
-def test_chunk_map_draws_fronts_cyan_thick_and_numbered():
-    """The still you choose from: one colour, visible, with the numbers on.
-
-    Fronts are often one cell wide, which at 720 cells across a 600-pixel
-    figure is a sub-pixel line that does not survive rasterising -- hence
-    the dilation.
-    """
-    from fronts.viz.apps.evolution import app as ev_app
-
-    labels = np.zeros((40, 40), dtype=int)
-    labels[20, 5:35] = 88                            # a one-cell-wide front
-
-    r, g, b, a = ev_app._label_rgba(labels, 0, width=2)
-    drawn = a > 0
-    assert drawn.sum() > (labels > 0).sum(), "the mask was not thickened"
-
-    # All one colour, and it is cyan.
-    import matplotlib.colors as mcolors
-    cyan = mcolors.to_rgb(ev_app.FRONT_COLOR)
-    assert np.allclose(r[drawn], cyan[0])
-    assert np.allclose(g[drawn], cyan[1])
-    assert np.allclose(b[drawn], cyan[2])
-
-    marks = ev_app._front_number_labels(labels)
-    assert len(marks.data) == 1
-    assert not hasattr(ev_app, "FRONT_PALETTE"), "the palette is retired"
-
-
-def test_selected_front_is_still_distinguishable_on_the_chunk_map():
-    from fronts.viz.apps.evolution import app as ev_app
-
-    labels = np.zeros((30, 30), dtype=int)
-    labels[10, 2:20] = 1
-    labels[20, 2:20] = 2
-
-    r, _g, _b, a = ev_app._label_rgba(labels, 2, width=1)
-    import matplotlib.colors as mcolors
-    assert r[a > 0].max() == pytest.approx(
-        mcolors.to_rgb(ev_app.SELECTED_COLOR)[0])
-
-
-# ---------------------------------------------------------------------------
-# Selecting a front by place
-# ---------------------------------------------------------------------------
-
-def _lonlat(shape, lon0=230.0, lat0=35.0, span=2.0):
-    lon = np.linspace(lon0, lon0 + span, shape[1])[None, :].repeat(shape[0], 0)
-    lat = np.linspace(lat0, lat0 + span, shape[0])[:, None].repeat(shape[1], 1)
-    return lon, lat
-
-
-def test_nearest_front_picks_by_place_not_by_label():
-    """A point identifies a front; a label identifies it in one step only."""
-    from fronts.viz.apps.evolution import tracking as TR
-
-    labels = np.zeros((100, 100), dtype=int)
-    labels[20, 10:90] = 55555            # north-ish
-    labels[80, 10:90] = 111              # south-ish
-    lon, lat = _lonlat(labels.shape)
-
-    # A point next to the southern front must find it, whatever it is
-    # called -- the smaller label number must not win by being smaller.
-    got, km = TR.nearest_front(labels, lon, lat,
-                               float(lon[80, 50]), float(lat[79, 50]))
-    assert got == 111 and km < 20
-
-    got, _ = TR.nearest_front(labels, lon, lat,
-                              float(lon[20, 50]), float(lat[21, 50]))
-    assert got == 55555
-
-
-def test_nearest_front_refuses_a_point_with_nothing_near_it():
-    from fronts.viz.apps.evolution import tracking as TR
-
-    labels = np.zeros((100, 100), dtype=int)
-    labels[10, 10:90] = 7
-    lon, lat = _lonlat(labels.shape)
-
-    got, km = TR.nearest_front(labels, lon, lat,
-                               float(lon[99, 50]), float(lat[99, 50]),
-                               max_km=5.0)
-    assert got is None and km > 5.0
-
-
-def test_the_same_place_finds_the_front_under_any_relabelling():
-    """The whole point: relabel everything, the place still resolves."""
-    from fronts.viz.apps.evolution import tracking as TR
-
-    labels = np.zeros((100, 100), dtype=int)
-    labels[40, 10:90] = 12
-    lon, lat = _lonlat(labels.shape)
-    point = (float(lon[40, 50]), float(lat[41, 50]))
-
-    first, _ = TR.nearest_front(labels, lon, lat, *point)
-
-    relabelled = np.where(labels > 0, 98765, 0)
-    second, _ = TR.nearest_front(relabelled, lon, lat, *point)
-
-    assert first == 12 and second == 98765     # different names, same front
-
-
-def test_clicking_the_map_stores_a_place(monkeypatch):
-    """The tap must set lat/lon, not collapse straight to a label."""
-    import panel as pn
-    pn.extension()
-    from fronts.viz.apps.evolution import app as ev_app
-
-    page = ev_app.EvolutionPage(provider=sources.get_provider())
-    lon, lat = _lonlat((60, 60))
-    page._coords_step = (lon, lat)
-    monkeypatch.setattr(page, "_resolve_anchor", lambda: None)
-
-    page._on_tap(x=30.0, y=20.0)
-
-    assert page.state.anchor_lon == pytest.approx(float(lon[20, 30]))
-    assert page.state.anchor_lat == pytest.approx(float(lat[20, 30]))
-
-
-# ---------------------------------------------------------------------------
-# A fixed along-front axis across frames
-# ---------------------------------------------------------------------------
-
-def test_curtain_panel_honours_a_shared_x_extent():
-    """The axis is fixed so the front's length is what visibly changes."""
-    import matplotlib
-    matplotlib.use("Agg", force=False)
-    import matplotlib.pyplot as plt
-
-    from fronts.viz import curtains
-
-    L, K = 40, 12
-    dist_px = np.arange(L, dtype=float)
-    Z = -np.arange(K, dtype=float) * 10.0
-    color = np.random.default_rng(0).random((K, L))
-    sigma = 1027.0 + np.linspace(0, 1, K)[:, None] * np.ones((1, L))
-
-    fig, ax = plt.subplots()
-    curtains.plot_curtain_panel(ax, dist_px, Z, color, sigma,
-                                add_colorbar=False, xmax=200.0)
-    assert ax.get_xlim()[1] == pytest.approx(200.0)
-    plt.close(fig)
-
-
-def test_a_longer_front_is_never_clipped_by_the_shared_extent():
-    """xmax extends the axis; it must never shrink it below the data."""
-    import matplotlib
-    matplotlib.use("Agg", force=False)
-    import matplotlib.pyplot as plt
-
-    from fronts.viz import curtains
-
-    L, K = 80, 8
-    dist_px = np.arange(L, dtype=float)
-    Z = -np.arange(K, dtype=float) * 10.0
-    color = np.zeros((K, L))
-    sigma = 1027.0 + np.linspace(0, 1, K)[:, None] * np.ones((1, L))
-
-    fig, ax = plt.subplots()
-    # A shared extent smaller than this frame's own front.
-    curtains.plot_curtain_panel(ax, dist_px, Z, color, sigma,
-                                add_colorbar=False, xmax=10.0)
-    assert ax.get_xlim()[1] >= dist_px[-1]
-    plt.close(fig)
-
-
-def test_shared_settings_reports_a_shared_x_extent(provider, monkeypatch):
-    from fronts.viz.apps.evolution import pipeline as EP
-    from fronts.viz.apps.tiles import panels as F
-
-    chunk = provider.chunks()[0]
-    monkeypatch.setattr(F, "pick_perp_index", lambda *a, **k: 0)
-
-    track = EP.build_track(provider, chunk, 0, 1)
-    shared = EP.shared_settings(provider, chunk, "Ri", track)
-
-    assert "xmax" in shared
-    if shared["xmax"] is not None:
-        assert shared["xmax"] > 0

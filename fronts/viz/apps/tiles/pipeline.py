@@ -232,7 +232,12 @@ def remap_to_rect(arr, lookup=None):
 
 
 def available_fronts(labels_tile: np.ndarray, *, min_pixels: int = 25) -> list[int]:
-    """Labels present in this tile, largest first.
+    """Labels present in this tile, in **numerical order**.
+
+    Numerical, not largest-first: these are five-digit label numbers and
+    the list is something a person has to find a specific value in.  Size
+    order made that a linear scan.  Where size matters -- deciding which
+    few fronts to annotate on the map -- the caller ranks them itself.
 
     Small pieces are dropped: a front needs a real main axis before a
     curtain along it means anything.
@@ -240,7 +245,7 @@ def available_fronts(labels_tile: np.ndarray, *, min_pixels: int = 25) -> list[i
     flat = labels_tile.ravel()
     counts = np.bincount(flat[flat > 0])
     labels = np.nonzero(counts >= min_pixels)[0]
-    return sorted(labels.tolist(), key=lambda l: -counts[l])
+    return sorted(int(v) for v in labels)
 
 
 def build_scene(

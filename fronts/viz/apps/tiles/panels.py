@@ -59,7 +59,7 @@ def _stem(scene: FrontScene, kind: str) -> Path:
 # Curtains
 # --------------------------------------------------------------------------
 
-def figure_mainaxis(scene: FrontScene, *, perp_index=None) -> Path:
+def figure_mainaxis(scene: FrontScene, *, perp_index=None, xmax: float | None = None) -> Path:
     with MPL_LOCK:
         out = _stem(scene, "mainaxis")
         return curtains.figure_main_axis(
@@ -67,19 +67,19 @@ def figure_mainaxis(scene: FrontScene, *, perp_index=None) -> Path:
             out,
             levels=scene.levels, clim=scene.clim, cmap=field_styles.resolve_cmap(scene.style.cmap),
             color_title=scene.style.title, mld_curtain=scene.mld_curtain,
-            mark_index=perp_index,
+            mark_index=perp_index, xmax=xmax,
             title=f"Main axis — front {scene.label}",
         )
 
 
-def figure_offsets(scene: FrontScene, *, n_offsets=3) -> Path:
+def figure_offsets(scene: FrontScene, *, n_offsets=3, xmax: float | None = None) -> Path:
     with MPL_LOCK:
         out = _stem(scene, "offsets")
         return curtains.figure_offsets(
             scene.color, scene.sigma0, scene.Z, scene.axis_path, scene.metrics,
             n_offsets, out,
             levels=scene.levels, clim=scene.clim, cmap=field_styles.resolve_cmap(scene.style.cmap),
-            color_title=scene.style.title,
+            color_title=scene.style.title, xmax=xmax,
             title=f"Offsets — front {scene.label}",
         )
 
@@ -99,14 +99,14 @@ def figure_perpendicular(scene: FrontScene, *, index, half_width=30) -> Path:
         )
 
 
-def figure_isopycnal(scene: FrontScene, *, perp_index=None) -> Path:
+def figure_isopycnal(scene: FrontScene, *, perp_index=None, xmax: float | None = None) -> Path:
     with MPL_LOCK:
         out = _stem(scene, "isopycnal")
         return curtains.figure_isopycnal_surface(
             scene.color, scene.sigma0, scene.Z, scene.axis_path, scene.metrics,
             out,
             clim=scene.clim, cmap=field_styles.resolve_cmap(scene.style.cmap),
-            color_title=scene.style.title, mark_index=perp_index,
+            color_title=scene.style.title, mark_index=perp_index, xmax=xmax,
             title=f"Isopycnal surface — front {scene.label}",
         )
 
@@ -653,3 +653,92 @@ def axis_ticks(scene: FrontScene, n: int = 6):
 
     idx = np.linspace(0, len(path) - 1, max(int(n), 2)).astype(int)
     return [(int(k), float(dist[k])) for k in idx]
+
+
+# --------------------------------------------------------------------------
+# The whole region, with every front numbered
+# --------------------------------------------------------------------------
+
+def figure_region_fronts(surface, labels, *, lon=None, lat=None,
+                         field_name: str = "density", selected: int = 0,
+                         title: str | None = None, out: Path | None = None,
+                         annotate: bool = True, min_pixels: int = 20,
+                         figsize=(9.0, 7.2)) -> Path:
+    """Every front in the region, numbered, over the field.
+
+    Takes plain arrays rather than a :class:`FrontScene` on purpose.  A
+    scene requires a chosen front, a crop and a mixed-layer clip -- none of
+    which you can sensibly choose *before* seeing which fronts are here and
+    where they are.  This is the figure you look at to make that choice, so
+    it must not depend on having already made it.
+
+    Fronts are cyan with their label drawn at the centroid; the selected
+    one is red.  The numbers are the point: a dropdown of five-digit
+    integers is not a way to pick a front.
+    """
+    with MPL_LOCK:
+        import matplotlib
+        matplotlib.use("Agg", force=False)
+        import matplotlib.pyplot as plt
+
+        surface = np.asarray(surface)
+        labels = np.asarray(labels)
+        style = field_styles.get_style(field_name)
+
+        out = Path(out) if out is not None else (
+            _outdir() / f"region_fronts_{field_name}_{int(selected)}.png")
+
+        if lon is not None and lat is not None:
+            extent = [float(np.nanmin(lon)), float(np.nanmax(lon)),
+                      float(np.nanmin(lat)), float(np.nanmax(lat))]
+            xlabel, ylabel = "longitude [deg]", "latitude [deg]"
+        else:
+            extent = [0, surface.shape[1], 0, surface.shape[0]]
+            xlabel, ylabel = "i", "j"
+
+        fig, ax = plt.subplots(figsize=figsize)
+        # Same transform + limits path as figure_region_field, so the two
+        # views of the same field are directly comparable.
+        shown = field_styles.apply_transform(surface, style)
+        clim = field_styles.default_clim(shown, style)
+        im = ax.imshow(shown, origin="lower", extent=extent, aspect="auto",
+                       cmap=field_styles.resolve_cmap(style.cmap),
+                       vmin=clim[0], vmax=clim[1])
+        fig.colorbar(im, ax=ax, label=getattr(style, "title", field_name))
+
+        def to_xy(j, i):
+            """Row/column -> axis coordinates, matching `extent`."""
+            fx = (i + 0.5) / surface.shape[1]
+            fy = (j + 0.5) / surface.shape[0]
+            return (extent[0] + fx * (extent[1] - extent[0]),
+                    extent[2] + fy * (extent[3] - extent[2]))
+
+        present = [int(v) for v in np.unique(labels) if v]
+        drawn = 0
+        for value in present:
+            mask = labels == value
+            if mask.sum() < min_pixels:
+                continue
+            drawn += 1
+            js, iss = np.nonzero(mask)
+            xs, ys = to_xy(js, iss)
+            is_sel = int(value) == int(selected)
+            ax.scatter(xs, ys, s=2.5,
+                       c="#ff1744" if is_sel else "#00e5ff",
+                       linewidths=0, zorder=3 if is_sel else 2)
+            if annotate:
+                cx, cy = to_xy(js.mean(), iss.mean())
+                ax.annotate(
+                    str(value), (cx, cy), color="white", fontsize=7,
+                    ha="center", va="center", zorder=4,
+                    bbox=dict(boxstyle="round,pad=0.15",
+                              fc="#ff1744" if is_sel else "#006064",
+                              ec="none", alpha=0.85))
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title or f"{drawn} fronts")
+        fig.tight_layout()
+        fig.savefig(out, dpi=120)
+        plt.close(fig)
+        return out
