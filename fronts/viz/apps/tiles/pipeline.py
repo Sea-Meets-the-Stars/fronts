@@ -47,6 +47,11 @@ class FrontScene:
         ``(J', I')`` boolean mask of this front in the cropped frame.
     mld_curtain : numpy.ndarray
         Mixed-layer depth sampled along the main axis.
+    mld_field : numpy.ndarray
+        ``(J', I')`` mixed-layer depth over the crop.  Kept as well as the
+        curtain so it can be sampled along *any* path -- the perpendicular
+        transect needs it too, and the along-axis curtain cannot answer
+        for a path that crosses the axis.
     clim : tuple of float
         Display colour limits.
     j_slice, i_slice : slice
@@ -68,6 +73,7 @@ class FrontScene:
     metrics: dict
     front_mask: np.ndarray
     mld_curtain: np.ndarray
+    mld_field: np.ndarray
     clim: tuple[float, float]
     j_slice: slice
     i_slice: slice
@@ -335,10 +341,16 @@ def build_scene(
         metrics=metrics,
         front_mask=front_mask,
         mld_curtain=mld_curtain,
+        # Already crop-shaped: it comes from sigma0_c, which is the crop.
+        mld_field=mld_depth,
         clim=clim,
         j_slice=j_slice,
         i_slice=i_slice,
-        XC=XC[j_slice, i_slice],
+        # 0..360 throughout.  The region movie normalises, the plan view
+        # did not, so the same place read as -124 on one figure and 236 on
+        # the other -- normalising at the source is the only way the two
+        # cannot drift apart again.
+        XC=XC[j_slice, i_slice] % 360.0,
         YC=YC[j_slice, i_slice],
         style=style,
         field_name=fld_var,

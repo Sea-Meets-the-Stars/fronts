@@ -156,7 +156,11 @@ SURFACE_FOLDER = os.environ.get("FRONTS_APP_SURFACE_FOLDER",
                                 "globals_for_chunks")
 SURFACE_RUN_ID = os.environ.get("FRONTS_APP_SURFACE_RUN_ID", "V5")
 
-DEPTH_FOLDER = os.environ.get("FRONTS_APP_DEPTH_FOLDER", "globals_for_chunks")
+# The depth fields are built by run_v5_depth.yaml into their own prefix, so
+# they cannot collide with the surface globals -- different channel names
+# (depth channels carry a suffix), different store, different folder.
+DEPTH_FOLDER = os.environ.get("FRONTS_APP_DEPTH_FOLDER",
+                              "globals_for_chunks_depth")
 DEPTH_RUN_ID = os.environ.get("FRONTS_APP_DEPTH_RUN_ID", "V5")
 
 #: The 2-D (rect) grid, read by GlobalGridZarrReader -- XC/YC and hFacC for
@@ -287,6 +291,29 @@ TILE_FIELDS_3D: tuple[str, ...] = (
     # reason as the frontogenesis split, so they are left out too.
     "U", "V", "W", "uB", "vB", "wB",
 )
+
+#: Surface-only properties a chunk store can produce.
+#:
+#: These were always in ``dbof.tiles.field_registry`` -- the app simply
+#: never offered them, because the only field list it had was the
+#: depth-resolved one.  They have no ``Z`` axis, so they can colour a plan
+#: view and nothing else: no curtain, no profile, no isopycnal.  Kept in
+#: their own list so that limit is structural rather than remembered.
+CHUNK_SURFACE_FIELDS: tuple[str, ...] = (
+    # surface_wind
+    "oceTAUX", "oceTAUY", "wind_stress_curl",
+    "ekman_pumping", "u_ekman", "v_ekman", "oceQnet",
+    # depth-integrated or mixed-layer quantities: a single number per
+    # column, so they are surface-only for the same reason the wind is --
+    # there is no profile to section, however much depth went into them.
+    "mixed_layer_depth", "ml_heat_content", "KE",
+)
+
+
+def is_surface_only(field: str) -> bool:
+    """True for fields that exist at the surface alone."""
+    return field in CHUNK_SURFACE_FIELDS
+
 
 #: Field used for the 3-D geometry.  Always density.
 TILE_GEOMETRY_FIELD = "density"

@@ -1694,10 +1694,20 @@ def test_ice_exclusion_leaves_the_ice_channel_alone():
     assert provider.ice_exclusion(date, "__land__") is None
 
 
-def test_the_v5_build_holds_fields_and_fronts_under_one_prefix():
-    """Both pages read globals_for_chunks/V5 for the four V5 dates."""
-    for folder in (config.SURFACE_FOLDER, config.DEPTH_FOLDER,
-                   config.SURFACE_FRONTS_FOLDER, config.DEPTH_FRONTS_FOLDER):
+def test_surface_and_depth_fields_live_in_separate_prefixes():
+    """Depth fields are built by their own run, into their own prefix.
+
+    A sibling rather than a subdirectory, so neither build can overwrite
+    the other's stores or mistake one for the other and skip it.  The
+    front products stay shared: a front is a front, and the labels do not
+    depend on which pipeline computed the fields they are co-located
+    against.
+    """
+    assert config.SURFACE_FOLDER == "globals_for_chunks"
+    assert config.DEPTH_FOLDER == "globals_for_chunks_depth"
+    assert config.DEPTH_FOLDER != config.SURFACE_FOLDER
+
+    for folder in (config.SURFACE_FRONTS_FOLDER, config.DEPTH_FRONTS_FOLDER):
         assert folder == "globals_for_chunks"
     for run_id in (config.SURFACE_RUN_ID, config.DEPTH_RUN_ID,
                    config.SURFACE_FRONTS_RUN_ID, config.DEPTH_FRONTS_RUN_ID):
@@ -3451,3 +3461,668 @@ def test_shared_settings_reports_a_shared_x_extent(provider, monkeypatch):
     assert "xmax" in shared
     if shared["xmax"] is not None:
         assert shared["xmax"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Pinning things in place rather than in index space
+# ---------------------------------------------------------------------------
+
+def _scene_with_coords():
+    """A minimal object with the attributes the point helpers read."""
+    from types import SimpleNamespace
+
+    lon = np.linspace(230.0, 231.0, 20)[None, :].repeat(15, 0)
+    lat = np.linspace(35.0, 36.0, 15)[:, None].repeat(20, 1)
+    path = np.column_stack([np.arange(15), np.arange(15)])   # diagonal
+    return SimpleNamespace(XC=lon, YC=lat, axis_path=path)
+
+
+def test_a_geographic_point_maps_into_the_crop():
+    from fronts.viz.apps.evolution import pipeline as EP
+
+    scene = _scene_with_coords()
+    j, i = EP.crop_index_for_point(scene, float(scene.XC[7, 12]),
+                                   float(scene.YC[7, 12]))
+    assert (j, i) == (7, 12)
+
+
+def test_the_transect_index_follows_the_place_not_the_fraction():
+    """A fixed place must give different indices as the axis changes.
+
+    That is the point: the front moves through one spot, rather than the
+    transect sliding along a front whose length keeps changing.
+    """
+    from fronts.viz.apps.evolution import pipeline as EP
+
+    scene = _scene_with_coords()
+    point = (float(scene.XC[10, 10]), float(scene.YC[10, 10]))
+    assert EP.axis_index_for_point(scene, *point) == 10
+
+    # Same place, a shorter axis that starts further along: the index must
+    # change to keep the transect over the same water.
+    scene.axis_path = np.column_stack([np.arange(5, 15), np.arange(5, 15)])
+    assert EP.axis_index_for_point(scene, *point) == 5
+
+
+def test_the_profile_point_is_the_transect_point():
+    """One place, both jobs.
+
+    Two independent pickers asked the user to say twice where they were
+    looking, and nothing good came of them differing.
+    """
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution.app import EvolutionState
+
+    st = EvolutionState(provider=sources.get_provider())
+    assert not hasattr(st, "profile_points"), "the second picker is gone"
+    assert "profile_points_text" not in st.param
+
+    st.anchor_lat, st.anchor_lon = 36.0, 237.0
+    st.perp_lat, st.perp_lon = 36.4, 237.5
+    assert st.perp_point() == (237.5, 36.4)
+
+def test_transect_point_falls_back_to_the_front_point():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution.app import EvolutionState
+
+    st = EvolutionState(provider=sources.get_provider())
+    st.anchor_lat, st.anchor_lon = 36.0, 237.0
+    assert st.perp_point() == (237.0, 36.0)
+
+    st.perp_lat, st.perp_lon = 36.4, 237.5
+    assert st.perp_point() == (237.5, 36.4)
+
+
+def test_profiles_are_not_a_movie_frame():
+    """One figure with every step on it, not one figure per step.
+
+    A movie of profiles shows one line at a time and throws away the
+    comparison that is the whole point.
+    """
+    from fronts.viz.apps.evolution import pipeline as EP
+
+    assert "profiles" not in EP.FRAME_ORDER
+    assert "profiles" not in EP.FRAME_TITLES
+
+
+def test_movie_downloads_as_a_real_animated_gif():
+    """The download must be a playable multi-frame GIF, not a still."""
+    import io
+
+    import panel as pn
+    pn.extension()
+    from PIL import Image
+
+    from fronts.viz.apps.evolution.app import EvolutionPage
+    from fronts.viz.apps.tiles import panels as F
+
+    page = EvolutionPage(provider=sources.get_provider())
+
+    frames = []
+    for k in range(3):
+        surface = 1027.0 + np.random.default_rng(k).random((40, 50))
+        labels = np.zeros((40, 50), dtype=int)
+        labels[10 + k * 5, 5:45] = 42
+        out = F.figure_region_fronts(surface, labels, field_name="density",
+                                     selected=42, annotate=False)
+        frames.append(out.read_bytes())
+
+    page._region_bytes = frames
+    data = page._movie_gif().getvalue()
+
+    assert data[:6] in (b"GIF87a", b"GIF89a")
+    assert Image.open(io.BytesIO(data)).n_frames == 3
+
+
+def test_movie_download_is_empty_rather_than_broken_with_no_frames():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution.app import EvolutionPage
+
+    page = EvolutionPage(provider=sources.get_provider())
+    assert page._movie_gif().getvalue() == b""
+    assert page.w_download.disabled is True
+
+
+# ---------------------------------------------------------------------------
+# The stacked profile figure
+# ---------------------------------------------------------------------------
+
+def test_profile_stack_draws_every_step_and_survives_gaps():
+    from fronts.viz.apps.tiles import panels as F
+
+    Z = -np.arange(20) * 10.0
+    cols = [None if k in (2, 5) else 1027.0 + 0.01 * np.arange(20) + 0.02 * k
+            for k in range(8)]
+    times = [f"2012-07-0{1 + k // 4}T{(k * 3) % 24:02d}_00_00"
+             for k in range(8)]
+
+    out = F.figure_profile_stack(cols, Z, times, field_name="Ri",
+                                 highlight=4)
+    assert out.exists() and out.stat().st_size > 5000
+
+
+def test_profile_stack_says_so_when_there_is_nothing_to_draw():
+    from fronts.viz.apps.tiles import panels as F
+
+    out = F.figure_profile_stack([None, None], -np.arange(5) * 10.0,
+                                 ["a", "b"], field_name="Ri")
+    assert out.exists()
+
+
+def test_the_profile_highlight_follows_the_player():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution import app as ev_app
+
+    page = ev_app.EvolutionPage(provider=sources.get_provider())
+    page._profile_bytes = [b"zero", b"one", b"two"]
+
+    page._on_step(type("E", (), {"new": 2})())
+    assert page._profile_pane.object == b"two"
+
+    page._on_step(type("E", (), {"new": 0})())
+    assert page._profile_pane.object == b"zero"
+
+
+def test_show_frame_ignores_the_data_carried_with_a_frame():
+    """A frame carries the profile column too; it is not a picture."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution import app as ev_app
+
+    page = ev_app.EvolutionPage(provider=sources.get_provider())
+    page._frames = [{"inset": b"img", "_profile": np.zeros(5), "_Z": None}]
+    page.show_frame(0)
+
+    assert "_profile" not in page._panes
+    assert page._panes["inset"].object == b"img"
+
+
+# ---------------------------------------------------------------------------
+# One longitude convention, one point, surface-only fields
+# ---------------------------------------------------------------------------
+
+def test_scene_longitudes_are_positive(provider, date):
+    """0..360 everywhere: the plan view read -124 where the movie read 236."""
+    from fronts.viz.apps.common import regions
+    from fronts.viz.apps.tiles import pipeline
+
+    region = regions.REGIONS[0]
+    idx = regions.synthetic_tile_idx(region)
+    labels = pipeline.tile_labels(provider, date, idx, None)
+    label = pipeline.available_fronts(labels)[0]
+
+    scene = pipeline.build_scene(provider, date, idx, "Ri", label,
+                                 region=region.name)
+    assert np.nanmin(scene.XC) >= 0.0
+    assert np.nanmax(scene.XC) <= 360.0
+
+
+def test_the_transect_follows_the_chosen_front_point():
+    """Choosing a front should not mean retyping its coordinates."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution.app import EvolutionState
+
+    st = EvolutionState(provider=sources.get_provider())
+    st.anchor_lat, st.anchor_lon = 36.25, 237.5
+    assert st.perp_lat == pytest.approx(36.25)
+    assert st.perp_lon == pytest.approx(237.5)
+
+    # An explicit transect still sticks until the front point moves again.
+    st.perp_lat, st.perp_lon = 36.9, 238.1
+    assert st.perp_point() == (238.1, 36.9)
+
+    st.anchor_lat = 35.0
+    assert st.perp_lat == pytest.approx(35.0)
+
+
+def test_surface_only_fields_are_offered_but_cannot_be_sectioned(provider):
+    from fronts.viz.apps import config
+    from fronts.viz.apps.evolution import pipeline as EP
+    from fronts.viz.apps.evolution.app import EvolutionState
+
+    import panel as pn
+    pn.extension()
+
+    st = EvolutionState(provider=sources.get_provider())
+    assert "oceTAUX" in st.param.field.objects, "wind fields must be offered"
+    assert config.is_surface_only("oceTAUX")
+    assert not config.is_surface_only("Ri")
+
+    chunk = provider.chunks()[0]
+    track = EP.build_track(provider, chunk, 0, 1)
+    with pytest.raises(EP.SurfaceOnlyField, match="surface only"):
+        EP.prerender(provider, chunk, "oceTAUX", track)
+
+
+def test_every_movie_figure_has_its_own_gif_download():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution import app as ev_app
+    from fronts.viz.apps.evolution import pipeline as EP
+
+    page = ev_app.EvolutionPage(provider=sources.get_provider())
+    assert set(page._downloads) == set(EP.FRAME_ORDER)
+    assert all(w.disabled for w in page._downloads.values())
+
+
+def test_clicking_the_plan_view_places_the_transect(monkeypatch):
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.evolution import app as ev_app
+
+    page = ev_app.EvolutionPage(provider=sources.get_provider())
+    monkeypatch.setattr(page, "_draw_preview", lambda: None)
+
+    page._on_preview_tap(x=-123.5, y=36.4)
+    assert page.state.perp_lat == pytest.approx(36.4)
+    # Normalised, so a click never reintroduces the negative convention.
+    assert page.state.perp_lon == pytest.approx(236.5)
+
+
+# ---------------------------------------------------------------------------
+# Front tracking: shape, prediction, confidence
+# ---------------------------------------------------------------------------
+
+def _line(shape, j, i0, i1, label=1, thickness=1):
+    out = np.zeros(shape, dtype=int)
+    out[int(j):int(j) + thickness, int(i0):int(i1)] = int(label)
+    return out
+
+
+def test_shape_terms_stop_the_jump_to_a_wrongly_shaped_neighbour():
+    """The bug this fixes: distance alone picks the nearer wrong front.
+
+    Our front has moved on; a short stubby neighbour has not, so it is
+    closer.  Position ranks the neighbour first and length/orientation
+    have to overrule it.
+    """
+    from fronts import front_tracking as FT
+
+    shape = (120, 200)
+    step0 = _line(shape, 60, 20, 180, label=1)          # long, east-west
+
+    # Six cells in an hour: ~4 km/h, fast for a front but plausible.
+    step1 = _line(shape, 60, 26, 186, label=7)          # ours, moved east
+    step1 += _line(shape, 62, 95, 115, label=8)         # stubby, stayed put
+
+    anchor = FT.anchor_at(step0, 0, 1)
+    track = FT.follow(lambda s: [step0, step1][s],
+                      ["2012-07-03T00_00_00", "2012-07-03T01_00_00"], anchor)
+
+    assert track.label_at(1) == 7, "followed the wrong front"
+
+    # And position alone would indeed have preferred the decoy.
+    ours = FT.describe(step1, 7)
+    decoy = FT.describe(step1, 8)
+    ref = FT.describe(step0, 1)
+    assert (np.hypot(*(np.array(decoy.centre) - np.array(ref.centre)))
+            < np.hypot(*(np.array(ours.centre) - np.array(ref.centre))))
+
+
+def test_orientation_term_rejects_a_front_that_turned_too_far():
+    from fronts import front_tracking as FT
+
+    shape = (120, 120)
+    ours = FT.describe(_line(shape, 60, 10, 110, label=1), 1)   # east-west
+
+    crossing = np.zeros(shape, dtype=int)
+    crossing[10:110, 60] = 2                                    # north-south
+    turned = FT.describe(crossing, 2)
+
+    score, terms = FT.score_candidate(turned, ours, ours.centre, 20.0)
+    assert terms["orientation"] > 2.0, terms
+
+
+def test_position_veto_beats_a_perfect_shape_match():
+    """Identical shape must not license implausible motion.
+
+    A candidate with exactly the same shape far away is more likely a
+    different front that looks similar than the same one teleporting.
+    """
+    from fronts import front_tracking as FT
+
+    shape = (120, 220)
+    ours = FT.describe(_line(shape, 60, 10, 110, label=1), 1)
+    far = FT.describe(_line(shape, 60, 100, 200, label=2), 2)
+
+    score, terms = FT.score_candidate(far, ours, ours.centre, radius=5.0)
+    assert terms["length"] == pytest.approx(0.0, abs=1e-6)
+    assert terms["orientation"] == pytest.approx(0.0, abs=1e-6)
+    assert not np.isfinite(score), "the veto did not fire"
+
+
+def test_prediction_extrapolates_steady_motion():
+    """The long daily links work because a steady front keeps moving."""
+    from datetime import datetime, timedelta
+
+    from fronts import front_tracking as FT
+
+    t0 = datetime(2012, 7, 3, 0)
+    history = [(0, (10.0, 10.0), t0),
+               (1, (10.0, 20.0), t0 + timedelta(hours=1))]
+
+    ahead = FT._predict(history, t0 + timedelta(hours=2))
+    assert ahead == pytest.approx((10.0, 30.0))
+
+    # With one sighting there is nothing to extrapolate from.
+    assert FT._predict(history[:1], t0 + timedelta(hours=2)) == (10.0, 10.0)
+
+
+def test_opposite_tilts_are_not_mistaken_for_the_same_orientation():
+    """+40 and -40 are 80 degrees apart, not identical.
+
+    The display convention folds orientation to 0-90, which is right for
+    a histogram and wrong for comparing two fronts -- it makes mirror
+    images look the same.  Tracking keeps the sign.
+    """
+    from fronts import front_tracking as FT
+
+    shape = (120, 120)
+    rows = np.arange(20, 100)
+    plus = np.zeros(shape, dtype=int)
+    plus[rows, rows] = 1                       # tilted one way
+    minus = np.zeros(shape, dtype=int)
+    minus[rows, 119 - rows] = 1                # mirrored
+
+    assert FT.orientation_deg(plus) == pytest.approx(
+        FT.orientation_deg(minus), abs=1.0)    # folded: indistinguishable
+
+    a = FT.orientation_signed_deg(plus)
+    b = FT.orientation_signed_deg(minus)
+    assert FT._angle_gap(a, b) > 60.0          # signed: clearly different
+
+    # An axis still has no direction, so near-parallel stays near-parallel.
+    assert FT._angle_gap(89.0, -89.0) == pytest.approx(2.0)
+
+
+def test_track_records_how_confident_each_link_was():
+    """No ground truth, so the next best thing is saying which were close."""
+    from fronts import front_tracking as FT
+
+    shape = (100, 160)
+    frames = [_line(shape, 50, 10 + 4 * k, 120 + 4 * k, label=100 + k)
+              for k in range(5)]
+    times = [f"2012-07-03T{k:02d}_00_00" for k in range(5)]
+
+    track = FT.follow(lambda s: frames[s], times,
+                      FT.anchor_at(frames[0], 0, 100))
+
+    assert track.steps() == [0, 1, 2, 3, 4]
+    assert all(l.score >= 0 for l in track.links.values())
+    assert len(track.weakest(2)) == 2
+
+
+def test_tracking_lives_outside_viz():
+    """It takes label maps and returns labels; it is not a page.
+
+    Under viz/apps/evolution it could only be reached by importing the
+    app, so analysis code could not use it.
+    """
+    import importlib
+    import sys
+
+    for name in list(sys.modules):
+        if name.startswith(("panel", "holoviews", "bokeh")):
+            break
+    else:
+        mod = importlib.import_module("fronts.front_tracking")
+        assert "panel" not in sys.modules, "tracking pulled in Panel"
+        assert hasattr(mod, "follow")
+
+    # The old import path still works.
+    from fronts.viz.apps.evolution import tracking
+    assert tracking.follow is importlib.import_module(
+        "fronts.front_tracking").follow
+
+
+def test_a_long_front_that_grows_at_one_end_is_not_lost():
+    """The reported failure, reproduced.
+
+    A 400-cell front extends 110 cells at one end.  It has not moved --
+    but its *centroid* has shifted 55 cells, which centroid-distance
+    scoring reads as implausible motion and vetoes.  A short unrelated
+    front sitting just below it is then the only candidate left.
+
+    Mask-to-mask distance says what we actually mean: could this be the
+    same water?  For a front that grew at one end the answer is zero
+    cells away.
+    """
+    from fronts import front_tracking as FT
+
+    shape = (200, 600)
+    step0 = np.zeros(shape, dtype=int)
+    step0[100, 50:450] = 1
+    step1 = np.zeros(shape, dtype=int)
+    step1[100, 50:560] = 7                      # the same front, extended
+    step1[112, 240:270] = 8                     # a short decoy below it
+
+    track = FT.follow(lambda s: [step0, step1][s],
+                      ["2012-07-03T00_00_00", "2012-07-03T01_00_00"],
+                      FT.anchor_at(step0, 0, 1))
+
+    assert track.label_at(1) == 7, "followed the short decoy"
+    assert track.links[1].terms["position"] == pytest.approx(0.0)
+
+    # The centroid really did move far enough to have been vetoed.
+    c0 = FT.describe(step0, 1).centre
+    c1 = FT.describe(step1, 7).centre
+    assert abs(c1[1] - c0[1]) > 3 * FT.MIN_RADIUS_PX
+
+
+def test_the_area_term_penalises_a_much_smaller_front():
+    """'WAYY shorter and smaller' should cost a candidate, not be free."""
+    from fronts import front_tracking as FT
+
+    shape = (200, 600)
+    big = FT.describe(np.pad(np.ones((1, 400), dtype=int),
+                             ((100, 99), (50, 150))), 1)
+    small = np.zeros(shape, dtype=int)
+    small[100, 240:270] = 1
+    tiny = FT.describe(small, 1)
+
+    _score, terms = FT.score_candidate(tiny, big, big.centre, radius=20.0)
+    assert terms["area"] > 3.0, terms
+    assert terms["length"] > 3.0, terms
+
+
+def test_mask_distance_is_measured_from_the_predicted_position():
+    """Prediction shifts the reference before the distance is taken."""
+    from fronts import front_tracking as FT
+
+    mask = np.zeros((50, 50), dtype=bool)
+    mask[25, 10:20] = True
+
+    moved = FT._shift(mask, 5, 3)
+    js, iss = np.nonzero(moved)
+    assert js.min() == 30 and iss.min() == 13
+
+    field = FT._distance_field(mask)
+    assert field[25, 15] == 0.0
+    assert field[28, 15] == pytest.approx(3.0)
+
+
+# ---------------------------------------------------------------------------
+# Bivariate: a signed field centres on zero, and the JPDF panel
+# ---------------------------------------------------------------------------
+
+def test_a_field_spanning_both_signs_splits_at_zero():
+    """Zero is the meaningful centre whether or not the field was named.
+
+    Splitting a signed field at its median puts the boundary at an
+    arbitrary value and makes 'positive' and 'negative' straddle one
+    colour -- the exact distinction the reader is looking for.
+    """
+    from fronts.viz import bivariate as BV
+
+    rng = np.random.default_rng(0)
+    signed = rng.normal(0.3, 1.0, 20000)          # both signs, offset mean
+    edges = BV.bin_edges(signed, 2, field_name="not_in_the_table")
+
+    assert edges[1] == pytest.approx(0.0)
+    assert edges[1] != pytest.approx(float(np.median(signed)))
+
+
+def test_a_positive_definite_field_still_uses_quantiles():
+    from fronts.viz import bivariate as BV
+
+    rng = np.random.default_rng(1)
+    positive = rng.lognormal(0.0, 0.5, 20000)
+    edges = BV.bin_edges(positive, 2, field_name="gradb2")
+
+    assert edges[1] > 0.0
+    assert edges[1] == pytest.approx(float(np.median(positive)), rel=0.05)
+
+
+def test_bivariate_jpdf_draws_the_section_boundaries():
+    from fronts.viz import bivariate as BV
+
+    rng = np.random.default_rng(2)
+    a = rng.normal(0, 1, 5000)
+    b = rng.normal(0, 1, 5000)
+    scheme = BV.build_scheme(a, b, n=2, name_a="a", name_b="b")
+
+    fig, ax = BV.figure_jpdf(a, b, name_a="a", name_b="b", scheme=scheme)
+    # One dashed line per interior edge, on each axis.
+    dashed = [ln for ln in ax.get_lines() if ln.get_linestyle() == "--"]
+    assert len(dashed) == 2
+    assert ax.get_xlabel() == "a" and ax.get_ylabel() == "b"
+
+
+def test_bivariate_jpdf_says_so_when_there_is_nothing_to_plot():
+    from fronts.viz import bivariate as BV
+
+    fig, ax = BV.figure_jpdf([np.nan, np.nan], [1.0, 2.0])
+    assert not ax.get_images()
+
+
+def test_the_bivariate_page_has_a_jpdf_for_each_section():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.bivariate.app import BivariatePage
+
+    page = BivariatePage(provider=sources.get_provider())
+    assert page._grid_jpdf is not None
+    assert page._front_jpdf is not None
+
+
+# ---------------------------------------------------------------------------
+# The region map on Field Characteristics
+# ---------------------------------------------------------------------------
+
+def test_region_map_is_empty_until_a_region_is_chosen():
+    """Nothing selected means nothing to show -- not the whole globe again."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage
+
+    page = CharacteristicsPage(provider=sources.get_provider())
+    page.draw_regionmap()
+    assert page._regionmap.object is None
+
+
+def test_region_map_is_drawn_for_a_selection():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage
+
+    page = CharacteristicsPage(provider=sources.get_provider())
+    page.state.set_bounds((200.0, -10.0, 240.0, 20.0))
+
+    page.draw_regionmap()
+    assert page._regionmap.object is not None
+
+
+def test_the_region_map_is_tight_to_the_box_while_the_navigation_map_pads():
+    """Two maps, two jobs: one to navigate with, one to read the panels by."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage
+
+    page = CharacteristicsPage(provider=sources.get_provider())
+    page.state.set_bounds((200.0, -10.0, 240.0, 20.0))
+
+    (px0, px1), (py0, py1) = page._zoom_limits()          # padded
+    (tx0, tx1), (ty0, ty1) = page._zoom_limits(pad=0.0)   # exact
+
+    assert px0 < tx0 and px1 > tx1
+    assert py0 < ty0 and py1 > ty1
+    assert (tx0, tx1) == pytest.approx((200.0, 240.0))
+
+
+# ---------------------------------------------------------------------------
+# One colour range per field, across a whole movie
+# ---------------------------------------------------------------------------
+
+def test_region_frames_honour_a_shared_colour_range():
+    """Per-frame limits make a movie unreadable.
+
+    A colour that changes because the *scale* moved is indistinguishable
+    on screen from one that changed because the ocean did.
+    """
+    import inspect
+
+    from fronts.viz.apps.tiles import panels as F
+
+    src = inspect.getsource(F.figure_region_fronts)
+    assert "if clim is None:" in src, "no shared range accepted"
+
+    surface = 1027.0 + np.random.default_rng(0).random((40, 50))
+    labels = np.zeros((40, 50), dtype=int)
+    labels[20, 5:45] = 3
+
+    a = F.figure_region_fronts(surface, labels, field_name="density",
+                               clim=(1027.0, 1028.0), annotate=False)
+    assert a.exists()
+
+
+def test_region_clim_pools_across_the_window(provider, monkeypatch):
+    from fronts.viz.apps.evolution import pipeline as EP
+
+    chunk = provider.chunks()[0]
+    seen = []
+    original = EP.chunk_plane
+
+    def counted(prov, ch, step, field):
+        seen.append(step)
+        return original(prov, ch, step, field)
+
+    monkeypatch.setattr(EP, "chunk_plane", counted)
+    clim = EP.region_clim(provider, chunk, "Ri")
+
+    assert len(seen) <= 3, f"sampled {len(seen)} steps"
+    assert len(set(seen)) == len(seen), "sampled the same step twice"
+    if clim is not None:
+        assert clim[0] < clim[1]
+
+
+def test_the_perpendicular_shows_the_mixed_layer():
+    """The transect crosses the axis, so the along-axis curtain will not do."""
+    import inspect
+
+    from fronts.viz import curtains
+    from fronts.viz.apps.tiles import panels as F
+
+    assert "mld_curtain" in inspect.signature(
+        curtains.figure_perpendicular).parameters
+    assert "scene.mld_field" in inspect.getsource(F.figure_perpendicular)
+
+
+def test_surface_only_fields_can_colour_the_tiles_map(provider):
+    """A plan view needs one level; a curtain needs a profile."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps import config
+    from fronts.viz.apps.common.state import TilesState
+
+    st = TilesState(provider=provider)
+    for name in ("oceTAUX", "oceQnet", "mixed_layer_depth",
+                 "ml_heat_content", "KE"):
+        assert name in st.param.region_field.objects, name
+        assert name not in st.param.fields.objects, \
+            f"{name} has no depth to section"
+        assert config.is_surface_only(name)

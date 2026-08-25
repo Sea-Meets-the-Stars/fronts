@@ -1,0 +1,108 @@
+# ---------------------------------------------------------------------------
+# build_v5 -- DEPTH pipeline, the four dates the web app serves.
+#
+# This is what Field Characteristics - Depth needs.  The SURF run is
+# untouched by it: different pipeline, different output folder, different
+# channel names (depth channels carry a suffix, surface ones do not), so
+# the two cannot collide.
+#
+# One step:
+#
+#   cd fronts/runs/prototypes/one_full && python build_v5.py 4 run_v5_depth.yaml
+#
+# Steps 1-3 are NOT needed.  Front finding already ran on the SURF
+# pipeline for these four dates, and a front is a front -- the labels do
+# not depend on which pipeline computes the fields they are co-located
+# against.  Step 4 builds every subset below (frontal_structure included:
+# it is in active_subsets, and step 4 builds whatever is missing) and then
+# co-locates the existing fronts against them.
+#
+# Fields land in
+#   s3://dbof/globals_for_chunks_depth/V5/{YYYYMMDD_HHMMSS}/{subset}.zarr
+#
+# A sibling prefix rather than a subdirectory of the surface one.  The path
+# is built as {bucket}/{folder}/{run_id}/{date}/{dataset}, so `folder` is
+# the only part that is ours to choose -- run_id has to stay "V5" because
+# it also resolves the local Fronts directory the co-location reads from.
+#
+# Nothing here writes to globals_for_chunks/V5/, so the surface globals
+# cannot be overwritten, and no existing store can be mistaken for one of
+# these and skipped.
+# ---------------------------------------------------------------------------
+
+pipeline: "DEPTH"
+
+run:
+  # Must be 'V5': build_v5 reads and writes .../V{version}/ and the app
+  # resolves the same string as its run id.
+  run_id: "V5"
+  log_dir: "./logs/"
+
+data:
+  # The four dates with full 3-D raw data -- the same four the app serves.
+  # Every one must already have a timestep store transferred from MIT.
+  date_iterations:
+    - '2012-02-29 18:00:00'
+    - '2012-05-16 06:00:00'
+    - '2012-09-18 11:00:00'
+    - '2012-11-09 12:00:00'
+
+output:
+  s3_endpoint: "https://s3-west.nrp-nautilus.io"
+  bucket: "dbof/"
+  # Explicit: a sibling of the surface prefix, so the two builds cannot
+  # collide.  Left implicit this would auto-resolve to depth_fields/ for
+  # the DEPTH pipeline.
+  folder: "globals_for_chunks_depth"
+
+runtime:
+  zarr_async_concurrency: 8
+  dask_scheduler: "distributed"
+  dask_n_workers: 4
+  dask_threads_per_worker: 4
+
+# ---------------------------------------------------------------------------
+# Subsets to produce.  All valid for DEPTH.
+#
+# frontal_structure is here deliberately.  Step 4 builds every subset in
+# this list that is missing, so listing it is what gets gradb2 and friends
+# generated at depth -- there is no separate step 1 in this run.
+# ---------------------------------------------------------------------------
+active_subsets:
+  - stratification      # N2 (+ bare: mixed_layer_depth, ml_heat_content)
+  - vertical_shear      # vertical_shear, Ri
+  - mixing_parameters   # Fr, Ro, Bu
+  - ertel_pv            # ertel_pv, ertel_pv_vertical, ertel_pv_tilt
+  - buoyancy_fluxes     # uB, vB, wB
+  - surface_wind        # oceTAUX, oceTAUY, oceQnet (+ wind diagnostics) -- all bare
+  - energetics          # KE
+  - frontal_structure   # gradb2, gradtheta2, gradsalt2, gradrho2, gradeta2, turner_angle
+  - kinematic           # relative_vorticity, strain_*, divergence, rossby_number, okubo_weiss
+  - frontogenesis       # frontogenesis_tendency, frontogenesis_geo/ageo, ug, vg
+  - native_fields       # Theta, Salt, Eta, U, V, W
+  - icearea             # SIarea
+
+build:
+  # Must match the SURF run that found the fronts: step 4 uses it to locate
+  # the label maps it co-locates against.
+  finding_config: "D"
+  ice_mask_find:  false
+  ice_mask_props: true
+  # p95 is absent from this list on purpose: adding it here changes what
+  # step 4 writes, and the app builds its statistic selector from the
+  # columns actually present, so it would appear on its own.
+  percentiles: [25, 75, 90]
+
+# ---------------------------------------------------------------------------
+# Depth suffixes.
+#
+# Every depth channel is expanded with these, e.g. relative_vorticity ->
+# relative_vorticity_{sfc,z25m,mld,mld_mean}.  Channels with no depth
+# variant (coriolis_f, oceTAUX, SIarea, mixed_layer_depth, the surface
+# diagnostics) are never suffixed.
+#
+# All four, because the page offers all four as a control.  Cutting this to
+# [sfc] would make step 4 roughly four times faster if you want to see the
+# page working before committing to the full build.
+# ---------------------------------------------------------------------------
+depth_suffixes: [sfc, z25m, mld, mld_mean]

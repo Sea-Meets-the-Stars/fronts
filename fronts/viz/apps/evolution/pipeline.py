@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
+from fronts.viz import field_styles
 from fronts.viz.apps import config
 from fronts.viz.apps.tiles import panels as F
 from fronts.viz.apps.tiles import pipeline as TP
@@ -30,6 +31,10 @@ from fronts.viz.apps.tiles import pipeline as TP
 #: and a rotating-free volume is the least readable of them as a movie.
 #: The 3-D scene stays on the Tiles page, where it is interactive and
 #: built once rather than per step.
+#: The movie frames.  Profiles are deliberately NOT here: a profile at a
+#: fixed point is one line per timestep, and the useful picture is all of
+#: them on one axis coloured by time -- not seventeen figures each showing
+#: a single line.  The column is collected per step and drawn once.
 FRAME_ORDER = F.FIGURE_ORDER
 
 FRAME_TITLES = {
@@ -94,6 +99,36 @@ def build_track(provider, chunk: str, step: int, label: int):
                            times, anchor)
 
 
+def crop_index_for_point(scene, point_lon: float, point_lat: float):
+    """Nearest ``(j, i)`` in a scene's crop to a geographic point.
+
+    Everything the movie pins in place is pinned by *place*, and the crop
+    moves between steps, so a crop index is only meaningful for the step
+    that produced it.  Converting per step is what makes "the same
+    location throughout" true rather than approximately true.
+    """
+    XC = np.asarray(scene.XC) % 360.0
+    YC = np.asarray(scene.YC)
+    coslat = float(np.cos(np.radians(point_lat)))
+    dlon = ((XC - (point_lon % 360.0) + 180.0) % 360.0) - 180.0
+    d2 = (dlon * coslat) ** 2 + (YC - point_lat) ** 2
+    j, i = np.unravel_index(int(np.nanargmin(d2)), d2.shape)
+    return int(j), int(i)
+
+
+def axis_index_for_point(scene, point_lon: float, point_lat: float) -> int:
+    """Index along the main axis nearest a geographic point.
+
+    The cross-front transect is placed with this, so it stays over one
+    spot on the ocean while the front moves through it -- rather than
+    sitting at a fixed fraction of a front whose length changes.
+    """
+    j, i = crop_index_for_point(scene, point_lon, point_lat)
+    path = np.asarray(scene.axis_path)
+    d2 = (path[:, 0] - j) ** 2 + (path[:, 1] - i) ** 2
+    return int(np.argmin(d2))
+
+
 def build_track_at_point(provider, chunk: str, step: int,
                          point_lon: float, point_lat: float):
     """Follow whichever front is at a geographic point.
@@ -145,6 +180,7 @@ def build_step(provider, chunk: str, step: int, field: str, label: int):
 def render_frame(provider, chunk: str, step: int, field: str, label: int, *,
                  n_offsets: int = 3, perp_half_width: int = 30,
                  perp_index: int | None = None,
+                 perp_point: tuple[float, float] | None = None,
                  clim: tuple[float, float] | None = None,
                  xmax: float | None = None,
                  use_cache: bool = True) -> dict:
@@ -162,21 +198,43 @@ def render_frame(provider, chunk: str, step: int, field: str, label: int, *,
         own range and the movie appears to pulse even where the field is
         steady.
     """
-    extra = f"{n_offsets}|{perp_half_width}|{perp_index}|{clim}|{xmax}"
+    extra = (f"{n_offsets}|{perp_half_width}|{perp_index}|{perp_point}|"
+             f"{clim}|{xmax}")
     paths = {k: _key(chunk, label, field, step, k, extra)
              for k in FRAME_ORDER}
+    # Underscored so show_frame skips it: this is data, not a figure.
+    col_path = _key(chunk, label, field, step, "profilecol",
+                    extra).with_suffix(".npy")
 
     if use_cache and all(p.exists() for p in paths.values()):
-        return {k: str(p) for k, p in paths.items()}
+        out = {k: str(p) for k, p in paths.items()}
+        out["_profile"] = (np.load(col_path) if col_path.exists() else None)
+        out["_Z"] = None
+        return out
 
     scene = build_step(provider, chunk, step, field, label)
     if clim is not None:
         scene.clim = clim
 
-    idx = perp_index
-    if idx is None:
+    # A place beats a column index: the transect should stay over one spot
+    # on the ocean so the front is seen moving through it.  A fixed index
+    # would instead sit at a fixed fraction of a front whose length and
+    # position both change every step.
+    if perp_point is not None:
+        idx = axis_index_for_point(scene, *perp_point)
+    elif perp_index is not None:
+        idx = perp_index
+    else:
         idx = F.pick_perp_index(scene, half_width=perp_half_width)
     idx = int(np.clip(idx, 0, len(scene.axis_path) - 1))
+
+    # The transect point is also the profile point -- one place, both
+    # jobs.  Two independent pickers asked the user to say twice where
+    # they were looking.
+    profile_col = None
+    if perp_point is not None:
+        pj, pi = crop_index_for_point(scene, *perp_point)
+        profile_col = np.asarray(scene.color[:, pj, pi], dtype=float)
 
     builders = {
         "inset": lambda: F.figure_inset(scene, perp_index=idx,
@@ -194,7 +252,10 @@ def render_frame(provider, chunk: str, step: int, field: str, label: int, *,
             scene, index=idx, half_width=perp_half_width),
     }
 
-    out = {}
+    if profile_col is not None:
+        np.save(col_path, profile_col)
+
+    out = {"_profile": profile_col, "_Z": np.asarray(scene.Z)}
     for kind, build in builders.items():
         try:
             produced = Path(build())
@@ -284,15 +345,24 @@ def shared_settings(provider, chunk: str, field: str, track, *,
     return {"perp_index": int(idx), "clim": clim, "xmax": xmax}
 
 
+class SurfaceOnlyField(ValueError):
+    """This field has no depth, so there is nothing to section."""
+
+
 def prerender(provider, chunk: str, field: str, track, *,
               n_offsets: int = 3, perp_half_width: int = 30,
-              progress=None) -> list[dict]:
+              perp_point=None, progress=None) -> list[dict]:
     """Render every frame of the movie.  Returns one dict per step.
 
     *progress* is called as ``(done, total, what)`` and covers the whole
     job -- the shared-settings sampling included.  Leaving that prelude
     out of the count is what made a build look hung for its first minute.
     """
+    if config.is_surface_only(field):
+        raise SurfaceOnlyField(
+            f"{field} exists at the surface only, so it has no curtains, "
+            "profiles or isopycnals.  Use it for the region movie above.")
+
     times = provider.chunk_timesteps(chunk)
     n = len(times)
     n_prep = min(3, max(len(track.steps()), 1))
@@ -324,8 +394,8 @@ def prerender(provider, chunk: str, field: str, track, *,
             frames.append(render_frame(
                 provider, chunk, step, field, label,
                 n_offsets=n_offsets, perp_half_width=perp_half_width,
-                perp_index=shared["perp_index"], clim=shared["clim"],
-                xmax=shared.get("xmax")))
+                perp_index=shared["perp_index"], perp_point=perp_point,
+                clim=shared["clim"], xmax=shared.get("xmax")))
         except Exception as exc:                            # noqa: BLE001
             print(f"[evolution]   step {step} failed: "
                   f"{type(exc).__name__}: {exc}", flush=True)
@@ -379,8 +449,42 @@ def chunk_plane(provider, chunk: str, step: int, field: str):
     return surface, lon, lat, labels, var
 
 
+def region_clim(provider, chunk: str, field: str, *, n_samples: int = 3):
+    """One colour range for the whole region movie.
+
+    Sampled from a few steps rather than all of them: each sample is a
+    chunk-tile composition, and pooling first/middle/last catches the
+    extremes of the window, which is what the range needs.  The
+    alternative -- letting each frame scale to itself -- makes the movie
+    unreadable, because a colour changing means the scale moved and not
+    that the ocean did.
+    """
+    times = provider.chunk_timesteps(chunk)
+    n = len(times)
+    wanted = [s for s in dict.fromkeys((0, n // 2, n - 1)) if 0 <= s < n]
+    wanted = wanted[:max(1, n_samples)]
+
+    style = field_styles.get_style(field)
+    lo, hi = np.inf, -np.inf
+    for step in wanted:
+        try:
+            surface, *_ = chunk_plane(provider, chunk, step, field)
+        except Exception as exc:                            # noqa: BLE001
+            print(f"[evolution]   clim sample {step} failed: {exc}",
+                  flush=True)
+            continue
+        shown = field_styles.apply_transform(surface, style)
+        a, b = field_styles.default_clim(shown, style)
+        lo, hi = min(lo, float(a)), max(hi, float(b))
+
+    if not np.isfinite(lo) or not np.isfinite(hi) or lo >= hi:
+        return None
+    return (lo, hi)
+
+
 def region_frame(provider, chunk: str, step: int, field: str, *,
-                 selected: int = 0, use_cache: bool = True) -> str | None:
+                 selected: int = 0, clim=None,
+                 use_cache: bool = True) -> str | None:
     """One frame of the region movie: the field with every front numbered.
 
     Deliberately **not** built on ``build_scene``.  A scene needs a chosen
@@ -393,7 +497,8 @@ def region_frame(provider, chunk: str, step: int, field: str, *,
     # "noann" is part of the key on purpose: frames built before the
     # numbers were dropped are still on disk, and a key that ignored the
     # difference would keep serving them.
-    path = _key(chunk, selected, field, step, "region", extra="noann")
+    path = _key(chunk, selected, field, step, "region",
+                extra=f"noann|{clim}")
     if use_cache and path.exists():
         return str(path)
 
@@ -402,7 +507,7 @@ def region_frame(provider, chunk: str, step: int, field: str, *,
     n = len(times)
     produced = F.figure_region_fronts(
         surface, labels, lon=lon, lat=lat, field_name=field,
-        selected=selected, out=path,
+        selected=selected, out=path, clim=clim,
         # Drawn, not numbered.  Seventeen frames of number chips is
         # unreadable as a movie, and the numbers are in the ordered
         # dropdown where they can actually be found.
@@ -423,6 +528,12 @@ def prerender_region(provider, chunk: str, field: str, *, track=None,
     """
     times = provider.chunk_timesteps(chunk)
     total = len(times)
+
+    if progress is not None:
+        progress(0, total, "pooling the colour range")
+    clim = region_clim(provider, chunk, field)
+    print(f"[evolution] shared colour range for {field}: {clim}", flush=True)
+
     frames = []
     for step in range(total):
         what = f"region frame {step + 1}/{total}"
@@ -432,7 +543,8 @@ def prerender_region(provider, chunk: str, field: str, *, track=None,
         selected = track.label_at(step) if track is not None else 0
         try:
             frames.append(region_frame(provider, chunk, step, field,
-                                       selected=int(selected or 0)))
+                                       selected=int(selected or 0),
+                                       clim=clim))
         except Exception as exc:                            # noqa: BLE001
             print(f"[evolution]   step {step} failed: "
                   f"{type(exc).__name__}: {exc}", flush=True)

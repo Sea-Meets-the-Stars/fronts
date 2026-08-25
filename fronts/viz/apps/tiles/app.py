@@ -82,7 +82,7 @@ class TilesPage:
     def __init__(self, provider=None):
         self.state = TilesState(provider=provider)
 
-        self._overview = pn.pane.HoloViews(min_height=540,
+        self._overview = pn.pane.HoloViews(min_height=760,
                                            sizing_mode="stretch_width")
         self._tilemap = pn.pane.HoloViews(min_height=620,
                                           sizing_mode="stretch_width")
@@ -296,7 +296,10 @@ class TilesPage:
         try:
             base = basemap.global_map(
                 s.provider, s.date, "gradb2",
-                height=520, title="Click a region",
+                # Taller: the world is 360 wide and ~160 tall, so a short
+                # frame stretched to the page width squashed it into a
+                # letterbox that was hard to pick a region out of.
+                height=740, title="Click a region",
                 tools=("tap",), active_tools=("tap",),
             )
         except Exception as exc:                            # noqa: BLE001

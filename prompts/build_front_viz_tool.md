@@ -395,6 +395,11 @@ in the middle of a movie build.
 
 ### Following a front: location, not label
 
+Full design, and what to do next, in
+[docs/viz/apps/front_tracking.md](../docs/viz/apps/front_tracking.md).
+The code is `fronts/front_tracking.py` — outside `fronts/viz`, because
+tracking is a statement about the ocean rather than about a page.
+
 Labels are assigned per date, so the same physical front is called
 something different in every frame. Following a *label* jumps to an
 unrelated front. `evolution/tracking.py` follows position instead:

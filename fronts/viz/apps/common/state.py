@@ -219,9 +219,15 @@ class TilesState(PageState):
 
     #: Field for the region map that sits beside the isopycnal depth --
     #: chosen at the same step, before the per-column fields.
-    region_field = param.Selector(objects=list(config.TILE_FIELDS_3D),
-                                  default=config.TILE_GEOMETRY_FIELD,
-                                  doc="Field for the region overview map.")
+    # The map field, unlike the section fields, may be surface-only: a
+    # plan view needs one level and nothing more.  Wind stress, heat flux,
+    # mixed-layer depth and the depth-integrated quantities all qualify --
+    # they have no profile to section, however much depth went into them.
+    region_field = param.Selector(
+        objects=list(config.TILE_FIELDS_3D)
+        + list(config.CHUNK_SURFACE_FIELDS),
+        default=config.TILE_GEOMETRY_FIELD,
+        doc="Field for the region overview map.  May be surface-only.")
 
     #: Depth for the inset's second row.  0 keeps it at the surface, which
     #: makes the second row a duplicate -- so it defaults deeper.

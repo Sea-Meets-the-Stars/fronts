@@ -142,6 +142,13 @@ def bin_edges(values, n: int, *, field_name: str = "",
         lo, hi = lo - 0.5, hi + 0.5
 
     split = NATURAL_SPLITS.get(field_name)
+    if split is None and float(v.min()) < 0.0 < float(v.max()):
+        # A field that takes both signs has a meaningful centre, whether
+        # or not anyone thought to name it: zero.  Splitting such a field
+        # at its median puts the boundary at an arbitrary value and makes
+        # "positive" and "negative" straddle a colour, which is exactly
+        # the distinction the reader is looking for.
+        split = 0.0
     if split is not None and n % 2 == 0 and lo < split < hi:
         half = n // 2
         lower = np.quantile(v[v < split], np.linspace(0, 1, half + 1)) \
@@ -420,3 +427,71 @@ def figure_bivariate(df, values_a, values_b, *, n=2, name_a="", name_b="",
              title=title)
     plot_legend(scheme, ax=ax_leg)
     return fig, scheme
+
+
+def figure_jpdf(values_a, values_b, *, name_a: str = "", name_b: str = "",
+                scheme: "BivariateScheme | None" = None, bins: int = 80,
+                log_density: bool = True, title: str = "",
+                figsize=(5.2, 4.6)):
+    """Joint distribution of the two fields the map is coloured by.
+
+    The map answers "where"; this answers "how often".  A cell that is
+    rare on this figure is rare everywhere on the map, however much space
+    its colour appears to occupy -- which is the thing a bivariate map is
+    least able to tell you on its own.
+
+    The scheme's bin edges are drawn over it, so the blocks here are
+    literally the colours there.
+
+    Density is plotted on a log scale by default: these joint
+    distributions are strongly peaked, and on a linear scale everything
+    outside the mode is one flat colour.
+    """
+    import matplotlib
+    matplotlib.use("Agg", force=False)
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+
+    a = np.asarray(values_a, dtype=float).ravel()
+    b = np.asarray(values_b, dtype=float).ravel()
+    good = np.isfinite(a) & np.isfinite(b)
+    a, b = a[good], b[good]
+
+    fig, ax = plt.subplots(figsize=figsize)
+    if a.size == 0:
+        ax.text(0.5, 0.5, "no overlapping finite values",
+                ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        return fig, ax
+
+    # Percentile-clipped range, so one outlier cannot squash the picture.
+    def span(v):
+        lo, hi = np.percentile(v, [1.0, 99.0])
+        return (lo - 0.5, hi + 0.5) if lo == hi else (lo, hi)
+
+    range_a, range_b = span(a), span(b)
+    density, x_edges, y_edges = np.histogram2d(
+        a, b, bins=bins, range=[range_a, range_b], density=True)
+
+    shown = np.ma.masked_where(density <= 0, density)
+    norm = LogNorm(vmin=float(shown.min()), vmax=float(shown.max())) \
+        if log_density and shown.count() else None
+
+    mesh = ax.pcolormesh(x_edges, y_edges, shown.T, cmap="magma", norm=norm,
+                         shading="auto")
+    cbar = fig.colorbar(mesh, ax=ax)
+    cbar.set_label("probability density" + (" (log)" if norm else ""))
+
+    if scheme is not None:
+        # The section boundaries, so this figure and the map share a frame
+        # of reference rather than merely a pair of field names.
+        for edge in scheme.edges_a[1:-1]:
+            ax.axvline(float(edge), color="#00e5ff", lw=1.0, ls="--")
+        for edge in scheme.edges_b[1:-1]:
+            ax.axhline(float(edge), color="#00e5ff", lw=1.0, ls="--")
+
+    ax.set_xlabel(name_a or "field A")
+    ax.set_ylabel(name_b or "field B")
+    ax.set_title(title or "joint distribution", fontsize=10)
+    fig.tight_layout()
+    return fig, ax

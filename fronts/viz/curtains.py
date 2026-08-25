@@ -1250,6 +1250,7 @@ def figure_perpendicular(
     title: str | None = None,
     follow_isopycnal: bool = False,
     target_sigma0: float | None = None,
+    mld_curtain: np.ndarray | None = None,
 ):
     """Figure 3 -- the perpendicular (cross-front) curtain (single panel).
 
@@ -1333,7 +1334,7 @@ def figure_perpendicular(
     fig, ax = plt.subplots(figsize=(9, 5))
     plot_curtain_panel(
         ax, signed_px, Z, color_curtain, sigma0_curtain,
-        dist_km=signed_km,
+        dist_km=signed_km, mld_curtain=mld_curtain,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
         mark_index=int(half_width),  # x=0: the axis, or the traced isopycnal
         title=title or ("Cross-front curtain (isopycnal-following)"

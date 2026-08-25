@@ -66,29 +66,16 @@ class FrontSeries:
 
 
 def orientation_deg(mask: np.ndarray) -> float:
-    """Major-axis angle of a boolean mask, in 0–90 degrees.
+    """Major-axis angle of a boolean mask, in 0-90 degrees.
 
-    Second moments rather than ``skimage.measure.regionprops``, so this
-    carries no scikit-image dependency; the convention is the same one
-    ``geometry.calculate_front_orientation`` uses.
+    Re-exported from :mod:`fronts.front_tracking`, which needs the same
+    measurement to decide whether a candidate front has turned too far to
+    be the same one.  Two copies of this would be two conventions waiting
+    to disagree.
     """
-    jj, ii = np.nonzero(mask)
-    if jj.size < 2:
-        return float("nan")
+    from fronts import front_tracking
 
-    dj = jj - jj.mean()
-    di = ii - ii.mean()
-    cov_jj = float((dj * dj).mean())
-    cov_ii = float((di * di).mean())
-    cov_ji = float((dj * di).mean())
-
-    # Measured from axis 0 (rows, north-south), so the denominator is
-    # cov_jj - cov_ii and not the other way round.  With the terms
-    # swapped a north-south front reads as 90 degrees, which is exactly
-    # backwards -- and silently plausible, since the range is still 0-90.
-    angle = 0.5 * np.arctan2(2.0 * cov_ji, cov_jj - cov_ii)
-    return float(abs(np.degrees(angle)))
-
+    return front_tracking.orientation_deg(mask)
 
 def _stats_of(values: np.ndarray) -> dict:
     """The statistic set the page can draw as lines."""

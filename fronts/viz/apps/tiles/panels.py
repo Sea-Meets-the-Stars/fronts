@@ -90,9 +90,17 @@ def figure_perpendicular(scene: FrontScene, *, index, half_width=30) -> Path:
         perp_path = curtains.perpendicular_path(
             scene.axis_path, scene.metrics["normals"], index, half_width
         )
+        # The mixed layer along *this* path, not along the main axis --
+        # the perpendicular crosses the axis, so the along-axis curtain
+        # cannot answer for it.
+        mld = np.array(
+            [scene.mld_field[int(np.clip(j, 0, scene.mld_field.shape[0] - 1)),
+                             int(np.clip(i, 0, scene.mld_field.shape[1] - 1))]
+             for j, i in perp_path], dtype=float)
+
         return curtains.figure_perpendicular(
             scene.color, scene.sigma0, scene.Z, perp_path, half_width, out,
-            XC_rect=scene.XC, YC_rect=scene.YC,
+            XC_rect=scene.XC, YC_rect=scene.YC, mld_curtain=mld,
             levels=scene.levels, clim=scene.clim, cmap=field_styles.resolve_cmap(scene.style.cmap),
             color_title=scene.style.title,
             title=f"Perpendicular — front {scene.label}",
@@ -478,6 +486,7 @@ def figure_isopycnal_depth(scene: FrontScene, sigma: float, *,
 
 def figure_region_field(scene: FrontScene, surface, labels, *,
                         field_name: str, lon=None, lat=None,
+                        clim: tuple[float, float] | None = None,
                         figsize=(9.0, 6.0)) -> Path:
     """One field over the whole tile, with every front drawn on it.
 
@@ -494,7 +503,8 @@ def figure_region_field(scene: FrontScene, surface, labels, *,
         out = _stem(scene, f"region_{field_name}")
         style = field_styles.get_style(field_name)
         shown = field_styles.apply_transform(np.asarray(surface), style)
-        clim = field_styles.default_clim(shown, style)
+        if clim is None:
+            clim = field_styles.default_clim(shown, style)
 
         span = None
         if lon is not None and lat is not None:
@@ -663,6 +673,7 @@ def figure_region_fronts(surface, labels, *, lon=None, lat=None,
                          field_name: str = "density", selected: int = 0,
                          title: str | None = None, out: Path | None = None,
                          annotate: bool = True, min_pixels: int = 20,
+                         clim: tuple[float, float] | None = None,
                          figsize=(9.0, 7.2)) -> Path:
     """Every front in the region, numbered, over the field.
 
@@ -700,7 +711,12 @@ def figure_region_fronts(surface, labels, *, lon=None, lat=None,
         # Same transform + limits path as figure_region_field, so the two
         # views of the same field are directly comparable.
         shown = field_styles.apply_transform(surface, style)
-        clim = field_styles.default_clim(shown, style)
+        # A shared range when one is given.  Per-frame limits make a movie
+        # unreadable: the colours change because the scale moved, not
+        # because the ocean did, and the two are indistinguishable on
+        # screen.
+        if clim is None:
+            clim = field_styles.default_clim(shown, style)
         im = ax.imshow(shown, origin="lower", extent=extent, aspect="auto",
                        cmap=field_styles.resolve_cmap(style.cmap),
                        vmin=clim[0], vmax=clim[1])
@@ -738,6 +754,95 @@ def figure_region_fronts(surface, labels, *, lon=None, lat=None,
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(title or f"{drawn} fronts")
+        fig.tight_layout()
+        fig.savefig(out, dpi=120)
+        plt.close(fig)
+        return out
+
+
+def figure_profile_stack(columns, Z, times, *, field_name: str,
+                         highlight: int | None = None,
+                         out: Path | None = None,
+                         figsize=(4.6, 6.4)) -> Path:
+    """Every timestep's profile at one point, on one axis.
+
+    A profile at a fixed location is one line per timestep, so a *movie*
+    of them shows one line at a time and throws away the comparison that
+    matters.  Drawn together, coloured by time, the evolution is the
+    picture.
+
+    *highlight* draws one step in the foreground, thick and dark, so the
+    figure can track the movie and the time-series cursor without being
+    rebuilt from data each time.
+
+    Parameters
+    ----------
+    columns : sequence
+        One ``(K,)`` array per step, or ``None`` where the front was
+        absent.  Gaps are skipped, not interpolated.
+    Z : array
+        Depth axis, negative downward.
+    times : sequence of str
+        Timestamps, for the colour bar's labels.
+    """
+    with MPL_LOCK:
+        import matplotlib
+        matplotlib.use("Agg", force=False)
+        import matplotlib.pyplot as plt
+        from matplotlib import cm, colors as mcolors
+
+        out = Path(out) if out is not None else (
+            _outdir() / f"profilestack_{field_name}_{highlight}.png")
+
+        usable = [(k, np.asarray(c, dtype=float))
+                  for k, c in enumerate(columns) if c is not None]
+
+        fig, ax = plt.subplots(figsize=figsize)
+        if not usable:
+            ax.text(0.5, 0.5, "no profile at this point",
+                    ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
+            fig.savefig(out, dpi=120)
+            plt.close(fig)
+            return out
+
+        depth = np.asarray(Z, dtype=float)
+        n = len(columns)
+        cmap = plt.get_cmap("viridis")      # cm.get_cmap is deprecated
+        norm = mcolors.Normalize(vmin=0, vmax=max(n - 1, 1))
+
+        for k, col in usable:
+            m = min(len(col), len(depth))
+            ax.plot(col[:m], depth[:m], color=cmap(norm(k)), lw=1.0,
+                    alpha=0.75, zorder=2)
+
+        if highlight is not None:
+            for k, col in usable:
+                if k != int(highlight):
+                    continue
+                m = min(len(col), len(depth))
+                # Drawn twice: a white casing under a dark line, so the
+                # highlight reads against any colour it happens to sit on.
+                ax.plot(col[:m], depth[:m], color="white", lw=4.0, zorder=3)
+                ax.plot(col[:m], depth[:m], color="#b71c1c", lw=2.2,
+                        zorder=4, label=str(times[k]) if k < len(times) else "")
+                ax.legend(loc="lower right", fontsize=7, framealpha=0.9)
+
+        sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+        cbar = fig.colorbar(sm, ax=ax, pad=0.02)
+        cbar.set_label("timestep")
+        if times:
+            ticks = np.linspace(0, max(n - 1, 1), min(5, n)).astype(int)
+            cbar.set_ticks(ticks)
+            cbar.set_ticklabels([str(times[t])[:16] for t in ticks
+                                 if t < len(times)])
+            cbar.ax.tick_params(labelsize=6)
+
+        style = field_styles.get_style(field_name)
+        ax.set_xlabel(getattr(style, "title", field_name))
+        ax.set_ylabel("depth [m]")
+        ax.set_title("vertical profile at the transect point", fontsize=10)
+        ax.grid(alpha=0.25)
         fig.tight_layout()
         fig.savefig(out, dpi=120)
         plt.close(fig)

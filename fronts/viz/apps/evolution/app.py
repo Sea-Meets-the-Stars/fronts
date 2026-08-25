@@ -36,6 +36,7 @@ from fronts.viz.apps.common.state import PageState
 from fronts.viz.apps.evolution import pipeline as EP
 from fronts.viz.apps.tiles import pipeline as TP
 from fronts.viz.apps.evolution import timeseries as TS
+from fronts.viz.apps.tiles import panels as F
 from fronts.viz.apps.evolution import tracking as TR
 
 hv.extension("bokeh")
@@ -148,8 +149,11 @@ class EvolutionState(PageState):
     chunk = param.Selector(objects=list(config.EVOLUTION_CHUNKS),
                            default=config.EVOLUTION_CHUNKS[0],
                            doc="Which saved chunk to play.")
-    field = param.Selector(objects=list(config.TILE_FIELDS_3D), default="Ri",
-                           doc="3-D field colouring the figures.")
+    field = param.Selector(
+        objects=list(config.TILE_FIELDS_3D) + list(config.CHUNK_SURFACE_FIELDS),
+        default="Ri",
+        doc="Field colouring the figures.  The surface-only ones can "
+            "colour the region movie but have no depth to section.")
     # The selection is a *place*, not a label.  Labels are assigned per
     # timestep, so a label identifies a front in one frame and nothing in
     # the next; a point on the ocean means the same thing in all of them.
@@ -161,6 +165,12 @@ class EvolutionState(PageState):
                               doc="Latitude of the selected point.")
     front_label = param.Integer(default=0, bounds=(0, None),
                                 doc="Label the point resolved to, 0 = none.")
+
+    # 0 means "unset" -- fall back to the front point.  A sentinel rather
+    # than None so the widgets stay plain numeric inputs.
+    perp_lat = param.Number(default=0.0, doc="Transect latitude, 0 = follow.")
+    perp_lon = param.Number(default=0.0, doc="Transect longitude, 0 = follow.")
+
     step = param.Integer(default=0, bounds=(0, config.EVOLUTION_N_STEPS - 1),
                          doc="Current timestep.")
     # Two offsets rather than three: the offsets figure is the most
@@ -207,13 +217,32 @@ class EvolutionState(PageState):
             self.step = n - 1
 
     @param.depends("chunk", "field", "anchor_lon", "anchor_lat", "n_offsets",
-                   "perp_half_width", watch=True)
+                   "perp_half_width", "perp_lat", "perp_lon", watch=True)
     def _invalidate(self):
         self.built = False
 
     def times(self):
         return self.provider.chunk_timesteps(self.chunk)
 
+    @param.depends("anchor_lat", "anchor_lon", watch=True)
+    def _follow_anchor(self):
+        """Move the transect to the newly chosen front point.
+
+        Choosing a front and then having to retype almost the same
+        coordinates for the transect was busywork -- the front point is
+        the right default.  Editing the transect afterwards still sticks,
+        because only a change to the *front* point moves it.
+        """
+        self.perp_lat = float(self.anchor_lat)
+        self.perp_lon = float(self.anchor_lon)
+
+    def perp_point(self):
+        """Where the transect sits, or the front point if it is unset."""
+        if self.perp_lat or self.perp_lon:
+            return (float(self.perp_lon), float(self.perp_lat))
+        if self.anchor_lat or self.anchor_lon:
+            return (float(self.anchor_lon), float(self.anchor_lat))
+        return None
 
 class EvolutionPage:
     """Assembles the evolution page."""
@@ -245,13 +274,23 @@ class EvolutionPage:
         self._region_frames: list[str | None] = []
         #: The same frames as bytes, so playback never waits on a fetch.
         self._region_bytes: list[bytes | None] = []
-        # Fixed height, not stretch: a pane that resizes to each image
-        # relayouts on every frame, and the reflow is itself the flicker.
-        self._region_pane = pn.pane.PNG(sizing_mode="stretch_width",
-                                        height=620)
+        # scale_width: the full page width with the aspect ratio kept.
+        # Safe for playback because every frame is rendered at the same
+        # figsize and dpi, so the height never changes between them and
+        # there is no reflow to see.
+        self._region_pane = pn.pane.PNG(sizing_mode="scale_width")
         self._region_progress = pn.indicators.Progress(
             value=0, max=1, width=320, visible=False)
         self._region_status = widgets.status()
+        self._preview = pn.pane.HoloViews(sizing_mode="stretch_width",
+                                          min_height=560)
+        self._preview_scene = None
+        self._preview_status = widgets.status()
+        #: The stacked profile figure, one variant per highlighted step.
+        self._profile_bytes: list[bytes | None] = []
+        # Fixed width: this figure is tall and narrow, and scale_width
+        # across the whole page would make it enormous.
+        self._profile_pane = pn.pane.PNG(width=460)
         self._series_data: TS.FrontSeries | None = None
         self._track = None
         self._labels_step = None
@@ -259,7 +298,14 @@ class EvolutionPage:
         self._token = 0
 
         self._panes = {
-            k: pn.pane.PNG(sizing_mode="stretch_width", min_height=200)
+            k: pn.pane.PNG(sizing_mode="scale_width")
+            for k in EP.FRAME_ORDER
+        }
+        self._downloads = {
+            k: pn.widgets.FileDownload(
+                label="Download GIF", filename=f"{k}.gif", width=150,
+                callback=(lambda kind=k: self._figure_gif(kind)),
+                disabled=True)
             for k in EP.FRAME_ORDER
         }
 
@@ -295,21 +341,17 @@ class EvolutionPage:
         self.w_resolve = pn.widgets.Button(label="Find front here", width=150)
         self.w_resolve.on_click(lambda _: self._resolve_anchor())
 
-        # Read-only: which label the point landed on at this step.  Kept
-        # visible because it is what the frame titles and the logs say,
-        # but it is an output now, not an input.
-        self.w_label = pn.widgets.IntInput.from_param(
-            s.param.front_label, label="Front here (this step)", width=170,
-            disabled=True)
+        # Where the cross-front transect sits, geographically.  Blank means
+        # "wherever the front was selected", which is the useful default.
+        self.w_perp_lat = pn.widgets.FloatInput.from_param(
+            s.param.perp_lat, label="Transect lat", width=120, step=0.01)
+        self.w_perp_lon = pn.widgets.FloatInput.from_param(
+            s.param.perp_lon, label="Transect lon", width=140, step=0.01)
+
+
+
         # "at this step", not "persistent": the label is only valid
         # here, and tracking is what carries it across steps.
-        self.w_avail = pn.widgets.Select(label="Fronts at this step",
-                                         options=[], width=170)
-        # Picking from the list still works, but it sets the *point* -- the
-        # centroid of that front at this step -- so the choice survives
-        # into the other steps.
-        self.w_avail.param.watch(
-            lambda e: e.new and self._point_from_label(int(e.new)), "value")
         self.w_offsets = pn.widgets.IntSlider.from_param(
             s.param.n_offsets, name="Offsets per side", width=150)
         self.w_perp = pn.widgets.IntSlider.from_param(
@@ -326,6 +368,11 @@ class EvolutionPage:
         self.w_region = pn.widgets.Button(
             label="Build region movie", button_type="primary", width=190)
         self.w_region.on_click(lambda _: self.schedule_region())
+
+        self.w_download = pn.widgets.FileDownload(
+            label="Download movie (GIF)", filename="region_movie.gif",
+            callback=self._movie_gif, button_type="default", width=200,
+            disabled=True)
 
         self.w_region_player = pn.widgets.Player(
             label="Region step", start=0,
@@ -447,6 +494,9 @@ class EvolutionPage:
     def _on_step(self, event):
         self.state.step = int(event.new)
         self.show_frame(int(event.new))
+        # The profile stack tracks the same cursor the time series do, so
+        # the lit-up profile is always the step being looked at.
+        self._show_profile(int(event.new))
 
     def _reflect_built(self):
         if self.state.built:
@@ -623,7 +673,76 @@ class EvolutionPage:
         s.front_label = int(label)
         self._status.object = (
             f"point ({s.anchor_lat:.3f}, {s.anchor_lon:.3f}) → front "
-            f"**{label}** at this step, {km:.1f} km away")
+            f"**{label}** at this step, {km:.1f} km away — drawing it…")
+        self._draw_preview()
+
+    def _draw_preview(self):
+        """The selected front alone, at the current step, and clickable.
+
+        A HoloViews plot rather than a rendered PNG: the transect point is
+        chosen from this figure, and a PNG can be looked at but not
+        clicked.  Everything else on the page is a still because it gets
+        played back; this one is interactive because it is an input.
+        """
+        s = self.state
+        if not s.front_label:
+            self._preview.object = None
+            return
+
+        self._preview_status.object = "drawing the selected front…"
+        try:
+            scene = EP.build_step(s.provider, s.chunk, s.step, s.field,
+                                  int(s.front_label))
+        except Exception as exc:                            # noqa: BLE001
+            self._preview.object = None
+            self._preview_status.object = (
+                f"**Could not draw front {s.front_label}:** {exc}")
+            return
+
+        self._preview_scene = scene
+        surface = np.asarray(scene.color[0])
+        lon = np.asarray(scene.XC) % 360.0
+        lat = np.asarray(scene.YC)
+
+        # hv.Image needs a regular axis per dimension; over a crop this
+        # small an even span across the true extent is accurate to well
+        # under a cell.  Same approximation the Tiles plan view makes.
+        xs = np.linspace(float(np.nanmin(lon)), float(np.nanmax(lon)),
+                         surface.shape[1])
+        ys = np.linspace(float(np.nanmin(lat)), float(np.nanmax(lat)),
+                         surface.shape[0])
+
+        # scene.color is ALREADY through the display transform -- step 6
+        # of build_scene does it, so the curtains and this share one
+        # convention.  Transforming again is log of a log, which for a
+        # positive-definite field goes NaN and leaves the map blank.  The
+        # scene's own clim goes with it, for the same reason.
+        style = field_styles.get_style(s.field)
+        img = hv.Image((xs, ys, surface), kdims=["lon", "lat"],
+                       vdims=[s.field]).opts(
+            cmap=basemap.bokeh_cmap(style.cmap),
+            clim=tuple(scene.clim), colorbar=True)
+
+        front = np.where(np.asarray(scene.front_mask), 1.0, np.nan)
+        overlay = img * hv.Image((xs, ys, front), kdims=["lon", "lat"],
+                                 vdims=["front"]).opts(
+            cmap=["#00e5ff"], colorbar=False)
+
+        marker = hv.Points([(s.perp_lon % 360.0, s.perp_lat)]).opts(
+            size=13, color="#ff1744", marker="x", line_width=3)
+
+        overlay = (overlay * marker).opts(
+            responsive=True, height=560, active_tools=["tap"],
+            title=f"front {s.front_label} — {s.times()[s.step]} "
+                  "(click to place the transect)",
+            xlabel="longitude [deg]", ylabel="latitude [deg]",
+            shared_axes=False)
+
+        hv.streams.Tap(source=overlay).add_subscriber(self._on_preview_tap)
+        self._preview.object = overlay
+        self._preview_status.object = (
+            f"front **{s.front_label}** at {s.times()[s.step]} — click to "
+            "set the transect point, then *Build movie*")
 
     def refresh_labels(self):
         s = self.state
@@ -632,19 +751,23 @@ class EvolutionPage:
                 s.provider.chunk_labels(s.chunk, s.step))
         except Exception:                                   # noqa: BLE001
             labels = []
-        self.w_avail.options = [str(l) for l in labels]
-        if labels and s.front_label not in labels:
-            s.front_label = labels[0]
-        if labels:
-            # Keep the dropdown showing the selection rather than blank.
-            self.w_avail.value = str(s.front_label)
+        # No dropdown any more: the selection is a place, so the list of
+        # labels was a second way to say the same thing -- and the worse
+        # one, since a label only means anything in the step it came from.
         self._status.object = (
             f"**{len(labels)}** fronts at this step "
-            f"({self.w_when.value or s.step}) — pick one, and it is "
-            f"followed through the other {max(len(s.times()) - 1, 0)} "
-            "by position")
+            f"({self.w_when.value or s.step}) — click one on the map, or "
+            "type a lat/lon below")
 
-    # -- time series -----------------------------------------------------
+    def _on_preview_tap(self, x, y):
+        """Clicking the plan view places the transect."""
+        if x is None or y is None:
+            return
+        self.state.perp_lon = float(x) % 360.0
+        self.state.perp_lat = float(y)
+        # Redraw so the marker lands where it was clicked.  Cheap: the
+        # scene is already in hand, so this rebuilds a plot, not the data.
+        self._draw_preview()
 
     def draw_series(self):
         """Three panels, with a cursor that follows playback."""
@@ -661,22 +784,31 @@ class EvolutionPage:
             return
 
         self._series_data = series
-        steps = series.steps
+
+        # Real time on the x-axis, not step index.  A chunk is daily
+        # snapshots wrapped around one intensive day, so on a step axis
+        # the interesting hours are stretched to the same width as a
+        # week of gaps -- which hides the only part with time resolution
+        # in it.
+        stamps = [TR.parse_time(t) for t in series.times]
+        xs = np.array(stamps, dtype="datetime64[s]")
+        xdim = "time"
 
         def panels(step):
-            cursor = hv.VLine(float(step)).opts(
+            at = xs[int(np.clip(step, 0, len(xs) - 1))]
+            cursor = hv.VLine(at).opts(
                 color="#e6194b", line_width=2, line_dash="dashed")
 
-            a = (hv.Curve((steps, series.length_km), "step", "length [km]"
+            a = (hv.Curve((xs, series.length_km), xdim, "length [km]"
                           ).opts(color="#1f4e5f", line_width=2)
-                 * hv.Scatter((steps, series.length_km)).opts(
+                 * hv.Scatter((xs, series.length_km)).opts(
                      size=4, color="#1f4e5f") * cursor
                  ).opts(title="(a) front length", width=430, height=230)
 
-            b = (hv.Curve((steps, series.orientation), "step",
+            b = (hv.Curve((xs, series.orientation), xdim,
                           "orientation [deg]"
                           ).opts(color="#8a5a00", line_width=2)
-                 * hv.Scatter((steps, series.orientation)).opts(
+                 * hv.Scatter((xs, series.orientation)).opts(
                      size=4, color="#8a5a00") * cursor
                  ).opts(title="(b) orientation (0 = N–S)", width=430,
                         height=230, ylim=(0, 90))
@@ -686,10 +818,10 @@ class EvolutionPage:
                 values = series.stats.get(name)
                 if values is None:
                     continue
-                lines.append(hv.Curve((steps, values), "step", s.field,
+                lines.append(hv.Curve((xs, values), xdim, s.field,
                                       label=name).opts(line_width=2))
             c = (hv.Overlay(lines) * cursor if lines
-                 else hv.Curve(([], []), "step", s.field) * cursor)
+                 else hv.Curve(([], []), xdim, s.field) * cursor)
             c = c.opts(title=f"(c) {s.field} over the front", width=470,
                        height=230, legend_position="right", show_legend=True)
 
@@ -702,6 +834,13 @@ class EvolutionPage:
     def schedule_build(self):
         self._token += 1
         token = self._token
+
+        if config.is_surface_only(self.state.field):
+            self._build_status.object = (
+                f"**{self.state.field} is surface-only** — it has no depth "
+                "to section. It works in the region movie above; pick a "
+                "depth-resolved field here.")
+            return
 
         if not self.state.front_label:
             self._build_status.object = "**Pick a front first.**"
@@ -719,6 +858,41 @@ class EvolutionPage:
         else:
             pn.state.execute(
                 lambda: asyncio.ensure_future(self._build_async(token)))
+
+    def _gif_from(self, images):
+        """A list of PNG bytes as one animated GIF."""
+        import io
+
+        from PIL import Image
+
+        buf = io.BytesIO()
+        frames = [Image.open(io.BytesIO(b)).convert("P", palette=Image.ADAPTIVE)
+                  for b in images if b]
+        if not frames:
+            return buf
+        frames[0].save(buf, format="GIF", save_all=True,
+                       append_images=frames[1:], duration=600, loop=0)
+        buf.seek(0)
+        return buf
+
+    def _figure_gif(self, kind: str):
+        """One movie figure across all steps, as a GIF.
+
+        Each panel gets its own download: the whole point of a per-figure
+        movie is to look at one thing evolving, so exporting the set as a
+        single sheet would be the wrong artefact.
+        """
+        return self._gif_from([_read_bytes(f.get(kind)) if f else None
+                               for f in self._frames])
+
+    def _movie_gif(self):
+        """The region frames as one animated GIF, built on demand.
+
+        On demand rather than with the movie: most builds are looked at
+        and not kept, and assembling the GIF costs a second or two that
+        nobody should pay unless they want the file.
+        """
+        return self._gif_from(self._region_bytes)
 
     def _on_region_step(self, event):
         """Swap the image.  Nothing else -- this runs once per frame.
@@ -780,6 +954,7 @@ class EvolutionPage:
 
         self._region_frames = frames
         self._region_bytes = [_read_bytes(f) for f in frames]
+        self.w_download.disabled = not any(self._region_bytes)
         self._region_progress.visible = False
         ok = sum(1 for f in frames if f)
         self._region_status.object = (
@@ -787,6 +962,41 @@ class EvolutionPage:
             "fronts move, then pick one by its number")
         self.w_region_player.end = max(len(frames) - 1, 1)
         self._on_region_step(type("E", (), {"new": 0})())
+
+    def _build_profile_stack(self, frames):
+        """One figure per highlighted step, from the collected columns.
+
+        Pre-rendered rather than redrawn on each step, for the same reason
+        the movie is: a matplotlib render inside the player's callback
+        shows up directly as the playback stuttering.
+        """
+        s = self.state
+        columns = [f.get("_profile") if f else None for f in frames]
+        depths = next((f.get("_Z") for f in frames
+                       if f and f.get("_Z") is not None), None)
+
+        if depths is None or not any(c is not None for c in columns):
+            self._profile_bytes = []
+            self._profile_pane.object = None
+            return
+
+        times = s.times()
+        out = []
+        for step in range(len(columns)):
+            try:
+                path = F.figure_profile_stack(
+                    columns, depths, times, field_name=s.field,
+                    highlight=step)
+                out.append(pathlib.Path(path).read_bytes())
+            except Exception as exc:                        # noqa: BLE001
+                log.warning("profile stack step %s: %s", step, exc)
+                out.append(None)
+        self._profile_bytes = out
+        self._show_profile(int(self.w_player.value))
+
+    def _show_profile(self, step: int):
+        if self._profile_bytes and step < len(self._profile_bytes):
+            self._profile_pane.object = self._profile_bytes[step]
 
     def _restyle_series(self):
         """Redraw the series only if they have already been computed.
@@ -826,6 +1036,14 @@ class EvolutionPage:
             note.append(f"{len(gaps)} gap{'s' if len(gaps) > 1 else ''}")
         if escape is not None:
             note.append(f"leaves the window at step {escape}")
+
+        # The weakest joins are where a track most likely jumped to a
+        # neighbour.  There is no ground truth to check against, so
+        # saying which calls were closest is the honest substitute.
+        weak = self._track.weakest(2)
+        if weak:
+            note.append("weakest links: " + ", ".join(
+                f"step {l.step} ({l.score:.2f})" for l in weak))
         print(f"[evolution] {' · '.join(note)}", flush=True)
         self._build_status.object = " · ".join(note)
 
@@ -839,7 +1057,7 @@ class EvolutionPage:
             frames = EP.prerender(
                 s.provider, s.chunk, s.field, self._track,
                 n_offsets=s.n_offsets, perp_half_width=s.perp_half_width,
-                progress=progress)
+                perp_point=s.perp_point(), progress=progress)
         except Exception as exc:                            # noqa: BLE001
             if token == self._token:
                 self._progress.visible = False
@@ -855,6 +1073,12 @@ class EvolutionPage:
         # server thread, so walking the window there froze the whole app
         # before a single frame could be drawn -- and prerender above has
         # just walked the same window, so doing it there paid for it twice.
+        for kind, widget in self._downloads.items():
+            widget.disabled = not any(f and f.get(kind) for f in frames)
+
+        self._build_status.object = "building the profile stack…"
+        self._build_profile_stack(frames)
+
         self._build_status.object = "building time series…"
         try:
             self.draw_series()
@@ -874,8 +1098,11 @@ class EvolutionPage:
         if not self._frames or step >= len(self._frames):
             return
         frame = self._frames[step]
+        # Only the figure keys.  A frame also carries the profile column
+        # and the depth axis under underscored keys -- data, not pictures.
         for kind, pane in self._panes.items():
-            pane.object = frame.get(kind)
+            if not kind.startswith("_"):
+                pane.object = frame.get(kind)
 
     # -- layout ----------------------------------------------------------
 
@@ -914,12 +1141,18 @@ class EvolutionPage:
             sizing_mode="stretch_width",
         )
 
-        frames = pn.GridBox(*[
-            pn.Column(pn.pane.Markdown(f"<small>{EP.FRAME_TITLES[k]}</small>",
-                                       margin=(4, 5, 0, 5)),
-                      self._panes[k])
+        # One column, each figure the full width of the page.  Three
+        # across made every curtain a thumbnail.
+        frames = pn.Column(*[
+            pn.Column(
+                pn.Row(pn.pane.Markdown(f"**{EP.FRAME_TITLES[k]}**",
+                                        margin=(10, 5, 0, 5)),
+                       self._downloads[k],
+                       sizing_mode="stretch_width"),
+                self._panes[k],
+                sizing_mode="stretch_width")
             for k in EP.FRAME_ORDER
-        ], ncols=3, sizing_mode="stretch_width")
+        ], sizing_mode="stretch_width")
 
         body = pn.Column(
             pn.pane.Markdown("### Evolution — one region over a week",
@@ -946,7 +1179,7 @@ class EvolutionPage:
             pn.Row(self.w_field, sizing_mode="stretch_width",
                    margin=(0, 10)),
             row_b_go, self._region_status,
-            pn.Row(self.w_region_player, margin=(0, 10)),
+            pn.Row(self.w_region_player, self.w_download, margin=(0, 10)),
             self._region_pane,
             pn.layout.Divider(),
             # (c) now that a front can be seen and named, choose one.
@@ -956,13 +1189,26 @@ class EvolutionPage:
                 "The front nearest that point is followed — labels change "
                 "every timestep, a place does not.</small>",
                 margin=(0, 10)),
-            pn.Row(self.w_lat, self.w_lon, self.w_resolve, self.w_avail,
-                   self.w_label, sizing_mode="stretch_width",
-                   margin=(0, 10)),
+            pn.Row(self.w_lat, self.w_lon, self.w_resolve,
+                   sizing_mode="stretch_width", margin=(0, 10)),
+            pn.pane.Markdown(
+                "<small>The cross-front transect sits at a fixed place too, "
+                "so the front is seen moving through one point rather than "
+                "the transect sliding along it. Left blank it follows the "
+                "front point above. Profile locations are fixed the same "
+                "way — one line per point, at every step.</small>",
+                margin=(6, 10, 0, 10)),
+            self._preview_status,
+            self._preview,
+            pn.Row(self.w_perp_lat, self.w_perp_lon,
+                   sizing_mode="stretch_width", margin=(0, 10)),
             row_b2, row_c_go,
             pn.layout.Divider(),
             pn.pane.Markdown("### Time series", margin=(6, 10, 0, 10)),
             self._series,
+            pn.pane.Markdown("**Vertical profile at the transect point — "
+                             "every timestep**", margin=(12, 10, 0, 10)),
+            self._profile_pane,
             pn.layout.Divider(),
             pn.Row(pn.pane.Markdown("### Frames", margin=(6, 10, 0, 10)),
                    self.w_player, margin=(0, 0)),

@@ -134,6 +134,14 @@ class BivariatePage:
         self.state = BivariateState(provider=provider)
         # Two stacked maps: (a) every grid cell, (b) the fronts only.
         # Same colour scheme, so the fronts can be read against the field.
+        self._grid_jpdf = pn.pane.Matplotlib(tight=False, format="png",
+                                             dpi=110,
+                                             sizing_mode="stretch_width",
+                                             min_height=420)
+        self._front_jpdf = pn.pane.Matplotlib(tight=False, format="png",
+                                              dpi=110,
+                                              sizing_mode="stretch_width",
+                                              min_height=420)
         self._grid_fig = pn.pane.Matplotlib(tight=False, format="png", dpi=110,
                                             sizing_mode="stretch_width",
                                             min_height=560)
@@ -231,6 +239,17 @@ class BivariatePage:
         if token != self._token:
             return
         self._grid_fig.object = fig
+        try:
+            scheme = BV.build_scheme(a, b, n=s.sections,
+                                     name_a=s.resolve(s.field_a),
+                                     name_b=s.resolve(s.field_b))
+            jfig, _ = BV.figure_jpdf(
+                a, b, name_a=s.field_a, name_b=s.field_b, scheme=scheme,
+                title=f"{s.field_a} x {s.field_b} — all grid points")
+            self._grid_jpdf.object = jfig
+        except Exception as exc:                            # noqa: BLE001
+            self._grid_jpdf.object = None
+            print(f"[bivariate] grid JPDF unavailable: {exc}")
         self._grid_fig.loading = False
         self._grid_status.object = (
             f"every finite grid cell · {s.sections}x{s.sections} sections")
@@ -270,6 +289,9 @@ class BivariatePage:
                 raise ValueError(
                     f"no colocated statistic for {missing!r} at this level")
 
+            values_a = table[col_a].to_numpy(dtype=float)
+            values_b = table[col_b].to_numpy(dtype=float)
+
             land = self._land_raster(s)
             fig, scheme = BV.figure_bivariate(
                 table,
@@ -292,6 +314,15 @@ class BivariatePage:
             return
 
         self._fig.object = fig
+        try:
+            jfig, _ = BV.figure_jpdf(
+                values_a, values_b, name_a=col_a, name_b=col_b,
+                scheme=scheme,
+                title=f"{col_a} x {col_b} — fronts only")
+            self._front_jpdf.object = jfig
+        except Exception as exc:                            # noqa: BLE001
+            self._front_jpdf.object = None
+            print(f"[bivariate] front JPDF unavailable: {exc}")
         self._fig.loading = False
 
         natural = [n for n in (col_a, col_b)
@@ -344,10 +375,23 @@ class BivariatePage:
             pn.pane.Markdown("#### (a) All grid points", margin=(6, 10, 0, 10)),
             self._grid_status,
             self._grid_fig,
+            pn.pane.Markdown(
+                "<small>Joint distribution of the same two fields. The map "
+                "shows *where*; this shows *how often*, which is what a "
+                "bivariate map cannot tell you on its own — a colour can "
+                "cover a lot of ocean and still be rare. Dashed lines are "
+                "the section boundaries.</small>", margin=(6, 10, 0, 10)),
+            self._grid_jpdf,
             pn.layout.Divider(),
             pn.pane.Markdown("#### (b) Fronts only", margin=(6, 10, 0, 10)),
             self._status,
             self._fig,
+            pn.pane.Markdown(
+                "<small>Joint distribution over fronts only. Compare with "
+                "(a): where the two differ is where fronts occupy a "
+                "different part of the parameter space from the ocean at "
+                "large.</small>", margin=(6, 10, 0, 10)),
+            self._front_jpdf,
             sizing_mode="stretch_width",
         )
 

@@ -92,7 +92,13 @@ class CharacteristicsPage:
                                           depth_mode=mode.has_depth)
 
         self._map = pn.pane.HoloViews(sizing_mode="stretch_width",
-                                      min_height=560)
+                                      min_height=760)
+        #: The region the panels below actually describe.  Built on
+        #: *Rebuild* and then frozen, unlike the map above which follows
+        #: navigation -- so what you are looking at and what the numbers
+        #: describe cannot drift apart.
+        self._regionmap = pn.pane.HoloViews(sizing_mode="stretch_width",
+                                            min_height=620)
         #: One box-select stream for the life of the page.  Recreating it
         #: per redraw is what lost the selection -- see ``redraw_map``.
         self._bounds = hv.streams.BoundsXY(bounds=None)
@@ -214,10 +220,13 @@ class CharacteristicsPage:
 
     # -- map -------------------------------------------------------------
 
-    def _zoom_limits(self):
+    def _zoom_limits(self, pad: float = ZOOM_PAD):
         """``(xlim, ylim)`` for the current selection, in 0..360 map coords.
 
-        Returns the full globe when nothing is selected.
+        Returns the full globe when nothing is selected.  *pad* of 0 gives
+        the box exactly, which is what the region map below wants -- the
+        padding above exists so the selection outline is not flush against
+        the frame while you are still navigating.
         """
         box = self.state.box
         if box.is_global:
@@ -227,8 +236,8 @@ class CharacteristicsPage:
         if lon1 <= lon0:                      # selection crosses the seam
             lon1 += 360.0
 
-        dx = max((lon1 - lon0) * ZOOM_PAD, 1.0)
-        dy = max((box.lat1 - box.lat0) * ZOOM_PAD, 1.0)
+        dx = max((lon1 - lon0) * pad, 1.0) if pad else 0.0
+        dy = max((box.lat1 - box.lat0) * pad, 1.0) if pad else 0.0
         return ((lon0 - dx, lon1 + dx),
                 (max(box.lat0 - dy, -90.0), min(box.lat1 + dy, 90.0)))
 
@@ -277,7 +286,7 @@ class CharacteristicsPage:
                 s.provider, s.date, channel,
                 show_fronts=s.show_fronts,
                 title=f"{channel}  —  {s.date}",
-                extent=extent,
+                extent=extent, height=720,
             )
         except Exception as exc:                        # noqa: BLE001
             self._status.object = f"**Map unavailable:** {exc}"
@@ -293,9 +302,41 @@ class CharacteristicsPage:
 
     # -- distributions ---------------------------------------------------
 
+    def draw_regionmap(self):
+        """The selected region, at full detail, with the fronts on it.
+
+        The map above is for navigating; this one is the evidence for the
+        panels below.  ``width_for_extent`` picks a finer pyramid level
+        for a small box, so zooming in genuinely buys resolution rather
+        than magnifying the same pixels.
+        """
+        s = self.state
+        box = s.box
+        if box is None or box.is_global:
+            self._regionmap.object = None
+            return
+
+        try:
+            channel = self.resolve(s.field)
+            overlay = basemap.global_map(
+                s.provider, s.date, channel,
+                show_fronts=True,          # always: this is the front view
+                title=f"{channel}  —  {box.label()}",
+                extent=self._zoom_limits(pad=0.0),
+                height=600, tools=(), active_tools=(),
+            )
+        except Exception as exc:                            # noqa: BLE001
+            self._regionmap.object = None
+            print(f"[characteristics] region map unavailable: {exc}")
+            return
+
+        self._regionmap.object = overlay.opts(
+            hv.opts.Overlay(shared_axes=False))
+
     def schedule_stats(self):
         self._token += 1
         token = self._token
+        self.draw_regionmap()
         for pane in self._panes.values():
             pane.loading = True
         self._status.object = (
@@ -458,6 +499,16 @@ class CharacteristicsPage:
                 "are exact, at full resolution, on the native grid; the map "
                 "is drawn from a regridded display pyramid.</small>",
                 margin=(0, 10)),
+            pn.pane.Markdown(
+                "#### The selected region, with fronts",
+                margin=(10, 10, 0, 10)),
+            pn.pane.Markdown(
+                "<small>Built on <i>Rebuild</i> and then frozen, so this is "
+                "always the region the panels below describe — the map above "
+                "follows navigation and can move away from it. A smaller box "
+                "draws from a finer pyramid level, so zooming in buys real "
+                "resolution.</small>", margin=(0, 10)),
+            self._regionmap,
             sizing_mode="stretch_width",
         )
 
