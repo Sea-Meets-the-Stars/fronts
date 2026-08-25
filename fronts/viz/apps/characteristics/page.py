@@ -93,12 +93,14 @@ class CharacteristicsPage:
 
         self._map = pn.pane.HoloViews(sizing_mode="stretch_width",
                                       min_height=760)
-        #: The region the panels below actually describe.  Built on
-        #: *Rebuild* and then frozen, unlike the map above which follows
-        #: navigation -- so what you are looking at and what the numbers
-        #: describe cannot drift apart.
-        self._regionmap = pn.pane.HoloViews(sizing_mode="stretch_width",
-                                            min_height=620)
+        #: The region the panels below actually describe.  A static
+        #: figure, built on *Rebuild* -- unlike the map above, which
+        #: follows navigation -- so what you are looking at and what the
+        #: numbers describe cannot drift apart, and nothing here is paid
+        #: for on the interactive path.
+        self._regionmap = pn.pane.Matplotlib(
+            tight=False, format="png", dpi=110,
+            sizing_mode="stretch_width", min_height=620)
         #: One box-select stream for the life of the page.  Recreating it
         #: per redraw is what lost the selection -- see ``redraw_map``.
         self._bounds = hv.streams.BoundsXY(bounds=None)
@@ -131,10 +133,18 @@ class CharacteristicsPage:
     # -- channel resolution ----------------------------------------------
 
     def resolve(self, field: str) -> str:
-        """Base field name -> channel name in the store."""
+        """Base field name -> channel name in the store.
+
+        Depth mode asks the store rather than assuming the suffix: some
+        channels are bare at every level (the wind, the mixed-layer
+        quantities), and a depth-resolved one may not have been built at
+        every suffix.  Surface mode returns the name unchanged, exactly as
+        before.
+        """
         if not self.mode.has_depth:
             return field
-        return self.state.provider.channel(field, self.state.depth_level)
+        return self.state.provider.channel_in(
+            self.state.date, field, self.state.depth_level)
 
     def _tag(self) -> str:
         return self.state.depth_level if self.mode.has_depth else ""
@@ -303,12 +313,14 @@ class CharacteristicsPage:
     # -- distributions ---------------------------------------------------
 
     def draw_regionmap(self):
-        """The selected region, at full detail, with the fronts on it.
+        """The selected region as a static figure, at native resolution.
 
-        The map above is for navigating; this one is the evidence for the
-        panels below.  ``width_for_extent`` picks a finer pyramid level
-        for a small box, so zooming in genuinely buys resolution rather
-        than magnifying the same pixels.
+        Static on purpose.  The map above is interactive and draws from
+        the display pyramid, which is budgeted to stay responsive while
+        you navigate; this one is built once behind *Rebuild* and reads
+        the same native arrays the statistics do.  Mixing the two -- an
+        interactive map demanding the finest pyramid level -- makes every
+        pan and zoom heavier for a picture nobody is panning.
         """
         s = self.state
         box = s.box
@@ -316,22 +328,16 @@ class CharacteristicsPage:
             self._regionmap.object = None
             return
 
+        self._regionmap.loading = True
         try:
-            channel = self.resolve(s.field)
-            overlay = basemap.global_map(
-                s.provider, s.date, channel,
-                show_fronts=True,          # always: this is the front view
-                title=f"{channel}  —  {box.label()}",
-                extent=self._zoom_limits(pad=0.0),
-                height=600, tools=(), active_tools=(),
-            )
+            self._regionmap.object = P.figure_region_map(
+                s.provider, s.date, self.resolve(s.field), box,
+                show_fronts=True, field_name=s.field)
         except Exception as exc:                            # noqa: BLE001
-            self._regionmap.object = None
+            self._regionmap.object = P._blank(f"region map: {exc}")
             print(f"[characteristics] region map unavailable: {exc}")
-            return
-
-        self._regionmap.object = overlay.opts(
-            hv.opts.Overlay(shared_axes=False))
+        finally:
+            self._regionmap.loading = False
 
     def schedule_stats(self):
         self._token += 1
@@ -503,11 +509,11 @@ class CharacteristicsPage:
                 "#### The selected region, with fronts",
                 margin=(10, 10, 0, 10)),
             pn.pane.Markdown(
-                "<small>Built on <i>Rebuild</i> and then frozen, so this is "
-                "always the region the panels below describe — the map above "
-                "follows navigation and can move away from it. A smaller box "
-                "draws from a finer pyramid level, so zooming in buys real "
-                "resolution.</small>", margin=(0, 10)),
+                "<small>A static figure, built on <i>Rebuild</i>, at the "
+                "grid's own resolution — the same native arrays the "
+                "statistics read, so it costs no extra data. The map above "
+                "is the interactive one and draws from the display "
+                "pyramid.</small>", margin=(0, 10)),
             self._regionmap,
             sizing_mode="stretch_width",
         )

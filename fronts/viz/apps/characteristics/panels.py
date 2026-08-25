@@ -183,3 +183,84 @@ def close(fig):
     collected normally.
     """
     return None
+
+
+# --------------------------------------------------------------------------
+# The selected region, as a static figure
+# --------------------------------------------------------------------------
+
+def figure_region_map(provider, date: str, channel: str, box, *,
+                      show_fronts: bool = True, field_name: str = "",
+                      figsize=(10.0, 7.0)):
+    """The selected region at native resolution, with the fronts on it.
+
+    A **static** figure, built once behind *Rebuild*, and deliberately not
+    an interactive map.  The interactive maps draw from the display
+    pyramid and are budgeted to stay responsive while you navigate; this
+    one is the evidence for the numbers beside it, so it reads the same
+    native arrays the statistics do.
+
+    That is also why it costs nothing extra.  ``provider.field`` is a
+    memory-mapped local file by the time the statistics have run, so
+    slicing a window out of it is a local read -- no pyramid level, no
+    S3, no cells shipped to the browser.
+
+    Drawn with ``pcolormesh`` over the window's own 2-D ``XC``/``YC``,
+    which is exact on a curvilinear grid.  An ``hv.Image`` would have had
+    to assume a regular axis per dimension, and on the native grid that is
+    the one thing it is not.
+    """
+    from fronts.viz import field_styles
+    from fronts.viz.apps.common.selection import bbox_mask
+
+    with MPL_LOCK:
+        import matplotlib
+        matplotlib.use("Agg", force=False)
+        import matplotlib.pyplot as plt
+
+        XC, YC = provider.coords(date)
+        mask = np.asarray(bbox_mask(XC, YC, box))
+        if not mask.any():
+            return _blank("no grid cells in this region")
+
+        # The index window the box covers.  A lat/lon box is not a
+        # rectangle on this grid, so the window is its bounding box and
+        # the corners may reach slightly outside -- which is honest: they
+        # are real cells, and cropping them out would leave ragged edges.
+        js, iss = np.nonzero(mask.any(axis=1)), np.nonzero(mask.any(axis=0))
+        j0, j1 = int(js[0][0]), int(js[0][-1]) + 1
+        i0, i1 = int(iss[0][0]), int(iss[0][-1]) + 1
+        win = (slice(j0, j1), slice(i0, i1))
+
+        lon = np.asarray(XC[win]) % 360.0
+        lat = np.asarray(YC[win])
+        values = np.asarray(provider.field(date, channel)[win], dtype=float)
+
+        style = field_styles.get_style(field_name or channel)
+        shown = field_styles.apply_transform(values, style)
+        clim = field_styles.default_clim(shown, style)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        mesh = ax.pcolormesh(lon, lat, np.ma.masked_invalid(shown),
+                             cmap=field_styles.resolve_cmap(style.cmap),
+                             vmin=clim[0], vmax=clim[1], shading="auto")
+        fig.colorbar(mesh, ax=ax,
+                     label=getattr(style, "title", field_name or channel))
+
+        if show_fronts:
+            try:
+                fronts = np.asarray(provider.front_binary(date)[win])
+                jj, ii = np.nonzero(fronts > 0)
+                if jj.size:
+                    ax.scatter(lon[jj, ii], lat[jj, ii], s=1.2,
+                               c="#00e5ff", linewidths=0, zorder=3)
+            except Exception as exc:                    # noqa: BLE001
+                ax.set_title(f"fronts unavailable: {exc}", fontsize=8,
+                             loc="right", color="#b71c1c")
+
+        ax.set_xlabel("longitude [deg]")
+        ax.set_ylabel("latitude [deg]")
+        ax.set_title(f"{channel} — {box.label()}   "
+                     f"({j1 - j0} x {i1 - i0} native cells)", fontsize=10)
+        fig.tight_layout()
+        return fig

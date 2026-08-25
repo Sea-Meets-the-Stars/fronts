@@ -432,7 +432,7 @@ def chunk_plane(provider, chunk: str, step: int, field: str):
     gradients rather than on them.
     """
     ds = provider.chunk_tile(chunk, step, field)
-    var = ds.attrs.get("tile_var_name") or TP._sole_3d(ds)
+    var = ds.attrs.get("tile_var_name") or TP.sole_field(ds)
 
     try:
         lookup = TP.tile_lookup(ds, synthetic=provider.synthetic)

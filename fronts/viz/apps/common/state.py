@@ -122,8 +122,15 @@ class CharacteristicsState(PageState):
         The list is of *base* field names in both modes -- the depth suffix
         is applied when a channel name is needed, not here, so switching
         depth level does not reset the field.
+
+        In depth mode that means stripping the suffixes: the store holds
+        ``N2_sfc`` .. ``N2_mld_mean``, and offering all four as separate
+        entries would both clutter the list and break ``resolve``, which
+        would then append a second suffix.  Surface mode is unchanged --
+        those channels are already bare.
         """
-        names = self.provider.field_names(self.date)
+        names = (self.provider.field_roots(self.date) if self._depth_mode
+                 else self.provider.field_names(self.date))
         self.param.field.objects = names
         if self.field not in names:
             preferred = next(

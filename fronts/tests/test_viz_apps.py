@@ -8,6 +8,8 @@ The Panel layout itself is not tested, which is the correct thing to
 leave untested.
 """
 
+import inspect
+
 import numpy as np
 import pytest
 
@@ -2182,22 +2184,17 @@ def test_only_the_configured_dates_are_offered_even_if_the_store_has_more():
     assert set(state.param.date.objects) <= set(config.DATES)
 
 
-def test_depth_page_and_bivariate_depth_mode_are_not_offered():
-    """Kept and importable, just not served."""
-    from fronts.viz.apps import serve
-    from fronts.viz.apps.bivariate.app import MODES
+def test_the_depth_page_is_served_and_bivariate_depth_mode_is_not():
+    """Depth is back; the Bivariate depth mode is still parked.
 
-    assert "depth" not in serve.PAGES
-    assert "/depth" not in serve.ROUTES
-    assert "surface" in serve.PAGES and "/surface" in serve.ROUTES
-    assert MODES == ("Surface",)
+    They were hidden together, but for different reasons: the Depth page
+    only needed its store built, while the Bivariate depth mode needs
+    colocation at depth, which is a separate question.
+    """
+    from fronts.viz.apps import config
 
-    # The modules are still there -- this is a switch, not a deletion.
-    assert "depth" in serve.ALL_PAGES
-    from fronts.viz.apps.characteristics import depth as depth_mod
-    assert hasattr(depth_mod, "page")
-
-
+    assert "depth" in config.ENABLED_PAGES
+    assert "Depth" not in config.BIVARIATE_MODES
 def test_bivariate_offers_only_the_configured_dates():
     from fronts.viz.apps.bivariate.app import BivariateState
 
@@ -4126,3 +4123,268 @@ def test_surface_only_fields_can_colour_the_tiles_map(provider):
         assert name not in st.param.fields.objects, \
             f"{name} has no depth to section"
         assert config.is_surface_only(name)
+
+
+# ---------------------------------------------------------------------------
+# Depth channel resolution
+# ---------------------------------------------------------------------------
+
+class _DepthStore(sources.DataProvider):
+    """A store named exactly as run_v5_depth.yaml produces.
+
+    Compute channels carry a depth suffix; ``extra_channels`` and the
+    surface-only subsets do not.  Both kinds have to work.
+    """
+
+    mode, synthetic = "test", True
+
+    def dates(self): return ["2012-05-16T06_00_00"]
+    def dates_3d(self): return self.dates()
+    def coords(self, d): ...
+    def field(self, d, n): ...
+    def front_binary(self, d): ...
+    def labels(self, d): ...
+    def geometry(self, d): ...
+    def colocation(self, d): ...
+    def tile(self, *a, **k): ...
+
+    def field_names(self, date):
+        out = []
+        for root in ("N2", "Ri", "gradb2", "relative_vorticity"):
+            out += [f"{root}_{s}"
+                    for s in ("sfc", "z25m", "mld", "mld_mean")]
+        out += ["mixed_layer_depth", "ml_heat_content",
+                "oceTAUX", "oceTAUY", "oceQnet", "coriolis_f", "SIarea"]
+        return sorted(out)
+
+
+def test_depth_field_list_offers_roots_not_every_suffix():
+    """N2 once, not four times -- and resolve must not double-suffix."""
+    store = _DepthStore()
+    date = store.dates()[0]
+
+    roots = store.field_roots(date)
+    assert roots.count("N2") == 1
+    assert "N2_mld" not in roots
+    # Bare channels are their own roots.
+    assert "mixed_layer_depth" in roots and "oceTAUX" in roots
+
+
+def test_a_bare_channel_is_not_given_a_depth_suffix():
+    """mixed_layer_depth_mld does not exist; mixed_layer_depth does."""
+    store = _DepthStore()
+    date = store.dates()[0]
+
+    assert store.channel_in(date, "N2", "Mixed layer depth") == "N2_mld"
+    assert store.channel_in(date, "N2", "25 m") == "N2_z25m"
+    assert store.channel_in(
+        date, "mixed_layer_depth", "Mixed layer depth") == "mixed_layer_depth"
+    assert store.channel_in(date, "oceTAUX", "25 m") == "oceTAUX"
+
+
+def test_a_field_that_was_not_built_says_which_names_it_looked_for():
+    store = _DepthStore()
+    with pytest.raises(KeyError, match="Fr_mld"):
+        store.channel_in(store.dates()[0], "Fr", "Mixed layer depth")
+
+
+def test_surface_mode_channel_resolution_is_untouched():
+    """The Surface page must not notice any of this."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage, SURFACE
+
+    page = CharacteristicsPage(SURFACE, provider=sources.get_provider())
+    assert page.resolve("gradb2") == "gradb2"
+    assert page.mode.has_depth is False
+
+
+def test_the_depth_page_is_served():
+    from fronts.viz.apps import config, serve
+
+    assert "depth" in config.ENABLED_PAGES
+    assert "/depth" in serve.ROUTES
+
+
+def test_a_surface_only_field_can_be_read_from_a_tile():
+    """'expected exactly one 3-D variable, found []' was the wind failing.
+
+    A plan view needs one level and nothing more, so resolving the field
+    variable must not insist on a depth axis -- wind stress, heat flux and
+    the mixed-layer quantities are genuinely two-dimensional.
+    """
+    import xarray as xr
+
+    from fronts.viz.apps.tiles import pipeline
+
+    flat = xr.Dataset({"oceTAUX": (("j", "i"), np.zeros((4, 5))),
+                       "XC": (("j", "i"), np.zeros((4, 5))),
+                       "YC": (("j", "i"), np.zeros((4, 5)))})
+    assert pipeline.sole_field(flat) == "oceTAUX"
+
+    deep = xr.Dataset({"Ri": (("k", "j", "i"), np.zeros((3, 4, 5))),
+                       "XC": (("j", "i"), np.zeros((4, 5)))})
+    assert pipeline.sole_field(deep) == "Ri"          # 3-D still preferred
+
+    # Curtains still refuse: a surface field has no profile to section.
+    with pytest.raises(KeyError, match="surface-only"):
+        pipeline._sole_3d(flat)
+
+
+def test_the_isopycnal_figure_is_the_depth_axis_one():
+    """The along-surface-length version was tried and dropped."""
+    from fronts.viz import curtains
+    from fronts.viz.apps.tiles import panels as F
+
+    assert not hasattr(curtains, "figure_isopycnal_length")
+    assert not hasattr(F, "figure_isopycnal_legacy")
+    assert "isopycnal_legacy" not in F.FIGURE_ORDER
+    assert "figure_isopycnal_surface" in inspect.getsource(F.figure_isopycnal)
+
+
+# ---------------------------------------------------------------------------
+# Resolution of a zoomed view
+# ---------------------------------------------------------------------------
+
+def test_the_interactive_maps_keep_their_cell_budget(monkeypatch):
+    """Detail on demand belongs behind a button, not on every pan.
+
+    Counting only the *visible* cells would let each zoomed map jump to
+    the finest pyramid level -- more correct in principle, much heavier on
+    a map that redraws as you navigate.  The static region figure is
+    where native resolution lives instead.
+    """
+    from fronts.viz.apps import config
+    from fronts.viz.apps.common import basemap
+
+    monkeypatch.setattr(basemap, "HAVE_DATASHADER", False)
+
+    box = ((230.0, 240.0), (33.0, 40.0))
+    wanted = basemap.width_for_extent(box)
+    assert wanted == max(config.PYRAMID_WIDTHS)
+
+    # Budgeted the same way with or without an extent: the interactive
+    # path does not get heavier just because you zoomed in.
+    assert basemap._affordable_width(wanted) < wanted
+    assert basemap._affordable_width(wanted, box) == \
+        basemap._affordable_width(wanted)
+
+
+def test_the_global_view_is_still_capped(monkeypatch):
+    """The budget must still apply where the whole raster really is sent."""
+    from fronts.viz.apps import config
+    from fronts.viz.apps.common import basemap
+
+    monkeypatch.setattr(basemap, "HAVE_DATASHADER", False)
+
+    globe = ((0, 360), config.PYRAMID_LAT_RANGE)
+    assert basemap._affordable_width(max(config.PYRAMID_WIDTHS),
+                                     globe) < max(config.PYRAMID_WIDTHS)
+
+
+def test_the_region_map_is_a_static_figure_from_native_data():
+    """Not an interactive map, and not from the display pyramid."""
+    import inspect
+
+    from fronts.viz.apps.characteristics import panels as P
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage
+
+    src = inspect.getsource(CharacteristicsPage.draw_regionmap)
+    assert "figure_region_map" in src
+    assert "global_map" not in src, "that is the interactive path"
+
+    builder = inspect.getsource(P.figure_region_map)
+    assert "provider.field(" in builder       # the native array
+    # The call, not the word: the docstring explains why the pyramid is
+    # the wrong source here, so a bare substring check reads its own prose.
+    assert "pyramid.level(" not in builder
+    assert "basemap." not in builder
+
+
+def test_the_static_region_map_draws_fronts_on_the_same_window():
+    """One window slice for the field and the fronts, so they must align."""
+    import inspect
+
+    from fronts.viz.apps.characteristics import panels as P
+
+    src = inspect.getsource(P.figure_region_map)
+    assert "provider.field(date, channel)[win]" in src
+    assert "provider.front_binary(date)[win]" in src
+
+
+# ---------------------------------------------------------------------------
+# The region map on the Depth page
+# ---------------------------------------------------------------------------
+
+def test_the_depth_page_asks_for_a_depth_provider():
+    """A SURF provider here would show surface fields without complaint.
+
+    The depth fields are in their own S3 prefix under suffixed channel
+    names, so a shared SURF provider finds only bare names -- and shows
+    them, under a depth selector that changes nothing.  Wrong with no
+    error anywhere, which is the kind worth a test.
+    """
+    import inspect
+
+    from fronts.viz.apps.characteristics import depth
+
+    src = inspect.getsource(depth.page)
+    assert 'get_provider("DEPTH")' in src
+
+
+def test_get_provider_keeps_the_two_pipelines_apart(monkeypatch):
+    from fronts.viz.apps.common import sources as S
+
+    monkeypatch.setenv("FRONTS_APP_DATA", "s3")
+    S.get_provider.cache_clear()
+    monkeypatch.setattr(S, "_OVERRIDE", None)
+    try:
+        surf = S.get_provider("SURF")
+        deep = S.get_provider("DEPTH")
+        assert surf.folder != deep.folder
+        assert deep.folder == config.DEPTH_FOLDER
+        # Fronts are shared: there is one set of labels.
+        assert surf.fronts_folder == deep.fronts_folder
+    finally:
+        S.get_provider.cache_clear()
+
+
+def test_the_region_map_uses_the_resolved_channel_in_depth_mode(monkeypatch):
+    """gradb2 at 'Mixed layer depth' must request gradb2_mld, not gradb2."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics import panels as P
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage, DEPTH
+
+    page = CharacteristicsPage(DEPTH, provider=sources.get_provider())
+    page.state.set_bounds((200.0, -10.0, 240.0, 20.0))
+
+    asked = {}
+    monkeypatch.setattr(
+        P, "figure_region_map",
+        lambda prov, date, channel, box, **k: asked.setdefault(
+            "channel", channel) or "fig")
+    # Force a store whose channels really are suffixed.
+    monkeypatch.setattr(page, "resolve", lambda f: f"{f}_mld")
+
+    page.draw_regionmap()
+    assert asked["channel"] == "gradb2_mld" or asked["channel"].endswith("_mld")
+
+
+def test_both_pages_build_the_same_kind_of_region_figure():
+    """Depth inherits the feature; it must not diverge quietly."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import (
+        CharacteristicsPage, DEPTH, SURFACE)
+
+    made = {}
+    for mode in (SURFACE, DEPTH):
+        page = CharacteristicsPage(mode, provider=sources.get_provider())
+        page.state.set_bounds((200.0, -10.0, 240.0, 20.0))
+        page.draw_regionmap()
+        made[mode.key] = (type(page._regionmap).__name__,
+                          type(page._regionmap.object).__name__)
+
+    assert made["surface"] == made["depth"]
+    assert made["surface"] == ("Matplotlib", "Figure")

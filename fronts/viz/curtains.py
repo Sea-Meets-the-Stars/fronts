@@ -1348,6 +1348,20 @@ def figure_perpendicular(
     return output_path
 
 
+def _front_surface_sigma(sigma0_field3d, axis_path) -> float:
+    """The front's own surface density: median of the shallowest finite."""
+    sig_axis = sample_curtain(sigma0_field3d, axis_path)          # (K, L)
+    surface = np.full(sig_axis.shape[1], np.nan)
+    for l in range(sig_axis.shape[1]):
+        finite = np.flatnonzero(np.isfinite(sig_axis[:, l]))
+        if finite.size:
+            surface[l] = sig_axis[finite[0], l]
+    if not np.isfinite(surface).any():
+        raise ValueError("Cannot pick a target isopycnal: sigma0 is NaN "
+                         "everywhere along the main axis.")
+    return float(np.nanmedian(surface))
+
+
 def figure_isopycnal_surface(
     color_field3d: np.ndarray,
     sigma0_field3d: np.ndarray,

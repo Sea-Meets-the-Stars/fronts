@@ -107,7 +107,16 @@ def figure_perpendicular(scene: FrontScene, *, index, half_width=30) -> Path:
         )
 
 
-def figure_isopycnal(scene: FrontScene, *, perp_index=None, xmax: float | None = None) -> Path:
+def figure_isopycnal(scene: FrontScene, *, perp_index=None,
+                     xmax: float | None = None) -> Path:
+    """(c) -- the isopycnal surface, on a depth axis.
+
+    An along-surface-length version was tried and dropped: measuring the
+    surface in its own coordinates is defensible, but it breaks the
+    one-for-one correspondence with the 3-D scene -- a point at depth z
+    there is no longer at depth z here -- and that correspondence turns
+    out to be worth more than equal distances on the plot.
+    """
     with MPL_LOCK:
         out = _stem(scene, "isopycnal")
         return curtains.figure_isopycnal_surface(
@@ -117,7 +126,6 @@ def figure_isopycnal(scene: FrontScene, *, perp_index=None, xmax: float | None =
             color_title=scene.style.title, mark_index=perp_index, xmax=xmax,
             title=f"Isopycnal surface — front {scene.label}",
         )
-
 
 def figure_inset(scene: FrontScene, *, perp_index=None, half_width=30,
                  depth=None) -> Path:

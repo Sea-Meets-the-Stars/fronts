@@ -65,12 +65,22 @@ def _rasterize(element):
     return _rasterize_op(element) if HAVE_DATASHADER else element
 
 
-def _affordable_width(width: int) -> int:
+def _affordable_width(width: int, extent=None) -> int:
     """The finest pyramid width we are willing to send without datashader.
 
     Heights are derived from width, so cells scale as ``width**2``; this
     steps down through ``config.PYRAMID_WIDTHS`` until the raster fits the
     budget.  With datashader present the requested width is used as-is.
+
+    The budget is deliberately counted over the **whole** raster, not the
+    cropped window, even though only the window is sent.  Counting the
+    window instead would let every zoomed-in map jump to the finest level
+    -- which is more correct in principle and much heavier in practice, on
+    a map that redraws on every navigation.  Detail on demand belongs
+    behind a button, not on the interactive path; the static region figure
+    on Field Characteristics is where it lives.
+
+    *extent* is accepted and ignored, so callers need not care.
     """
     if HAVE_DATASHADER:
         return width
@@ -232,7 +242,7 @@ def field_layer(provider, date, name, width=None,
     if width is None:
         width = width_for_extent(extent)
     lon, lat, arr = pyramid.level(provider, date, name,
-                                  _affordable_width(width))
+                                  _affordable_width(width, extent))
     lon, lat, arr = _crop(lon, lat, arr, extent)
     values, clim, label = field_display(arr, name)
     img = _image(lon, lat, values, label, "Field")
@@ -248,7 +258,8 @@ def land_layer(provider, date, width=None, *, extent=None):
     if width is None:
         width = width_for_extent(extent)
     lon, lat, arr = pyramid.level(provider, date, "__land__",
-                                  _affordable_width(width), reduce="any")
+                                  _affordable_width(width, extent),
+                                  reduce="any")
     lon, lat, arr = _crop(lon, lat, arr, extent)
     masked = np.where(arr > 0, 1.0, np.nan)
     img = _image(lon, lat, masked, "land", "Land")
@@ -262,7 +273,8 @@ def fronts_layer(provider, date, width=None, *, extent=None):
     if width is None:
         width = width_for_extent(extent)
     lon, lat, arr = pyramid.level(provider, date, "__fronts__",
-                                  _affordable_width(width), reduce="any")
+                                  _affordable_width(width, extent),
+                                  reduce="any")
     lon, lat, arr = _crop(lon, lat, arr, extent)
     masked = np.where(arr > 0, 1.0, np.nan)
     img = _image(lon, lat, masked, "front", "Fronts")

@@ -359,10 +359,38 @@ def build_scene(
 
 
 def _sole_3d(ds):
+    """The one depth-resolved variable.  For curtains, which need a profile."""
     cands = [v for v in ds.data_vars if ds[v].ndim == 3]
     if len(cands) != 1:
-        raise KeyError(f"expected exactly one 3-D variable, found {cands}")
+        raise KeyError(
+            f"expected exactly one 3-D variable, found {cands}.  A "
+            "surface-only field has no profile to section -- use it on a "
+            "map instead.")
     return cands[0]
+
+
+def sole_field(ds):
+    """The tile's field variable, 3-D or 2-D.
+
+    A plan view needs one level and nothing more, so it must not insist on
+    a depth axis: wind stress, heat flux and the mixed-layer quantities are
+    genuinely two-dimensional, and asking :func:`_sole_3d` for them fails
+    with "expected exactly one 3-D variable, found []" -- which is true but
+    unhelpful, because nothing was wrong.
+
+    Prefers a 3-D variable when there is one, so a depth-resolved field
+    behaves exactly as before.
+    """
+    for ndim in (3, 2):
+        cands = [v for v in ds.data_vars
+                 if ds[v].ndim == ndim and v not in ("XC", "YC")]
+        if len(cands) == 1:
+            return cands[0]
+        if len(cands) > 1:
+            raise KeyError(
+                f"expected one {ndim}-D field variable, found {cands}")
+    raise KeyError(
+        f"no field variable in this tile: {sorted(ds.data_vars)}")
 
 
 def _check_provenance(a, b):

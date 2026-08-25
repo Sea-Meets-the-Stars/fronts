@@ -51,6 +51,7 @@ DEFAULT_DATE: str = DATES[0]
 #: (and "Depth" in BIVARIATE_MODES) to bring them back.
 ENABLED_PAGES: tuple[str, ...] = (
     "surface",
+    "depth",
     "bivariate",
     "tiles",
     "evolution",

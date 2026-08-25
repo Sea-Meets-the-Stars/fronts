@@ -362,7 +362,7 @@ class TilesPage:
         try:
             tile_idx = s.tile_index()
             ds = self._cached_tile(s.date, tile_idx, s.field, s.region)
-            var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
+            var = ds.attrs.get("tile_var_name") or pipeline.sole_field(ds)
             # Remap to the rect frame first, so the surface and the labels
             # share one orientation -- the convention fronts_viz_curtain
             # and fronts_viz_3d already use.
@@ -845,9 +845,12 @@ class TilesPage:
             idx = s.tile_index()
             ds = self._cached_tile(s.date, idx, s.region_field, s.region)
             lookup = pipeline.tile_lookup(ds, synthetic=s.synthetic)
-            var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
-            surface = pipeline.remap_to_rect(
-                pipeline.field_values(ds, var), lookup)[0]
+            var = ds.attrs.get("tile_var_name") or pipeline.sole_field(ds)
+            # A surface-only field is already the plane; only a depth
+            # -resolved one has a level to take.
+            plane = pipeline.remap_to_rect(
+                pipeline.field_values(ds, var), lookup)
+            surface = plane[0] if plane.ndim == 3 else plane
             path = F.figure_region_field(
                 scene, surface, ctx.get("tile_labels"),
                 field_name=var,
@@ -876,7 +879,7 @@ class TilesPage:
             ds = self._cached_tile(s.date, idx, config.TILE_GEOMETRY_FIELD,
                                    s.region)
             lookup = pipeline.tile_lookup(ds, synthetic=s.synthetic)
-            var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
+            var = ds.attrs.get("tile_var_name") or pipeline.sole_field(ds)
             sigma0 = pipeline.remap_to_rect(
                 pipeline.field_values(ds, var), lookup)
             XC = pipeline.remap_to_rect(

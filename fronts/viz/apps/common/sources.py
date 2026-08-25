@@ -132,6 +132,61 @@ class DataProvider(ABC):
             return ["Surface"]
         return list(config.DEPTH_LEVELS)
 
+    # -- depth channel naming ---------------------------------------------
+    #
+    # The DEPTH pipeline emits three kinds of channel, and the page has to
+    # tell them apart:
+    #
+    #   suffixed  N2_sfc, N2_z25m, N2_mld, N2_mld_mean   (compute channels)
+    #   bare      mixed_layer_depth, ml_heat_content     (extra_channels)
+    #   bare      oceTAUX, oceQnet, SIarea, coriolis_f   (surface-only subsets)
+    #
+    # The selector must offer *roots* -- "N2", not four N2s -- and the depth
+    # control must be free to move without resetting the field.  So the root
+    # list is derived by stripping the suffixes that are actually present,
+    # and the channel name is resolved back by looking in the store rather
+    # than by assuming the suffix exists.
+
+    def field_roots(self, date: str) -> list[str]:
+        """Selectable field names, with the depth suffix stripped.
+
+        A bare channel is its own root, so mixed-layer depth and the wind
+        appear once each alongside the depth-resolved fields.
+        """
+        suffixes = tuple(f"_{s}" for s in config.DEPTH_LEVELS.values())
+        roots = set()
+        for name in self.field_names(date):
+            for suffix in suffixes:
+                if name.endswith(suffix):
+                    roots.add(name[: -len(suffix)])
+                    break
+            else:
+                roots.add(name)
+        return sorted(roots)
+
+    def channel_in(self, date: str, field: str,
+                   depth: str | None = None) -> str:
+        """Like :meth:`channel`, but checked against what the store holds.
+
+        Two things go wrong without this.  A bare channel -- the wind, the
+        mixed-layer quantities -- has no suffix to add, so asking for
+        ``mixed_layer_depth_mld`` fails on a field that is present.  And a
+        depth-resolved field may not have been built at every suffix, in
+        which case saying so beats a KeyError from three frames down.
+        """
+        names = set(self.field_names(date))
+        if depth is not None:
+            suffixed = self.channel(field, depth)
+            if suffixed in names:
+                return suffixed
+        if field in names:
+            return field                      # bare: nothing to suffix
+        if depth is not None:
+            raise KeyError(
+                f"{field!r} is not in this store at {depth!r} (looked for "
+                f"{self.channel(field, depth)!r} and {field!r})")
+        raise KeyError(f"{field!r} is not in this store")
+
     def channel(self, field: str, depth: str | None = None) -> str:
         """Resolve a field (+ depth level) to the channel name in the store.
 
@@ -376,13 +431,27 @@ def set_provider(provider: DataProvider | None) -> None:
     get_provider.cache_clear()
 
 
-@lru_cache(maxsize=1)
-def get_provider() -> DataProvider:
-    """The provider chosen by ``FRONTS_APP_DATA``."""
+@lru_cache(maxsize=4)
+def get_provider(pipeline: str = "SURF") -> DataProvider:
+    """The provider chosen by ``FRONTS_APP_DATA``.
+
+    *pipeline* selects which store the real provider reads.  ``SURF`` is
+    the surface globals; ``DEPTH`` is the separate prefix built by
+    ``run_v5_depth.yaml``, where the channels carry a depth suffix.
+
+    This matters more than it looks.  Without it every page shared one
+    SURF provider, so the Depth page would look for ``N2_mld`` in the
+    *surface* store, find only bare names, and quietly show surface fields
+    under a depth selector that changed nothing -- wrong with no error
+    anywhere.
+
+    The synthetic provider ignores the pipeline: the fake world has one
+    store and answers for both.
+    """
     if _OVERRIDE is not None:
         return _OVERRIDE
     mode = os.environ.get("FRONTS_APP_DATA", config.DATA_MODE).lower()
     if mode in ("s3", "profx"):
         from fronts.viz.apps.common.s3source import S3Provider
-        return S3Provider()
+        return S3Provider(pipeline=pipeline)
     return SyntheticProvider()

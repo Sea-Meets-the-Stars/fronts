@@ -109,7 +109,7 @@ def main(argv=None) -> int:
     print(f"region={region.name!r} tile={idx}")
 
     ds = provider.tile(args.date, idx, args.field, region.name)
-    var = ds.attrs.get("tile_var_name") or pipeline._sole_3d(ds)
+    var = ds.attrs.get("tile_var_name") or pipeline.sole_field(ds)
 
     print("\ntile provenance")
     for key in ("face_index", "rect_i_start", "rect_j_start",
