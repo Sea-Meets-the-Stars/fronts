@@ -4388,3 +4388,45 @@ def test_both_pages_build_the_same_kind_of_region_figure():
 
     assert made["surface"] == made["depth"]
     assert made["surface"] == ("Matplotlib", "Figure")
+
+
+# ---------------------------------------------------------------------------
+# Preprocessing-branch API mismatch
+# ---------------------------------------------------------------------------
+
+def test_a_branch_with_a_different_tile_api_says_so():
+    """"no attribute 'resolve_property'" names a symptom, not a cause.
+
+    The app reproduces steps 1-7 of tile_utils.run rather than calling it
+    (run writes a NetCDF and returns a path -- there is no way to ask it
+    for a Dataset), so it reaches into module internals, and those differ
+    between branches of the preprocessing repo.
+    """
+    from types import SimpleNamespace
+
+    from fronts.viz.apps.common import s3source
+
+    # The API as it stands on 'transfer-depth-seasons'.
+    partial = SimpleNamespace(
+        _build_output_dataset=1, _load_grid_for_tile=1,
+        _load_tracers_for_tile=1, compute_tile_property=1,
+        mit_date_to_iteration=1, rect_ij_to_tile=1,
+        __file__="/x/src/dbof/tiles/tile_utils.py")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        s3source._check_tile_api(partial)
+
+    message = str(excinfo.value)
+    assert "resolve_property" in message
+    assert "_build_tile_context" in message
+    assert "tiles-viz" in message                 # the branch it wants
+    assert "stored tiles" in message              # why only some fields fail
+
+
+def test_the_full_tile_api_passes_the_check():
+    from types import SimpleNamespace
+
+    from fronts.viz.apps.common import s3source
+
+    complete = SimpleNamespace(**{n: 1 for n in s3source._TILE_API})
+    s3source._check_tile_api(complete)            # must not raise

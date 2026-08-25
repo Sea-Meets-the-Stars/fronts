@@ -63,6 +63,16 @@ box-select.)
 
 ---
 
+## 1.5 Running it
+
+Six steps, in
+[docs/viz/apps/viz_app_playbook.md](../docs/viz/apps/viz_app_playbook.md).
+The one that bites: the preprocessing repo must be on **`tiles-viz`** —
+the app composes tiles from `tile_utils` internals, so a different branch
+breaks tile *generation* while stored tiles keep working.
+
+---
+
 ## 2. Data
 
 Everything the pages read sits under one prefix, for exactly four dates:

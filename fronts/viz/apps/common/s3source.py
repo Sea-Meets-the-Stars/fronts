@@ -426,6 +426,48 @@ def _cached_index(folder, run_id, date_prefix, pipeline):
     return index
 
 
+#: What ``_compose_tile`` needs from ``dbof.tiles.tile_utils``.
+#:
+#: The app reproduces steps 1-7 of ``tile_utils.run`` rather than calling
+#: it, because ``run`` writes a NetCDF and returns a path -- there is no
+#: way to ask it for a Dataset.  The price is that this reaches into the
+#: module's internals, and those differ between branches of the
+#: preprocessing repo.  Checking up front turns "no attribute
+#: 'resolve_property'" three frames down into a sentence that says which
+#: branch is checked out and what it is missing.
+_TILE_API = ("resolve_property", "_build_tile_context",
+             "_load_grid_for_tile", "_load_tracers_for_tile",
+             "compute_tile_property", "_build_output_dataset",
+             "mit_date_to_iteration", "rect_ij_to_tile")
+
+
+def _check_tile_api(T):
+    """Fail with the diagnosis rather than the symptom."""
+    missing = [name for name in _TILE_API if not hasattr(T, name)]
+    if not missing:
+        return
+
+    branch = ""
+    try:
+        import pathlib as _pl
+        import subprocess
+        root = _pl.Path(T.__file__).resolve().parents[3]
+        branch = subprocess.run(
+            ["git", "-C", str(root), "branch", "--show-current"],
+            capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:                                       # noqa: BLE001
+        pass
+
+    raise RuntimeError(
+        "the checked-out llc4320-native-grid-preprocessing branch"
+        + (f" ({branch})" if branch else "")
+        + " has a different tile_utils API: missing "
+        + ", ".join(missing)
+        + ".  Tile *generation* needs the API the app was built against "
+          "(branch 'tiles-viz'); stored tiles under s3://dbof/tiles/ are "
+          "unaffected, which is why only fields with no stored tile fail.")
+
+
 def _generate_tile(date: str, tile_idx: int, prop: str, chunk: str | None):
     """Build a tile in memory, straight from zarr -- no NetCDF, no profx.
 
@@ -437,6 +479,7 @@ def _generate_tile(date: str, tile_idx: int, prop: str, chunk: str | None):
     """
     config.ensure_dbof()
     from dbof.tiles import tile_utils as T
+    _check_tile_api(T)
 
     stamp = date.replace("T", " ").replace("_", ":")
 
