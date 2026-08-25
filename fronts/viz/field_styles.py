@@ -274,6 +274,22 @@ def resolve_cmap(name: str):
         return mpl.colormaps["viridis"]
 
 
+#: Suffixes the DEPTH pipeline appends to a channel name.
+#:
+#: Longest first, because ``mld`` is a prefix of ``mld_mean``: stripping
+#: ``_mld`` from ``N2_mld_mean`` leaves ``N2_mean``, which is registered
+#: nowhere and silently falls back to a linear style.
+DEPTH_SUFFIXES = ("_mld_mean", "_z25m", "_mld", "_sfc")
+
+
+def strip_depth_suffix(var_name: str) -> str:
+    """``gradb2_mld`` -> ``gradb2``.  Anything else is returned unchanged."""
+    for suffix in DEPTH_SUFFIXES:
+        if var_name.endswith(suffix):
+            return var_name[: -len(suffix)]
+    return var_name
+
+
 def get_style(var_name: str) -> FieldStyle:
     """Look up the style for a tile variable, with a safe linear fallback.
 
@@ -292,6 +308,14 @@ def get_style(var_name: str) -> FieldStyle:
     if style is None and var_name in LEGACY_VAR_NAMES:
         # A tile written by the old branch: same field, older variable name.
         style = FIELD_STYLES.get(LEGACY_VAR_NAMES[var_name])
+    if style is None:
+        # A DEPTH channel: gradb2_mld is gradb2, and should be drawn the
+        # same way -- log10, same colours -- so the surface and depth
+        # views of one field are directly comparable.  Without this every
+        # depth field fell back to a linear percentile style.
+        root = strip_depth_suffix(var_name)
+        if root != var_name:
+            style = FIELD_STYLES.get(root)
     if style is None:
         import logging
         logging.getLogger(__name__).warning(

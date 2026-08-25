@@ -130,11 +130,14 @@ def extract(
             n_cells=n_cells, missing=missing,
         )
 
-    # Coriolis is a function of latitude alone, so it has no depth
-    # variant; vorticity and strain do and must match the selected level.
+    # All three through resolve.  Coriolis is a function of latitude alone
+    # so it has no depth variant -- and does not need special-casing here,
+    # because resolve falls back to the bare channel when no suffixed one
+    # exists.  Vorticity and strain do have variants, and must match the
+    # level of the field being examined.
     zeta = np.asarray(provider.field(date, resolve(roles["vorticity"])))[sel]
     sigma = np.asarray(provider.field(date, resolve(roles["strain"])))[sel]
-    f0 = np.asarray(provider.field(date, roles["coriolis"]))[sel]
+    f0 = np.asarray(provider.field(date, resolve(roles["coriolis"])))[sel]
 
     # Away from the equator, and finite everywhere it matters.
     ok = (

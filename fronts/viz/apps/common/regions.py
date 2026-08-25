@@ -26,11 +26,20 @@ class Region:
     name: str
     lat: float
     lon: float
-    #: Resolved rect tile index.  ``None`` until ``resolve_all`` has run
-    #: against the real grid and the value has been written back here.
+    #: Rect tile index.  When set the tile is *pinned*: the lat/lon are
+    #: nominal, used only to name the place, and no search is done.  When
+    #: ``None`` the tile is resolved from lat/lon against the real grid.
+    #:
+    #: Pinning is the more precise of the two.  A lat/lon is resolved to a
+    #: grid cell and then floored onto the 720-cell lattice, so a centre
+    #: near a tile boundary can land either side of it; a tile number
+    #: cannot.
     tile_idx: int | None = None
 
     def label(self) -> str:
+        """Name plus whichever of the two actually decides the tile."""
+        if self.tile_idx is not None:
+            return f"{self.name} (tile {self.tile_idx})"
         ns = "N" if self.lat >= 0 else "S"
         ew = "E" if self.lon >= 0 else "W"
         return f"{self.name} ({abs(self.lat):.1f}{ns}, {abs(self.lon):.1f}{ew})"
@@ -41,10 +50,9 @@ REGIONS: tuple[Region, ...] = (
     Region("gulf_stream", "Gulf Stream", 38.0, -68.0),
     Region("california", "California Current System", 36.4, -124.2),
     Region("eq_pacific", "Equatorial Tropical Pacific", 0.5, -140.0),
-    Region("agulhas", "Agulhas Current", -37.0, 22.0),
-    # tile_idx supplied directly, so the centre is only used to place the
-    # box on the overview map -- the tile is 407 whatever the search says.
-    Region("se_greenland", "SE of Greenland", 62.0, -40.0, tile_idx=407),
+    Region("agulhas", "Agulhas Current", -37.0, 22.0, tile_idx=171),
+    Region("se_greenland", "SE of Greenland", 62.0, -40.0, tile_idx=408),
+    Region("gulf_of_alaska", "Gulf of Alaska", 55.0, -145.0, tile_idx=400),
 )
 
 BY_KEY = {r.key: r for r in REGIONS}
@@ -189,7 +197,17 @@ def tile_extent(provider, date: str, tile_idx: int):
 
 
 def tile_index_for(provider, date: str, region: Region) -> int:
-    """Resolve a region to its rect tile index against the provider's grid."""
+    """The region's rect tile index.
+
+    A pinned region short-circuits: its ``tile_idx`` *is* the answer, and
+    searching would be both slower and capable of disagreeing with it.
+    The page already honoured the pin; ``build_tiles`` and ``check_align``
+    call this directly, so without the check here they would generate and
+    probe a different tile from the one the page draws.
+    """
+    if region.tile_idx is not None:
+        return int(region.tile_idx)
+
     XC, YC = provider.coords(date)
     tile_mapping = _import_tile_mapping()
     i_rect, j_rect = nearest_ij(XC, YC, region.lat, region.lon)

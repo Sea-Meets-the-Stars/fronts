@@ -253,9 +253,17 @@ SYNTH_NZ: int = 40
 #: Fields the pages know how to normalise into the (zeta/f, sigma/|f|) plane.
 #: Resolved against whatever the store actually calls them at start-up --
 #: see ``sources.resolve_channels``.
+#: Root names, not channel names.
+#:
+#: The depth suffix is applied afterwards, by the page's ``resolve`` --
+#: which checks the store, so a role lands on the selected level when that
+#: level exists and on the bare channel when it does not.  Listing
+#: ``relative_vorticity_sfc`` here instead was doubly wrong: it made the
+#: role resolve to a channel that then had a *second* suffix appended, and
+#: it found nothing at all in a store built with, say, only ``_mld``.
 KINEMATIC_ROLES = {
-    "vorticity": ("relative_vorticity", "relative_vorticity_sfc"),
-    "strain": ("strain_mag", "strain_mag_sfc"),
+    "vorticity": ("relative_vorticity",),
+    "strain": ("strain_mag",),
     "coriolis": ("coriolis_f",),
 }
 

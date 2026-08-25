@@ -220,10 +220,37 @@ def test_to_pacific_reorders_into_0_360():
 # Regions
 # --------------------------------------------------------------------------
 
-def test_six_regions_with_unique_keys():
-    assert len(regions.REGIONS) == 6
-    assert len({r.key for r in regions.REGIONS}) == 6
-    assert len(set(regions.names())) == 6
+def test_regions_have_unique_keys_and_names():
+    from fronts.viz.apps.common import regions
+
+    keys = [r.key for r in regions.REGIONS]
+    names = [r.name for r in regions.REGIONS]
+    assert len(set(keys)) == len(keys)
+    assert len(set(names)) == len(names)
+    assert len(regions.REGIONS) >= 6
+
+
+def test_pinned_regions_use_their_tile_number(provider, date):
+    """A tile number beats a lat/lon search, and must beat it everywhere.
+
+    A centre is resolved to a grid cell and then floored onto the
+    720-cell lattice, so one near a tile boundary can land either side.
+    The page already honoured the pin; build_tiles and check_align call
+    tile_index_for directly, so the check belongs there.
+    """
+    from fronts.viz.apps.common import regions
+
+    pinned = {r.key: r.tile_idx for r in regions.REGIONS
+              if r.tile_idx is not None}
+    assert pinned == {"agulhas": 171, "se_greenland": 408,
+                      "gulf_of_alaska": 400}
+
+    for region in regions.REGIONS:
+        if region.tile_idx is None:
+            continue
+        # No provider access at all: the answer is the pin.
+        assert regions.tile_index_for(None, date, region) == region.tile_idx
+        assert f"tile {region.tile_idx}" in region.label()
 
 
 def test_nearest_region_hits_and_misses():
@@ -4430,3 +4457,446 @@ def test_the_full_tile_api_passes_the_check():
 
     complete = SimpleNamespace(**{n: 1 for n in s3source._TILE_API})
     s3source._check_tile_api(complete)            # must not raise
+
+
+def test_depth_levels_come_from_the_store_not_from_config():
+    """A partial depth build must not offer levels it did not produce.
+
+    run_v5_depth.yaml can be run with depth_suffixes: [sfc], and step 4
+    can still be in progress -- offering 'Mixed layer depth' then puts the
+    failure after the click instead of before it.
+    """
+    store = _DepthStore()
+    date = store.dates()[0]
+
+    # Everything built: all four offered.
+    assert store.depth_levels(date) == list(config.DEPTH_LEVELS)
+
+    # A surface-only build offers only the surface.
+    class _SfcOnly(_DepthStore):
+        def field_names(self, date):
+            return ["N2_sfc", "Ri_sfc", "mixed_layer_depth", "oceTAUX"]
+
+    levels = _SfcOnly().depth_levels(date)
+    assert levels == ["Surface"]
+
+
+def test_depth_levels_never_come_back_empty():
+    """A store with no suffixed channels at all still needs a control."""
+    class _Bare(_DepthStore):
+        def field_names(self, date):
+            return ["mixed_layer_depth", "oceTAUX", "oceQnet"]
+
+    store = _Bare()
+    assert store.depth_levels(store.dates()[0]) == list(config.DEPTH_LEVELS)
+
+
+def test_a_partly_built_depth_store_still_lists_its_fields():
+    """Subsets land one at a time; the page grows with them.
+
+    _cached_index skips a subset that is not there yet, so kinematic,
+    icearea and native_fields arriving later add fields rather than
+    breaking the ones already present.
+    """
+    class _Partial(_DepthStore):
+        def field_names(self, date):
+            # stratification + vertical_shear only.
+            return sorted([f"{r}_{s}" for r in ("N2", "Ri", "vertical_shear")
+                           for s in ("sfc", "z25m", "mld", "mld_mean")]
+                          + ["mixed_layer_depth", "ml_heat_content"])
+
+    store = _Partial()
+    date = store.dates()[0]
+    roots = store.field_roots(date)
+
+    assert roots == ["N2", "Ri", "mixed_layer_depth", "ml_heat_content",
+                     "vertical_shear"]
+    assert store.channel_in(date, "Ri", "Mixed layer depth") == "Ri_mld"
+    assert store.depth_levels(date) == list(config.DEPTH_LEVELS)
+
+
+# ---------------------------------------------------------------------------
+# Depth: display styles, and the two-stage flow
+# ---------------------------------------------------------------------------
+
+def test_a_depth_channel_is_drawn_like_its_surface_twin():
+    """gradb2_mld is gradb2. It was falling back to a linear default.
+
+    Style lookup is by channel name, and a DEPTH channel carries a suffix,
+    so *every* depth field missed its registered style -- log scale,
+    colours and all -- and got percentile-linear instead.
+    """
+    from fronts.viz import field_styles
+    from fronts.viz.apps.common import basemap
+
+    for root in ("gradb2", "Ri", "N2"):
+        base = field_styles.get_style(root)
+        for suffix in ("sfc", "z25m", "mld", "mld_mean"):
+            got = field_styles.get_style(f"{root}_{suffix}")
+            assert got.transform == base.transform, f"{root}_{suffix}"
+            assert got.cmap == base.cmap, f"{root}_{suffix}"
+
+    # The map has its own display path; it must agree.
+    arr = np.abs(np.random.default_rng(0).normal(0, 1e-14, (20, 30)))
+    for name in ("gradb2", "gradb2_mld", "gradb2_mld_mean"):
+        _v, _clim, label = basemap.field_display(arr, name)
+        assert label.startswith("log10("), name
+        assert basemap._FIELD_CMAPS.get(
+            name, basemap._FIELD_CMAPS.get(basemap._root(name))) == "gray"
+
+
+def test_mld_mean_is_not_mistaken_for_mld():
+    """'mld' is a prefix of 'mld_mean'.
+
+    Stripping the shorter one first leaves N2_mean, which is registered
+    nowhere and falls back silently -- so the suffixes are tried longest
+    first.
+    """
+    from fronts.viz import field_styles
+
+    assert field_styles.strip_depth_suffix("N2_mld_mean") == "N2"
+    assert field_styles.strip_depth_suffix("N2_mld") == "N2"
+    assert field_styles.strip_depth_suffix("N2") == "N2"
+    assert field_styles.strip_depth_suffix("mixed_layer_depth") == \
+        "mixed_layer_depth"
+
+
+def test_the_depth_page_waits_for_the_map_button():
+    """Opening the page must not regrid a 0.9 GB plane."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import (
+        CharacteristicsPage, DEPTH, SURFACE)
+
+    deep = CharacteristicsPage(DEPTH, provider=sources.get_provider())
+    assert DEPTH.manual_map is True
+    assert deep._map.object is None, "the map drew itself on open"
+
+    # Surface is unchanged: its map is there immediately.
+    surf = CharacteristicsPage(SURFACE, provider=sources.get_provider())
+    assert SURFACE.manual_map is False
+    assert surf._map.object is not None
+
+
+def test_the_depth_page_has_two_buttons_and_they_do_different_things():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage, DEPTH
+
+    page = CharacteristicsPage(DEPTH, provider=sources.get_provider())
+    calls = []
+    page.schedule_stats = lambda: calls.append("stats")
+    page.schedule_front_props = lambda: calls.append("props")
+
+    page.rebuild()                      # map only -- no region chosen yet
+    assert page._map.object is not None
+    assert calls == []
+
+    page.state.set_bounds((200.0, -10.0, 240.0, 20.0))
+    page.run_statistics()
+    assert calls == ["stats", "props"]
+
+
+def test_surface_still_computes_everything_from_one_button():
+    """The Surface flow is unchanged."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import (
+        CharacteristicsPage, SURFACE)
+
+    page = CharacteristicsPage(SURFACE, provider=sources.get_provider())
+    calls = []
+    page.schedule_stats = lambda: calls.append("stats")
+    page.schedule_front_props = lambda: calls.append("props")
+
+    page.rebuild()
+    assert calls == ["stats", "props"]
+
+
+def test_depth_fronts_come_from_the_surface_products():
+    """One set of labels, found at the surface, used at every level."""
+    assert config.DEPTH_FRONTS_FOLDER == config.SURFACE_FRONTS_FOLDER
+    assert config.DEPTH_FRONTS_RUN_ID == config.SURFACE_FRONTS_RUN_ID
+    # ... while the fields themselves are separate.
+    assert config.DEPTH_FOLDER != config.SURFACE_FOLDER
+
+
+# ---------------------------------------------------------------------------
+# Drawing a box must not destroy the map
+# ---------------------------------------------------------------------------
+
+def test_a_box_on_the_depth_map_does_not_refetch_the_field():
+    """Selecting a region must not rebuild the raster.
+
+    The zoomed extent asks width_for_extent for a finer pyramid level than
+    the global view did.  For a depth channel that level may not exist, so
+    the rebuild failed, the handler returned an empty overlay, and the map
+    collapsed -- taking the box-select tool with it.
+    """
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage, DEPTH
+
+    page = CharacteristicsPage(DEPTH, provider=sources.get_provider())
+    page.rebuild()
+    dmap = page._map.object
+    dmap[()]                       # a DynamicMap is lazy; Panel renders it
+
+    builds = []
+    original = page._base_overlay
+    page._base_overlay = lambda extent: (builds.append(extent)
+                                         or original(extent))
+
+    before = len(dmap[()])
+    page._bounds.event(bounds=(200.0, -10.0, 240.0, 20.0))
+    after = dmap[()]
+
+    assert builds == [], "the field was re-fetched for the box"
+    assert len(after) > before, "the outline was not added"
+    assert page.state.box.label() != "global"
+
+
+def test_a_failed_redraw_keeps_the_map_that_worked():
+    """An empty overlay loses the picture *and* the box-select tool."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage, DEPTH
+
+    page = CharacteristicsPage(DEPTH, provider=sources.get_provider())
+    page.rebuild()
+    page._map.object[()]                        # render it once
+    good = page._map_base
+    assert good is not None
+
+    def boom(extent):
+        raise RuntimeError("pyramid level not built for this channel")
+
+    page._base_overlay = boom
+    page._map_base = None                       # force the rebuild path
+    frame = page._map_for_bounds(bounds=None)
+    assert "Map unavailable" in (page._status.object or "")
+    assert len(frame) <= 1                      # nothing to fall back to
+
+    page._map_base = good                       # with a fallback available
+    page._map_stale = True
+    frame = page._map_for_bounds(bounds=None)
+    assert len(frame) > 1, "a working map was thrown away"
+
+
+def test_a_failed_rebuild_does_not_collapse_the_map():
+    """Pressing Rebuild must not be able to destroy a working map.
+
+    redraw_map used to clear the cached base so the next frame would
+    refetch -- which defeated the fallback at exactly the moment it was
+    needed: a failed refetch then had nothing to fall back to, and
+    replaced the map with an empty frame.  Staleness is now a separate
+    flag, so the old base survives until a new one succeeds.
+    """
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage, DEPTH
+
+    page = CharacteristicsPage(DEPTH, provider=sources.get_provider())
+    page.rebuild()
+    working = len(page._map.object[()])
+    assert working > 1
+
+    def boom(extent):
+        raise RuntimeError("pyramid level not built for this channel")
+
+    good = page._base_overlay
+    page._base_overlay = boom
+    page.rebuild()
+
+    assert len(page._map.object[()]) > 1, "a failed Rebuild collapsed the map"
+    assert "Map unavailable" in (page._status.object or "")
+
+    # And it recovers: the map is still marked stale, so the next
+    # successful attempt refetches rather than serving the old base.
+    assert page._map_stale is True
+    page._base_overlay = good
+    page.rebuild()
+    page._map.object[()]                # a DynamicMap clears it on render
+    assert page._map_stale is False
+
+
+def test_rebuild_map_actually_refetches():
+    """The cached base must not outlive the field that made it."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage, DEPTH
+
+    page = CharacteristicsPage(DEPTH, provider=sources.get_provider())
+    page.rebuild()
+    page._map.object[()]
+    assert page._map_base is not None
+
+    page.redraw_map()
+    assert page._map_stale is True, "the base would survive a field change"
+    page._map.object[()]
+    assert page._map_stale is False, "the refetch never happened"
+
+
+# ---------------------------------------------------------------------------
+# The kinematic roles behind the joint PDFs
+# ---------------------------------------------------------------------------
+
+class _RoleStore(sources.DataProvider):
+    mode, synthetic = "test", True
+
+    def __init__(self, names):
+        self._names = sorted(names)
+
+    def dates(self): return ["2012-05-16T06_00_00"]
+    def dates_3d(self): return self.dates()
+    def field_names(self, date): return self._names
+    def coords(self, d): ...
+    def field(self, d, n): ...
+    def front_binary(self, d): ...
+    def labels(self, d): ...
+    def geometry(self, d): ...
+    def colocation(self, d): ...
+    def tile(self, *a, **k): ...
+
+
+def test_roles_resolve_to_roots_so_the_level_is_applied_once():
+    """Returning a channel name meant a second suffix got appended.
+
+    resolve_channels used to answer 'relative_vorticity_sfc', which the
+    page then resolved again -- 'relative_vorticity_sfc_mld'.
+    """
+    date = "2012-05-16T06_00_00"
+    store = _RoleStore(
+        [f"{r}_{s}" for r in ("relative_vorticity", "strain_mag")
+         for s in ("sfc", "z25m", "mld", "mld_mean")] + ["coriolis_f"])
+
+    roles = store.resolve_channels(date)
+    assert roles == {"vorticity": "relative_vorticity",
+                     "strain": "strain_mag", "coriolis": "coriolis_f"}
+
+    at_mld = {k: store.channel_in(date, v, "Mixed layer depth")
+              for k, v in roles.items()}
+    assert at_mld["vorticity"] == "relative_vorticity_mld"
+    assert at_mld["strain"] == "strain_mag_mld"
+    # Coriolis has no depth variant, and needs no special case.
+    assert at_mld["coriolis"] == "coriolis_f"
+
+
+def test_a_store_built_at_one_level_only_still_has_its_roles():
+    """Matching exact channel names reported every role missing."""
+    date = "2012-05-16T06_00_00"
+    store = _RoleStore(["relative_vorticity_mld", "strain_mag_mld",
+                        "coriolis_f"])
+
+    roles = store.resolve_channels(date)
+    assert all(roles.values()), roles
+    assert store.channel_in(date, roles["vorticity"],
+                            "Mixed layer depth") == "relative_vorticity_mld"
+
+
+def test_surface_roles_are_unchanged():
+    date = "2012-05-16T06_00_00"
+    store = _RoleStore(["relative_vorticity", "strain_mag", "coriolis_f"])
+    assert store.resolve_channels(date) == {
+        "vorticity": "relative_vorticity", "strain": "strain_mag",
+        "coriolis": "coriolis_f"}
+
+
+def test_a_missing_kinematic_subset_says_what_to_build():
+    """Panel (a) draws fine from the same region, so "empty" is baffling."""
+    from fronts.viz.apps.characteristics import panels as P
+    from fronts.viz.apps.characteristics.stats import RegionSamples
+
+    date = "2012-05-16T06_00_00"
+    store = _RoleStore(["N2_mld", "Ri_mld", "coriolis_f"])
+    roles = store.resolve_channels(date)
+    assert roles["vorticity"] is None and roles["strain"] is None
+
+    samples = RegionSamples(values=np.zeros(3), zeta_f=np.empty(0),
+                            sigma_f=np.empty(0), n_cells=10,
+                            missing=("vorticity", "strain"))
+    message = P._kinematics_message(samples)
+    assert "relative_vorticity" in message
+    assert "strain_mag" in message
+    assert "not the selected field" in message
+
+
+# ---------------------------------------------------------------------------
+# The map keeps its frame, and Rebuild re-reads the store
+# ---------------------------------------------------------------------------
+
+def test_composing_an_overlay_drops_its_options():
+    """The reason the map squashed, stated as the library behaviour.
+
+    ``base * outline`` builds a *new* Overlay and the Overlay-level
+    options set on ``base`` do not come with it -- so the height was lost
+    and Bokeh fell back to its default frame.  ``.opts(xlim=...)`` does
+    not bring them back either.
+    """
+    import holoviews as hv
+    hv.extension("bokeh")
+
+    base = hv.Overlay([hv.Image((np.arange(4), np.arange(3),
+                                 np.zeros((3, 4))))])
+    base = base.opts(hv.opts.Overlay(height=720))
+    assert base.opts.get("plot").kwargs.get("height") == 720
+
+    composed = (base * hv.Rectangles([(0, 0, 2, 2)])).opts(
+        hv.opts.Overlay(xlim=(0, 4)))
+    assert composed.opts.get("plot").kwargs.get("height") is None
+
+
+def test_the_map_keeps_its_height_through_every_interaction():
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import (
+        CharacteristicsPage, DEPTH, SURFACE)
+
+    for mode in (DEPTH, SURFACE):
+        page = CharacteristicsPage(mode, provider=sources.get_provider())
+        if mode.manual_map:
+            page.rebuild()
+
+        def height():
+            return page._map.object[()].opts.get("plot").kwargs.get("height")
+
+        assert height() == page.MAP_HEIGHT, mode.key
+        page._bounds.event(bounds=(200.0, -10.0, 240.0, 20.0))
+        assert height() == page.MAP_HEIGHT, f"{mode.key}: box"
+        page.rebuild()
+        assert height() == page.MAP_HEIGHT, f"{mode.key}: rebuild"
+
+
+def test_rebuild_re_reads_the_store():
+    """A subset written after the page first looked must become visible.
+
+    The channel listing is cached per date, so during a build in progress
+    a newly written subset stayed invisible for the life of the process --
+    and the panels that need it stayed blank with no way to tell that the
+    data had arrived.
+    """
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import CharacteristicsPage, DEPTH
+
+    page = CharacteristicsPage(DEPTH, provider=sources.get_provider())
+    refreshed = []
+    page.state.provider.refresh = lambda: refreshed.append(1)
+
+    page.rebuild()
+    assert refreshed == [1], "Rebuild did not re-read the store"
+
+
+def test_the_s3_provider_forgets_listings_but_not_field_arrays():
+    """Listings go stale; a cached field array keyed on content does not."""
+    import inspect
+
+    from fronts.viz.apps.common import s3source
+
+    src = inspect.getsource(s3source.S3Provider.refresh)
+    for name in ("_cached_dates", "_cached_index", "_cached_reader",
+                 "_product_path"):
+        assert f"{name}.cache_clear()" in src, name
+    # The disk cache of the arrays themselves must survive.
+    assert "cache.array" not in src
+    assert "trim" not in src

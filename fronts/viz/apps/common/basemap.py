@@ -193,16 +193,29 @@ _FIELD_CMAPS = {
     "SSTK": "inferno",
 }
 
-_LOG_FIELDS = {"gradb2", "gradtheta2"}
+#: Positive-definite fields the map draws on a log axis.
+#:
+#: Kept alongside ``_FIELD_CMAPS`` and ``_DIVERGING`` because the map has
+#: its own display path -- these are keyed on the *root* name, and a
+#: DEPTH channel is matched by stripping its suffix, so gradb2 and
+#: gradb2_mld are drawn identically and the two views of one field can be
+#: compared directly.
+_LOG_FIELDS = {"gradb2", "gradtheta2", "gradsalt2", "gradrho2"}
 _DIVERGING = {
     "relative_vorticity", "divergence", "okubo_weiss",
     "strain_n", "strain_s", "Eta", "coriolis_f",
 }
 
 
+def _root(name: str) -> str:
+    """A channel name with any DEPTH suffix removed."""
+    from fronts.viz import field_styles
+    return field_styles.strip_depth_suffix(name)
+
+
 def field_display(arr: np.ndarray, name: str):
     """Transform a field for display, returning ``(values, clim, label)``."""
-    if name in _LOG_FIELDS:
+    if _root(name) in _LOG_FIELDS:
         with np.errstate(invalid="ignore", divide="ignore"):
             out = np.log10(np.where(arr > 0, arr, np.nan))
         label = f"log10({name})"
@@ -215,7 +228,7 @@ def field_display(arr: np.ndarray, name: str):
         return out, (0.0, 1.0), label
 
     lo, hi = np.nanpercentile(finite, [2, 98])
-    if name in _DIVERGING:
+    if _root(name) in _DIVERGING:
         m = max(abs(lo), abs(hi))
         lo, hi = -m, m
     if lo == hi:
@@ -246,7 +259,9 @@ def field_layer(provider, date, name, width=None,
     lon, lat, arr = _crop(lon, lat, arr, extent)
     values, clim, label = field_display(arr, name)
     img = _image(lon, lat, values, label, "Field")
-    cmap = _FIELD_CMAPS.get(name, "viridis")
+    # Through the depth suffix as well, so gradb2 at depth gets the same
+    # greyscale base the surface one does rather than the default.
+    cmap = _FIELD_CMAPS.get(name, _FIELD_CMAPS.get(_root(name), "viridis"))
     return _rasterize(img).opts(
         cmap=cmap, clim=clim, colorbar=True, colorbar_position="bottom",
         tools=list(tools),

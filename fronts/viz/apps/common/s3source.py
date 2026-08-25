@@ -77,6 +77,20 @@ class S3Provider(DataProvider):
     def dates(self) -> list[str]:
         return _cached_dates(self.folder, self.run_id)
 
+    def refresh(self) -> None:
+        """Drop the cached listings so a build in progress becomes visible.
+
+        Only listings and metadata -- the field arrays keep their disk
+        cache, which is keyed on content and does not go stale.  Without
+        this a subset that lands after the page first read the store is
+        invisible until the server restarts, and the panels that need it
+        stay blank with no way to tell that the data has arrived.
+        """
+        _cached_dates.cache_clear()
+        _cached_index.cache_clear()
+        _cached_reader.cache_clear()
+        _product_path.cache_clear()
+
     def coords(self, date: str):
         return _grid_plane("XC"), _grid_plane("YC")
 

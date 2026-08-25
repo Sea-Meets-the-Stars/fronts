@@ -165,12 +165,27 @@ def adaptive_bins(n: int) -> int:
     return int(np.clip(np.sqrt(n) / 3.0, 20, 175))
 
 
+#: Which channel each role wants, for the blank-panel message.
+_ROLE_CHANNELS = {
+    "vorticity": "relative_vorticity",
+    "strain": "strain_mag",
+    "coriolis": "coriolis_f",
+}
+
+
 def _kinematics_message(samples: RegionSamples) -> str:
+    """Why panels (b) and (c) are empty, in terms of what to go and build.
+
+    These two do not use the selected field -- they are vorticity against
+    strain -- so "nothing here" is otherwise baffling when panel (a) drew
+    perfectly well from the same region.
+    """
     if samples.missing:
+        wanted = ", ".join(_ROLE_CHANNELS.get(r, r) for r in samples.missing)
         return (
-            "joint PDFs need "
-            + ", ".join(samples.missing)
-            + "\nno matching channel in this store"
+            "joint PDFs are vorticity x strain, not the selected field.\n\n"
+            f"missing from this store: {wanted}\n"
+            "(the kinematic subset, at any depth level)"
         )
     return "no samples outside the equatorial band"
 

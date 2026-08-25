@@ -64,6 +64,12 @@ class Mode:
     has_depth: bool
     #: Explanation shown when the date list is restricted.
     date_note: str = ""
+    #: Whether the map waits for a button instead of following the
+    #: controls.  Surface draws straight away -- its pyramids are built
+    #: and a redraw is a cached read.  A depth channel may have no pyramid
+    #: yet, and building one regrids a 0.9 GB plane, so on Depth changing
+    #: the field is a request, not a glance.
+    manual_map: bool = False
 
 
 SURFACE = Mode(
@@ -76,6 +82,7 @@ DEPTH = Mode(
     key="depth",
     title="Field Characteristics at Depth",
     has_depth=True,
+    manual_map=True,
     date_note=(
         "Only the timestamps with full 3-D data carry depth-resolved "
         "fields, so this page offers those."
@@ -103,6 +110,13 @@ class CharacteristicsPage:
             sizing_mode="stretch_width", min_height=620)
         #: One box-select stream for the life of the page.  Recreating it
         #: per redraw is what lost the selection -- see ``redraw_map``.
+        #: ``(overlay, extent)`` of the last successfully drawn map, so a
+        #: box-select can recompose without re-fetching and a failed
+        #: redraw does not replace a working map with an empty one.
+        self._map_base = None
+        #: Set by ``redraw_map``: the next frame must refetch.  Separate
+        #: from the base so a failed refetch still has something to show.
+        self._map_stale = True
         self._bounds = hv.streams.BoundsXY(bounds=None)
         self._last_bounds = None
 
@@ -126,9 +140,17 @@ class CharacteristicsPage:
         self._fp_token = 0
 
         self._build_controls()
-        # The map is cheap and orients the user, so it is drawn up front;
-        # the panels wait for Rebuild.
-        self.redraw_map()
+        if self.mode.manual_map:
+            # Nothing read until asked.  A depth channel may have no
+            # pyramid yet, and building one regrids a 0.9 GB plane -- not
+            # something to do because a page was opened.
+            self._status.object = (
+                "pick a date, depth level and field, then press "
+                "*Rebuild map*")
+        else:
+            # Cheap and orienting, so it is drawn up front; the panels
+            # wait for Rebuild.
+            self.redraw_map()
 
     # -- channel resolution ----------------------------------------------
 
@@ -168,16 +190,30 @@ class CharacteristicsPage:
         self.w_stat = pn.widgets.Select.from_param(s.param.front_stat,
                                                    width=140)
 
-        self.w_build = pn.widgets.Button(name="Rebuild", width=150,
-                                         button_type="primary")
+        self.w_build = pn.widgets.Button(
+            label="Rebuild map" if self.mode.manual_map else "Rebuild",
+            width=170, button_type="primary")
         self.w_build.on_click(lambda _: self.rebuild())
 
-        # The map keeps up with the selection -- it is a cached pyramid
-        # level, so redrawing is cheap.  The panels below are what wait.
+        #: Only where the map is manual: there the two halves are separate
+        #: requests, so they need separate buttons.  With one button the
+        #: label would have to mean "draw the map" before a region is
+        #: chosen and "compute the figures" after it.
+        self.w_stats = pn.widgets.Button(
+            label="Run statistics for region", width=230,
+            button_type="primary")
+        self.w_stats.on_click(lambda _: self.run_statistics())
+
         map_triggers = ["date", "field", "show_fronts"]
         if self.mode.has_depth:
             map_triggers.append("depth_level")
-        s.param.watch(lambda *_: self.redraw_map(), map_triggers)
+        if self.mode.manual_map:
+            # Mark the map stale rather than redrawing it.
+            s.param.watch(lambda *_: self._reflect_dirty(), map_triggers)
+        else:
+            # The map keeps up with the selection -- a cached pyramid
+            # level, so redrawing is cheap.  The panels are what wait.
+            s.param.watch(lambda *_: self.redraw_map(), map_triggers)
 
         s.param.watch(lambda *_: self._reflect_dirty(), ["dirty"])
         self._reflect_dirty()
@@ -195,12 +231,33 @@ class CharacteristicsPage:
         self.redraw_map()
 
     def rebuild(self):
-        """Build the figures for the current selection.
+        """What the primary button does, which differs by mode.
 
-        The map is already current -- it follows the selection directly --
-        so this is the panels, which are the expensive half.
+        Where the map follows the controls it is already current, so this
+        is the panels -- the expensive half.  Where the map is manual this
+        draws the map and stops: the region has not been chosen yet, so
+        there is nothing to compute statistics over.
         """
+        # Look again.  The channel listing is cached per date, so a
+        # subset written *after* the page first read it stays invisible
+        # for the life of the process -- which is exactly what happens
+        # while a build is still running.  Rebuild means "go and look".
+        self.state.provider.refresh()
+        self.state.refresh_fields()
+        self.state.refresh_depth_levels()
+
         self.redraw_map()
+        if self.mode.manual_map:
+            self._status.object = (
+                f"**{self.resolve(self.state.field)}** at "
+                f"**{self.state.date}** — draw a box, then press "
+                "*Run statistics for region*")
+            return
+
+        self.run_statistics()
+
+    def run_statistics(self):
+        """The figures below the map, for the box that is selected."""
         self.schedule_stats()
         self.schedule_front_props()
         self.state.dirty = False
@@ -274,8 +331,47 @@ class CharacteristicsPage:
         the box fell back to global.  That is why *Rebuild* zoomed out and
         computed over the whole globe.
         """
+        # Mark the base stale rather than dropping it.  Dropping it first
+        # made *Rebuild map* refetch -- and defeated the fallback below at
+        # exactly the moment it was needed: if the refetch failed there
+        # was then nothing to fall back to, so a failed Rebuild replaced a
+        # working map with an empty frame.  Staleness says "refetch"; the
+        # old base stays available until a new one succeeds.
+        self._map_stale = True
         self._map.object = hv.DynamicMap(self._map_for_bounds,
                                          streams=[self._bounds])
+
+    #: Frame options that must be re-applied after every composition.
+    #:
+    #: ``base * outline`` builds a *new* Overlay, and Overlay-level options
+    #: set on ``base`` do not come with it -- so the composed map lost its
+    #: height and fell back to Bokeh's default, which is the squashed
+    #: frame.  Neither does ``.opts(xlim=...)`` restore them.  Keeping them
+    #: here and applying them last is the only way the two paths cannot
+    #: disagree.
+    MAP_HEIGHT = 720
+
+    def _frame_opts(self, extent):
+        s = self.state
+        xlim, ylim = extent
+        return hv.opts.Overlay(
+            height=self.MAP_HEIGHT, responsive=True,
+            title=f"{self.resolve(s.field)}  —  {s.date}",
+            xlabel="longitude", ylabel="latitude",
+            show_grid=True, active_tools=["box_select"],
+            xlim=tuple(xlim), ylim=tuple(ylim), shared_axes=False,
+        )
+
+    def _base_overlay(self, extent):
+        """The field, land, coastline and fronts at *extent*."""
+        s = self.state
+        channel = self.resolve(s.field)
+        return basemap.global_map(
+            s.provider, s.date, channel,
+            show_fronts=s.show_fronts,
+            title=f"{channel}  —  {s.date}",
+            extent=extent, height=self.MAP_HEIGHT,
+        )
 
     def _map_for_bounds(self, bounds=None):
         """One frame of the map.  A new box here *is* the selection."""
@@ -289,26 +385,40 @@ class CharacteristicsPage:
             s.set_bounds(bounds)
             self._reflect_dirty()
 
+        if (self.mode.manual_map and self._map_base is not None
+                and not self._map_stale):
+            # Static base, dynamic outline.  Drawing a box must not
+            # re-fetch the field: the zoomed extent asks for a finer
+            # pyramid level than the global view did, and for a depth
+            # channel that level may not exist -- so the redraw failed,
+            # the handler returned an empty overlay, and the map
+            # collapsed.  Only the outline changes here.
+            base, base_extent = self._map_base
+            outline = self._selection_outline()
+            overlay = base * outline if outline is not None else base
+            return overlay.opts(self._frame_opts(base_extent))
+
         extent = self._zoom_limits()
         try:
-            channel = self.resolve(s.field)
-            overlay = basemap.global_map(
-                s.provider, s.date, channel,
-                show_fronts=s.show_fronts,
-                title=f"{channel}  —  {s.date}",
-                extent=extent, height=720,
-            )
+            overlay = self._base_overlay(extent)
         except Exception as exc:                        # noqa: BLE001
             self._status.object = f"**Map unavailable:** {exc}"
+            # Keep whatever is already on screen.  Returning an empty
+            # overlay replaces a working map with a collapsed frame, which
+            # loses the box-select tool along with the picture.
+            if self._map_base is not None:
+                base, base_extent = self._map_base
+                return base.opts(self._frame_opts(base_extent))
             return hv.Overlay([hv.Curve([])])
+
+        self._map_base = (overlay, extent)
+        self._map_stale = False
 
         outline = self._selection_outline()
         if outline is not None:
             overlay = overlay * outline
 
-        xlim, ylim = extent
-        return overlay.opts(hv.opts.Overlay(xlim=xlim, ylim=ylim,
-                                            shared_axes=False))
+        return overlay.opts(self._frame_opts(extent))
 
     # -- distributions ---------------------------------------------------
 
@@ -494,7 +604,9 @@ class CharacteristicsPage:
             pn.Row(*controls, sizing_mode="stretch_width", margin=(0, 10)),
             # The button on its own row: the controls above it change the
             # selection, it is the thing that spends time on it.
-            pn.Row(pn.pane.Markdown("**figures**", margin=(8, 5, 0, 10)),
+            pn.Row(pn.pane.Markdown(
+                       "**map**" if self.mode.manual_map else "**figures**",
+                       margin=(8, 5, 0, 10)),
                    self.w_build, sizing_mode="stretch_width",
                    margin=(0, 10)),
             self._status,
@@ -503,8 +615,19 @@ class CharacteristicsPage:
                 "<small>Drag a box on the map to choose a region — the map "
                 "zooms to it and the selection stays outlined. Statistics "
                 "are exact, at full resolution, on the native grid; the map "
-                "is drawn from a regridded display pyramid.</small>",
+                "is drawn from a regridded display pyramid."
+                + (" Fronts are always the <b>surface</b> fronts: a "
+                   "front-only panel at depth is that field at depth, "
+                   "sampled where the surface front is."
+                   if self.mode.has_depth else "")
+                + "</small>",
                 margin=(0, 10)),
+            # Where the map is manual the statistics are their own
+            # request, so the button sits with the region it acts on.
+            *([pn.Row(pn.pane.Markdown("**figures**",
+                                       margin=(8, 5, 0, 10)),
+                      self.w_stats, sizing_mode="stretch_width",
+                      margin=(0, 10))] if self.mode.manual_map else []),
             pn.pane.Markdown(
                 "#### The selected region, with fronts",
                 margin=(10, 10, 0, 10)),

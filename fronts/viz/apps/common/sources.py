@@ -123,14 +123,27 @@ class DataProvider(ABC):
         return [d for d in candidates if self.has_fronts(d)]
 
     def depth_levels(self, date: str) -> list[str]:
-        """Depth-level labels available for a date.
+        """Depth-level labels actually present for a date.
 
-        Only the 3-D dates carry depth-resolved channels; everywhere else
-        the only level is the surface.
+        Read from the channel names rather than assumed from config: a
+        depth build can be partial -- run with ``depth_suffixes: [sfc]``,
+        or still in progress -- and offering a level whose channels do not
+        exist puts the failure after the click instead of before it.
+
+        Falls back to the full list when nothing can be read, so the
+        control is never empty.
         """
         if date not in self.dates_3d():
             return ["Surface"]
-        return list(config.DEPTH_LEVELS)
+
+        try:
+            names = set(self.field_names(date))
+        except Exception:                                   # noqa: BLE001
+            return list(config.DEPTH_LEVELS)
+
+        found = [label for label, suffix in config.DEPTH_LEVELS.items()
+                 if any(n.endswith(f"_{suffix}") for n in names)]
+        return found or list(config.DEPTH_LEVELS)
 
     # -- depth channel naming ---------------------------------------------
     #
@@ -146,6 +159,12 @@ class DataProvider(ABC):
     # list is derived by stripping the suffixes that are actually present,
     # and the channel name is resolved back by looking in the store rather
     # than by assuming the suffix exists.
+
+    def refresh(self) -> None:
+        """Forget cached listings, so a new store is noticed.
+
+        A no-op for a provider that reads nothing remote.
+        """
 
     def field_roots(self, date: str) -> list[str]:
         """Selectable field names, with the depth suffix stripped.
@@ -295,12 +314,20 @@ class DataProvider(ABC):
     def resolve_channels(self, date: str) -> dict[str, str | None]:
         """Map the kinematic roles onto whatever this store calls them.
 
-        The SURFACE pipeline emits ``relative_vorticity`` / ``strain_mag`` /
-        ``coriolis_f``; the DEPTH pipeline suffixes the first two
-        (``relative_vorticity_sfc``, ...) and moves Coriolis to the extra
-        channels.  Rather than assume, look.
+        Returns **root** names.  The caller applies the depth level, so a
+        role follows the field being examined rather than being pinned to
+        whichever level happened to be listed.
+
+        A role counts as present if the store holds it at *any* level: the
+        page then resolves it to the selected one, or to the bare channel
+        where there is no depth variant (Coriolis is a function of
+        latitude alone).  Matching on the exact channel name instead meant
+        a store built with only ``_mld`` reported every role missing, and
+        the joint PDFs came out blank with nothing to say why.
         """
-        have = set(self.field_names(date))
+        from fronts.viz.field_styles import strip_depth_suffix
+
+        have = {strip_depth_suffix(n) for n in self.field_names(date)}
         out: dict[str, str | None] = {}
         for role, candidates in config.KINEMATIC_ROLES.items():
             out[role] = next((c for c in candidates if c in have), None)
