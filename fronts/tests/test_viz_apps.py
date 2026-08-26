@@ -1791,7 +1791,7 @@ def test_a_box_drawn_on_the_map_survives_a_rebuild():
     page = CharacteristicsPage(provider=sources.get_provider())
 
     # A box arriving through the map's own stream, as it does in a browser.
-    page._map_for_bounds(bounds=(100.0, 10.0, 140.0, 40.0))
+    page._bounds.event(bounds=(100.0, 10.0, 140.0, 40.0))
     assert not page.state.box.is_global
     selected = page.state.box.label()
 
@@ -1808,9 +1808,9 @@ def test_the_same_box_is_not_reapplied_on_every_frame():
     from fronts.viz.apps.characteristics.page import CharacteristicsPage
 
     page = CharacteristicsPage(provider=sources.get_provider())
-    page._map_for_bounds(bounds=(100.0, 10.0, 140.0, 40.0))
+    page._bounds.event(bounds=(100.0, 10.0, 140.0, 40.0))
     first = page.state.box.label()
-    page._map_for_bounds(bounds=(100.0, 10.0, 140.0, 40.0))
+    page._bounds.event(bounds=(100.0, 10.0, 140.0, 40.0))
     assert page.state.box.label() == first
 
 
@@ -4865,6 +4865,172 @@ def test_the_map_keeps_its_height_through_every_interaction():
         assert height() == page.MAP_HEIGHT, f"{mode.key}: box"
         page.rebuild()
         assert height() == page.MAP_HEIGHT, f"{mode.key}: rebuild"
+
+
+def test_the_box_select_survives_a_redraw():
+    """The tool has to still be wired after *Rebuild*.
+
+    HoloViews links box-select to a stream through
+    ``Stream.registry[stream.source]``, and ``source`` is pinned to the
+    first DynamicMap the stream was given to.  Replacing the DynamicMap on
+    every redraw -- even while keeping the same stream -- built the new
+    plot with no BoundsCallback, so from the first Rebuild onwards the box
+    drew and reported nothing and the region silently stayed put.  That is
+    what made the selection work sometimes and not others.
+    """
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import (
+        CharacteristicsPage, DEPTH, SURFACE)
+
+    for mode in (SURFACE, DEPTH):
+        page = CharacteristicsPage(mode, provider=sources.get_provider())
+        if mode.manual_map:
+            page.rebuild()
+
+        assert page._bounds.source is page._map.object, \
+            f"{mode.key}: never wired"
+
+        # Every way the map gets redrawn.
+        page.rebuild()
+        page.redraw_map()
+        page.state.field = page.state.param.field.objects[-1]
+        page._reset_region()
+
+        assert page._bounds.source is page._map.object, \
+            f"{mode.key}: the box-select was left on a discarded map"
+
+        # And the box drawn after all that has to land.
+        page._bounds.event(bounds=(200.0, -10.0, 240.0, 20.0))
+        assert page.state.box.label() != "global", f"{mode.key}: box lost"
+        assert page._bounds.source is page._map.object, \
+            f"{mode.key}: unwired by the box it just handled"
+
+
+def test_holoviews_pins_a_stream_to_its_first_dynamicmap():
+    """Why the map above is created once and then only nudged.
+
+    This is HoloViews behaviour, not ours; if it ever changes, the
+    machinery in ``redraw_map`` can be simplified away.
+    """
+    import numpy as np
+    import holoviews as hv
+    from holoviews.plotting.bokeh import BokehRenderer
+
+    hv.extension("bokeh")
+    stream = hv.streams.BoundsXY(bounds=None)
+    frame = lambda bounds=None: hv.Image(np.zeros((4, 4)))   # noqa: E731
+
+    first = hv.DynamicMap(frame, streams=[stream])
+    assert [type(c).__name__ for c in BokehRenderer.get_plot(first).callbacks] \
+        == ["BoundsCallback"]
+
+    second = hv.DynamicMap(frame, streams=[stream])
+    assert stream.source is first, "source moved to the new DynamicMap"
+    assert BokehRenderer.get_plot(second).callbacks == [], \
+        "the second plot was wired after all -- redraw_map can be simpler"
+
+
+def test_a_redraw_still_refetches_the_field():
+    """Nudging must not become a no-op: a new field has to be read."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import (
+        CharacteristicsPage, SURFACE)
+
+    page = CharacteristicsPage(SURFACE, provider=sources.get_provider())
+    page._map.object[()]
+
+    builds = []
+    original = page._base_overlay
+    page._base_overlay = lambda extent: (builds.append(extent)
+                                         or original(extent))
+    page.redraw_map()
+    page._map.object[()]
+    assert builds, "the redraw drew the stale base again"
+
+
+def test_bokeh_fixes_axis_limits_when_the_plot_is_built():
+    """Why a zoom or an un-zoom has to be a new plot.
+
+    A DynamicMap frame carrying different ``xlim`` does not move the axes
+    of a plot that already exists -- it is silently ignored.  This is
+    HoloViews/Bokeh behaviour, not ours; if it changes, ``redraw_map`` can
+    stop replacing the plot.
+    """
+    import numpy as np
+    import holoviews as hv
+    from holoviews.plotting.bokeh import BokehRenderer
+
+    hv.extension("bokeh")
+    Nudge = hv.streams.Stream.define("Nudge", n=0)
+    nudge = Nudge()
+
+    def frame(n=0):
+        lim = (0, 360) if n == 0 else (100, 140)
+        return hv.Image(np.zeros((4, 4))).opts(hv.opts.Image(xlim=lim))
+
+    figure = BokehRenderer.get_plot(hv.DynamicMap(frame, streams=[nudge])).state
+    assert (figure.x_range.start, figure.x_range.end) == (0, 360)
+    nudge.event(n=1)
+    assert (figure.x_range.start, figure.x_range.end) == (0, 360), \
+        "the frame moved the axes after all -- redraw_map can be simpler"
+
+
+def test_reset_region_puts_the_map_back_on_the_globe():
+    """The button has to un-zoom, which means a new plot."""
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import (
+        CharacteristicsPage, DEPTH, SURFACE)
+
+    for mode in (SURFACE, DEPTH):
+        page = CharacteristicsPage(mode, provider=sources.get_provider())
+        if mode.manual_map:
+            page.rebuild()
+
+        page._bounds.event(bounds=(200.0, -10.0, 240.0, 20.0))
+        assert page._map_for_bounds().opts.get().kwargs["xlim"] != (0, 360)
+
+        page._reset_region()
+        assert page.state.box.is_global, f"{mode.key}: box not cleared"
+        assert page._map_for_bounds().opts.get().kwargs["xlim"] == (0, 360), \
+            f"{mode.key}: still zoomed in"
+        assert page._selection_outline() is None, \
+            f"{mode.key}: the outline outlived the selection"
+
+
+def test_drawing_a_box_reads_no_data():
+    """Selection is navigation; only *Rebuild* pays for data.
+
+    The zoomed extent asks width_for_extent for a finer pyramid level than
+    the global view did, and for a depth channel that level may not exist
+    -- so the refetch failed and the map collapsed.  Cropping the field
+    already in hand cannot fail and cannot be slow.
+    """
+    import panel as pn
+    pn.extension()
+    from fronts.viz.apps.characteristics.page import (
+        CharacteristicsPage, DEPTH, SURFACE)
+
+    for mode in (SURFACE, DEPTH):
+        page = CharacteristicsPage(mode, provider=sources.get_provider())
+        if mode.manual_map:
+            page.rebuild()
+        page._map.object[()]                 # the first frame reads, once
+
+        reads = []
+        original = page._base_overlay
+        page._base_overlay = lambda extent: (reads.append(extent)
+                                             or original(extent))
+
+        page._bounds.event(bounds=(200.0, -10.0, 240.0, 20.0))
+        page._map.object[()]
+        assert reads == [], f"{mode.key}: the box re-read the field"
+
+        page.rebuild()                       # this one is allowed to
+        page._map.object[()]
+        assert reads, f"{mode.key}: Rebuild did not re-read the field"
 
 
 def test_rebuild_re_reads_the_store():

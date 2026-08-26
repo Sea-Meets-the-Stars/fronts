@@ -54,6 +54,7 @@ FP_TITLES = (
 ZOOM_PAD = 0.12
 
 
+
 @dataclass(frozen=True)
 class Mode:
     """What distinguishes the Surface page from the Depth page."""
@@ -119,6 +120,18 @@ class CharacteristicsPage:
         self._map_stale = True
         self._bounds = hv.streams.BoundsXY(bounds=None)
         self._last_bounds = None
+        # Record the box here, not inside the frame callback.  Recording it
+        # while drawing tied "the region changed" to "the map re-rendered":
+        # true in the browser, but it made the state depend on a render
+        # that may be skipped or deferred.  A subscriber fires as soon as
+        # the tool reports, and runs before the plot's own refresh, so the
+        # frame that follows already sees the new box.
+        self._bounds.add_subscriber(self._record_bounds)
+        # Zooming needs a *new* plot (see ``redraw_map``), so it must not
+        # happen while the current one is mid-refresh.  Plot refreshes are
+        # subscribed at precedence 1.1; sitting above that means the frame
+        # already being drawn finishes first and is then replaced.
+        self._bounds.add_subscriber(self._zoom_to_bounds, precedence=2.0)
 
         self._panes = {
             (col, row): pn.pane.Matplotlib(
@@ -271,19 +284,33 @@ class CharacteristicsPage:
         else:
             self.w_build.button_type = "default"
 
+    def _record_bounds(self, bounds=None):
+        """A box was drawn: make it the selection.
+
+        Called by the stream, so it happens whether or not the map goes on
+        to re-render.
+        """
+        if not bounds or bounds == self._last_bounds:
+            return
+        self._last_bounds = bounds
+        self.state.set_bounds(bounds)
+        self._reflect_dirty()
+
+    def _zoom_to_bounds(self, bounds=None):
+        """Put the axes on the box.  Cheap: no data is read."""
+        if not bounds:
+            return
+        self.redraw_map(refetch=False)
+
     def _on_bounds(self, bounds):
         """Apply a box as if it had been drawn on the map.
 
-        The map itself now takes the box through its own stream; this
-        stays as the programmatic entry point.
+        The programmatic entry point; the tool itself goes through the
+        stream, which reaches the same place.
         """
         if not bounds:
             return
         self._bounds.event(bounds=bounds)
-        if self.state.box.is_global:            # no renderer to run the
-            self._last_bounds = bounds          # DynamicMap (e.g. tests)
-            self.state.set_bounds(bounds)
-        self.redraw_map()
 
     # -- map -------------------------------------------------------------
 
@@ -321,25 +348,47 @@ class CharacteristicsPage:
             line_dash="dashed",
         )
 
-    def redraw_map(self):
-        """Rebuild the map as a DynamicMap driven by the box-select stream.
+    def redraw_map(self, refetch: bool = True):
+        """Draw the map again, as a new plot the box-select still reaches.
 
-        The stream is created **once** and lives as long as the page.  The
-        previous version made a new ``BoundsXY`` on every redraw and then
-        redrew from inside its own callback -- which tore down the plot the
-        tool belonged to, so the next interaction reported no selection and
-        the box fell back to global.  That is why *Rebuild* zoomed out and
-        computed over the whole globe.
+        Two constraints pull against each other here, and getting one
+        without the other is what made the region selection work sometimes
+        and not others.
+
+        The plot has to be **replaced**: axis limits are fixed when a
+        Bokeh plot is built, so a frame returned by an existing DynamicMap
+        cannot change them.  Zooming to a box, and un-zooming on *Reset
+        region*, both need a new plot -- returning a differently-limited
+        frame into the old one silently keeps the old limits.
+
+        The stream has to be **kept**: a fresh ``BoundsXY`` per redraw
+        loses the selection outright.
+
+        Keeping the stream across a new DynamicMap is not enough on its
+        own, though, and that was the bug.  HoloViews links the box-select
+        tool by looking up ``Stream.registry[stream.source]``, and
+        ``source`` stays pinned to the *first* DynamicMap the stream was
+        given to.  So the replacement plot was built with no
+        BoundsCallback: the box drew and reported nothing, the region
+        silently stayed as it was, and everything downstream -- the zoom,
+        the region figure, the JPDFs -- described the old box.  Re-pointing
+        ``source`` at the new map restores the link.
+
+        *refetch* false reuses the field already in hand and changes only
+        the limits and the outline -- what drawing a box needs.
         """
-        # Mark the base stale rather than dropping it.  Dropping it first
-        # made *Rebuild map* refetch -- and defeated the fallback below at
-        # exactly the moment it was needed: if the refetch failed there
-        # was then nothing to fall back to, so a failed Rebuild replaced a
-        # working map with an empty frame.  Staleness says "refetch"; the
-        # old base stays available until a new one succeeds.
-        self._map_stale = True
-        self._map.object = hv.DynamicMap(self._map_for_bounds,
-                                         streams=[self._bounds])
+        if refetch:
+            # Mark the base stale rather than dropping it.  Dropping it
+            # first made *Rebuild map* refetch -- and defeated the
+            # fallback in ``_map_for_bounds`` at exactly the moment it was
+            # needed: if the refetch failed there was then nothing to fall
+            # back to, so a failed Rebuild replaced a working map with an
+            # empty frame.  Staleness says "refetch"; the old base stays
+            # available until a new one succeeds.
+            self._map_stale = True
+        dmap = hv.DynamicMap(self._map_for_bounds, streams=[self._bounds])
+        self._bounds.source = dmap          # or the tool goes unwired
+        self._map.object = dmap
 
     #: Frame options that must be re-applied after every composition.
     #:
@@ -374,31 +423,24 @@ class CharacteristicsPage:
         )
 
     def _map_for_bounds(self, bounds=None):
-        """One frame of the map.  A new box here *is* the selection."""
-        s = self.state
+        """One frame of the map, for whatever region is selected."""
+        # The box itself was already recorded by ``_record_bounds``; by the
+        # time a frame is drawn, ``state.box`` is the truth.
+        extent = self._zoom_limits()
 
-        # A box drawn on the map arrives as this argument.  Recording it
-        # here rather than in a separate subscriber is what keeps the tool
-        # and the state in step.
-        if bounds and bounds != self._last_bounds:
-            self._last_bounds = bounds
-            s.set_bounds(bounds)
-            self._reflect_dirty()
-
-        if (self.mode.manual_map and self._map_base is not None
-                and not self._map_stale):
-            # Static base, dynamic outline.  Drawing a box must not
-            # re-fetch the field: the zoomed extent asks for a finer
-            # pyramid level than the global view did, and for a depth
-            # channel that level may not exist -- so the redraw failed,
-            # the handler returned an empty overlay, and the map
-            # collapsed.  Only the outline changes here.
-            base, base_extent = self._map_base
+        if self._map_base is not None and not self._map_stale:
+            # Static base, moving frame.  Drawing a box must not re-fetch
+            # the field: the zoomed extent asks for a finer pyramid level
+            # than the global view did, and for a depth channel that level
+            # may not exist -- so the redraw failed, the handler returned
+            # an empty overlay, and the map collapsed.  Cropping what is
+            # already in hand costs nothing, so selection stays instant;
+            # *Rebuild* is what re-reads the field at the finer level.
+            base, _ = self._map_base
             outline = self._selection_outline()
             overlay = base * outline if outline is not None else base
-            return overlay.opts(self._frame_opts(base_extent))
+            return overlay.opts(self._frame_opts(extent))
 
-        extent = self._zoom_limits()
         try:
             overlay = self._base_overlay(extent)
         except Exception as exc:                        # noqa: BLE001
