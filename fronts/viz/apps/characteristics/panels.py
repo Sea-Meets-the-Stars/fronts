@@ -182,6 +182,17 @@ def _kinematics_message(samples: RegionSamples) -> str:
     """
     if samples.missing:
         wanted = ", ".join(_ROLE_CHANNELS.get(r, r) for r in samples.missing)
+        if samples.missing_level:
+            # A different job to go and do: the subset is built, just not
+            # at this level.  Saying "missing from this store" here sent
+            # you looking for something that was already there.
+            return (
+                "joint PDFs are vorticity x strain, not the selected "
+                "field.\n\n"
+                f"{wanted}\nis in this store, but not at "
+                f"{samples.missing_level}.\n"
+                "(the panel to the left is unaffected)"
+            )
         return (
             "joint PDFs are vorticity x strain, not the selected field.\n\n"
             f"missing from this store: {wanted}\n"

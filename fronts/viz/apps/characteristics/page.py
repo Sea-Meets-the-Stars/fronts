@@ -515,7 +515,12 @@ class CharacteristicsPage:
             return
 
         for col, samples in columns.items():
-            head = "all points" if col == "all" else "fronts only"
+            # Named on the Depth page because it is the one thing about
+            # this column that is not obvious: the mask is the *surface*
+            # front, and the field under it is the one at depth.
+            head = ("all points" if col == "all"
+                    else "fronts only (surface fronts)"
+                    if self.mode.has_depth else "fronts only")
             if samples.unavailable:
                 figs = (P._blank(samples.unavailable), P._blank("—"),
                         P._blank("—"))

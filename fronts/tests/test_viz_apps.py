@@ -5033,6 +5033,115 @@ def test_drawing_a_box_reads_no_data():
         assert reads, f"{mode.key}: Rebuild did not re-read the field"
 
 
+def _kinematics_at_surface_only():
+    """A DEPTH-like store whose kinematic subset was built at sfc only."""
+    base = sources.get_provider()
+
+    class PartialDepth(type(base)):
+        def field_names(self, date):
+            return ["gradb2_sfc", "gradb2_mld", "relative_vorticity_sfc",
+                    "strain_mag_sfc", "coriolis_f"]
+
+    return PartialDepth()
+
+
+def test_a_role_missing_at_one_depth_does_not_take_down_the_pdfs():
+    """The kinematic subset can be built at some levels and not others.
+
+    Resolving vorticity at the selected level raised straight out of
+    ``extract``, which failed the whole computation -- all six panels,
+    including the PDF of a field that had loaded perfectly well.
+    """
+    from fronts.viz.apps.characteristics import stats
+    from fronts.viz.apps.common.selection import BBox
+
+    provider = _kinematics_at_surface_only()
+    date = provider.dates()[0]
+    box = BBox.from_bounds((200.0, -10.0, 240.0, 20.0))
+    level = "Mixed layer depth"
+
+    samples = stats.extract(
+        provider, date, "gradb2", box, level=level,
+        resolve=lambda name: provider.channel_in(date, name, level))
+
+    assert samples.n > 0, "the field's own PDF was lost with the joint ones"
+    assert set(samples.missing) == {"vorticity", "strain"}
+    assert samples.missing_level == level
+    assert not samples.has_kinematics
+
+
+def test_the_message_says_built_but_not_at_this_level():
+    """'missing from this store' sent you looking for something present."""
+    from fronts.viz.apps.characteristics import panels
+    from fronts.viz.apps.characteristics.stats import RegionSamples
+    import numpy as np
+
+    absent = RegionSamples(values=np.zeros(3), zeta_f=np.empty(0),
+                           sigma_f=np.empty(0), n_cells=3,
+                           missing=("vorticity",))
+    at_level = RegionSamples(values=np.zeros(3), zeta_f=np.empty(0),
+                             sigma_f=np.empty(0), n_cells=3,
+                             missing=("vorticity",),
+                             missing_level="Mixed layer depth")
+
+    assert "missing from this store" in panels._kinematics_message(absent)
+    said = panels._kinematics_message(at_level)
+    assert "Mixed layer depth" in said
+    assert "missing from this store" not in said
+
+
+def test_the_fronts_column_uses_surface_fronts_at_depth():
+    """A front is a surface feature; the question is what is under it.
+
+    So the mask is the surface label map and the values are the field at
+    the selected level -- not fronts detected at depth.
+    """
+    from fronts.viz.apps.characteristics import stats
+    from fronts.viz.apps.common.selection import BBox
+
+    base = sources.get_provider()
+    date = base.dates()[0]
+    box = BBox.from_bounds((200.0, -10.0, 240.0, 20.0))
+    level = "Mixed layer depth"
+
+    asked = []
+
+    class Recording(type(base)):
+        def field_names(self, date):
+            return ["gradb2_mld", "relative_vorticity_mld",
+                    "strain_mag_mld", "coriolis_f"]
+
+        def field(self, date, name):
+            asked.append(name)
+            return super().field(date, name)
+
+    provider = Recording()
+    stats.extract(provider, date, "gradb2", box, fronts_only=True,
+                  level=level,
+                  resolve=lambda name: provider.channel_in(date, name, level))
+
+    assert "gradb2_mld" in asked, "the field was not read at depth"
+    assert "gradb2" not in asked, "the surface field was read instead"
+
+
+def test_the_depth_provider_looks_for_fronts_in_the_surface_store():
+    """Fronts are only detected at the surface, so that is where they are.
+
+    The depth fields live in their own prefix, which has no Fronts
+    products at all -- pointing front lookups at it would leave the
+    fronts column permanently empty.
+    """
+    from fronts.viz.apps import config
+    from fronts.viz.apps.common.s3source import S3Provider
+
+    depth = S3Provider(pipeline="DEPTH")
+    surface = S3Provider(pipeline="SURF")
+
+    assert depth.folder == config.DEPTH_FOLDER != surface.folder
+    assert depth.fronts_folder == surface.fronts_folder
+    assert depth.fronts_run_id == surface.fronts_run_id
+
+
 def test_rebuild_re_reads_the_store():
     """A subset written after the page first looked must become visible.
 

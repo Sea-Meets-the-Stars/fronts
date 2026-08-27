@@ -41,6 +41,10 @@ class RegionSamples:
     missing : tuple of str
         Roles that could not be resolved to a channel, so the joint PDFs
         cannot be drawn.  Empty when everything is present.
+    missing_level : str
+        Set when the roles in *missing* do exist in the store but not at
+        the selected depth level -- a different thing to go and fix, so it
+        is said differently.
     unavailable : str
         Why this column could not be built at all, or ``""`` when it was.
         Used for the fronts column while the front products are still
@@ -52,6 +56,7 @@ class RegionSamples:
     sigma_f: np.ndarray
     n_cells: int
     missing: tuple[str, ...] = ()
+    missing_level: str = ""
     unavailable: str = ""
 
     @property
@@ -76,6 +81,7 @@ def extract(
     *,
     fronts_only: bool = False,
     resolve=None,
+    level: str = "",
 ) -> RegionSamples:
     """Pull the sample arrays for one region.
 
@@ -93,6 +99,9 @@ def extract(
         vorticity and strain used by the joint PDFs come from the *same*
         depth level as the selected field rather than the surface.
         Default is the identity.
+    level : str
+        The depth level being examined, named in the message when a
+        kinematic role exists in the store but not at that level.
 
     Returns
     -------
@@ -114,30 +123,47 @@ def extract(
         sel = sel & ~ice
 
     if fronts_only:
+        # Always the *surface* fronts, whatever depth is being examined:
+        # a front is a surface feature, and the question this column asks
+        # is what the field looks like underneath one.  The provider points
+        # its front lookups at the surface store for exactly this reason.
         sel = sel & (provider.labels(date) > 0)
 
     values = np.asarray(provider.field(date, resolve(field)))[sel]
     lat = np.asarray(YC)[sel]
 
+    # Coriolis is a function of latitude alone so it has no depth variant,
+    # and needs no special-casing: resolve falls back to the bare channel
+    # when no suffixed one exists.  Vorticity and strain do have variants
+    # and must match the level of the field being examined -- but a store
+    # can hold a role at some levels and not others, and asking for the
+    # missing one raised straight out of here.  That took down all six
+    # panels, including the PDF of a field that had loaded perfectly well.
+    # A role that cannot be resolved *at this level* is missing, not fatal.
     roles = provider.resolve_channels(date)
-    missing = tuple(r for r, c in roles.items() if c is None)
+    channels, missing, missing_level = {}, [], ""
+    for role, root in roles.items():
+        if root is None:
+            missing.append(role)
+            continue
+        try:
+            channels[role] = resolve(root)
+        except KeyError:
+            missing.append(role)
+            missing_level = level
 
     if missing:
         good = np.isfinite(values)
         return RegionSamples(
             values=values[good],
             zeta_f=np.empty(0), sigma_f=np.empty(0),
-            n_cells=n_cells, missing=missing,
+            n_cells=n_cells, missing=tuple(missing),
+            missing_level=missing_level,
         )
 
-    # All three through resolve.  Coriolis is a function of latitude alone
-    # so it has no depth variant -- and does not need special-casing here,
-    # because resolve falls back to the bare channel when no suffixed one
-    # exists.  Vorticity and strain do have variants, and must match the
-    # level of the field being examined.
-    zeta = np.asarray(provider.field(date, resolve(roles["vorticity"])))[sel]
-    sigma = np.asarray(provider.field(date, resolve(roles["strain"])))[sel]
-    f0 = np.asarray(provider.field(date, resolve(roles["coriolis"])))[sel]
+    zeta = np.asarray(provider.field(date, channels["vorticity"]))[sel]
+    sigma = np.asarray(provider.field(date, channels["strain"]))[sel]
+    f0 = np.asarray(provider.field(date, channels["coriolis"]))[sel]
 
     # Away from the equator, and finite everywhere it matters.
     ok = (
@@ -170,18 +196,19 @@ def extract_both(provider, date, field, box, *, resolve=None, tag="") -> dict:
         return hit
 
     out = {"all": extract(provider, date, field, box, fronts_only=False,
-                          resolve=resolve)}
+                          resolve=resolve, level=tag)}
 
     # The left column describes grid cells and owes nothing to the front
     # detection.  Only the right column needs the labels, so a build_v5
     # step that has not run yet costs that column and no more.
     try:
         out["fronts"] = extract(provider, date, field, box, fronts_only=True,
-                                resolve=resolve)
+                                resolve=resolve, level=tag)
     except Exception as exc:                            # noqa: BLE001
         out["fronts"] = RegionSamples(
             values=np.empty(0), zeta_f=np.empty(0), sigma_f=np.empty(0),
-            n_cells=0, unavailable=str(exc),
+            n_cells=0,
+            unavailable=f"surface fronts unavailable for {date}: {exc}",
         )
 
     cache.put(key, out)
