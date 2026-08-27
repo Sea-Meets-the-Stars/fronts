@@ -53,8 +53,7 @@ def warm(provider, date: str, fields, width: int) -> None:
 
     print(f"{date}  ->  {config.CACHE_DIR}")
     step("coordinates", lambda: provider.coords(date))
-    step("land mask", lambda: pyramid.level(provider, date, "__land__",
-                                            width, reduce="any"))
+    step("land mask", lambda: pyramid.land_level(provider, date, width))
     for name in fields:
         step(name, lambda n=name: pyramid.level(provider, date, n, width))
 

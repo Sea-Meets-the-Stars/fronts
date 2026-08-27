@@ -5142,6 +5142,76 @@ def test_the_depth_provider_looks_for_fronts_in_the_surface_store():
     assert depth.fronts_run_id == surface.fronts_run_id
 
 
+def test_land_never_covers_a_cell_that_is_mostly_ocean():
+    """The land mask and the field must agree at the same display level.
+
+    Land reduced by 'any' painted every display cell that so much as
+    touched a coastline, while the field kept its mean over the ocean
+    cells in that same display cell -- so the grey hid real data.  At the
+    global view a cell is a quarter-degree, which thickened every
+    coastline and shelf by ~25 km, and shrank as you zoomed, which is what
+    made it look like a rendering glitch rather than the mask.
+    """
+    import numpy as np
+    from fronts.viz.apps.common import pyramid
+
+    n = 1200
+    XC, YC = np.meshgrid(np.linspace(-180, 180, n), np.linspace(-80, 80, n))
+    field = np.ones_like(XC)
+    field[XC < -60 + 2.5 * np.sin(YC / 5.0)] = np.nan      # a ragged coast
+    land = (~np.isfinite(field)).astype(np.float32)
+
+    width = 120                                 # 10 native cells per display
+    _, _, fraction = pyramid.regrid(land, XC, YC, width, reduce="mean")
+    _, _, by_any = pyramid.regrid(land, XC, YC, width, reduce="any")
+    by_majority = fraction >= pyramid.LAND_FRACTION
+
+    mostly_ocean = np.isfinite(fraction) & (fraction < 0.5)
+    assert not (by_majority & mostly_ocean).any()
+    assert (by_any > 0)[mostly_ocean].sum() > 20, \
+        "the old rule no longer over-paints -- this test has nothing to guard"
+
+
+def test_one_bad_native_cell_is_not_an_island():
+    """A single NaN in open water became a grey square ~25 km across.
+
+    'any' promotes one native cell to a whole display cell; a majority
+    rule leaves it as the speck it is.
+    """
+    import numpy as np
+    from fronts.viz.apps.common import pyramid
+
+    n = 1200
+    XC, YC = np.meshgrid(np.linspace(-180, 180, n), np.linspace(-80, 80, n))
+    field = np.ones_like(XC)
+    field[600, 900] = np.nan                    # one bad cell, open ocean
+    land = (~np.isfinite(field)).astype(np.float32)
+
+    _, _, by_any = pyramid.regrid(land, XC, YC, 120, reduce="any")
+    _, _, by_mean = pyramid.regrid(land, XC, YC, 120, reduce="mean")
+
+    assert by_any.sum() == 1, "the reduction changed, not the test's premise"
+    assert (by_mean >= pyramid.LAND_FRACTION).sum() == 0
+
+
+def test_every_land_layer_uses_the_same_rule():
+    """One definition, or the pages disagree with each other.
+
+    Bivariate drew its land from a different reduction than the maps did,
+    which is why the artifact showed on some pages and not others.
+    """
+    import inspect
+    from fronts.viz.apps.common import basemap
+    from fronts.viz.apps.bivariate import app as bivariate_app
+    from fronts.viz.apps import warm
+
+    for module in (basemap, bivariate_app, warm):
+        source = inspect.getsource(module)
+        assert '"__land__"' not in source, (
+            f"{module.__name__} builds the land mask itself instead of "
+            "calling pyramid.land_level")
+
+
 def test_rebuild_re_reads_the_store():
     """A subset written after the page first looked must become visible.
 

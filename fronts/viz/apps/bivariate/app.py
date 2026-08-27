@@ -267,8 +267,7 @@ class BivariatePage:
         # put it on -180..180, so it was drawn shifted by half the globe
         # -- the coastline sat where the ocean was.
         try:
-            _, _, land = pyramid.level(s.provider, s.date, "__land__",
-                                       width, reduce="any")
+            _, _, land = pyramid.land_level(s.provider, s.date, width)
         except Exception:                                   # noqa: BLE001
             land = None
         return lon, lat, a, b, land
@@ -337,9 +336,8 @@ class BivariatePage:
     def _land_raster(self, s):
         """Land in gray under the fronts, from the model's own mask."""
         try:
-            lon, lat, arr = pyramid.level(s.provider, s.date, "__land__",
-                                          config.PYRAMID_WIDTHS[0],
-                                          reduce="any", pacific=False)
+            lon, lat, arr = pyramid.land_level(
+                s.provider, s.date, config.PYRAMID_WIDTHS[0], pacific=False)
             return lon, lat, arr
         except Exception:                                   # noqa: BLE001
             return None

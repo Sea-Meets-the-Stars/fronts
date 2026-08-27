@@ -3,7 +3,8 @@
 Layers, bottom to top:
 
 1. the selected field, from the display pyramid, datashaded;
-2. land in gray, taken from the model's own NaN mask;
+2. land in gray, taken from the model's own NaN mask, reduced the same
+   way the field is so the two agree at every zoom level;
 3. optional coastlines from cartopy, when its Natural Earth data is
    available locally;
 4. optional binary fronts;
@@ -272,11 +273,10 @@ def land_layer(provider, date, width=None, *, extent=None):
     """Land in gray, from the model's own mask."""
     if width is None:
         width = width_for_extent(extent)
-    lon, lat, arr = pyramid.level(provider, date, "__land__",
-                                  _affordable_width(width, extent),
-                                  reduce="any")
+    lon, lat, arr = pyramid.land_level(provider, date,
+                                       _affordable_width(width, extent))
     lon, lat, arr = _crop(lon, lat, arr, extent)
-    masked = np.where(arr > 0, 1.0, np.nan)
+    masked = np.where(arr, 1.0, np.nan)
     img = _image(lon, lat, masked, "land", "Land")
     return _rasterize(img).opts(
         cmap=["#b0b0b0"], clim=(0, 1), colorbar=False,
@@ -287,6 +287,8 @@ def fronts_layer(provider, date, width=None, *, extent=None):
     """Binary fronts, drawn on top of the field."""
     if width is None:
         width = width_for_extent(extent)
+    # 'any', unlike land: a front is one cell wide, so a majority rule
+    # would erase it at every level of the pyramid.
     lon, lat, arr = pyramid.level(provider, date, "__fronts__",
                                   _affordable_width(width, extent),
                                   reduce="any")

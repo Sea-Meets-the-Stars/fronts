@@ -245,6 +245,33 @@ def level(
     return lon, lat, arr
 
 
+#: A display cell counts as land when at least this fraction of the native
+#: cells inside it are land.
+LAND_FRACTION = 0.5
+
+
+def land_level(provider, date: str, width: int, **kwargs):
+    """The land mask at one display level, as a boolean raster.
+
+    Land is reduced by **majority**, the same way the field underneath it
+    is reduced by mean -- and that is the whole point of this function
+    existing rather than each caller passing its own ``reduce``.
+
+    The obvious rule, land if *any* native cell in the display cell is
+    land, disagrees with the field: the field is a mean over the ocean
+    cells, so a display cell that is one-tenth coastline still carries a
+    perfectly good value, and painting it grey hides real data.  On the
+    global view a display cell is a quarter of a degree, so that showed up
+    as coastlines and continental shelves thickened by ~25 km, and as a
+    scattering of grey squares in the open ocean wherever a single native
+    cell happened to be NaN.  Both shrank as you zoomed in, which is what
+    made it look like a rendering glitch rather than the mask.
+    """
+    lon, lat, arr = level(provider, date, "__land__", width,
+                          reduce="mean", **kwargs)
+    return lon, lat, arr >= LAND_FRACTION
+
+
 def _layer_values(provider, date: str, name: str) -> np.ndarray:
     if name == "__land__":
         return provider.land_mask(date).astype(np.float32)
