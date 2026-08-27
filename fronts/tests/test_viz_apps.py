@@ -4329,14 +4329,34 @@ def test_the_region_map_is_a_static_figure_from_native_data():
 
 
 def test_the_static_region_map_draws_fronts_on_the_same_window():
-    """One window slice for the field and the fronts, so they must align."""
-    import inspect
-
+    """One window for the field and the fronts, so they cannot disagree."""
+    import numpy as np
     from fronts.viz.apps.characteristics import panels as P
+    from fronts.viz.apps.common.selection import BBox
 
-    src = inspect.getsource(P.figure_region_map)
-    assert "provider.field(date, channel)[win]" in src
-    assert "provider.front_binary(date)[win]" in src
+    base = sources.get_provider()
+    date = base.dates()[0]
+    windows = []
+
+    class Recording(type(base)):
+        def field(self, date, name):
+            arr = super().field(date, name)
+            windows.append(("field", arr.shape))
+            return arr
+
+        def front_binary(self, date):
+            arr = super().front_binary(date)
+            windows.append(("fronts", arr.shape))
+            return arr
+
+    P.figure_region_map(Recording(), date, "gradb2",
+                        BBox.from_bounds((200.0, -10.0, 240.0, 20.0)),
+                        field_name="gradb2")
+
+    kinds = {kind for kind, _ in windows}
+    assert kinds == {"field", "fronts"}, "one of the two was never read"
+    assert len({shape for _, shape in windows}) == 1, \
+        "the field and the fronts came off differently shaped grids"
 
 
 # ---------------------------------------------------------------------------
@@ -5210,6 +5230,178 @@ def test_every_land_layer_uses_the_same_rule():
         assert '"__land__"' not in source, (
             f"{module.__name__} builds the land mask itself instead of "
             "calling pyramid.land_level")
+
+
+def test_the_region_window_wraps_instead_of_spanning_the_grid():
+    """A region on the column seam took a window of the whole grid.
+
+    Its plain index bounding box reached from column 0 to the last column
+    -- 17280 of them for an 18-degree box -- so the figure drew entire
+    unrelated faces, whose rows are lines of constant longitude.  That is
+    the banding straight across the picture at every longitude.
+    """
+    import numpy as np
+    from fronts.viz.apps.characteristics import panels as P
+    from fronts.viz.apps.common.selection import BBox, bbox_mask
+
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+    XC, YC = provider.coords(date)
+    box = BBox.from_bounds((170.0, 10.0, 190.0, 30.0))
+    used = np.asarray(bbox_mask(XC, YC, box)).any(axis=0)
+
+    columns = np.nonzero(used)[0]
+    plain = int(columns[-1] - columns[0] + 1)
+    _, cyclic = P._column_window(used)
+
+    assert plain == used.size, "this box no longer sits on the seam"
+    assert cyclic == int(used.sum()), "the window is wider than the region"
+
+
+def test_the_column_window_is_the_plain_one_when_nothing_wraps():
+    import numpy as np
+    from fronts.viz.apps.characteristics import panels as P
+
+    used = np.zeros(20, dtype=bool)
+    used[5:9] = True
+    assert P._column_window(used) == (5, 4)
+
+    used = np.zeros(20, dtype=bool)
+    used[[0, 1, 18, 19]] = True
+    assert P._column_window(used) == (18, 4)
+
+
+def test_the_region_map_draws_only_the_cells_it_selected():
+    """The window is a rectangle in index space; the region is not.
+
+    Cells in the window but outside the box belong to other faces --
+    geographically somewhere else entirely -- and painting them is what
+    striped the figure.  They are also exactly the cells the statistics
+    leave out, so the picture and the numbers must agree.
+    """
+    import numpy as np
+    from fronts.viz.apps.characteristics import panels as P
+    from fronts.viz.apps.common.selection import BBox
+
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+    box = BBox.from_bounds((170.0, 10.0, 190.0, 30.0))
+
+    figure = P.figure_region_map(provider, date, "gradb2", box,
+                                 field_name="gradb2")
+    ax = figure.axes[0]
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+
+    assert x1 - x0 < 40.0, "the figure spans far more than the region"
+    assert y0 >= 9.0 and y1 <= 31.0
+    assert "x 17280" not in ax.get_title()
+
+
+def test_a_box_across_the_antimeridian_selects_what_was_drawn():
+    """The equatorial Pacific selected every ocean except the Pacific.
+
+    The map's longitudes run 0..360, and a Pacific box runs 147E to
+    88.7W -- contiguous there.  set_bounds wrapped each corner into
+    -180..180 *before* from_bounds put them in west-to-east order, and
+    after wrapping there is no west-to-east order left to recover: the
+    corners sorted the other way round and the box became the complement
+    of itself, 236 degrees wide instead of 124.
+    """
+    import numpy as np
+    from fronts.viz.apps.common.selection import bbox_mask
+    from fronts.viz.apps.common.state import CharacteristicsState
+
+    provider = sources.get_provider()
+    date = provider.dates()[0]
+    XC, YC = provider.coords(date)
+    state = CharacteristicsState(provider=provider)
+
+    state.set_bounds((147.0, -17.9, 271.3, 20.1))       # as drawn on the map
+    assert state.box.wraps(), "the box no longer crosses the antimeridian"
+
+    selected = np.asarray(XC)[np.asarray(bbox_mask(XC, YC, state.box))] % 360.0
+    assert selected.size
+    assert selected.min() >= 146.0 and selected.max() <= 272.0, \
+        "the selection is the complement of the box that was drawn"
+
+
+def test_the_box_does_not_depend_on_which_way_it_was_dragged():
+    from fronts.viz.apps.common.state import CharacteristicsState
+
+    state = CharacteristicsState(provider=sources.get_provider())
+    state.set_bounds((147.0, -17.9, 271.3, 20.1))
+    left_to_right = state.box
+    state.set_bounds((271.3, 20.1, 147.0, -17.9))
+    assert state.box == left_to_right
+
+
+def test_a_box_drawn_around_the_whole_globe_is_global():
+    """Wrapping both corners of a 360-degree box lands them on the same
+    meridian, which reads back as a box of zero width."""
+    from fronts.viz.apps.common.state import CharacteristicsState
+
+    state = CharacteristicsState(provider=sources.get_provider())
+    state.set_bounds((0.0, -80.0, 360.0, 80.0))
+    assert state.box.lon0 == -180.0 and state.box.lon1 == 180.0
+
+
+def _stub_tile(tile_index):
+    import numpy as np
+    import xarray as xr
+    return xr.Dataset({"v": (("k", "j", "i"), np.zeros((2, 2, 2)))},
+                      attrs={"tile_index": tile_index, "timestamp": "t"})
+
+
+def test_a_stored_tile_from_before_a_re_pin_is_not_used(monkeypatch):
+    """A store slot is named after a region, and regions get re-pinned.
+
+    Moving Agulhas to tile 171 left the tile built for 195 sitting under
+    the name 'agulhas'.  Fields with a stored tile then came back from the
+    old place while fields without one were generated at the new one, and
+    the disagreement surfaced later as a provenance mismatch between two
+    tiles -- which named the symptom, not the cause.
+    """
+    from fronts.viz.apps.common import s3source, tilestore
+
+    monkeypatch.setattr(tilestore, "read",
+                        lambda date, slot, prop: _stub_tile(195))
+    tile, stale = s3source._stored_tile("d", "agulhas", "Ro", 171)
+
+    assert tile is None, "the tile for somewhere else was served"
+    assert stale, "the wrong tile would be left in place to be read again"
+
+
+def test_a_stored_tile_for_the_right_place_is_used(monkeypatch):
+    from fronts.viz.apps.common import s3source, tilestore
+
+    monkeypatch.setattr(tilestore, "read",
+                        lambda date, slot, prop: _stub_tile(171))
+    tile, stale = s3source._stored_tile("d", "agulhas", "Ro", 171)
+
+    assert tile is not None and not stale
+
+
+def test_an_empty_slot_is_not_stale(monkeypatch):
+    """Nothing stored means generate, not overwrite."""
+    from fronts.viz.apps.common import s3source, tilestore
+
+    def missing(date, slot, prop):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(tilestore, "read", missing)
+    assert s3source._stored_tile("d", "agulhas", "Ro", 171) == (None, False)
+
+
+def test_the_pinned_regions_agree_with_their_tiles():
+    """The pins are the source of truth; nothing else may disagree."""
+    from fronts.viz.apps.common import regions as R
+
+    pinned = {r.name: r.tile_idx for r in R.REGIONS
+              if getattr(r, "tile_idx", None) is not None}
+    assert pinned, "no region is pinned any more"
+    assert len(set(pinned.values())) == len(pinned), \
+        f"two regions pinned to the same tile: {pinned}"
 
 
 def test_rebuild_re_reads_the_store():

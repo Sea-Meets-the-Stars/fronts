@@ -167,14 +167,19 @@ class CharacteristicsState(PageState):
     # -- derived ---------------------------------------------------------
 
     def set_bounds(self, bounds):
-        """Take a HoloViews ``BoundsXY`` tuple, in 0..360 map coordinates."""
+        """Take a HoloViews ``BoundsXY`` tuple, in 0..360 map coordinates.
+
+        Handed on **unconverted**.  Wrapping each corner to -180..180 here
+        first looked harmless and was not: ``from_bounds`` puts the corners
+        in west-to-east order, and after wrapping there is no longer a
+        west-to-east order to recover.  A Pacific box drawn from 147E to
+        88.7W became (-88.7, 147), which sorts the other way and selects
+        every ocean *except* the one you drew on.
+        """
         if bounds is None:
             self.box = BBox.globe()
             return
-        x0, y0, x1, y1 = bounds
-        self.box = BBox.from_bounds(
-            (((x0 + 180) % 360) - 180, y0, ((x1 + 180) % 360) - 180, y1)
-        )
+        self.box = BBox.from_bounds(bounds)
 
     def reset_region(self):
         self.box = BBox.globe()

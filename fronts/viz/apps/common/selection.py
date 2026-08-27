@@ -46,14 +46,23 @@ class BBox:
     def from_bounds(cls, bounds) -> "BBox":
         """Build from a HoloViews ``BoundsXY`` tuple ``(x0, y0, x1, y1)``.
 
-        The stream gives corners in drag order, so they are sorted here.
-        Longitudes are normalised into -180..180; latitudes are clipped.
+        Longitudes arrive in the map's own 0..360 convention.  The corners
+        come in drag order, so they are put in west-to-east order **while
+        still in that convention** and only then wrapped to -180..180:
+        which way round the globe the box goes is exactly what wrapping
+        throws away, and it cannot be recovered afterwards.  A box drawn
+        across the antimeridian comes out with ``lon0 > lon1``, which is
+        what :meth:`wraps` reports and :func:`bbox_mask` acts on.
         """
         x0, y0, x1, y1 = bounds
         lat0, lat1 = sorted((float(y0), float(y1)))
         lon0, lon1 = float(x0), float(x1)
         if lon1 < lon0:
             lon0, lon1 = lon1, lon0
+        if lon1 - lon0 >= 359.99:
+            # Every longitude: wrapping both corners would land them on
+            # the same meridian and select a box of zero width.
+            return cls(-180.0, max(lat0, -90.0), 180.0, min(lat1, 90.0))
         return cls(
             wrap180(lon0), max(lat0, -90.0), wrap180(lon1), min(lat1, 90.0)
         )

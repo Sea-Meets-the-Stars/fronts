@@ -167,21 +167,28 @@ class S3Provider(DataProvider):
         *region* names the store slot.  It is only a label -- the data is
         decided by *tile_idx* -- so a caller that has no region falls back
         to the tile number, which is stable and unambiguous.
+
+        A label can outlive the tile it labelled, which is why the stored
+        tile's own provenance is checked before it is used.  Re-pinning a
+        region to a different tile leaves the old tile sitting under the
+        region's name: the fields with a stored tile then came back from
+        the old place and the fields without one were generated at the
+        new one, and the two disagreed -- reported much later, and much
+        less helpfully, as a provenance mismatch between two tiles.
         """
         slot = region or f"tile_{int(tile_idx):03d}"
-        try:
-            return tilestore.read(date, slot, prop)
-        except FileNotFoundError:
-            pass
-        except Exception as exc:                            # noqa: BLE001
-            print(f"[tilestore] ignoring unreadable store for "
-                  f"{slot}/{prop}: {exc}")
+        stored, stale = _stored_tile(date, slot, prop, tile_idx)
+        if stored is not None:
+            return stored
 
         ds = _generate_tile(date, tile_idx, prop, chunk=None)
 
         if config.TILE_STORE_WRITE_BACK:
             try:
-                tilestore.write(ds, date, slot, prop)
+                # clobber only when *stale*: a stored tile is replaced
+                # only once it is known to be for somewhere else, which
+                # makes it wrong under this name.
+                tilestore.write(ds, date, slot, prop, clobber=stale)
             except Exception as exc:                        # noqa: BLE001
                 print(f"[tilestore] could not store {slot}/{prop}: {exc}")
         return ds
@@ -338,6 +345,32 @@ def _product_array(folder, run_id, date: str, kind: str) -> np.ndarray:
             return np.load(fh, allow_pickle=False)
 
     return cache.array(cache.make_key("product", path), build)
+
+
+def _stored_tile(date: str, slot: str, prop: str, tile_idx: int):
+    """``(tile, stale)`` for one store slot.
+
+    The tile is returned only when its own provenance says it is the tile
+    that was asked for.  *stale* says the slot holds a tile built for a
+    different one -- which is what a stored tile becomes when its region
+    is re-pinned, and the reason to overwrite it rather than keep reading
+    past it.
+    """
+    try:
+        ds = tilestore.read(date, slot, prop)
+    except FileNotFoundError:
+        return None, False
+    except Exception as exc:                                # noqa: BLE001
+        print(f"[tilestore] ignoring unreadable store for "
+              f"{slot}/{prop}: {exc}")
+        return None, False
+
+    was = ds.attrs.get("tile_index")
+    if was is not None and int(was) != int(tile_idx):
+        print(f"[tilestore] {slot}/{prop} was built for tile {int(was)}, "
+              f"not {int(tile_idx)} -- regenerating")
+        return None, True
+    return ds, False
 
 
 def _product_window(path: str, j_slice: slice, i_slice: slice) -> np.ndarray:

@@ -215,6 +215,30 @@ def close(fig):
 # The selected region, as a static figure
 # --------------------------------------------------------------------------
 
+def _column_window(used: np.ndarray) -> tuple[int, int]:
+    """Start column and width of the smallest window holding every used column.
+
+    The column axis of the stitched LLC grid **wraps**: the last block of
+    faces is the neighbour of the first, so a region sitting on that seam
+    has cells at both ends of the array.  Its plain bounding box is then
+    the entire grid -- all 17280 columns for an 18-degree box -- and the
+    window drags in whole unrelated faces, whose rows are lines of
+    constant *longitude* rather than latitude.  That is what drew bands of
+    unrelated data straight across the figure at every longitude, for the
+    handful of regions that happen to sit on the seam.
+
+    Measuring the largest gap and taking its complement gives the window
+    that actually contains the region, wrapping when that is shorter.
+    """
+    idx = np.nonzero(used)[0]
+    if idx.size == 0:
+        return 0, 0
+    n = int(used.size)
+    gaps = np.diff(np.concatenate([idx, idx[:1] + n]))
+    k = int(np.argmax(gaps))
+    return int(idx[(k + 1) % idx.size]), int(n - gaps[k] + 1)
+
+
 def figure_region_map(provider, date: str, channel: str, box, *,
                       show_fronts: bool = True, field_name: str = "",
                       figsize=(10.0, 7.0)):
@@ -250,20 +274,35 @@ def figure_region_map(provider, date: str, channel: str, box, *,
             return _blank("no grid cells in this region")
 
         # The index window the box covers.  A lat/lon box is not a
-        # rectangle on this grid, so the window is its bounding box and
-        # the corners may reach slightly outside -- which is honest: they
-        # are real cells, and cropping them out would leave ragged edges.
-        js, iss = np.nonzero(mask.any(axis=1)), np.nonzero(mask.any(axis=0))
-        j0, j1 = int(js[0][0]), int(js[0][-1]) + 1
-        i0, i1 = int(iss[0][0]), int(iss[0][-1]) + 1
-        win = (slice(j0, j1), slice(i0, i1))
+        # rectangle on this grid, so the window is its bounding box --
+        # cyclic in the column axis, which wraps.  See _column_window.
+        js = np.nonzero(mask.any(axis=1))[0]
+        j0, j1 = int(js[0]), int(js[-1]) + 1
+        i0, ni = _column_window(mask.any(axis=0))
+        cols = (np.arange(ni) + i0) % mask.shape[1]
 
-        lon = np.asarray(XC[win]) % 360.0
-        lat = np.asarray(YC[win])
-        values = np.asarray(provider.field(date, channel)[win], dtype=float)
+        def take(a):
+            return np.asarray(a)[j0:j1][:, cols]
+
+        # Only the cells the box actually selects are drawn.  The window
+        # is a rectangle in index space and the region is not, so it also
+        # holds cells belonging to other faces -- geographically somewhere
+        # else entirely.  Painting those was what put stripes across the
+        # figure; this is also exactly the set the statistics use, so the
+        # picture and the numbers now describe the same cells.
+        inside = take(mask)
+        # Unwrap rather than leave a 360-degree jump in the middle of the
+        # window: pcolormesh reads cell centres to infer edges, and a jump
+        # gives one row of enormous, wrong quads.
+        lon = take(XC) % 360.0
+        if lon.size and float(lon.max() - lon.min()) > 180.0:
+            lon = np.where(lon < 180.0, lon + 360.0, lon)
+        lat = take(YC)
+        values = np.asarray(take(provider.field(date, channel)), dtype=float)
 
         style = field_styles.get_style(field_name or channel)
         shown = field_styles.apply_transform(values, style)
+        shown = np.where(inside, shown, np.nan)
         clim = field_styles.default_clim(shown, style)
 
         fig, ax = plt.subplots(figsize=figsize)
@@ -275,8 +314,8 @@ def figure_region_map(provider, date: str, channel: str, box, *,
 
         if show_fronts:
             try:
-                fronts = np.asarray(provider.front_binary(date)[win])
-                jj, ii = np.nonzero(fronts > 0)
+                fronts = take(provider.front_binary(date))
+                jj, ii = np.nonzero((fronts > 0) & inside)
                 if jj.size:
                     ax.scatter(lon[jj, ii], lat[jj, ii], s=1.2,
                                c="#00e5ff", linewidths=0, zorder=3)
@@ -284,9 +323,14 @@ def figure_region_map(provider, date: str, channel: str, box, *,
                 ax.set_title(f"fronts unavailable: {exc}", fontsize=8,
                              loc="right", color="#b71c1c")
 
+        # To the selected cells, not to the window: the window overshoots
+        # wherever the region is not a rectangle in index space.
+        ax.set_xlim(float(lon[inside].min()), float(lon[inside].max()))
+        ax.set_ylim(float(lat[inside].min()), float(lat[inside].max()))
+
         ax.set_xlabel("longitude [deg]")
         ax.set_ylabel("latitude [deg]")
         ax.set_title(f"{channel} — {box.label()}   "
-                     f"({j1 - j0} x {i1 - i0} native cells)", fontsize=10)
+                     f"({j1 - j0} x {ni} native cells)", fontsize=10)
         fig.tight_layout()
         return fig
