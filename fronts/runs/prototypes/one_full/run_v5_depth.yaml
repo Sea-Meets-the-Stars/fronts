@@ -53,7 +53,7 @@ output:
   # Explicit: a sibling of the surface prefix, so the two builds cannot
   # collide.  Left implicit this would auto-resolve to depth_fields/ for
   # the DEPTH pipeline.
-  folder: "globals_for_chunks_depth"
+  folder: "globals_for_chunks_depth/"
 
 runtime:
   zarr_async_concurrency: 8
@@ -88,9 +88,6 @@ build:
   finding_config: "D"
   ice_mask_find:  false
   ice_mask_props: true
-  # p95 is absent from this list on purpose: adding it here changes what
-  # step 4 writes, and the app builds its statistic selector from the
-  # columns actually present, so it would appear on its own.
   percentiles: [25, 75, 90]
 
 # ---------------------------------------------------------------------------
