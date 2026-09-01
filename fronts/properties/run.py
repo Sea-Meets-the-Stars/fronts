@@ -9,12 +9,16 @@ import numpy as np
 import xarray
 
 from dbof.cli import generate_global
+from dbof.global_dataset_creation import check_existence
+from dbof.global_dataset_creation.config import default_output_folder
 from dbof.global_dataset_creation.subset_definitions import (
     get_subset_definition, expand_channels_with_suffixes, valid_subsets,
 )
 from dbof.global_dataset_creation.iterations import (
     date_to_run_id, prefix_to_filename_date,
 )
+from dbof.global_dataset_creation.zarr_dataset_global import make_run_prefix
+from dbof.io.filesystems import create_s3_filesystems
 
 from fronts.finding import io as finding_io
 from fronts.llc import io as llc_io
@@ -79,6 +83,60 @@ def generate_global_dataset(config_file: str, netcdf_base: str,
         cmd.append('--dry-run')
     print('Running: ' + ' '.join(cmd))
     subprocess.run(cmd, check=True)
+
+
+def generate_for_channels(config_file: str, netcdf_base: str,
+                          channels_by_subset: dict, run_id: str = None):
+    """Build the stores that do not already provide the channels wanted.
+
+    The narrow counterpart to :func:`generate_global_dataset`, for a step that
+    reads a couple of channels rather than a whole pipeline.  Per subset, the
+    store is classified with ``check_existence.plan_zarr`` against **only**
+    *channels* -- not the subset's full channel list -- and generated only if
+    it comes up short.
+
+    Asking the narrow question is the point.  A store written before a channel
+    was added upstream is ``ZARR_INCOMPLETE`` by the subset's own standard and
+    still perfectly good for, say, gradb2.  Handing it to ``generate_global``
+    anyway is worse than wasteful: that pre-flight raises on the first
+    incomplete store it sees, before generating anything, so one stale store
+    would abandon the genuinely missing ones too.
+
+    A run's dates are produced together and hold the same channels, so the
+    config's FIRST date is checked and its verdict taken for all of them --
+    one metadata GET per subset rather than one per subset x date.  The
+    trade-off: a half-finished transfer whose early dates are complete reads
+    as ready, and its later dates fail at export instead.
+
+    Parameters
+    ----------
+    config_file : str
+        Path to the (thin) global YAML config.
+    netcdf_base : str
+        Root dir handed to ``run_all_subsets``.  Unused under
+        --generate-only, but the CLI requires it.
+    channels_by_subset : dict
+        ``{subset_name: [channel, ...]}`` -- what the caller will read.
+    run_id : str, optional
+        Override the run_id used to locate the stores on S3.
+    """
+    cfg = read_build_config(config_file)
+    folder = cfg['folder'] or default_output_folder(cfg['pipeline'])
+    tag = run_id or cfg['run_id']
+    _, fs = create_s3_filesystems(cfg['s3_endpoint'])
+
+    for subset, channels in channels_by_subset.items():
+        store = make_run_prefix(
+            cfg['bucket'], folder, tag,
+            get_subset_definition(cfg['pipeline'], subset)['dataset_name'],
+            date_prefix=cfg['date_prefixes'][0])
+        state = check_existence.plan_zarr(fs, store, list(channels))
+        if state == check_existence.ZARR_FULL:
+            print(f"  SKIP (store serves {', '.join(channels)})  {subset}")
+            continue
+        print(f"  GENERATE  {subset}  ({state})")
+        generate_global_dataset(config_file, netcdf_base,
+                                subsets=[subset], generate_only=True)
 
 
 def colocate_fronts(timestamp: str, config: str, version: str,
@@ -374,6 +432,8 @@ def read_build_config(config_file: str, build_version: str = None) -> dict:
         'timestamps':      [prefix_to_filename_date(p) for p in prefixes],
         'bucket':          output.get('bucket', 'dbof/'),
         'folder':          output.get('folder'),
+        's3_endpoint':     output.get('s3_endpoint',
+                                      'https://s3-west.nrp-nautilus.io'),
     })
     if build_version:
         out['build_version'] = build_version

@@ -1,18 +1,17 @@
 # Front finding and co-location for LLC4320.
 #
-#   1  gradb2      export the gradb2 channel from the frontal-structure store
+#   1  gradb2      build the frontal-structure store if needed, export gradb2
 #   2  find        threshold gradb2 -> binary front map
 #   3  group       label the fronts + geometric properties
 #   4  colocate    build the remaining subsets, then co-locate
 #   5  push        copy the front products back to S3
 #
-# Steps 1-3 are self-contained: a front-binary map costs one NetCDF.  Step 4 is
-# the only step that needs the other fields.
+# Steps 1-3 are self-contained: a front-binary map costs one subset and one
+# NetCDF.  Step 4 is the only step that needs the other fields.
 #
-# Step 1 reads a zarr store that already exists.  Build one first with the
-# preprocessing repo:
-#     run-all-subsets --config <cfg> --netcdf-base <dir> \
-#         --subsets frontal_structure --generate-only
+# Data production is delegated to the preprocessing repo (dbof.run_all_subsets);
+# this driver finds, groups and co-locates.  Step 1 builds only the subset that
+# owns gradb2, and only for the dates that lack it.
 #
 # Everything run-specific -- pipeline, run_id, dates, subsets, ice masking --
 # comes from the YAML config.  See prompts/fronts_build.md.
@@ -40,6 +39,7 @@ from fronts.properties.run import (
     colocate_fronts,
     expand_property_roots,
     export_channels,
+    generate_for_channels,
     generate_global_dataset,
     group_fronts,
     read_build_config,
@@ -78,9 +78,19 @@ def main(flg, config_file: str = DEFAULT_CONFIG):
     # =======================================================================
     # STEP 1 -- gradb2
     # =======================================================================
-    # Export the one channel steps 2-3 read.  The subset holds 8 channels on
-    # SURF and 21 on DEPTH; the rest wait for step 4.
+    # Build any store that doesn't already hold gradb2, then export it.  The
+    # subset holds 8 channels on SURF and 21 on DEPTH; the rest wait for
+    # step 4.  generate_for_channels() asks only about the channels named
+    # here, so a store that predates a channel added upstream counts as ready
+    # rather than being rebuilt -- see its docstring for why that matters.
     if flg == 1:
+        wanted = {gradb2_subset: [gradb2_channel]}
+        if cfg['ice_mask_find']:
+            wanted['icearea'] = ['SIarea']   # the mask is read from it
+
+        generate_for_channels(config_file, llc_io.run_root(run_id), wanted,
+                              run_id=run_id)
+
         llc_meta.write_run_meta(cfg, config_file,
                                 extra={'gradb2_channel': gradb2_channel,
                                        'gradb2_subset': gradb2_subset})

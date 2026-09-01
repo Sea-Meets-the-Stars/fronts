@@ -18,6 +18,7 @@ import textwrap
 import pytest
 
 from dbof.cli import generate_global, run_all_subsets, zarr_to_netcdf
+from dbof.global_dataset_creation import check_existence
 from dbof.global_dataset_creation.config import default_output_folder
 from dbof.global_dataset_creation.iterations import (
     date_to_run_id, prefix_to_filename_date,
@@ -243,14 +244,22 @@ def test_date_helpers_roundtrip():
 # ===========================================================================
 
 class _Spy:
-    """Record calls instead of making them."""
+    """Record calls instead of making them.
 
-    def __init__(self, result=None):
+    Pass *log* and *name* to also append each call to a shared list, so tests
+    can assert the order two different spies were called in.
+    """
+
+    def __init__(self, result=None, log=None, name=None):
         self.calls = []
         self.result = result
+        self.log = log
+        self.name = name
 
     def __call__(self, *args, **kwargs):
         self.calls.append((args, kwargs))
+        if self.log is not None:
+            self.log.append(self.name)
         return self.result
 
     @property
@@ -276,14 +285,28 @@ def _reset_layout():
 def spies(monkeypatch, tmp_path):
     """Neutralise every side-effecting call build_v5 makes."""
     monkeypatch.setenv("OS_OGCM", str(tmp_path / "ogcm"))
+    order = []
     s = {
-        "generate": _Spy(),
-        "export": _Spy(result=[]),
-        "find": _Spy(),
-        "group": _Spy(),
-        "colocate": _Spy(),
-        "push": _Spy(result=[]),
+        "generate": _Spy(log=order, name="generate"),
+        "export": _Spy(result=[], log=order, name="export"),
+        "find": _Spy(log=order, name="find"),
+        "group": _Spy(log=order, name="group"),
+        "colocate": _Spy(log=order, name="colocate"),
+        "push": _Spy(result=[], log=order, name="push"),
+        "order": order,
     }
+
+    # generate_for_channels runs for real, so the tests exercise its subset
+    # loop.  Only its S3 lookup is stubbed -- plan_zarr's verdict per store,
+    # defaulting to "nothing is built yet".  A test wanting existing stores
+    # sets spies["state"].result to check_existence.ZARR_FULL.
+    state = _Spy(result=check_existence.ZARR_MISSING, log=order, name="state")
+    monkeypatch.setattr(prun.check_existence, "plan_zarr", state)
+    monkeypatch.setattr(prun, "create_s3_filesystems",
+                        lambda endpoint: (None, None))
+    s["state"] = state
+
+    monkeypatch.setattr(prun, "generate_global_dataset", s["generate"])
     monkeypatch.setattr(build_v5, "generate_global_dataset", s["generate"])
     monkeypatch.setattr(build_v5, "export_channels", s["export"])
     monkeypatch.setattr(build_v5, "find_gradb2_fronts", s["find"])
@@ -293,10 +316,80 @@ def spies(monkeypatch, tmp_path):
     return s
 
 
-def test_step1_reads_an_existing_store(spies, surf_cfg):
-    """Step 1 exports only; building the store is a preprocessing-repo job."""
+def test_step1_builds_only_the_gradb2_subset(spies, surf_cfg):
+    """Step 1 generates the subset that owns gradb2 -- and nothing else."""
     build_v5.main(1, surf_cfg)
-    assert spies["generate"].calls == []
+    kw = spies["generate"].kwargs
+    assert kw["subsets"] == ["frontal_structure"]
+    assert kw["generate_only"] is True          # never exports from here
+
+
+def test_step1_generate_writes_into_this_builds_directory(spies, surf_cfg):
+    """netcdf_base matches step 4's, so the two agree on where products live."""
+    build_v5.main(1, surf_cfg)
+    args, _ = spies["generate"].calls[0]
+    assert args[1] == llc_io.run_root("V5test")      # .../Fronts/V5/SURF
+
+
+def test_step1_asks_only_about_the_channel_it_reads(spies, surf_cfg):
+    """The whole point: gradb2, not frontal_structure's other 7 channels.
+
+    Asking about the full subset would classify a store written before
+    'density' was added upstream as INCOMPLETE, and generate_global raises on
+    an incomplete store instead of rebuilding it -- abandoning, in the same
+    breath, any date that really was missing.
+    """
+    build_v5.main(1, surf_cfg)
+    (_fs, store, channels), _kw = spies["state"].calls[0]
+    assert channels == ["gradb2"]
+    assert store.endswith("frontal_structure.zarr")
+
+
+def test_step1_checks_one_date_and_believes_it(spies, surf_cfg):
+    """A run's dates hold the same channels, so one lookup answers for all.
+
+    surf_cfg has two dates; the store is still classified exactly once, on
+    the first of them.
+    """
+    build_v5.main(1, surf_cfg)
+    assert len(spies["state"].calls) == 1
+    first_prefix = prun.read_build_config(surf_cfg)["date_prefixes"][0]
+    assert f"/{first_prefix}/" in spies["state"].calls[0][0][1]
+
+
+def test_step1_skips_generate_when_the_store_already_has_gradb2(
+        spies, surf_cfg):
+    """An out-of-date store that still holds gradb2 is left alone."""
+    spies["state"].result = check_existence.ZARR_FULL
+
+    build_v5.main(1, surf_cfg)
+
+    assert spies["generate"].calls == []         # run_all_subsets not invoked
+    assert len(spies["export"].calls) == 2       # ...but gradb2 still exported
+
+
+def test_step1_generate_gets_the_config_it_was_given(spies, surf_cfg):
+    """No narrowed copy is written -- generate_global skips complete dates."""
+    build_v5.main(1, surf_cfg)
+    args, _ = spies["generate"].calls[0]
+    assert args[0] == surf_cfg
+
+
+def test_step1_adds_icearea_only_when_masking_gradb2(spies, tmp_path):
+    """The mask is read from icearea.zarr, so that store has to exist too."""
+    build_v5.main(1, _write(tmp_path, "unmasked.yaml", _SURF_YAML))
+    assert [c[0][2] for c in spies["state"].calls] == [["gradb2"]]
+
+    spies["state"].calls.clear()
+    spies["generate"].calls.clear()
+    masked = _write(tmp_path, "masked_gen.yaml",
+                    _SURF_YAML.replace("ice_mask_find: false",
+                                       "ice_mask_find: true"))
+    build_v5.main(1, masked)
+    assert [c[0][2] for c in spies["state"].calls] == [["gradb2"], ["SIarea"]]
+    # One generate call per subset, each scoped to that subset alone.
+    assert [c[1]["subsets"] for c in spies["generate"].calls] == [
+        ["frontal_structure"], ["icearea"]]
 
 
 def test_step1_exports_exactly_one_channel_per_timestamp(spies, surf_cfg):
@@ -341,6 +434,18 @@ def test_step4_exports_through_the_same_path_as_step1(spies, surf_cfg):
     assert len(spies["export"].calls) == 2                     # one per date
     exported = spies["export"].calls[0][0][2]
     assert set(exported) == set(spies["colocate"].calls[0][1]["property_names"])
+
+
+def test_step1_generates_before_it_exports(spies, surf_cfg):
+    """Order matters: the store has to exist before export_channels opens it.
+
+    export_channels -> zarr_to_nc -> zarr.open_group(mode='r'), which raises
+    FileNotFoundError on a store that is not there -- and nothing catches it,
+    so an export-first step 1 dies on the first missing date.
+    """
+    build_v5.main(1, surf_cfg)
+    order = spies["order"]
+    assert order.index("generate") < order.index("export")
 
 
 def test_steps_2_and_3_generate_nothing(spies, surf_cfg):
