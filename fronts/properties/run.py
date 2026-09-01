@@ -469,6 +469,9 @@ BUILD_DEFAULTS = {
     'colocate_source':  'zarr',   # step 4 reads fields from: zarr | netcdf
     'tiles':            [],       # tile co-location: locations to process
     'tile_properties':  [],       # tile co-location: dbof.tiles.field_registry names
+    'tile_find':        None,     # find fronts on ONE tile instead of the global
+                                  # rect grid: {name, lon/lat or i_rect/j_rect,
+                                  # property, pipeline}.  See prompts/fronts_build.md.
     'percentiles':      [25, 75, 90],
     'exclude_roots':    [],       # roots to leave out of co-location
     'clobber':          False,    # recompute a timestamp whose output exists
@@ -737,7 +740,8 @@ def generate_properties(timestamp: str, config_file: str, version: str,
                         version=version, run_id=run_id)
 
 def group_fronts(timestamp: str, config: str, version: str,
-                 n_workers: int = None, skip_curvature: bool = False):
+                 n_workers: int = None, skip_curvature: bool = False,
+                 coords_file: str = None):
     """Label connected front components and compute geometric properties globally.
 
     All paths are resolved from ``PATH/V{version}/YYYYMMDD_HHMMSS/``
@@ -749,9 +753,16 @@ def group_fronts(timestamp: str, config: str, version: str,
         version (str): Data version string.
         n_workers (int, optional): Parallel workers. Defaults to CPU count.
         skip_curvature (bool): Skip curvature calculation (~50% faster).
+        coords_file (str, optional): NetCDF holding lat/lon (or YC/XC) on the
+            SAME grid as the binary front map.  Defaults to the global rect
+            coords file, which is 12960x17280 -- a tile run must pass its own
+            720x720 coords instead (the tile gradb2 NetCDF carries XC/YC, so
+            it serves).
     """
     fronts_file = finding_io.binary_filename(timestamp, config, version)
-    coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts', 'coords', 'LLC_coords_lat_lon.nc')
+    if coords_file is None:
+        coords_file = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts',
+                                   'coords', 'LLC_coords_lat_lon.nc')
     output_dir = llc_io.fronts_dir(version, timestamp)
 
     # Load
