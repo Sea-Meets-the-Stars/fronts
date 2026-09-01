@@ -91,6 +91,35 @@ tile_mapping = _import_tile_mapping()
 
 
 # ---------------------------------------------------------------------------
+# Stitched rect -> face lookup arrays (locally cached)
+# ---------------------------------------------------------------------------
+# The preprocessing repo used to memoise these in ``tile_mapping``
+# (``_get_lookup_arrays`` / ``_LOOKUP_CACHE``); the ``tiles-depth-fields``
+# branch dropped that cache because a tile generation resolves the mapping
+# exactly once.  The viz scripts are in the same position (one resolution per
+# run), but the stitch costs a few seconds, so we memoise on this side rather
+# than reach for a private helper that no longer exists.
+_LOOKUP_CACHE = None
+
+
+def _lookup_arrays():
+    """Return the stitched ``(face_id, j_face, i_face)`` rect-grid maps.
+
+    Thin memoising wrapper over ``tile_mapping._build_lookup_arrays``.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``(face_id_map, j_face_map, i_face_map)``, each of shape
+        ``(RECT_H, RECT_W)``.
+    """
+    global _LOOKUP_CACHE
+    if _LOOKUP_CACHE is None:
+        _LOOKUP_CACHE = tile_mapping._build_lookup_arrays()
+    return _LOOKUP_CACHE
+
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 TILE_SIZE = tile_mapping.TILE_SIZE  # 720
@@ -125,8 +154,8 @@ def load_tile(path: Path, var_name: str | None = None) -> xr.Dataset:
     """Open a property-tile NetCDF (any field) and validate its contents.
 
     Tiles are written by ``llc4320-native-grid-preprocessing``'s
-    ``dbof.tiles.generate_tile`` and hold one 3-D data variable
-    (``sigma0``, ``Ri``, ``vorticity``, ...) plus ``XC``/``YC``/``Z``
+    ``dbof.cli.generate_tile`` and hold one 3-D data variable
+    (``sigma0``, ``Ri``, ``relative_vorticity``, ...) plus ``XC``/``YC``/``Z``
     coordinates and provenance fields (some as attrs, some as scalar
     coords; we accept either location).
 
@@ -449,7 +478,7 @@ def build_tile_lookup(
         If the tile spans multiple faces, or if the face it lives on differs
         from ``expected_face``.
     """
-    face_id_map, j_face_map, i_face_map = tile_mapping._get_lookup_arrays()
+    face_id_map, j_face_map, i_face_map = _lookup_arrays()
     rect_j_slice = slice(rect_j_start, rect_j_start + TILE_SIZE)
     rect_i_slice = slice(rect_i_start, rect_i_start + TILE_SIZE)
     face_id_tile = face_id_map[rect_j_slice, rect_i_slice]

@@ -2,20 +2,25 @@
 
 [fronts/scripts/fronts_viz_curtain.py](../../fronts/scripts/fronts_viz_curtain.py) is the 2-D companion to [`fronts_viz_3d`](fronts_viz_3d.md). Instead of a 3-D PyVista scene it produces flat **curtain** plots — vertical cross-sections sampled along a path through the tile, with **distance along the path** on the x-axis, **depth** on the y-axis, a configurable field (default the Richardson number `Ri`) as **color**, and **isopycnals** (σ₀ surfaces) overlaid as contour lines.
 
-It reuses the 3-D script's tile-loading, frame-remapping, and front-picking pipeline verbatim, so the inputs and locators are identical.
+It reuses the 3-D script's tile-loading, frame-remapping, and front-picking pipeline verbatim, so the inputs and locators are identical. One figure — the **front isopycnal curtain** — inverts the sampling: instead of cutting straight down, it follows the σ₀ surface the front lives on as that surface slopes away with depth.
 
 ## What it produces
 
-Four PNGs per run, all sharing the `--output-prefix`. The filenames embed the field name (`{field}` = the tile variable, e.g. `Ri`), the picked front's location (`{loc}` = `lat{LAT}_lon{LON}`, e.g. `lat36.38_lon-124.20`, so different fronts don't overwrite each other), and — for the offsets figure — the offset count (`{N}` = `--n-offsets`):
+Up to five PNGs per run, all sharing the `--output-prefix`. The filenames embed the field name (`{field}` = the tile variable, e.g. `Ri`), the picked front's location (`{loc}` = `lat{LAT}_lon{LON}`, e.g. `lat36.38_lon-124.20`, so different fronts don't overwrite each other), and — for the offsets figure — the offset count (`{N}` = `--n-offsets`):
 
 - **`{prefix}_{field}_{loc}_mainaxis.png`** — the main-axis curtain (single panel).
 - **`{prefix}_{field}_{loc}_offsets_n{N}.png`** — along-front curtains: two summary (dilation) rows on top + the `N` individual offset rows (two columns × `N+2` rows).
 - **`{prefix}_{field}_{loc}_perp.png`** — the cross-front (perpendicular) curtain (single panel).
+- **`{prefix}_{field}_{loc}_isopycnal.png`** — the **front isopycnal curtain**: the field on the density surface the front lives on, unrolled to 2-D (opt in with `--isopycnal-curtain`).
 - **`{prefix}_{field}_{loc}_inset.png`** — a plan-view map of the bbox: the **color field** near-surface slice (same colormap/colorbar as the curtains) with the main axis, the offset envelope, and the marked perpendicular point overlaid (opt out with `--no-inset`).
 
 All figures are static matplotlib (Agg backend, dpi 150), matching the repo's existing 2-D companion in [fronts/viz/insets.py](../../fronts/viz/insets.py).
 
-## The three figures
+## Notebook walkthrough
+
+[fronts/properties/nb/front_curtain.ipynb](../../fronts/properties/nb/front_curtain.ipynb) runs the whole workflow interactively, one decision at a time: a global map of the 432 numbered LLC4320 tiles → pick a tile (or a lat/lon) and a field → generate the density + field tiles from `s3://dbof/LLC4320_RAW/DEPTH/` → a map of the tile's surface with every front numbered → pick a front and read a tickmark off its main axis → all the figures below, rendered by this script and displayed inline. Each choice lives in a cell that opens with a `>>> USER INPUT` banner.
+
+## The figures
 
 ### 1. Main-axis curtain
 
@@ -37,12 +42,27 @@ By default each offset line is **trimmed** of self-intersection loops so it cont
 
 A perpendicular transect is cut at a chosen point along the main axis. By default that point is the **field extremum over the full curtain depth** (e.g. the column whose deepest-searched `Ri` is lowest — most shear-unstable), **restricted to columns whose transect crosses the front at most `--perp-max-crossings` times (default 1)** so the transect lands on a clean stretch rather than the front's squiggly self-overlapping parts. Override with `--extremum max`, lift the crossing filter with `--perp-allow-crossings`, or pin a specific column with `--perp-point` (use `--list-perp-candidates` to print each column's `(i, j)`, along-path km, and crossing count). The transect spans `2·--perp-half-width + 1` pixels — which is exactly the length of the green line drawn on the inset — and the curtain's x-axis is **signed cross-front distance** with 0 at the front axis (negative on side B, positive on side A).
 
+### 4. Front isopycnal curtain (`--isopycnal-curtain`)
+
+The other three figures sample **straight down** from a fixed set of pixels, so a front that leans with depth slides out of the panel: the deeper rows of a main-axis curtain are water the front has already left. This figure fixes the frame to the front instead of to the pixels. It takes the single σ₀ surface the front lives on and **unrolls it**: x = distance along the front, y = the depth *of that surface*, color = the field **on** the surface. Each column dives along the sloping density surface, down and sideways, however far it wanders.
+
+Two knobs:
+
+- **`--isopycnal-sigma0`** picks the surface. The default is the median of the shallowest finite σ₀ along the main axis — i.e. the surface density of the front itself.
+- **`--isopycnal-half-width`** limits how far cross-front the surface is chased. The default is *unlimited*: the transect spans the tile diagonal, so the trace ends only where the surface itself does (it flattens out between LLC levels, hits the tile edge, or runs into invalid data). Set it when a neighbouring front's isopycnal is close enough to be picked up by mistake.
+
+Because σ₀ is constant on the surface by construction, no isopycnal contours are drawn — the whole panel *is* one isopycnal. Blank (gray) cells are depths the surface never reaches at that along-front position. The chosen perpendicular point is marked with the same green line as the main-axis curtain, so the two figures read against each other.
+
+Mechanically, for every along-front column: cast the cross-front transect (`perpendicular_path`), sample σ₀ and the field along it, find the sub-pixel column where σ₀ crosses the target at each depth (`trace_isopycnal`, which follows the crossing nearest the depth above so the trace stays continuous through folds), and interpolate the field there. `isopycnal_curtain` returns both the `(K, L)` curtain and the signed cross-front **displacement** of the surface from the main axis — how far the front has leaned by each depth — which is logged with the fill fraction on every run.
+
+A related but separate flag, **`--perp-isopycnal`**, applies the same tracing idea to the *cross-front* figure: each depth row of the perpendicular curtain is shifted (`recenter_curtain`) so the front's density surface sits at `x = 0`, so the x-axis reads "distance from the front" at every depth rather than at the surface only. `--perp-sigma0` picks that surface (default: σ₀ at the transect centre at the shallowest level).
+
 ## Inputs
 
 Same as `fronts_viz_3d`, with one difference: the field tile is **required** here (it supplies both the curtain color and the perpendicular-point extremum).
 
 1. **3-D density tile** — NetCDF from `generate_tile.py`. `sigma0(k, j, i)` on face-local axes, plus `XC`/`YC`/`Z` and `rect_i_start`/`rect_j_start`/`face_index` provenance. Drives the isopycnal contours.
-2. **Field tile** (`--field-tile`, **required**) — a second NetCDF (same tile window + timestamp) holding the color field, e.g. a `Ri` tile from `--property richardson`. Auto-detects the single 3-D variable unless `--field-name` is given.
+2. **Field tile** (`--field-tile`, **required**) — a second NetCDF (same tile window + timestamp) holding the color field, e.g. a `Ri` tile from `--property Ri`. Auto-detects the single 3-D variable unless `--field-name` is given.
 3. **Labelled-fronts mask** — global `.npy`/`.nc` on the rect grid (integer labels, `0 = no front`).
 4. **Locator** — `(--i, --j)` rect indices or `(--lat, --lon)` degrees (snapped to the nearest labelled pixel).
 
@@ -62,7 +82,7 @@ Identical to the 3-D script: `build_tile_lookup` gives the per-pixel `(j_face, i
 8. **Path metrics** — `curtains.path_metrics` returns per-pixel pixel-distance, great-circle km distance, and unit tangents/normals. `--smooth-normals` smooths *only* the direction field.
 9. **Isopycnal levels** — `pick_isopycnal_levels` brackets the 2/98 percentile of the whole clipped volume (the curtain spans full depth), or uses `--isopycnals`.
 10. **Perpendicular point** — `--perp-point`, else `curtains.pick_extremum_index` over the full-depth axis curtain, with columns whose transect re-crosses the front (`curtains.transect_front_crossings > --perp-max-crossings`) excluded unless `--perp-allow-crossings`.
-11. **Render** — `curtains.figure_main_axis`, `figure_offsets` (with the dilation summary rows), `figure_perpendicular`, and the script's `plot_map_inset` (field background + colorbar).
+11. **Render** — `curtains.figure_main_axis`, `figure_offsets` (with the dilation summary rows), `figure_perpendicular`, `figure_isopycnal_surface` (only with `--isopycnal-curtain`), and the script's `plot_map_inset` (field background + colorbar).
 
 ## Main-axis extraction
 
@@ -102,10 +122,11 @@ Two causes of overlap, two complementary tools: pixel-scale jaggedness is an art
 ```text
 python -m fronts.scripts.fronts_viz_curtain \
     --density-tile density_tile330_20121109T12.nc \
-    --field-tile   Ri_tile330_20121109T12.nc \
+    --field-tile   ri_tile330_20121109T12.nc \
     --labels       labeled_fronts_global_20121109T12_00_00_V4.npy \
     --i 13142 --j 9956 \
     --n-offsets 3 --perp-half-width 30 \
+    --isopycnal-curtain \
     --output-prefix /tmp/calcurrent_curtain
 ```
 
@@ -128,6 +149,11 @@ python -m fronts.scripts.fronts_viz_curtain \
 | `--perp-max-crossings` | int | `1` | Auto-pick only considers columns whose transect crosses the front ≤ this many times (keeps it off the squiggly hook). |
 | `--perp-allow-crossings` | flag | off | Disable the crossing filter; auto-pick the extremum anywhere. |
 | `--list-perp-candidates` | flag | off | Log each column's `(i, j)`, along-path km, and crossing count, then continue. Helps choose `--perp-point`. |
+| `--isopycnal-curtain` | flag | off | Also write the front isopycnal curtain: the field on the front's σ₀ surface, unrolled to 2-D. |
+| `--isopycnal-sigma0` | float | median surface σ₀ along the axis | Which density surface `--isopycnal-curtain` flattens. |
+| `--isopycnal-half-width` | int | unlimited | Cross-front search half-width (px) when following that surface. Default follows it across the whole tile. |
+| `--perp-isopycnal` | flag | off | Draw the cross-front curtain in isopycnal-following coordinates (each depth row shifted so the front's σ₀ surface sits at `x = 0`). |
+| `--perp-sigma0` | float | σ₀ at the transect centre, shallowest level | Which surface `--perp-isopycnal` follows. |
 | `--smooth-normals` | flag | off | Smooth the tangent/normal direction field before offsets/perpendicular. Never moves the main-axis columns. |
 | `--smooth-window` | int | `5` | Odd pixel window for `--smooth-normals`. |
 | `--no-trim-offsets` | flag | off (trim on) | Keep offset self-intersection loops (shaded magenta) instead of trimming them to crossing-free lines. |
@@ -135,7 +161,7 @@ python -m fronts.scripts.fronts_viz_curtain \
 | `--n-isopycnals` | int | `8` | Number of auto-picked isopycnal levels. |
 | `--clim` | LO HI | style clim, else 2/98 pct | Color limits for the (transformed) color field. |
 | `--cmap` | str | field-style cmap | Colormap for the color field. |
-| `--output-prefix` | path | required | Prefix; appends `_{field}_{loc}_mainaxis.png` / `_..._offsets_n{N}.png` / `_..._perp.png` / `_..._inset.png` (`{field}` = tile variable, `{loc}` = `lat{LAT}_lon{LON}`, `{N}` = `--n-offsets`). The lat/lon prevents different fronts overwriting each other. |
+| `--output-prefix` | path | required | Prefix; appends `_{field}_{loc}_mainaxis.png` / `_..._offsets_n{N}.png` / `_..._perp.png` / `_..._isopycnal.png` / `_..._inset.png` (`{field}` = tile variable, `{loc}` = `lat{LAT}_lon{LON}`, `{N}` = `--n-offsets`). The lat/lon prevents different fronts overwriting each other. |
 | `--no-inset` | flag | off | Skip the plan-view map inset. |
 
 ## Module map
@@ -162,8 +188,11 @@ python -m fronts.scripts.fronts_viz_curtain \
 | `transect_front_crossings(axis, normals, mask, half_width)` | Per-column count of how many times the perpendicular transect hits the front; drives the perpendicular auto-pick filter. |
 | `sample_curtain(field3d, path)` | `(K, L)` sample of a field along a path at every depth; off-window → NaN. |
 | `pick_extremum_index(curtain_field, mode)` | Column of the full-depth min/max of the field. |
+| `trace_isopycnal(sigma0_curtain, target, start_col)` | Sub-pixel column of the `target` σ₀ crossing at each depth; follows the crossing nearest the depth above, so folds don't make it jump. |
+| `recenter_curtain(curtain, xstar)` | Shift each depth row so `xstar` lands on the centre column — the isopycnal-following coordinates used by `--perp-isopycnal`. |
+| `isopycnal_curtain(field3d, sigma0_field3d, axis, normals, target, half_width)` | The unrolled surface: `(K, L)` field values on the σ₀ surface + the signed cross-front displacement of the surface from the main axis. |
 | `plot_curtain_panel(ax, ...)` | One curtain panel: color mesh + isopycnal contours + km twin axis + MLD + overlap shading. |
-| `figure_main_axis / figure_offsets / figure_perpendicular(...)` | The three deliverable figures. |
+| `figure_main_axis / figure_offsets / figure_perpendicular / figure_isopycnal_surface(...)` | The four deliverable curtain figures. |
 
 ## Testing
 

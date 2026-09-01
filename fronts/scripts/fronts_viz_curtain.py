@@ -26,7 +26,7 @@ front's location (e.g. ``lat36.38_lon-124.20``), and ``{N}`` is ``--n-offsets``.
 Inputs mirror ``fronts_viz_3d``:
   * a 3-D **density tile** NetCDF (``sigma0(k, j, i)``, face-local) -- drives
     isopycnal contours;
-  * a **field tile** (same window+timestamp, e.g. ``--property richardson``)
+  * a **field tile** (same window+timestamp, e.g. ``--property Ri``)
     whose variable is the curtain color (REQUIRED here -- the curtain color and
     the perpendicular-point extremum both need it; default ``Ri``);
   * a global **labelled-fronts mask** on the rect grid;
@@ -36,7 +36,7 @@ CLI usage
 ---------
     python -m fronts.scripts.fronts_viz_curtain \
         --density-tile density_tile330_20121109T12.nc \
-        --field-tile   Ri_tile330_20121109T12.nc \
+        --field-tile   ri_tile330_20121109T12.nc \
         --labels       labeled_fronts_global_20121109T12_00_00_V4.npy \
         --i 13142 --j 9956 \
         --n-offsets 3 --perp-half-width 10 \
@@ -160,6 +160,29 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--extremum", choices=["min", "max"], default="min",
                    help="Whether the default perpendicular point is the field "
                         "minimum (default; e.g. lowest Ri) or maximum.")
+    p.add_argument("--isopycnal-curtain", action="store_true",
+                   help="Also write a flattened-isopycnal figure: the "
+                        "density surface the front lives on, unrolled to 2-D "
+                        "(x = along-front distance, y = depth, color = the "
+                        "field ON that surface as it slopes down-and-"
+                        "sideways).")
+    p.add_argument("--isopycnal-sigma0", type=float, default=None,
+                   help="Density surface for --isopycnal-curtain (default: "
+                        "median surface sigma0 along the main axis).")
+    p.add_argument("--isopycnal-half-width", type=int, default=None,
+                   help="Limit the cross-front search for the surface to "
+                        "this many px (default: unlimited -- the surface is "
+                        "followed across the whole tile).")
+    p.add_argument("--perp-isopycnal", action="store_true",
+                   help="Draw the perpendicular curtain in isopycnal-"
+                        "following coordinates: each depth row is shifted so "
+                        "the front's density surface sits at x=0, so the "
+                        "x-axis reads distance from the (sloping) front at "
+                        "every depth.")
+    p.add_argument("--perp-sigma0", type=float, default=None,
+                   help="Density surface to follow with --perp-isopycnal "
+                        "(default: sigma0 at the transect centre at the "
+                        "shallowest level).")
     p.add_argument("--perp-max-crossings", type=int, default=1,
                    help="When auto-picking the perpendicular point, only "
                         "consider main-axis columns whose transect crosses the "
@@ -441,7 +464,7 @@ def main(argv=None) -> None:
             f"{field_face.shape}, expected {sigma0_face.shape}."
         )
     field_style = get_style(field_name)
-    # Human-readable field name (e.g. "richardson_number"); fall back to the
+    # Human-readable field name (e.g. "Richardson number N2/S2"); fall back to the
     # tile variable name (e.g. "Ri") when no long_name attr.
     field_label = ds_field[field_name].attrs.get("long_name", field_name)
     # Filesystem-safe token built into the output filenames (e.g. "Ri", "wB").
@@ -643,10 +666,27 @@ def main(argv=None) -> None:
         args.perp_half_width, out_perp,
         XC_rect=XC_crop, YC_rect=YC_crop,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
+        follow_isopycnal=args.perp_isopycnal,
+        target_sigma0=args.perp_sigma0,
         title=(f"Cross-front curtain — {field_label} "
                f"at axis col {perp_idx} (front {label})"),
     )
     log.info("Wrote %s", out_perp)
+
+    # ---------- Flattened isopycnal surface ----------
+    if args.isopycnal_curtain:
+        out_iso = prefix.with_name(f"{stem}_isopycnal.png")
+        curtains.figure_isopycnal_surface(
+            color_display, sigma0_clipped, Z_clipped, axis_path, metrics,
+            out_iso,
+            half_width=args.isopycnal_half_width,
+            target_sigma0=args.isopycnal_sigma0,
+            clim=clim, cmap=cmap, color_title=color_title,
+            mark_index=perp_idx,
+            title=(f"{field_label} on the front's isopycnal "
+                   f"(front {label})"),
+        )
+        log.info("Wrote %s", out_iso)
 
     # ---------- Map-view inset ----------
     if not args.no_inset:

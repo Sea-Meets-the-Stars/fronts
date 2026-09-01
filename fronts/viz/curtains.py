@@ -652,6 +652,189 @@ def pick_extremum_index(
 
 
 # ---------------------------------------------------------------------------
+# Isopycnal-following coordinates
+# ---------------------------------------------------------------------------
+
+def trace_isopycnal(
+    sigma0_curtain: np.ndarray,
+    target: float,
+    start_col: int,
+) -> np.ndarray:
+    """Trace one isopycnal down through a curtain, column by column.
+
+    Fronts slope with depth, so the density surface a front lives on at the
+    surface is displaced horizontally at depth.  For each depth row this finds
+    the sub-pixel column where the curtain's density crosses ``target``,
+    linearly interpolating between the two bracketing columns.  When a row has
+    several crossings (folded isopycnal), the one nearest the previous depth's
+    position is chosen so the trace stays continuous.  Rows shallower than
+    the surface's first appearance are NaN (the isopycnal may sit below the
+    shallowest level); once found, the trace stops at the first depth where
+    the crossing disappears (isopycnal left the window or vanished) and
+    deeper rows are NaN.
+
+    Parameters
+    ----------
+    sigma0_curtain : numpy.ndarray
+        ``(K, L)`` density curtain (NaN where invalid).
+    target : float
+        The sigma0 value to follow.
+    start_col : int
+        Column to anchor the trace at the shallowest depth (typically the
+        front axis).
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(K,)`` float array of sub-pixel column positions; NaN where the
+        isopycnal was not found.
+    """
+    K, L = sigma0_curtain.shape
+    xstar = np.full(K, np.nan)
+    prev = float(start_col)
+    started = False
+    for k in range(K):
+        d = sigma0_curtain[k] - target
+        ok = np.isfinite(d)
+        crossings = []
+        for i in range(L - 1):
+            if not (ok[i] and ok[i + 1]):
+                continue
+            if d[i] == 0.0:
+                crossings.append(float(i))
+            elif d[i] * d[i + 1] < 0.0:
+                crossings.append(i + d[i] / (d[i] - d[i + 1]))
+        if ok[L - 1] and d[L - 1] == 0.0:
+            crossings.append(float(L - 1))
+        if not crossings:
+            if started:
+                break  # lost after being found: stop rather than jump
+            continue  # surface sits deeper; keep looking down
+        arr = np.asarray(crossings)
+        prev = float(arr[np.argmin(np.abs(arr - prev))])
+        xstar[k] = prev
+        started = True
+    return xstar
+
+
+def recenter_curtain(curtain: np.ndarray, xstar: np.ndarray) -> np.ndarray:
+    """Shift each curtain row horizontally so ``xstar`` lands on the centre.
+
+    Puts the curtain in isopycnal-following (front-following) coordinates:
+    after recentering, the traced isopycnal is a vertical line through the
+    middle column, and every row shows structure *relative to the front*
+    rather than at fixed positions.  Rows are resampled by linear
+    interpolation; positions shifted outside the original window, and rows
+    where ``xstar`` is NaN, come back NaN.
+
+    Parameters
+    ----------
+    curtain : numpy.ndarray
+        ``(K, L)`` curtain to recenter (color field or density).
+    xstar : numpy.ndarray
+        ``(K,)`` sub-pixel column of the isopycnal per depth, from
+        :func:`trace_isopycnal`.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(K, L)`` recentered curtain (float64).
+    """
+    K, L = curtain.shape
+    cols = np.arange(L, dtype=np.float64)
+    center = (L - 1) / 2.0
+    out = np.full((K, L), np.nan)
+    for k in range(K):
+        if not np.isfinite(xstar[k]):
+            continue
+        row = np.asarray(curtain[k], dtype=np.float64)
+        ok = np.isfinite(row)
+        if ok.sum() < 2:
+            continue
+        src = cols - center + xstar[k]  # where each output column samples from
+        out[k] = np.interp(src, cols[ok], row[ok],
+                           left=np.nan, right=np.nan)
+        # np.interp bridges interior NaN gaps; re-mask anything that landed
+        # nearer a missing column than a valid one.
+        nearest = np.round(src).astype(int)
+        inside = (nearest >= 0) & (nearest < L)
+        bad = inside & ~ok[np.clip(nearest, 0, L - 1)]
+        out[k][bad] = np.nan
+    return out
+
+
+def isopycnal_curtain(
+    field3d: np.ndarray,
+    sigma0_field3d: np.ndarray,
+    axis_path: np.ndarray,
+    normals: np.ndarray,
+    target: float,
+    half_width: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Flatten one isopycnal surface into an along-front curtain.
+
+    This is the 2-D unrolling of "the field painted on an isopycnal surface"
+    from the 3-D scene.  For each along-front column, a cross-front transect
+    is cast (as in :func:`perpendicular_path`), the ``target`` isopycnal is
+    traced down through it with :func:`trace_isopycnal`, and the field is
+    interpolated *at the isopycnal's position* at every depth.  Each column
+    therefore dives along the sloping density surface rather than straight
+    down, following it however far it wanders horizontally; the y-axis of
+    the result is the depth of the surface itself.
+
+    Parameters
+    ----------
+    field3d, sigma0_field3d : numpy.ndarray
+        ``(K, J, I)`` field (display space) and density, cropped frame.
+    axis_path : numpy.ndarray
+        ``(L, 2)`` main-axis ``(j, i)`` coordinates.
+    normals : numpy.ndarray
+        ``(L, 2)`` unit normals from :func:`path_metrics`.
+    target : float
+        The sigma0 surface to flatten.
+    half_width : int, optional
+        Cross-front search half-width in pixels.  Default None follows the
+        surface across the entire domain (the transect spans the tile
+        diagonal); the trace then ends only where the surface itself ends --
+        it flattens out between depth levels, hits the tile edge, or runs
+        into invalid data.
+
+    Returns
+    -------
+    curtain : numpy.ndarray
+        ``(K, L)`` field values on the surface; NaN where the surface is
+        absent (never reaches that depth, off-tile, or invalid data).
+    displacement : numpy.ndarray
+        ``(K, L)`` signed cross-front displacement (px) of the surface from
+        the main axis at each depth.
+    """
+    K, J, I = field3d.shape
+    L = axis_path.shape[0]
+    if half_width is None:
+        # Span the whole tile: no transect cast from inside the domain can
+        # be longer than the diagonal.
+        half_width = int(np.ceil(np.hypot(J, I)))
+    W = 2 * int(half_width) + 1
+    cols = np.arange(W, dtype=np.float64)
+    curtain = np.full((K, L), np.nan)
+    displacement = np.full((K, L), np.nan)
+    for l in range(L):
+        perp = perpendicular_path(axis_path, normals, l, half_width)
+        sig = sample_curtain(sigma0_field3d, perp)
+        fld = sample_curtain(field3d, perp)
+        xs = trace_isopycnal(sig, target, int(half_width))
+        for k in np.flatnonzero(np.isfinite(xs)):
+            row = fld[k]
+            ok = np.isfinite(row)
+            if ok.sum() < 2:
+                continue
+            curtain[k, l] = np.interp(xs[k], cols[ok], row[ok],
+                                      left=np.nan, right=np.nan)
+            displacement[k, l] = xs[k] - half_width
+    return curtain, displacement
+
+
+# ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
 
@@ -1042,11 +1225,21 @@ def figure_perpendicular(
     cmap: str = "RdYlBu",
     color_title: str = "",
     title: str | None = None,
+    follow_isopycnal: bool = False,
+    target_sigma0: float | None = None,
 ):
     """Figure 3 -- the perpendicular (cross-front) curtain (single panel).
 
     The x-axis is signed cross-front distance: 0 at the main axis, negative on
     side B, positive on side A.
+
+    With ``follow_isopycnal=True`` the curtain is drawn in *front-following*
+    coordinates: the isopycnal that the front lives on at the surface (or
+    ``target_sigma0``) is traced down through the transect, and each depth row
+    is shifted horizontally so that isopycnal sits at x=0.  The front is then
+    a vertical line and the x-axis reads distance *from the front* at every
+    depth, instead of distance from the surface axis point.  Depths where the
+    isopycnal leaves the transect window are blank.
 
     Parameters
     ----------
@@ -1063,6 +1256,11 @@ def figure_perpendicular(
         For a km twin axis along the transect.
     levels, clim, cmap, color_title, title
         Display options.
+    follow_isopycnal : bool, optional
+        Recenter each depth row on the traced isopycnal (see above).
+    target_sigma0 : float, optional
+        Density surface to follow.  Default: the shallowest finite sigma0 at
+        the transect centre (the front's surface density).
 
     Returns
     -------
@@ -1082,19 +1280,137 @@ def figure_perpendicular(
 
     # Signed km for the twin axis (when lon/lat provided): re-center the
     # cumulative along-transect distance so 0 km sits at the front axis.
+    # (In isopycnal-following mode this is the surface spacing; row shifts
+    # are small relative to the transect so the km scale is unchanged.)
     signed_km = None
     if metrics["dist_km"] is not None:
         signed_km = metrics["dist_km"] - metrics["dist_km"][int(half_width)]
+
+    xlabel = "cross-front distance [px]  (0 = front axis)"
+    if follow_isopycnal:
+        centre = sigma0_curtain[:, int(half_width)]
+        if target_sigma0 is None:
+            finite = np.flatnonzero(np.isfinite(centre))
+            if finite.size == 0:
+                raise ValueError(
+                    "Cannot pick a target isopycnal: sigma0 is NaN at every "
+                    "depth of the transect centre."
+                )
+            target_sigma0 = float(centre[finite[0]])
+        xstar = trace_isopycnal(sigma0_curtain, target_sigma0,
+                                int(half_width))
+        n_ok = int(np.isfinite(xstar).sum())
+        log.info("Isopycnal sigma0=%.4f traced through %d/%d depth levels.",
+                 target_sigma0, n_ok, xstar.size)
+        color_curtain = recenter_curtain(color_curtain, xstar)
+        sigma0_curtain = recenter_curtain(sigma0_curtain, xstar)
+        xlabel = (f"cross-front distance [px]  "
+                  f"(0 = sigma0={target_sigma0:.3f} isopycnal)")
 
     fig, ax = plt.subplots(figsize=(9, 5))
     plot_curtain_panel(
         ax, signed_px, Z, color_curtain, sigma0_curtain,
         dist_km=signed_km,
         levels=levels, clim=clim, cmap=cmap, color_title=color_title,
-        mark_index=int(half_width),  # the axis crossing at 0
-        title=title or "Cross-front (perpendicular) curtain",
+        mark_index=int(half_width),  # x=0: the axis, or the traced isopycnal
+        title=title or ("Cross-front curtain (isopycnal-following)"
+                        if follow_isopycnal
+                        else "Cross-front (perpendicular) curtain"),
     )
-    ax.set_xlabel("cross-front distance [px]  (0 = front axis)")
+    ax.set_xlabel(xlabel)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def figure_isopycnal_surface(
+    color_field3d: np.ndarray,
+    sigma0_field3d: np.ndarray,
+    Z: np.ndarray,
+    axis_path: np.ndarray,
+    metrics: dict,
+    output_path,
+    *,
+    half_width: int | None = None,
+    target_sigma0: float | None = None,
+    clim: tuple[float, float] | None = None,
+    cmap: str = "RdYlBu",
+    color_title: str = "",
+    mark_index: int | None = None,
+    title: str | None = None,
+):
+    """Figure 4 -- the front's isopycnal surface flattened to 2-D.
+
+    The 3-D scene paints the field on isopycnal surfaces; this takes the one
+    surface the front lives on and unrolls it: x is distance along the front,
+    y is depth, and the color at ``(x, z)`` is the field *on the surface*
+    where it passes through depth ``z`` at that along-front position -- each
+    column follows the sloping surface down-and-sideways, however far it
+    wanders, instead of sampling straight below the axis.  Blank cells are
+    where the surface never reaches that depth (it flattens out or has left
+    the tile) or overlies invalid data.
+
+    Parameters
+    ----------
+    color_field3d, sigma0_field3d, Z, axis_path, metrics
+        As in :func:`figure_main_axis`.
+    output_path : str or pathlib.Path
+        PNG output path.
+    half_width : int, optional
+        Cross-front search half-width (px).  Default None: follow the
+        surface across the whole tile (see :func:`isopycnal_curtain`).
+    target_sigma0 : float, optional
+        Density surface to flatten.  Default: the median of the shallowest
+        finite sigma0 sampled along the main axis (the front's surface
+        density).
+    clim, cmap, color_title, mark_index, title
+        Display options.
+
+    Returns
+    -------
+    pathlib.Path
+        The output path.
+    """
+    from pathlib import Path
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if target_sigma0 is None:
+        sig_axis = sample_curtain(sigma0_field3d, axis_path)  # (K, L)
+        # Shallowest finite sigma0 per column, median along the front.
+        surface = np.full(sig_axis.shape[1], np.nan)
+        for l in range(sig_axis.shape[1]):
+            finite = np.flatnonzero(np.isfinite(sig_axis[:, l]))
+            if finite.size:
+                surface[l] = sig_axis[finite[0], l]
+        if not np.isfinite(surface).any():
+            raise ValueError("Cannot pick a target isopycnal: sigma0 is NaN "
+                             "everywhere along the main axis.")
+        target_sigma0 = float(np.nanmedian(surface))
+
+    curtain, displacement = isopycnal_curtain(
+        color_field3d, sigma0_field3d, axis_path, metrics["normals"],
+        target_sigma0, half_width,
+    )
+    n_ok = int(np.isfinite(curtain).sum())
+    log.info("Isopycnal sigma0=%.4f surface: %d/%d curtain cells filled, "
+             "max |displacement| %.1f px.",
+             target_sigma0, n_ok, curtain.size,
+             float(np.nanmax(np.abs(displacement)))
+             if np.isfinite(displacement).any() else float("nan"))
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    plot_curtain_panel(
+        ax, metrics["dist_px"], Z, curtain,
+        np.full_like(curtain, np.nan),  # sigma0 is constant on the surface
+        dist_km=metrics["dist_km"], levels=None,
+        clim=clim, cmap=cmap, color_title=color_title,
+        mark_index=mark_index,
+        title=title or (f"Field on the sigma0={target_sigma0:.3f} "
+                        "isopycnal (flattened)"),
+    )
+    ax.set_xlabel("distance along front [px]")
     fig.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)

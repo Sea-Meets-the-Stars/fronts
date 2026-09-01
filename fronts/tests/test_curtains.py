@@ -266,6 +266,109 @@ def test_pick_extremum_index():
 
 
 # ---------------------------------------------------------------------------
+# Isopycnal-following coordinates
+# ---------------------------------------------------------------------------
+
+def _tilted_sigma0_curtain(K=8, L=21, slope=0.5):
+    """sigma0(k, x) = 25 + k - slope*x: isopycnals tilt right with depth.
+
+    The sigma0=25+c isopycnal sits at x = (k - c) / slope at depth k.
+    """
+    k = np.arange(K)[:, None].astype(float)
+    x = np.arange(L)[None, :].astype(float)
+    return 25.0 + k - slope * x
+
+
+def test_trace_isopycnal_linear_tilt():
+    K, L, slope = 8, 21, 0.5
+    cur = _tilted_sigma0_curtain(K, L, slope)
+    centre = (L - 1) // 2
+    target = cur[0, centre]  # surface density at the centre column
+    xstar = curtains.trace_isopycnal(cur, target, centre)
+    # Analytically x*(k) = centre + k/slope until it leaves the window.
+    expect = centre + np.arange(K) / slope
+    inside = expect <= L - 1
+    assert np.allclose(xstar[inside], expect[inside], atol=1e-9)
+    # Once the isopycnal leaves the window the trace stops (NaN below).
+    assert np.all(np.isnan(xstar[~inside]))
+
+
+def test_trace_isopycnal_picks_nearest_crossing():
+    # A folded row with two crossings of target=0: one near x=2, one near
+    # x=17.  Starting from column 3, the trace must pick the near one.
+    row = np.concatenate([np.linspace(-1, 1, 5),      # crossing at x=2
+                          np.full(10, 1.0),
+                          np.linspace(1, -1, 6)])     # crossing near x=17.5
+    cur = np.vstack([row, row])
+    xstar = curtains.trace_isopycnal(cur, 0.0, start_col=3)
+    assert np.all(np.abs(xstar - 2.0) < 1.0)
+
+
+def test_recenter_curtain_straightens_isopycnal():
+    K, L, slope = 6, 21, 0.5
+    cur = _tilted_sigma0_curtain(K, L, slope)
+    centre = (L - 1) // 2
+    target = cur[0, centre]
+    xstar = curtains.trace_isopycnal(cur, target, centre)
+    rec = curtains.recenter_curtain(cur, xstar)
+    # In the recentered frame, the traced isopycnal is the centre column:
+    # sigma0 at the centre equals the target at every traced depth.
+    traced = np.isfinite(xstar)
+    assert np.allclose(rec[traced, centre], target, atol=1e-9)
+    # Columns shifted from outside the original window are NaN.
+    assert np.isnan(rec[traced][-1, -1])  # deep row, far right came from off-window
+
+
+def test_isopycnal_curtain_reads_field_on_surface():
+    # Density tilts in j with depth; field3d encodes its own j coordinate.
+    # The value read on the surface at depth k must equal the surface's
+    # analytic j position there.
+    K, H, W = 6, 41, 30
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    slope = 2.0  # surface moves 2 px in j per depth level
+    sigma0 = (25.0 + 0.1 * (k - (j - 20.0) / slope)) * np.ones((1, 1, W))
+    field = j * np.ones((K, 1, W))  # value == j position
+
+    axis = np.column_stack([np.full(15, 20), np.arange(5, 20)]).astype(int)
+    met = curtains.path_metrics(axis)
+    target = 25.0  # sits at j=20 at k=0, j = 20 + slope*k at depth k
+    cur, disp = curtains.isopycnal_curtain(
+        field, sigma0, axis, met["normals"], target, half_width=15,
+    )
+    for kk in range(K):
+        expect_j = 20.0 + slope * kk
+        assert np.allclose(cur[kk], expect_j, atol=1e-6)
+        # displacement is signed cross-front px; magnitude = slope*k
+        assert np.allclose(np.abs(disp[kk]), slope * kk, atol=1e-6)
+
+
+def test_isopycnal_curtain_nan_when_off_window():
+    # Same field, but a half_width too small to reach the deep surface.
+    K, H, W = 6, 41, 30
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    sigma0 = (25.0 + 0.1 * (k - (j - 20.0) / 2.0)) * np.ones((1, 1, W))
+    field = np.ones((K, H, W))
+    axis = np.column_stack([np.full(15, 20), np.arange(5, 20)]).astype(int)
+    met = curtains.path_metrics(axis)
+    cur, _ = curtains.isopycnal_curtain(
+        field, sigma0, axis, met["normals"], 25.0, half_width=5,
+    )
+    # Surface is 2*k px away: reachable for k<=2, gone for k>=3.
+    assert np.isfinite(cur[:3]).all()
+    assert np.isnan(cur[3:]).all()
+
+
+def test_recenter_curtain_nan_row():
+    cur = np.ones((3, 11))
+    xstar = np.array([5.0, np.nan, 5.0])
+    rec = curtains.recenter_curtain(cur, xstar)
+    assert np.all(np.isnan(rec[1]))
+    assert np.allclose(rec[0], 1.0)
+
+
+# ---------------------------------------------------------------------------
 # field_styles.apply_transform
 # ---------------------------------------------------------------------------
 
@@ -412,3 +515,51 @@ def test_figure_perpendicular_smoke(synthetic_scene, tmp_path):
         XC_rect=XC, YC_rect=YC,
     )
     assert out2.exists() and out2.stat().st_size > 0
+
+
+def test_figure_perpendicular_isopycnal_smoke(synthetic_scene, tmp_path):
+    color, _, Z, axis, metrics = synthetic_scene
+    K, H, W = color.shape
+    # A smoothly tilting density field so the isopycnal trace is well
+    # defined.  The transect of a horizontal axis runs in j, so tilt in j.
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    sigma0 = (25.0 + 0.2 * k - 0.05 * j) * np.ones((1, 1, W))
+    idx = axis.shape[0] // 2
+    perp = curtains.perpendicular_path(axis, metrics["normals"], idx, 5)
+    out = curtains.figure_perpendicular(
+        color, sigma0, Z, perp, 5, tmp_path / "perp_iso.png",
+        follow_isopycnal=True,
+    )
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_figure_isopycnal_surface_smoke(synthetic_scene, tmp_path):
+    color, _, Z, axis, metrics = synthetic_scene
+    K, H, W = color.shape
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    sigma0 = (25.0 + 0.2 * k - 0.05 * j) * np.ones((1, 1, W))
+    out = curtains.figure_isopycnal_surface(
+        color, sigma0, Z, axis, metrics, tmp_path / "iso_surface.png",
+    )
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_isopycnal_curtain_unlimited_follows_across_tile():
+    # Steeply sloping surface: with the default (unlimited) search the trace
+    # follows it across the whole tile instead of stopping at a window edge.
+    K, H, W = 10, 61, 30
+    k = np.arange(K)[:, None, None].astype(float)
+    j = np.arange(H)[None, :, None].astype(float)
+    slope = 4.0  # 4 px per level: leaves a +/-5 window after 2 levels
+    sigma0 = (25.0 + 0.1 * (k - (j - 20.0) / slope)) * np.ones((1, 1, W))
+    field = j * np.ones((K, 1, W))
+    axis = np.column_stack([np.full(15, 20), np.arange(5, 20)]).astype(int)
+    met = curtains.path_metrics(axis)
+    cur, _ = curtains.isopycnal_curtain(
+        field, sigma0, axis, met["normals"], 25.0,  # half_width=None
+    )
+    # Surface at j = 20 + 4k: inside the tile (j <= 60) through k=9.
+    for kk in range(K):
+        assert np.allclose(cur[kk], 20.0 + slope * kk, atol=1e-6)
