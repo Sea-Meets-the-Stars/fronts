@@ -17,7 +17,7 @@ differ between branches. On the wrong branch, stored tiles still load and
 anything needing generation fails.
 
 ```bash
-cd llc4320-native-grid-preprocessing && git checkout tiles-viz
+cd llc4320-native-grid-preprocessing && git checkout main
 cd ../fronts                         && git checkout viz_tools
 ```
 
