@@ -34,6 +34,9 @@ Log your work below. Use Fable if you can.
 4. Ok, I think we are ready to create a planning doc.  Let's name it `frontogenesis_planning.md`.  Do so.
 Log your work below. Use Fable if you can.
 
+5. Ok, that planning doc looks great.  Now generate a separate coding doc named `frontogenesis_coding.md`.  With key milestones (presumably matching the Phases).  We will then use that to create a series of prompt docs for execution.
+Log your work below. Use Fable if you can.
+
 ## Q&A
 
 ### Planning
