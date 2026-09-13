@@ -786,3 +786,56 @@ Q8), so they stand; the doc records the consequences honestly — the offshore c
 sample toward wave-dominated weak fronts, and 72 h (3 diurnal / 3.6 inertial / 5.8 M2
 cycles) cannot separate those bands, making Figure 6 indicative rather than conclusive and
 making a 504 h extension the natural first follow-on.
+
+### 2026-09-12 — Planning prompt 5 (Claude Opus 5, API survey by Fable)
+
+**Deliverable:** `dev/frontogenesis/frontogenesis_coding.md` (533 lines, 8 sections,
+milestones M0-M6).
+
+**Structure.** §1 conventions (units, the factor of two, mask polarity, dtype, filter
+scale) — most failure modes in this project are convention slips, so they are pinned first.
+§2 external APIs, read from source. §3 data contracts (four zarr/nc schemas). §4 module
+specifications as exact signatures — the contract the prompt docs will be written against.
+§5 test strategy. §6 milestones M0-M6, **one per execution prompt doc**. §7 critical path.
+§8 a pitfall checklist distilled from the adversarial review.
+
+**Milestones.** M0 access/reconnaissance; **M1 operators + validation (HARD GATE)**;
+M2 data pull; **M3 field budget (HARD GATE)**; M4 fronts/tracking; M5 figures/report;
+M6 depth (deferred). M1 and M2 can run in parallel — the data pull needs no physics.
+M1's gate is the discrete null test at slope = 1 +/- 0.05; M3's is budget closure, not a
+slope.
+
+**Method note.** Used a Fable subagent to read exact signatures from source rather than
+writing plausible-looking calls into a doc that will be executed. This paid for itself
+three times over — it caught three errors in documents I had already written:
+
+1. **Wrong filename throughout.** On `tiles-surface-only` the physics lives in
+   `calculate_fields.py`; `calculate_additional_fields.py` is the name on the **stale
+   `llc4320_v2` branch** I had been reading earlier. Every citation in the planning doc was
+   pointing at a file that does not exist on the branch we will work from. Fixed.
+2. **Buoyancy convention was wrong.** I wrote `b = -g rho/rho0`. The repo's
+   `calculate_fields.buoyancy_of_field` is `b = +g sigma0/rho0` with `g=9.81`,
+   `rho0=1000.0` — it *increases with density*, the negative of the textbook definition.
+   Harmless downstream (`G` and `F` are quadratic; alignment enters as `cos 2theta`), but
+   documented so nobody "fixes" it. Also flagged the legacy
+   `utils/physical_calculations.buoyancy_of_field` (g in km/s^2, rho_ref=1025) as
+   do-not-use.
+3. **The "native basis, no rotation" rule was unimplementable.** Both
+   `calculate_native_gradient_tracer` and `calculate_jacobian` rotate to geographic via
+   `CS`/`SN`. Corrected the rule to what actually matters: `grad b` and the Jacobian must be
+   in the *same* basis (they are), `G` and `F` are rotational invariants, and only the
+   **departure points** stay in native index space. Planning §5.2 rewritten.
+
+**Three traps recorded in §2** for the execution prompts: `process_llc4320_grid` calls
+`reset_coords()` and can drop comodo attrs (must re-run `_ensure_comodo_attrs` before
+`set_xgcm_grid`); the confirmed `halo_mask.py:75` bug returns a single all-True 2-D face
+from inside the loop when a face is entirely land, aborting the rest and inverting the
+convention; and **two live timestamp formats** — `dbof` uses `'%Y-%m-%d %H:%M:%S'` while
+`front_tracking.parse_time` requires `'%Y-%m-%dT%H_%M_%S'`. Also: `halo_km` is in
+kilometres, not cells (our 7-cell requirement is ~13 km); `calculate_native_strain_vorticity`
+returns a **dict** with shear strain and vorticity on **corners**; and
+`colocate_fronts_with_properties` defaults to `nan_policy='propagate'`, which is wrong for
+our NaN-masked fields.
+
+**Still blocking:** Q11 (branch strategy). M0 cannot start until it is settled, since it
+determines which branches we install and work from.

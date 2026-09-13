@@ -31,8 +31,15 @@ that budget precisely is the whole design of the study.
 Buoyancy, from `Theta` and `Salt` at the surface:
 
 ```
-b = -g * rho(Theta, Salt, p=0) / rho0        [m s^-2]
+b = g * sigma0(Theta, Salt) / rho0           [m s^-2]
+    g = 9.81 m s^-2,  rho0 = 1000.0 kg m^-3,  sigma0 = JMD95 potential density - 1000
 ```
+
+**Note the sign.** This is `calculate_fields.buoyancy_of_field`, the repo's own definition,
+and it is `+g sigma0/rho0` — it *increases with density*, i.e. the negative of textbook
+buoyancy. `G` and `F` are quadratic in `grad b` so nothing downstream is affected, and the
+alignment angle enters only as `cos(2 theta)`, which is invariant under the flip. **Do not
+"fix" the sign** — just record it so `grad b` arrows are read correctly.
 
 The front-strength field — the same quantity the repo already uses as its primary front
 indicator, `gradb2`:
@@ -230,18 +237,36 @@ for ts in timestamps:
 The repo's `frontogenesis_tendency` is retained as an **unfiltered regression test** of our
 operator, not as the science product.
 
-**Equation of state.** Use **JMD95 at the cell mid-depth pressure (~0.5 dbar)** — the EOS
-the model itself advected — not TEOS-10/`gsw`. The difference is ~1% but *systematic*, and
-it would propagate straight into the headline slope. `physical_calculations.buoyancy_of_field`
-already uses JMD95; match it.
+**Equation of state.** Use `calculate_fields.buoyancy_of_field`, which is **JMD95** — the
+EOS the model itself advected — not TEOS-10/`gsw`. That difference is ~1% but *systematic*
+and would propagate straight into the headline slope. It evaluates potential density at
+`p = 0`; the review suggested in-situ density at the cell mid-depth (~0.5 dbar), a
+difference that is negligible at the surface. **Do not use
+`utils/physical_calculations.buoyancy_of_field`** — that one is legacy, with `g = 0.0098`
+in km s^-2 and `rho_ref = 1025`.
 
 ### 5.2 Native basis, and the rotation approximation
 
-Gradients and the velocity Jacobian are computed in the **native (x-hat, y-hat) basis**
-using `dxC`/`dyC`, with no rotation to geographic. `G` and `F` are rotational invariants,
-so this is legitimate and removes a rotation round-trip and its sign traps. Rotation via
-`CS`/`SN` is applied only for *interpretation* — plotting, and the strain-axis angle in
-Figure 4.
+An earlier version of this section said we would work purely in the native basis with no
+rotation. That is not what the available helpers do, and fighting them would mean
+re-deriving tested code. The corrected rule:
+
+- **`grad b` and the velocity Jacobian both come from the repo helpers**
+  (`calculate_native_gradient_tracer`, `calculate_jacobian`), which **both rotate to the
+  geographic basis via `CS`/`SN`**. What matters for `F` is that the two are in the *same*
+  basis, and they are.
+- **`G` and `F` are rotational invariants**, so the basis choice does not change either
+  quantity — it only has to be consistent.
+- **Departure points stay in native index space** (§5.3): raw `U`, `V` interpolated to cell
+  centres, then `di = U dt/dxC`, `dj = V dt/dyC`. No rotation, no round-trip.
+
+*Known approximation.* Rotation invariance is exact only for a spatially constant rotation;
+`CS`/`SN` vary across the tile, so "rotate then differentiate" and "differentiate then
+rotate" differ by terms in `grad CS`, `grad SN`. Scale estimate: the grid angle changes by
+a few degrees across 720 cells, giving `~4e-8 m^-1 * 0.2 m/s ~ 8e-9 s^-1` against strain
+rates `~1e-5 s^-1` — about **0.1%**. Spherical metric terms (`u tan(phi)/a ~ 2e-8 s^-1`) are
+similarly negligible. Both confirmed numerically in Phase 0, and the discrete null test
+(§6, test 3) would expose any inconsistency between the two sides regardless.
 
 *Known approximation.* Rotation invariance is exact only for a spatially constant rotation;
 `CS`/`SN` vary across the tile, so "rotate then differentiate" and "differentiate then
@@ -499,7 +524,7 @@ code, inline comments explaining the physics.
 
 | Need | Already exists | Where |
 |---|---|---|
-| F on the native grid | yes | `calculate_additional_fields.py:543` `_frontogenesis_formula` |
+| F on the native grid | yes | `calculate_fields.py:627` `_frontogenesis_formula` |
 | Metric-correct gradients/Jacobian | yes | `dbof/utils/native_gradient.py` |
 | Front detection | yes, and NaN-safe | `fronts/finding/pyboa.py` (`nanpercentile`) |
 | Front tracking | yes, `dt` is a real parameter | `fronts/front_tracking.py` `follow()` |
