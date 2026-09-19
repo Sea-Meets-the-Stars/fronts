@@ -37,6 +37,10 @@ Log your work below. Use Fable if you can.
 5. Ok, that planning doc looks great.  Now generate a separate coding doc named `frontogenesis_coding.md`.  With key milestones (presumably matching the Phases).  We will then use that to create a series of prompt docs for execution.
 Log your work below. Use Fable if you can.
 
+6. Can you now generate a Google Slide deck that summarizes the planning?  
+Put it on the AIOcean Drive under `data/HIINet/Frontogenesis/`.  Name it `Frontogenesis_Planning`.  
+Use Fable if you can.  Log your work
+
 ## Q&A
 
 ### Planning
