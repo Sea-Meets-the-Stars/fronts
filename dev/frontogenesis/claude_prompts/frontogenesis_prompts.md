@@ -843,3 +843,46 @@ our NaN-masked fields.
 
 **Still blocking:** Q11 (branch strategy). M0 cannot start until it is settled, since it
 determines which branches we install and work from.
+
+### 2026-09-19 — Planning prompt 6 (Claude Opus 5) — PAUSED, deck built but not uploaded
+
+**State: the deck is built and QA'd; the upload to Drive did not happen.** Paused at JXP's
+request to resume on his workstation.
+
+**Done.**
+
+- Destination confirmed on Drive: `data/HIINet/Frontogenesis`
+  (folder id `15rA8LYT3yGrQaKwvy9LRHRWf92nkJ7PL`, parent `HIINet`
+  `1zrn-v1yVvljkdCpgAkYy8SodT3dpsgXS`, grandparent `data`
+  `1xb7TQPwXFwbfknSvuvVWsuOi-4t-CGE0`, on a shared drive). The `Frontogenesis` folder was
+  created 2026-09-19, i.e. just before the request.
+- 13-slide deck built with `python-pptx` in an "Ocean Gradient" palette (midnight / deep
+  blue / teal, amber reserved for risk content). Slides: title; the question; the budget;
+  why surface-only works (and where the discretisation takes it back); what exists vs what
+  is new; the data; method (five commitments); **the residual is not purely diabatic**;
+  four validation gates; figures; milestones; open decision + risks; null-result criteria.
+- Saved to the repo so it survives the session:
+  `dev/frontogenesis/deck/build_deck.py` (generator) and
+  `dev/frontogenesis/deck/Frontogenesis_Planning.pptx`.
+
+**QA.** Geometry and text-overflow checks pass programmatically (no off-slide shapes, no
+estimated overflow, margins >= 0.5 in); slide-by-slide content dump verified. **Visual QA
+was not possible** — there is no LibreOffice on this machine (`soffice` absent), so the
+usual render-to-image inspection could not run. Worth a human eye on first open.
+
+**Why the upload stalled.** `mcp__claude_ai_Google_Drive__create_file` can create a native
+Google Slides file but only from uploaded content, which must be passed inline as
+base64. The deck is 54 KB (39 KB after stripping the 10 unused default slide layouts) =
+~52 KB of base64, which the shell persists to a file rather than returning inline. Splitting
+it into three chunks and reassembling by hand risks a single-character corruption that would
+silently produce an unopenable file — not worth it.
+
+**To finish (next session).** Either (a) re-run the base64 upload on a machine/session where
+the full string can be passed in one piece, or (b) simpler and safer: open
+`dev/frontogenesis/deck/Frontogenesis_Planning.pptx` and drag it into the Drive folder above,
+letting Drive convert it to Google Slides (File > Save as Google Slides), or (c) install
+LibreOffice first so the deck can also get a proper visual QA pass before upload.
+
+**Dependency note.** `python-pptx` is not in any conda env here; it was installed into a
+throwaway venv in the session scratchpad. `build_deck.py` needs `pip install python-pptx`
+to re-run.
