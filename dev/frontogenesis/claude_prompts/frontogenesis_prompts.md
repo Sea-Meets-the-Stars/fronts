@@ -41,6 +41,11 @@ Log your work below. Use Fable if you can.
 Put it on the AIOcean Drive under `data/HIINet/Frontogenesis/`.  Name it `Frontogenesis_Planning`.  
 Use Fable if you can.  Log your work
 
+7. Lauren has provided comments on the planning. I have put them in the file `lauren_comments_on_planning.txt`.  Please read them and then let's have a conversation.  Put your comments and questions in the Q&A/Planning section.  Log your work below. Use Fable if you can.
+
+8. I have answered your qeustions Q13-Q15.  Please read my answers, update the planning docs and then proceed to create a series of prompt docs for execution.
+Name them `frontogenesis_prompt_1.md`, `frontogenesis_prompt_2.md`, etc.  Log your work below. Use Fable if you can.
+
 ## Q&A
 
 ### Planning
@@ -566,6 +571,193 @@ Lauren would not get the land-halo fix for free. Object, or proceed?
 > **JXP:**
 
 
+#### Claude, 2026-09-26 (prompt Planning-7 — responding to Lauren's comments)
+
+Lauren's comments are adopted essentially in full. One of them (the tracking point) is more
+important than she framed it, one data offer unlocks something I had written off as
+impossible, and two of her branch assumptions are now out of date in our favour.
+
+---
+
+##### Answers to her three direct questions
+
+**"Are you doing hourly here?"** Yes. Hourly, 72 consecutive steps,
+**2012-07-02 00:00 -> 2012-07-04 23:00 UTC**. The window was chosen *because* the existing
+`monterey_bay` set already covers 11 hours inside it (07-02 T12; 07-03 T00/03/06/09/12/15/18/21;
+07-04 T00 and T12), so hourly full-depth would complete a window that is already half-covered.
+
+**"Was frontogenesis branched off of viz_tools?"** **No.** It was branched off `build_v5`.
+Precisely: `frontogenesis` = `origin/build_v5` minus one commit (`fcf9cb1 reorganize config
+info`) plus 5 commits — and those 5 touch **only** files under `dev/frontogenesis/`
+(the prompts doc, the planning doc, the coding doc, the deck generator). Nothing outside it.
+`origin/viz_tools` and `frontogenesis` share no recent history: 65 commits on viz_tools are
+absent from frontogenesis and 20 the other way.
+
+**"I can do this if you let me know."** Yes please — see Q15 for the exact sequence. But
+two of the premises have already moved:
+
+- **`tiles-surface-only` does not need a rebase any more.** It is now **0 behind / 4 ahead**
+  of `origin/main` — a clean fast-forward. (On 2026-09-12 it was 19 behind; someone has
+  already brought it up.) `COMODO_COORD_META` on `origin/main` does carry
+  `c_grid_axis_shift: -0.5`, confirming your note; and `origin/main` has moved to
+  `80048ac Merge PR #37 face-stitch`.
+- **The thing actually blocking the chain is PR #24 ("Build v5"), still OPEN** since
+  2026-09-01. `origin/build_v5` is 10 ahead of and **0 behind** `main`, so it merges clean.
+  Everything else queues behind it.
+
+Also worth knowing: `run_series` and the OSN pipeline are **still not on `origin/main`** —
+they live only on `tiles-surface-only`. And the physics file is `calculate_fields.py` on
+`main` but `calculate_additional_fields.py` on the stale local `llc4320_v2`, which is where
+some earlier notes' line numbers came from.
+
+---
+
+##### The data offer: yes, and it changes the budget from inferred to measured
+
+I had written in planning §4 that heat fluxes are in neither OSN store, so the diabatic term
+could only ever be inferred as a residual. **That is true of OSN but not of the CHUNKS
+store**, whose variable list already includes **`oceQnet`** alongside 3D
+`Theta, Salt, U, V, W` and 2D `Eta, oceTAUX, oceTAUY, SIarea`.
+
+That matters a lot, because the adversarial review's most serious objection (planning §2.3)
+is that we cannot separate implicit numerical diffusion from genuine air-sea forcing — both
+land in the same residual. With hourly chunks we get, at every timestep:
+
+- `k = 1, 2` Theta/Salt -> `b_z` -> the finite-top-cell vertical term **measured** rather
+  than bounded (planning §2.2 currently promises only a bound from 11 snapshots);
+- `W` below the surface -> the vertical terms properly;
+- `oceQnet` -> most of `grad b . grad B` computed **directly**.
+
+The residual then reduces to *numerical diffusion + interior KPP*, which is a far stronger
+statement than "everything we could not compute". This upgrades Figure 2b from a
+circumstantial discriminator to a real budget term.
+
+**One concrete ask beyond the transfer itself** (Q13): `transfer.variables` is configurable,
+so please **add `oceQsw`**, and `oceFWflx` if the MIT source has it. Without `oceQsw` we
+cannot separate penetrating shortwave from the non-penetrating part, and a large fraction of
+shortwave is absorbed inside the ~1 m top cell — which is exactly where our `b` lives. Net
+flux alone gets the dominant signal but blurs the term that peaks at local noon, i.e. the
+one Figure 6 is about. `oceFWflx` matters less in the summer CC but `b` does depend on salt.
+
+**Cost, so the decision is informed.** All 51 levels, float32: 105.75 MB per 3D variable per
+timestep; 5 3D + 5 2D ≈ **539 MB/timestep**. 61 new stores (11 already held) ≈ **33 GB**
+(38.8 GB for all 72). Confirmed incidentally: the source has **51 levels to ~968 m with
+`drF[0] = 1.0 m`, `Z[0] = -0.5 m`** — which pins the "~1 m top cell" assumption in
+planning §2.2 that was previously marked *to confirm*.
+
+**A depth subset is not currently possible without a small patch.** The level count is taken
+straight from the source (`transfer/zarr_io.py:326`, `nk = ds.sizes[vdim]`) and nothing in
+the config schema or CLI selects `k`. A `k = 0..4` subset would be ~4.5 GB instead of 33 GB,
+and needs roughly ten lines in `TransferConfig` plus an `isel` in `pipeline._resolve_target`.
+**Footgun worth flagging:** `config._only_known()` *silently drops* unknown YAML keys, so
+adding a `k_max:` to the yaml would be ignored rather than rejected.
+
+---
+
+##### S5.3 / S6 — validation figures. Agreed, all of it, and promoted from optional
+
+Every one of these is cheap and makes a decision that is currently abstract into something
+visible. Adopted as **M1 acceptance deliverables, not nice-to-haves**:
+
+- `validate.py` writes **one PNG per test** (four), not just a dict of numbers.
+- **The interpolation demo exactly as you describe it:** a synthetic front shifted by half a
+  cell; truth vs `G` from bilinear-`G` vs `G` from cubic-`b`, with the negative bias at the
+  maximum annotated. This is the clearest possible statement of why §5.3 item 2 exists, and
+  it doubles as the regression test.
+- **The discrete-null slope drawn on Figure 2 as an explicit baseline line**, not merely
+  quoted in the caption. Better than what I had written.
+- **A new main figure for the filter sweep**: rows `{b, G, 2F, tau-term}` x columns
+  `{L = 0, 2, 4, 8}`. Promoted to a main figure rather than an appendix, because §5.4 is the
+  part of the method that is hardest to believe on prose alone, and showing where `tau`
+  lives is the whole argument. This is Figure 3b.
+
+Figures are therefore restructured: main Figures 1-10 (with 2b and 3b), plus a validation
+set V1-V5 written by `validate.py` itself.
+
+---
+
+##### S5.7 — the tracking point. You are right, and it is load-bearing
+
+Your read of the two mechanisms is exactly correct: `follow()` matches labels on
+position/size/orientation, and the departure-point machinery is per-pixel and currently only
+feeds `DG/Dt`. They should talk, and here is why it is not optional.
+
+**Your integer-label worry dissolves.** We never interpolate labels. We advect the
+**boolean front mask** through the same `semilag` machinery (as a float, thresholded at 0.5),
+producing a *flow-predicted mask* at `t+dt`. Labels stay integers throughout.
+
+**Then the prediction goes in non-invasively.** `score_candidate` already takes a `weights`
+dict, so `IoU(flow-predicted mask, candidate label)` is an additional scored term, not a
+rewrite. It is also strictly better physics than what is there now: `_predict()` extrapolates
+*centroid* velocity from the last two sightings, and a front whose centroid moves because it
+grew asymmetrically is not a front that moved with the fluid.
+
+**Where I would push further than you did.** You wrote that this "seems relevant" to the M4
+criterion. It is stronger than that — **M4's reconciliation is meaningless without it.** If
+`follow()` ever links a front at `t` to a different physical front at `t+dt`, then the
+per-front `d(front-mean G)/dt` is not a material derivative and comparing it to
+`integral 2F dt` compares nothing.
+
+And even a *perfect* flow-following track is not enough, which I had missed: front-mean `G`
+is a mean over a **changing pixel set** (fronts lengthen, split, merge), so `d/dt` of that
+mean carries an extra term from the set's evolution. So M4's reconciliation must be done on
+the **advected pixel set** — Lagrangian-matched pixels — not "pixels labelled front at `t`"
+against "pixels labelled front at `t+dt`". That is a real change to the M4 criterion and it
+came out of your comment.
+
+**Two things we get for free.** A principled **split/merge detector** (the predicted mask
+overlapping two candidate labels), which `follow()` has no notion of and which will certainly
+happen over 72 h; and a **quality metric for all of Phase 3**: the distribution of
+(`follow()`-chosen displacement − flow-predicted displacement). If those disagree often, the
+tracking is not following the fluid and we know it before interpreting anything. That becomes
+a figure.
+
+---
+
+##### Housekeeping consequence
+
+The coding doc §2 API table is pinned to `tiles-surface-only` and `viz_tools` line numbers.
+Both are about to move. **§2 must be re-verified after the merges** — before M0 runs against
+it, not after something silently misbehaves.
+
+---
+
+##### Questions
+
+**Q13 — Transfer scope, for Lauren.** (a) All 51 levels (61 new stores, ~33 GB) or patch the
+transfer for `k = 0..4` (~4.5 GB)? I lean **all 51 levels** if the storage is unremarkable:
+it touches no transfer code, and it makes M6 (the subsurface budget) real work rather than
+aspiration. (b) Either way, please add **`oceQsw`** to `transfer.variables`, and `oceFWflx`
+if the source carries it — that is the difference between measuring the diabatic term and
+inferring it.
+
+> **Lauren / JXP:** Yes, all 51 levels.  And yes, please add `oceQsw` and `oceFWflx`.
+
+**Q14 — Does flow-informed tracking become an M4 requirement?** My recommendation: yes,
+including the Lagrangian-matched-pixel reconciliation above. It is modest work (the `semilag`
+machinery already exists and `score_candidate` already takes weights) and without it M4's
+acceptance criterion does not test what it claims to. The alternative is to keep `follow()`
+as-is and report the disagreement statistic as a caveat only.
+
+> **JXP:** Yes, it becomes an M4 requirement.
+
+**Q15 — Branch sequencing.** Proposed order, which I think needs only Lauren's hand on steps
+2 and 3:
+1. **Merge PR #24** (`build_v5` -> `main`). Clean: 0 behind.
+2. **Lauren rebases `viz_tools` onto the new `main`.** This is where the `llc/meta.py` /
+   `llc/publish.py` add/add conflicts get resolved — once, by the person who wrote viz_tools,
+   rather than by us guessing.
+3. **Fast-forward `tiles-surface-only`** into `main` in the llc repo (0 behind — no rebase
+   needed, contrary to the original concern).
+4. **Rebase `frontogenesis`** onto the result. Its 5 commits are documentation-only under
+   `dev/frontogenesis/`, so they replay with zero conflicts onto anything.
+
+Does that match what you had in mind, and do you want to pick up `fcf9cb1 reorganize config
+info` directly or let it arrive via `main`?
+
+> **JXP / Lauren:**  Yes, that looks very good.
+
+
 ## Logs
 ### 2026-09-11 — Planning prompt 1 (Claude Opus 5, surveys by Fable)
 
@@ -886,3 +1078,136 @@ LibreOffice first so the deck can also get a proper visual QA pass before upload
 **Dependency note.** `python-pptx` is not in any conda env here; it was installed into a
 throwaway venv in the session scratchpad. `build_deck.py` needs `pip install python-pptx`
 to re-run.
+
+### 2026-09-26 — Planning prompt 7 (Claude Opus 5, branch/transfer survey by Fable)
+
+**Input:** `dev/frontogenesis/lauren_comments_on_planning.txt` (6 comments, on S4, S5.3,
+S5.7, S6 and S10/Q11). Adopted essentially in full. Response written to Q&A as round 4,
+with Q13-Q15 posed.
+
+**Method.** Answered Lauren's three direct questions from current repo state (I re-fetched
+both repos — her comments assume a state that is two weeks old and has moved). One Fable
+subagent surveyed the chunk-transfer machinery and current branch topology in the llc repo;
+I checked the fronts repo myself.
+
+**The data offer turns out to be worth more than it looked.** I had written in planning §4
+that heat fluxes are in neither OSN store, so the diabatic term could only be inferred as a
+residual. True of OSN, **false of the CHUNKS store**, whose variable list already carries
+`oceQnet`. With hourly chunks we would get `k=1,2` Theta/Salt (hence `b_z`), subsurface `W`,
+and `oceQnet` at every step — turning the finite-top-cell vertical term from a *bound* into a
+*measured* term and computing most of `grad b . grad B` **directly**. That directly attacks
+the adversarial review's worst objection (numerical diffusion and air-sea forcing being
+inseparable in one residual). Asked Lauren to also add `oceQsw` — a large fraction of
+shortwave is absorbed inside the ~1 m top cell where our `b` lives, and net flux alone blurs
+exactly the noon-peaking term Figure 6 is about.
+
+Incidental confirmation: the source has **51 levels to ~968 m, `drF[0] = 1.0 m`,
+`Z[0] = -0.5 m`** — which pins the "~1 m top cell" assumption in planning §2.2 that had been
+marked *to confirm*. Cost: ~539 MB/timestep, 61 new stores ≈ **33 GB**. A `k=0..4` subset
+(~4.5 GB) is **not** currently expressible — level count comes from the source
+(`transfer/zarr_io.py:326`) and nothing in the config or CLI selects `k`; it would need ~10
+lines. Flagged a footgun: `config._only_known()` silently drops unknown YAML keys, so a
+hand-added `k_max:` would be ignored rather than rejected.
+
+**Lauren's tracking comment is the most valuable of the six, and stronger than she framed it.**
+Her integer-label worry dissolves — we advect the **boolean mask**, never labels — and the
+prediction enters non-invasively because `score_candidate` already accepts a `weights` dict.
+But she wrote it "seems relevant" to M4; in fact **M4's reconciliation is meaningless without
+it**: if `follow()` links a front at `t` to a different physical front at `t+dt`, the
+per-front tendency is not a material derivative at all. And I had missed a further point her
+comment exposed: even a perfect flow-following track is insufficient, because front-mean `G`
+is a mean over a **changing pixel set**, so the reconciliation must be done on the
+**advected pixel set** (Lagrangian-matched pixels). That is a genuine change to the M4
+acceptance criterion. Two free by-products: a principled split/merge detector, and a
+Phase-3-wide quality metric (distribution of `follow()`-chosen minus flow-predicted
+displacement).
+
+**Validation figures: adopted and promoted** from optional to M1 acceptance deliverables —
+one PNG per validation test; the half-cell-shift interpolation demo exactly as she described
+it (truth vs bilinear-`G` vs cubic-`b`, negative bias at the maximum annotated); the
+discrete-null slope **drawn** on Figure 2 as a baseline line rather than quoted; and a new
+main figure 3b, rows `{b, G, 2F, tau}` x columns `{L=0,2,4,8}`, so §5.4 stops being abstract.
+
+**Q11 is effectively resolved, and two of Lauren's premises were out of date in our favour.**
+
+- `frontogenesis` was **not** branched off `viz_tools` — it is `origin/build_v5` minus
+  `fcf9cb1` plus 5 commits that touch **only** `dev/frontogenesis/`. So its rebase is
+  trivial, and the add/add conflicts I worried about in round 3 dissolve: they get resolved
+  once, by Lauren, when `viz_tools` meets a `main` that already contains build_v5.
+- `tiles-surface-only` **no longer needs a rebase** — it is 0 behind / 4 ahead of
+  `origin/main`, a clean fast-forward. `COMODO_COORD_META` on main does carry `-0.5`.
+- The actual blocker is **PR #24 ("Build v5"), still OPEN** since 2026-09-01, 10 ahead and 0
+  behind main. Everything queues behind it.
+- Still not on `origin/main`: `run_series` and the OSN pipeline (only on
+  `tiles-surface-only`).
+
+**Flagged for later:** the coding doc §2 API table is pinned to branch line numbers that are
+about to move; it must be re-verified after the merges, before M0 runs against it.
+
+### 2026-09-26 — Planning prompt 8 (Claude Opus 5, consistency audit by Fable)
+
+**Deliverables.** Both planning docs updated for Q13-Q15, and **six execution prompt docs**
+written: `frontogenesis_prompt_1.md` .. `_6.md`, one per milestone M0-M5, indexed in a new table
+at the top of `frontogenesis_coding.md`.
+
+| Prompt | Milestone | Gate |
+|---|---|---|
+| 1 | M0 access and reconnaissance | |
+| 2 | M1 operators and validation | **HARD** |
+| 3 | M2 data pull | |
+| 4 | M3 field-level budget | **HARD** |
+| 5 | M4 fronts and flow-informed tracking | |
+| 6 | M5 figures and report | |
+
+**Doc updates from Q13-Q15.** Planning §2.2 — the finite-top-cell vertical term becomes
+*measured* rather than bounded; `drF[0] = 1.0 m`, `Z[0] = -0.5 m` now stated as fact. §2.3 — the
+residual reduces to **numerical diffusion + interior KPP** rather than a catch-all, since the
+vertical and surface-flux terms are computed. §4 — the hourly full-depth chunk transfer, and the
+correction that heat fluxes are absent from *OSN* but present in the *chunk* store. §5.7 — the
+flow-informed tracking requirement in full, including the advected-pixel-set reconciliation.
+§6-§7 — validation figures promoted to deliverables; Figures 2b and 3b added. §10 — Q11 closed
+with the four-step branch sequence. Coding doc gained `vertical.py`, flow-informed `tracking.py`
+signatures, the chunk data contract, and strengthened M3/M4 acceptance criteria.
+
+**Then a Fable subagent audited all eight documents for mutual consistency, and found 18 real
+defects.** All 18 are fixed. The ones that would actually have broken execution:
+
+1. **M2 secretly depended on M1.** Both the coding doc and prompt 3 asserted "M2 does not depend
+   on M1", yet M2 was asked to write `tile330_masks.nc` — which needs `masking.py`, an M1 module.
+   Resolved by moving mask creation to **M1** and the static grid to **M0**, leaving M2 pulling
+   raw fields only. The stated parallelism is now true.
+2. **The M3 gate equation differed between planning and coding/prompt** — one subtracted
+   `numerical` as if it were known, the other put it on the right-hand side. Unified.
+3. **M1's tests needed M2's products.** V2 and V6 require the real tile grid; gate 3's
+   real-velocity variant needs two consecutive hours. Fixed by making `tile330_grid.zarr` and a
+   **two-hour** pull M0 deliverables, and marking those two tests as not pure-offline.
+4. **Prompt 4 forbade front finding while its own acceptance needed front pixels.** Resolved by
+   defining M3's front-pixel selection as a percentile of `G` at the midpoint time inside
+   `mask_analysis` — no labelling, no `tile_find` — which also keeps the budget from being
+   entangled with thresholding choices. Bootstrap units now differ by milestone: spatial blocks
+   in M3 (no objects exist yet), frontal features in M4.
+5. **`drF` had no source.** `vertical.py` needs it; OSN's grid is 2-D and does not carry it. It
+   now comes from the chunk store's 3-D grid in M2, and was removed from M0's question list
+   (five questions, not six).
+6. **V4/V4b/V5 numbering was incoherent** across three docs, with "four gates" heading a list of
+   six functions. Now: **four gates V1-V4, two supporting figures V5-V6, six PNGs.**
+7. **Stale pre-Q13 text** still said the vertical term would be "bounded" and that heat fluxes
+   were "in neither store" — directly contradicting the same documents' own updated sections.
+8. **Figures were scheduled in M5 but required in M3/M4.** They are now produced where their data
+   lands (M1: V1-V6; M3: 1-7, 10; M4: 8-9), with M5 consolidating captions and regeneration.
+9. Plus: module ownership of `coarsegrain.py` and `vertical.py`; `halo_mask` taking km in one
+   place and cells in another (now cells everywhere, converted from measured `dxC`, no hard-coded
+   13 km); `fig10_validation` vs `fig10_term_budget`; an 85th/90th percentile mismatch (now
+   "read `finding_config_D.yaml`" rather than asserting either); `tile_find`, `score_candidate`,
+   config `D` and `flow_weighted_score` called but never specified; the trap count ("three" for
+   four marked traps); a Python-version disagreement; a duplicated paragraph in planning §5.2;
+   the decisions table still listing Q11 as open with Q13-Q15 missing; and three
+   inconsistently-used names for the measured tendency (now deliberately three-tiered and
+   documented as such).
+
+**Worth noting for its own sake:** delegating the audit caught things a re-read would not have.
+Several defects were *between* documents I had written at different times — exactly the class of
+error that reading each one in isolation cannot surface.
+
+**Still outstanding (not blocking):** PR #24 remains open, so the Q15 merge sequence has not run;
+once it does, the coding doc's §2 API table must be re-verified before M0 executes against it.

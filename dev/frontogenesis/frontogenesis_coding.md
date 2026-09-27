@@ -4,12 +4,28 @@
 is the *implementation* contract: modules, signatures, data schemas, milestones, and
 acceptance criteria.
 
-**How to use this document.** Each milestone in §6 (M0-M5) is intended to become **one
-execution prompt doc**. A milestone is not "done" until its acceptance criteria pass; M1
-and M3 are hard gates — do not proceed past them on a failure, because everything after
-inherits the error silently.
+**How to use this document.** Each milestone in §6 (M0-M5) has **one execution prompt doc**.
+A milestone is not "done" until its acceptance criteria pass; M1 and M3 are hard gates — do not
+proceed past them on a failure, because everything after inherits the error silently.
 
-**Created:** 2026-09-12. **Blocking prerequisite:** Q11 (branch strategy) — see planning §10.
+| Milestone | Prompt doc | Gate |
+|---|---|---|
+| M0 Access and reconnaissance | `claude_prompts/frontogenesis_prompt_1.md` | |
+| M1 Operators and validation | `claude_prompts/frontogenesis_prompt_2.md` | **HARD** |
+| M2 Data pull | `claude_prompts/frontogenesis_prompt_3.md` | |
+| M3 Field-level budget | `claude_prompts/frontogenesis_prompt_4.md` | **HARD** |
+| M4 Fronts and flow-informed tracking | `claude_prompts/frontogenesis_prompt_5.md` | |
+| M5 Figures and report | `claude_prompts/frontogenesis_prompt_6.md` | |
+| M6 Depth | deferred — not yet written | |
+
+M1 and M2 may run in parallel; everything after M3 is blocked on closure.
+
+**Created:** 2026-09-12. **Updated:** 2026-09-26 (Q13-Q15 closed; Lauren's review folded in).
+
+**Branch prerequisite (Q15, resolved).** Work proceeds against the feature branches
+`tiles-surface-only` (llc) and `viz_tools` (fronts) — both usable today. PR #24 is still open;
+once the merge sequence in planning §10 lands, **§2's API table must be re-verified**, since
+its line numbers are pinned to those branches.
 
 ---
 
@@ -28,6 +44,11 @@ Fix these once. Most of the failure modes in planning §2.3 and §11 are convent
 
 **The factor of two.** `F = (1/2) DG/Dt`. Every comparison, axis label and regression uses
 **`2F` vs `DGDt`**. Name the predicted variable `two_F` in code so it cannot be confused.
+
+**Naming of the measured tendency, deliberately three-tiered** (so the distinction is visible
+rather than accidental): `DGDt` in prose; `DGDt_semilag` and `DGDt_euler` as the two *estimates*
+on disk (§3.4); and `measured` as the budget dataset's field name for whichever estimate is
+primary (the semi-Lagrangian one).
 
 The sign of `b` cancels in both `G` and `F`, but fix it anyway so plots are interpretable.
 
@@ -60,7 +81,7 @@ split rather than nest.
 
 Read directly from source on the branches we will work from
 (`llc4320-native-grid-preprocessing @ tiles-surface-only`, `fronts @ viz_tools`).
-**Do not guess these.** Note especially the three marked ***TRAP***.
+**Do not guess these.** Note especially the **four** marked ***TRAP***.
 
 ### 2.1 Data access (`dbof`)
 
@@ -212,6 +233,12 @@ def group_fronts(fronts_binary, lat, lon, fronts_file, output_dir,
                  n_workers=None, skip_curvature=False) -> pd.DataFrame        # L84
       # fronts_file must contain YYYY-MM-DDTHH_MM_SS
 
+# fronts/runs/prototypes/one_full/build_v5.py   -- the tile front-finding entry point
+#   step 1 -> build.tile_find -> fronts.preproc.gradb2.generate_tile_gradb2
+#   config keys: build.tile_find{name, lon/lat | i_rect/j_rect, property, pipeline}
+#   finding config "D" = fronts/finding/configs/finding_config_D.yaml -- READ IT rather than
+#   assuming its window/percentile; the defaults in fronts_from_gradb2 are NOT config D.
+
 # fronts/viz/curtains.py
 def extract_main_axis(front_mask) -> (L,2) int32 (j,i)                        # L103
 def path_metrics(path, XC_rect=None, YC_rect=None, *, smooth=False,
@@ -248,16 +275,29 @@ coords : time (datetime64), XC, YC
 attrs  : iterations (list), endpoint, stores=['llc_surf','llc_wind'], git_commit
 ```
 `KPPhbl`/`oceTAU*` come from the **second** OSN store (`llc_wind`), which covers our window.
-Heat fluxes are in neither store — the diabatic term is inferred as a residual.
+Heat fluxes are in neither *OSN* store — they come from the chunk store (§3.3), which is what
+makes the diabatic term measurable rather than inferred (Q13).
 
-### 3.3 `tile330_derived_L{L}.zarr` — per filter scale
+### 3.3 `tile330_chunk_20120702T00_72h.zarr` — the extra budget terms (Q13)
+
+From the hourly full-depth `monterey_bay` transfer. **Load only what we need** — the store
+holds all 51 levels; we want three.
 
 ```
-vars : b, G, two_F, DGDt_semilag, DGDt_euler, subfilter, residual,
-       delta, sigma_n, sigma_s, sigma_mag, theta_align
+dims : (time: 72, k: 3, j: 720, i: 720) + staggered
+vars : Theta(time,k,j,i), Salt(time,k,j,i), W(time,k,j,i),
+       oceQnet(time,j,i), oceQsw(time,j,i), oceFWflx(time,j,i)
+attrs : source='CHUNKS/monterey_bay', levels='k=0..2', git_commit
 ```
 
-### 3.4 `tile330_masks.nc`
+### 3.4 `tile330_derived_L{L}.zarr` — per filter scale
+
+```
+vars : b, G, two_F, DGDt_semilag, DGDt_euler, subfilter, vertical, surface_flux,
+       residual, delta, sigma_n, sigma_s, sigma_mag, theta_align
+```
+
+### 3.5 `tile330_masks.nc`
 
 ```
 vars : mask_ocean, mask_halo, mask_offshore, mask_analysis, coast_distance_km
@@ -292,7 +332,7 @@ resumable: skip timestamps already present in `out_zarr` unless `clobber`.
 
 ```python
 def ocean_mask(grid_ds):                          -> np.ndarray  # bool, True=ocean, from hFacC
-def halo_mask(grid_ds, halo_km=13.0):             -> np.ndarray  # bool, True=retained
+def halo_mask(grid_ds, halo_cells=7):             -> np.ndarray  # bool, True=retained
 def coast_distance_km(grid_ds):                   -> np.ndarray  # float, km to nearest land
 def offshore_mask(grid_ds, min_km=100.0):         -> np.ndarray  # bool
 def analysis_mask(grid_ds, halo_cells=7,
@@ -302,10 +342,12 @@ def analysis_mask(grid_ds, halo_cells=7,
 (planning §5.5): the 2-D early return when a face is entirely land, and a `k`-carrying
 `hFacC` that makes the mask 4-D and breaks `skfmm`. Collapse `k` first; assert output shape.
 
-**Halo is specified in km, not cells** — `generate_halo_land_mask(ds_grid, target_km_res,
-...)` takes `target_km_res` and uses it directly as `halo_km`. Our 7-cell requirement
-(3 Jacobian+interp stencil + 4 widest filter half-width) is **~13 km** at the tile's ~1.9 km
-spacing. Confirm the spacing in M0 and set `halo_km` from it rather than hard-coding.
+**Our API takes cells; the underlying helper takes km.** `generate_halo_land_mask(ds_grid,
+target_km_res, ...)` uses `target_km_res` directly as `halo_km`, so `masking.halo_mask` must
+convert: `halo_km = halo_cells * median(dxC)`. Our requirement is **7 cells** (3 for the
+Jacobian+interp stencil, 4 for the widest filter half-width), which is ~13-16 km across the
+tile's 1.8-2.3 km spacing. **Convert from the measured `dxC`; never hard-code the km value.**
+Both `halo_mask` and `analysis_mask` therefore take `halo_cells`.
 
 ### 4.3 `py/operators.py` — the single shared operator
 
@@ -351,17 +393,37 @@ def subfilter_term(b_bar, tau_x, tau_y, grid_ds, grid):-> term            # -gra
 ```
 Without this the filter sweep is uninterpretable (planning §5.4).
 
-### 4.6 `py/budget.py`
+### 4.6 `py/vertical.py` — the extra budget terms from the chunk store (Q13)
+
+`load_chunk_levels` is an **M2** step (it is a data pull); the physics functions below are **M3**.
 
 ```python
-def compute_budget(raw_ds, grid_ds, grid, masks, L_cells,
-                   dt=3600.0, with_vertical=False):     -> xr.Dataset
+def load_chunk_levels(window, k_max=2, out_zarr=None):  -> str | xr.Dataset  # §3.3, M2
+def b_z(Theta, Salt, grid_ds, drF):                     -> xr.DataArray      # top-cell b_z
+def vertical_term(b_x, b_y, b_z, W, grid_ds, grid):     -> xr.DataArray      # -b_z(w_x b_x + w_y b_y)
+def surface_flux_term(b_x, b_y, oceQnet, oceQsw, oceFWflx,
+                      Theta, Salt, drF, grid_ds, grid):  -> xr.DataArray     # grad b . grad B_sfc
+```
+`surface_flux_term` must convert heat and freshwater flux into a buoyancy tendency for the top
+cell (thermal + haline expansion coefficients from the same JMD95 EOS as `operators.buoyancy`),
+and must treat the **shortwave absorbed inside the top cell** separately from `oceQnet` —
+that is why `oceQsw` was requested. `drF[0] = 1.0 m`, `Z[0] = -0.5 m` (confirmed).
+
+### 4.7 `py/budget.py`
+
+```python
+def compute_budget(raw_ds, grid_ds, grid, masks, L_cells, dt=3600.0,
+                   chunk_ds=None):                      -> xr.Dataset
+      # chunk_ds (§3.3) supplies the MEASURED vertical and surface-flux terms.
+      # Without it the budget still runs but those terms are absent and the
+      # residual reverts to a catch-all -- say so loudly in closure_report.
 def closure_report(budget_ds, mask):                    -> dict
 ```
-`compute_budget` returns `measured, two_F, subfilter, vertical, residual` and is the object
-on which the Phase-2 exit criterion is evaluated.
+`compute_budget` returns `measured, two_F, subfilter, vertical, surface_flux, residual` and is
+the object on which the Phase-2 exit criterion is evaluated. With the Q13 transfer the residual
+reduces to **numerical diffusion + interior KPP**, not "everything we could not compute".
 
-### 4.7 `py/stats.py`
+### 4.8 `py/stats.py`
 
 ```python
 def slope_ols(x, y);  def slope_tls(x, y);  def slope_bisector(x, y)
@@ -372,26 +434,55 @@ def feature_bootstrap(x, y, labels, estimator, n=1000)  -> (lo, hi)
 **Bootstrap over frontal features and hours, never over pixels** (planning §11). Every slope
 is reported relative to the M1 discrete-null baseline.
 
-### 4.8 `py/validate.py` — the four gates
+### 4.9 `py/validate.py` — four gates plus two supporting figures (six PNGs)
 
 ```python
-def test_cartesian_deformation(alpha=1e-5, ...)   -> dict   # G ~ exp(2 alpha t), continuum
-def test_native_metric(...)                       -> dict   # analytic f(XC,YC), known gradients
-def test_discrete_null(velocities='strain', ...)  -> dict   # MUST give slope = 1 +/- 0.05
-def test_interpolation_bias(...)                  -> dict   # uniform zero-strain flow; true DGDt = 0
+# the four gates
+def test_cartesian_deformation(alpha=1e-5, png=True)   -> dict   # V1; G ~ exp(2 alpha t)
+def test_native_metric(grid_ds, png=True)              -> dict   # V2; analytic f(XC,YC)
+def test_discrete_null(velocities='strain', png=True)  -> dict   # V3; MUST give slope = 1 +/- 0.05
+def test_interpolation_bias(png=True)                  -> dict   # V4; uniform flow, true DGDt = 0
+# two supporting figures
+def demo_interp_half_cell(png=True)                    -> dict   # V5; the figure Lauren asked for
+def qa_land_halo(grid_ds, png=True)                    -> dict   # V6; coastline before/after halo
 ```
 
-### 4.9 `py/tracking.py`, `py/figures.py`
+**Four gates, six PNGs (V1-V6).** Every one writes to `dev/frontogenesis/figs/` — part of
+acceptance, not an extra. `demo_interp_half_cell` (V5) renders a synthetic front shifted half a
+cell and plots truth vs `G` from bilinear-`G` vs `G` from cubic-`b`, annotating the negative bias
+at the maximum. `test_discrete_null` must also **return the fitted slope**, because Figure 2
+draws it as a baseline line.
+
+`test_native_metric` (V2) and `qa_land_halo` (V6) need the real tile grid, so they are **not**
+pure-offline: mark them `@pytest.mark.needs_grid` and point them at `tile330_grid.zarr`, which
+is an **M0** deliverable.
+
+### 4.10 `py/tracking.py`, `py/figures.py`
 
 ```python
 def find_fronts_series(derived_zarr, mask, config='D')  -> dict[time -> label array]
-def track_top_n(labels_by_time, times, n=10)            -> list[Track]
+def advect_mask(mask_bool, u_c, v_c, grid_ds, dt=3600.0) -> np.ndarray
+      # flow-predicted mask at t+dt: advect as float through semilag, threshold at 0.5.
+      # NEVER interpolate the integer label field -- only the boolean mask.
+def flow_weighted_score(candidate, reference, predicted, radius,
+                        predicted_mask=None, weights=None,
+                        **kw)                           -> (float, dict)
+      # wraps front_tracking.score_candidate, adding IoU(predicted_mask, candidate) as an
+      # extra scored term via its existing `weights` dict. Additive, not a rewrite.
+      # `predicted_mask` comes from advect_mask(); `weights` gains one key, e.g. 'flow_iou'.
+def track_top_n(labels_by_time, times, n=10, flow=None) -> list[Track]
       # `times` MUST be '%Y-%m-%dT%H_%M_%S' (underscores) for front_tracking.parse_time,
       # NOT dbof's '%Y-%m-%d %H:%M:%S'. Convert here; see the §2.5 trap.
-def front_strength_series(track, G_by_time, two_F_by_time) -> DataFrame
+def tracking_quality(tracks, flow)                      -> DataFrame
+      # distribution of (follow()-chosen displacement - flow-predicted displacement);
+      # plus split/merge flags where a predicted mask overlaps two candidate labels.
+def front_strength_series(track, G_by_time, two_F_by_time,
+                          matched_pixels=True)          -> DataFrame
+      # matched_pixels=True evaluates on the ADVECTED pixel set, not "front at t" vs
+      # "front at t+dt" -- front-mean G over a changing pixel set is not material (Q14).
 ```
-`figures.py`: one function per figure, `fig01_maps(...)` ... `fig10_validation(...)`,
-each writing a PNG to `dev/frontogenesis/figs/`.
+`figures.py`: one function per figure, `fig01_maps(...)` ... `fig10_term_budget(...)`, plus
+`figV1..figV6`, each writing a PNG to `dev/frontogenesis/figs/`.
 
 ---
 
@@ -426,26 +517,38 @@ Tasks:
    `scikit-fmm`, `s3fs`, `ujson`, `xmitgcm`, `zarr`, `dask`). Fall back to a py3.13 env if
    py3.14 wheels are missing.
 2. `osn_tiles.tile_spec()`, `load_grid()`, `load_hour()` for **one** timestamp.
-3. Answer, empirically, and record in the log:
+3. Answer, empirically, and record in the log (**five** questions — `drF` is not among them,
+   since OSN's grid is 2-D and carries no `drF`; that is confirmed in M2 from the chunk grid):
    - Is OSN land stored as **0 or NaN**?
    - Is `W[k_l=0] ~ 0`? (validates planning §2.2)
-   - Top-cell thickness from `drF`.
-   - `dxC`/`dyC` at 37N — the actual native spacing.
-   - Magnitude of `grad CS`, `grad SN` terms vs strain (expect < 0.5%).
+   - `dxC`/`dyC` at 37N — the actual native spacing (sets the halo km and the displacement estimate).
+   - Magnitude of `grad CS`, `grad SN` terms vs strain (expect < 0.5%), and `u tan(phi)/a`.
    - The model's tracer advection scheme, and an estimate of `kappa_num`.
-4. QA plot of one snapshot: `Theta`, `G`, land mask, halo rim.
+4. **Write `tile330_grid.zarr` (§3.1).** The grid is static — one pull. M1's V2 and V6 tests need
+   it, so it belongs here rather than in M2.
+5. **Pull two consecutive timestamps**, not one. M1's gate 3 has a variant driven by real LLC
+   velocities, which needs a midpoint velocity and therefore two hours.
+6. QA plot of one snapshot: `Theta`, `G`, and the land mask from `hFacC`. **No halo yet** — the
+   halo is M1, and the point of this plot is to *see* the coastal gradient ribbon if land is
+   stored as 0. Also show the invalid rim that `_tile_indexer` leaves on the high edges (the
+   staggered dims take the same slice as the centred ones).
 5. Confirm the three §2 traps on real data: comodo attrs survive `process_llc4320_grid`
    (or are restored), `halo_mask.py:75` is not reached, and the two timestamp formats are
    converted correctly.
 
-**Acceptance:** one hour loads end-to-end; all six questions answered in the log; QA plot
-shows a clean coastline with no gradient ribbon.
+**Acceptance:** two consecutive hours load end to end from both OSN stores;
+`tile330_grid.zarr` written; all five questions answered in the log with numbers; QA plot written
+and the coastline inspected. Note the QA plot is expected to **show** a ribbon if land is 0 —
+that is a finding, not a failure.
 
 ### M1 — Operators and validation  *(planning Phase 0b)*  — **HARD GATE**
 
 **Goal:** operators that are known correct before any science.
 
-Tasks: `masking.py`, `operators.py`, `semilag.py`, `validate.py`, plus their tests.
+Tasks: `masking.py`, `operators.py`, `semilag.py`, `coarsegrain.py`, `validate.py`, plus their
+tests. **`masking.py` is M1's, so `tile330_masks.nc` (§3.5) is written here**, using the static
+grid from M0 — not in M2. `coarsegrain.py` is also M1's: V-gate closure of `tau` is part of
+validating the operators, not part of the budget run.
 
 **Acceptance — all four must pass:**
 1. Cartesian deformation reproduces `exp(2 alpha t)` to < 1%.
@@ -455,42 +558,79 @@ Tasks: `masking.py`, `operators.py`, `semilag.py`, `validate.py`, plus their tes
    C-grid interpolation attenuation alone can bias the slope 0.7-1.4 (planning §6).
 4. `test_interpolation_bias` quantifies the uniform-flow bias; it becomes a permanent error
    bar on every later slope.
+5. **All six PNGs (V1-V6: four gates plus two supporting) written to `figs/`.** Lauren asked for these
+   decisions to be visible rather than asserted; they are acceptance criteria, not extras.
 
 ### M2 — Data pull  *(planning Phase 1)*
 
 Tasks: `pull_series` (resumable), both OSN stores, 72 hours
-**2012-07-02 00:00 -> 2012-07-04 23:00 UTC**, write §3.1-3.2 zarrs, write `tile330_masks.nc`.
+**2012-07-02 00:00 -> 2012-07-04 23:00 UTC**, write the §3.2 zarr. Then
+`vertical.load_chunk_levels` for `k = 0..2` + the three flux fields -> §3.3 zarr, **including
+`drF` from the chunk 3-D grid** (`process_llc4320_3d_grid`), which `vertical.py` needs and OSN
+does not carry. Confirm `drF[0] = 1.0 m` here.
 
-**Acceptance:** 72 timesteps present, no gaps; schema matches §3; re-running is a no-op;
-masks match the M0 QA plot.
+`tile330_grid.zarr` came from M0; `tile330_masks.nc` comes from M1. M2 writes neither.
+
+**Acceptance:** 72 timesteps present, no gaps; schema matches §3.2-§3.3; re-running is a no-op;
+`KPPhbl` present; `drF` captured; missing chunk hours listed explicitly.
+
+**Split by dependency.** The OSN half needs nothing from anyone and can start immediately.
+The chunk half waits on Lauren's hourly transfer (Q13: all 51 levels, plus `oceQsw` and
+`oceFWflx` added to `transfer.variables`); 11 of the 72 stores already exist. Do **not** block
+M3's development on the chunk half — `compute_budget` runs without `chunk_ds`, just with a
+catch-all residual.
 
 ### M3 — Field-level budget  *(planning Phase 2)*  — **HARD GATE**
 
-Tasks: `coarsegrain.py`, `budget.py`, `stats.py`; run the `L_cells` sweep; bound the
-finite-top-cell vertical term using `CHUNKS/monterey_bay` (11 snapshots inside the window).
+Tasks: `vertical.py` (physics), `budget.py`, `stats.py`; run the `L_cells` sweep; compute the
+**measured** vertical and surface-flux terms from the §3.3 chunk product.
+
+Front pixels here are selected as `G` above a stated percentile at the **midpoint time** inside
+`mask_analysis` — **no labelling, no `tile_find`**. That stays in M4, and keeping it out means the
+budget is not entangled with thresholding/thinning choices. Bootstrap over **contiguous spatial
+blocks and hours** at this milestone (front *features* only exist from M4).
+
+Figures produced here: **1, 2, 2b, 3, 3b, 4, 5, 6, 7, 10.** They are built as the data lands;
+M5 consolidates, captions and wires up one-command regeneration.
 
 **Acceptance — closure, not a slope:**
 ```
-measured - 2F - subfilter - vertical - numerical  ~  0
+measured - 2F - subfilter - vertical - surface_flux  ~  numerical + interior KPP
 ```
-to a stated tolerance, with semi-Lagrangian and Eulerian estimates agreeing. **No efficiency
-number is quoted before this passes.** If closure fails, that is the result (planning §12).
+to a stated tolerance, with semi-Lagrangian and Eulerian estimates agreeing, and with
+`vertical` and `surface_flux` **measured** from the chunk store rather than assumed. **No
+efficiency number is quoted before this passes.** If closure fails, that is the result
+(planning §12).
 
 ### M4 — Fronts and tracking  *(planning Phase 3)*
 
-Tasks: per-hour front finding on the tile, `track_top_n(n=10)`, per-front strength series vs
-`integral(2F dt)`.
+Tasks: per-hour front finding on the tile; **flow-informed** `track_top_n(n=10, flow=...)`;
+per-front strength series vs `integral(2F dt)` on the **advected pixel set**;
+`tracking_quality` diagnostic.
 
-**Acceptance:** 10 tracks spanning >= 12 h each; per-front measured and predicted series;
-Phase-3 front-mean `G` reconciles with the Phase-2 per-pixel result on the same pixels.
+**Acceptance (strengthened by Q14):**
+
+1. 10 tracks spanning >= 12 h each.
+2. **Flow-informed scoring in use** — mask advection feeding `score_candidate`'s weights.
+3. `tracking_quality` reported: the distribution of `follow()`-chosen minus flow-predicted
+   displacement, with split/merge flags. If these disagree often, the track is not following
+   the fluid and Phase 3 is not interpretable — better to find that out here.
+4. **Reconciliation on Lagrangian-matched pixels:** per-front measured `d(front-mean G)/dt`
+   equals the advected-pixel-set average of the Phase-2 per-pixel `DG/Dt` to a stated
+   tolerance. Comparing "front at `t`" to "front at `t+dt`" does **not** satisfy this — a mean
+   over a changing pixel set is not material.
+5. **Figures 8 and 9 plus the tracking-quality diagnostic** written. Bootstrap here is over
+   **frontal features and hours**.
 
 ### M5 — Figures and report  *(planning Phase 5)*
 
-Tasks: `figures.py` (Figures 1-10, incl. **2b**, the numerical-vs-diabatic discriminator);
-`frontogenesis_report.md`.
+Tasks: **consolidate** `figures.py` (the figures themselves were produced in M1/M3/M4);
+standardise captions so each states its `L` and its mask; wire up one-command regeneration; write
+`frontogenesis_report.md` and a reproducibility `README`.
 
-**Acceptance:** every figure regenerable from the zarrs by one command; the report states
-the closure tolerance, the null-test baseline, and the §12 null-result criteria explicitly.
+**Acceptance:** every figure regenerable from the stores by one command; every caption states `L`
+and mask; the report states the closure tolerance, the null-test baseline, and the §12
+null-result criteria explicitly, with limitations unhedged.
 
 ### M6 — Depth  *(planning Phase 4, deferred)*
 
@@ -504,8 +644,9 @@ Full-depth budget against `CHUNKS/monterey_bay`. Out of scope until M3 passes.
 M0 ──► M1 ──► M2 ──► M3 ──► M4 ──► M5
        gate          gate
 ```
-M2 depends on M0 only (data pull needs no physics), so **M1 and M2 can run in parallel** if
-convenient. Everything after M3 is blocked on closure.
+M2 depends on **M0 only** — it pulls raw fields and needs no physics, no masks and no operators
+(masks are M1's, the static grid is M0's). So **M1 and M2 can genuinely run in parallel.**
+Everything after M3 is blocked on closure.
 
 ---
 
@@ -531,3 +672,11 @@ Distilled from the adversarial review. Re-read before each milestone.
 - [ ] Corner-located strain/vorticity interpolated to centres before use.
 - [ ] `nan_policy='omit'` passed to `colocate_fronts_with_properties` (default is
       `'propagate'`, and our fields are NaN over land/halo).
+- [ ] Advected the **boolean mask**, never the integer label field.
+- [ ] Reconciled Phase 3 against Phase 2 on the **advected pixel set**, not on labels at each
+      endpoint.
+- [ ] `vertical` and `surface_flux` terms actually present in the budget — if `chunk_ds` is
+      missing, `closure_report` says so rather than quietly reverting to a catch-all residual.
+- [ ] Loaded only `k = 0..2` from the chunk store; it holds all 51 levels.
+- [ ] Every validation test wrote its PNG.
+- [ ] §2's API line numbers re-verified if the Q15 merges have landed.

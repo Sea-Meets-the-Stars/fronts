@@ -1,6 +1,8 @@
 # Frontogenesis in the LLC4320 California Current — Planning Document
 
-**Status:** planning complete pending one decision (see §10, Q11).
+**Status:** planning complete. All decisions closed (Q1-Q15). Ready for execution — see
+`frontogenesis_coding.md` for milestones and `claude_prompts/frontogenesis_prompt_*.md` for
+the per-milestone execution prompts.
 **Authors:** J. X. Prochaska, with Claude (Opus 5).
 **Created:** 2026-09-12.
 **Source of decisions:** `claude_prompts/frontogenesis_prompts.md`, Q&A rounds 1-3.
@@ -92,9 +94,16 @@ contribution `-b_z (w_x b_x + w_y b_y)` reaches **~30% of F by day** and ~0 at n
 the tilting term is not absent — it is *reintroduced by the discretisation*, with a strong
 diurnal cycle.
 
-We cannot remove this with OSN alone (the surface kerchunk refs are `k=0` only). We
-**bound** it using the full-depth `CHUNKS/monterey_bay` store, which has 11 snapshots
-inside our window (§4) — this is the reason part of Phase 4 is promoted into Phase 2.
+**This term is now measured, not bounded.** Lauren is transferring **hourly full-depth**
+`CHUNKS/monterey_bay` for the whole 72-hour window (51 levels; decision Q13), so `k = 1, 2`
+Theta/Salt give `b_z` and subsurface `W` gives `w_x`, `w_y` at *every* timestep. What was a
+bound from 11 snapshots becomes an explicit budget term. Confirmed from the source while
+sizing that transfer: **`drF[0] = 1.0 m`, `Z[0] = -0.5 m`**, 51 levels to ~968 m — so the
+"~1 m top cell" above is a measured fact, not an assumption.
+
+*Where `drF` comes from.* OSN's grid is 2-D and carries no `drF`, so `vertical.py` must take it
+from the **chunk store's 3-D grid** (`process_llc4320_3d_grid`, which adds `Z, Zl, Zu, Zp1,
+drF`). It is part of the §3.3 chunk product, not the §3.1 OSN grid.
 
 ### 2.3 What the residual means
 
@@ -113,18 +122,24 @@ The residual contains at least four things:
    at a `4 dx` feature at `2 kappa k^2 ~ (0.7-7)e-5 s^-1` — i.e. **0.1-1 f, the same order
    as the strain itself**. A slope of 0.5-0.8 is fully explicable by model numerics with
    zero air-sea flux.
-2. **The finite-top-cell vertical term** (§2.2), ~30% of `F` by day.
+2. **The finite-top-cell vertical term** (§2.2), ~30% of `F` by day — **now measured**
+   at every timestep from the hourly full-depth chunks.
 3. **Genuine diabatic forcing** — KPP diffusive and non-local fluxes, and shortwave
-   absorbed within the top cell (a large fraction of `Q_sw` under a two-band scheme, giving
-   order `0.1 K h^-1` heating at local noon before KPP redistributes it).
+   absorbed within the top cell (a large fraction of `Q_sw`, giving order `0.1 K h^-1`
+   heating at local noon before KPP redistributes it). **Largely measured too**: the chunk
+   store carries `oceQnet`, and `oceQsw` / `oceFWflx` are being added to the transfer
+   (Q13), so the surface-flux part of `grad b . grad B` is computed directly rather than
+   inferred.
 4. **Discretisation error** in our own operators (§5.2, item 2 of §6).
 
 **Consequence for the headline claim.** "Slope < 1 = diabatic damping" is *not* a safe
-inference. Separating (1) from (3) is now a required part of the analysis, not a caveat:
-numerical diffusion scales with high-order derivatives of `b` (a `grad^4`-like structure),
-while air-sea forcing does not, and the two have different diurnal phase. Figure 2b tests
-exactly this. A "frontogenesis efficiency" may still be the result — but it has to be
-*earned* against (1), (2) and (4).
+inference. But the Q13 transfer changes the shape of the problem substantially: with (2) and
+most of (3) computed explicitly, the residual reduces to **numerical diffusion + interior KPP**
+rather than "everything we could not compute". That is a far stronger statement, and it is
+what makes the efficiency claim earnable at all. Figure 2b remains the discriminator —
+numerical diffusion scales with high-order derivatives of `b` (a `grad^4`-like structure) and
+carries a different diurnal phase from air-sea forcing — but it is now corroborating a
+measured budget rather than carrying the whole argument.
 
 ### 2.4 Decomposition of F
 
@@ -156,8 +171,10 @@ the compressional axis, and the PDF of `theta` is a classic signature (Figure 4)
 | Q8 | **72 hours** first pass | JXP |
 | Q9 | **One shared operator and filter on both sides**, computed by us | JXP |
 | Q10 | Population tracking = looped `follow()` over the **largest N=10** fronts | JXP |
-| Q11 | Branch strategy — **OPEN, blocking** (§10) | — |
-| Q12 | Library route (import `dbof`, bypass the CLI) — proposed, unobjected | §5.1 |
+| Q11/Q15 | Branch strategy — **resolved**; sequence in §10 | JXP + Lauren |
+| Q12 | Library route (import `dbof`, bypass the CLI) | JXP, unobjected |
+| Q13 | **Hourly full-depth chunks**, all 51 levels; `oceQsw` + `oceFWflx` added | Lauren + JXP |
+| Q14 | **Flow-informed tracking is an M4 requirement**, with Lagrangian-matched pixels | JXP |
 
 ---
 
@@ -195,15 +212,31 @@ and makes the eventual depth cross-check (Phase 4) far more useful.
 **Second OSN store — pull it too.** `cnh-bucket-1/llc_wind/` carries
 `KPPhbl, PhiBot, oceTAUX, oceTAUY, SIarea` (also `k=0`, hourly), coverage
 2011-11-01 -> 2012-07-15 — **our window sits inside it**. `KPPhbl` (boundary-layer depth) is
-the key interpretive variable for the diurnal residual of §2.3, and the wind stress gives
-the forcing context. Heat fluxes (`oceQnet`, `oceQsw`) are **not** in either OSN store; the
-S3 `DEPTH` store has them but holds only a single date. So the diabatic term cannot be
-computed directly from OSN — it must be inferred as a residual, which is exactly why
-separating it from numerical diffusion (§2.3) matters so much.
+the key interpretive variable for the diurnal residual of §2.3, and the wind stress gives the
+forcing context. Neither OSN store carries heat fluxes.
 
-**Third source, for bounding only.** `LLC4320_RAW/CHUNKS/monterey_bay` — full depth,
-daily 12:00 plus a dense 3-hourly day on 2012-07-03; **11 snapshots inside our window**.
-Used in Phase 2 to bound the finite-top-cell vertical term (§2.2) by supplying `k=1`.
+**Third source — hourly full-depth chunks (decision Q13).**
+`LLC4320_RAW/CHUNKS/monterey_bay`, being extended by Lauren to **hourly for all 72 hours**,
+all **51 levels** (to ~968 m; `drF[0] = 1.0 m`). 11 of the needed stores already exist; 61 are
+new, ~33 GB at ~539 MB per timestep.
+
+Variables: 3D `Theta, Salt, U, V, W`; 2D `Eta, oceTAUX, oceTAUY, SIarea, **oceQnet**`, with
+**`oceQsw`** and **`oceFWflx`** added to `transfer.variables` for this run.
+
+**This is the single most consequential change since the first draft.** An earlier version of
+this section said heat fluxes were in neither store and the diabatic term could only ever be
+inferred. That is true of OSN but false of the chunk store. With this transfer:
+
+- `k = 1, 2` Theta/Salt -> `b_z`, and subsurface `W` -> `w_x, w_y`: the finite-top-cell
+  vertical term becomes a **measured** budget term (§2.2);
+- `oceQnet` + `oceQsw` + `oceFWflx` -> the surface-flux part of `grad b . grad B` computed
+  **directly**. `oceQsw` matters specifically because a large fraction of shortwave is
+  absorbed *inside* the ~1 m top cell where our `b` lives; net flux alone blurs exactly the
+  noon-peaking term Figure 6 is about.
+
+The surface analysis still runs on OSN (§5.1) — the chunks supply the *extra budget terms*,
+not the primary fields. Keeping the two sources separate also preserves a genuine
+cross-check: OSN and the chunk store are different readers of the same physics.
 
 **Volume.** 720 x 720 x 72 h x ~6 fields x 4 bytes ~ **0.9 GB** as float32. Trivial;
 the whole study fits in memory on a laptop.
@@ -259,14 +292,6 @@ re-deriving tested code. The corrected rule:
   quantity — it only has to be consistent.
 - **Departure points stay in native index space** (§5.3): raw `U`, `V` interpolated to cell
   centres, then `di = U dt/dxC`, `dj = V dt/dyC`. No rotation, no round-trip.
-
-*Known approximation.* Rotation invariance is exact only for a spatially constant rotation;
-`CS`/`SN` vary across the tile, so "rotate then differentiate" and "differentiate then
-rotate" differ by terms in `grad CS`, `grad SN`. Scale estimate: the grid angle changes by
-a few degrees across 720 cells, giving `~4e-8 m^-1 * 0.2 m/s ~ 8e-9 s^-1` against strain
-rates `~1e-5 s^-1` — about **0.1%**. Spherical metric terms (`u tan(phi)/a ~ 2e-8 s^-1`) are
-similarly negligible. Both confirmed numerically in Phase 0, and the discrete null test
-(§6, test 3) would expose any inconsistency between the two sides regardless.
 
 *Known approximation.* Rotation invariance is exact only for a spatially constant rotation;
 `CS`/`SN` vary across the tile, so "rotate then differentiate" and "differentiate then
@@ -381,6 +406,38 @@ Tracking uses the existing `front_tracking.follow()`, looped over the **largest 
 fronts. `follow()` takes `dt` as a genuine parameter and its search radius floors at ~4.6 km
 at hourly cadence (~1.3 m/s equivalent) — ample for CC speeds.
 
+**Tracking must be flow-informed (decision Q14).** This came out of Lauren's review and is
+not a refinement — it is what makes Phase 3 mean anything.
+
+`follow()` as written predicts the next position by extrapolating *centroid* velocity from the
+last two sightings. But a front whose centroid moves because it grew asymmetrically is not a
+front that moved with the fluid. Since a buoyancy front is advected by the flow, and we
+already have the departure-point machinery, we can do better:
+
+1. Advect the **boolean front mask** (not the label field) through `semilag` to produce a
+   **flow-predicted mask** at `t+dt` — as a float, thresholded at 0.5. Labels stay integers
+   and are never interpolated, which is what makes this tractable.
+2. Feed `IoU(flow-predicted mask, candidate label)` into `score_candidate` as an additional
+   scored term. That function already accepts a `weights` dict, so this is additive rather
+   than a rewrite.
+3. Report the distribution of (`follow()`-chosen displacement − flow-predicted displacement)
+   as a **quality metric for the whole of Phase 3**. If those disagree often, the tracking is
+   not following the fluid and we know it *before* interpreting anything.
+
+**Why it is load-bearing.** If `follow()` links a front at `t` to a different physical front
+at `t+dt`, the per-front `d(front-mean G)/dt` is not a material derivative at all and
+comparing it to `integral 2F dt` compares nothing.
+
+**And a further correction.** Even a perfect flow-following track is insufficient, because
+front-mean `G` is a mean over a **changing pixel set** — fronts lengthen, split and merge — so
+`d/dt` of that mean carries an extra term from the set's own evolution. The Phase-3/Phase-2
+reconciliation must therefore be done on the **advected pixel set** (Lagrangian-matched
+pixels), not on "pixels labelled front at `t`" against "pixels labelled front at `t+dt`".
+
+Free by-product: the flow-predicted mask overlapping two candidate labels is a principled
+**split/merge detector**, which `follow()` has no notion of and which will certainly occur
+over 72 hours.
+
 ---
 
 ## 6. Phases
@@ -401,8 +458,10 @@ No science until the operators are known good.
 | Advection scheme | exact tracer scheme identified from the model config; `kappa_num` estimated |
 | **Validation** | four tests (below), all passing |
 
-**Validation is four tests, not one.** The first two are continuum checks; the last two are
-the ones that actually protect the headline number.
+**Validation is four tests, not one, and every one writes a PNG.** Lauren asked for the
+decisions to be *visible* rather than asserted, and she is right: each test below emits a
+figure (§7) as part of its acceptance, not as an optional extra. The first two are
+continuum checks; the last two are the ones that actually protect the headline number.
 
 1. **Cartesian scheme test.** Pure deformation `u = -a x, v = a y`, where `G` grows exactly
    as `exp(2 a t)`. Validates the semi-Lagrangian scheme in isolation.
@@ -422,38 +481,63 @@ the ones that actually protect the headline number.
 4. **Interpolation-bias null test.** Advect `G` with a *uniform, zero-strain* flow, where
    the true `DG/Dt` is identically zero. Whatever comes out is the interpolation bias of
    §5.3, measured rather than estimated. Report it as an error bar on every later slope.
+   Emits **V4**.
+
+**Two supporting figures accompany the gates** (six PNGs in total, from four gates):
+
+- **V5 — the half-cell interpolation demonstration.** A synthetic front shifted by half a cell:
+  truth vs `G` from bilinear-`G` vs `G` from cubic-`b`, with the negative bias at the maximum
+  annotated. The clearest statement of why §5.3 item 2 exists, and it doubles as a regression
+  test.
+- **V6 — land-halo QA.** The coastline before and after the halo, confirming no gradient ribbon
+  survives.
 
 ### Phase 1 — Data
 
-Pull 72 hourly snapshots of raw `Theta, Salt, U, V` (+ `W`, `Eta`) plus the static grid for
-tile 330; concatenate to a single time-dimensioned zarr in `dev/frontogenesis/data/`.
-**No concat step exists anywhere in either repo** — we write it.
+Two sources, one product.
+
+- **OSN surface (primary):** 72 hourly snapshots of raw `Theta, Salt, U, V` (+ `W`, `Eta`) plus
+  the static grid for tile 330, and `KPPhbl`/`oceTAUX`/`oceTAUY` from the `llc_wind` store.
+- **Chunk store (extra budget terms):** `k = 0..2` `Theta, Salt, W` and the surface fluxes
+  `oceQnet, oceQsw, oceFWflx` from the hourly full-depth `monterey_bay` transfer (§4). We read
+  only the levels and variables we need — the transfer writes all 51 levels, but nothing
+  obliges us to load them.
+
+Concatenate each to a time-dimensioned zarr in `dev/frontogenesis/data/`. **No concat step
+exists anywhere in either repo** — we write it. Phase 1 is gated on Lauren's transfer for the
+chunk half only; the OSN half can proceed immediately.
 
 ### Phase 2 — Field-level budget (the rigorous core)
 
 Per pixel, no front finding required. Semi-Lagrangian `D_h G/Dt` vs `2F`; Eulerian
-cross-check; residual map; filter sweep with explicit `tau`; offshore stratification;
-bounding of the finite-top-cell vertical term against `CHUNKS/monterey_bay` (§2.2).
+cross-check; residual map; filter sweep with explicit `tau`; offshore stratification; and —
+via the hourly full-depth chunks (§4) — the **measured** finite-top-cell vertical term and the
+**measured** surface-flux part of the diabatic term.
 
 **Exit criterion — budget closure, not a slope.** We do not quote any efficiency until
 
 ```
-Y  -  2F  -  (subfilter)  -  (vertical)  -  (numerical)  ~  0
+measured  -  2F  -  subfilter  -  vertical  -  surface_flux   ~   numerical + interior KPP
 ```
 
-is demonstrated to a stated tolerance, with the four Phase-0 validation tests passing and
-the Eulerian and semi-Lagrangian estimates agreeing. If closure cannot be demonstrated,
+is demonstrated to a stated tolerance — with `vertical` and `surface_flux` **measured** from
+the chunk store (Q13) rather than assumed — the four Phase-0 gates passing, and the Eulerian
+and semi-Lagrangian estimates agreeing. If closure cannot be demonstrated,
 that is the result (§12), and we say so rather than reporting a slope.
 
 ### Phase 3 — Front-level
 
-`tile_find` per hour -> label -> `follow()` over the largest 10 fronts -> per-front strength
-time series vs `integral(2F dt)` along the track.
+`tile_find` per hour -> label -> **flow-informed** `follow()` (§5.7) over the largest 10
+fronts -> per-front strength time series vs `integral(2F dt)` along the track, evaluated on the
+**advected pixel set**. Plus the tracking-quality diagnostic (`follow()`-chosen minus
+flow-predicted displacement) and split/merge flags.
 
-### Phase 4 — Depth (later)
+### Phase 4 — Depth (later, and now narrower)
 
-Cross-check against `CHUNKS/monterey_bay` (full depth, 11 snapshots inside our window).
-Quantifies the finite-top-cell caveat of §2.2 and opens the sub-surface budget.
+The Q13 transfer folds this phase's *bounding* role into Phase 2, so what remains is the
+genuine subsurface study: the budget below the top cell, `b_z` and shear structure through the
+mixed layer, and `fronts/viz/curtains.py` applied to real depth fields. Out of scope until M3
+passes.
 
 ### Phase 5 — Synthesis and writeup
 
@@ -465,8 +549,10 @@ Ordered by what would actually change our minds.
 
 1. **Measured vs predicted maps** — `D_h G/Dt` beside `2F`, shared diverging colourscale,
    plus residual. If these do not look alike, nothing else matters.
-2. **Joint PDF, measured vs `2F`**, on front pixels, 1:1 line, and the estimators of §11
-   shown against the Phase-0 discrete-null baseline. *The money plot* — but it is only
+2. **Joint PDF, measured vs `2F`**, on front pixels, 1:1 line, and the estimators of §11.
+   The Phase-0 discrete-null slope is **drawn on the figure as an explicit baseline line**,
+   not merely quoted in the caption (Lauren's request, and the better choice — a reader
+   should see what "slope relative to baseline" means). *The money plot* — but it is only
    interpretable together with 2b.
 2b. **Residual against high-order derivatives of `b`** (a `grad^4`-like diagnostic) and
    against `KPPhbl`. This is the test that separates implicit numerical diffusion from
@@ -474,6 +560,10 @@ Ordered by what would actually change our minds.
    interpretation.
 3. **Slope and correlation vs filter scale** (§5.4) — separates unresolved-scale physics
    from diabatic damping.
+3b. **The filter sweep, shown rather than summarised** — a panel grid, rows
+   `{b, G, 2F, tau-term}` x columns `{L = 0, 2, 4, 8}`. Promoted to a main figure because
+   §5.4 is the part of the method hardest to believe from prose alone, and seeing *where*
+   `tau` lives is the whole argument.
 4. **Alignment PDF** — angle between `grad b` and the strain compressional axis (§2.4).
    Independent physical check.
 5. **Sharpening-timescale map** `tau = G / (2F)` with the `dt = 1 h` contour drawn — shows
@@ -490,7 +580,21 @@ Ordered by what would actually change our minds.
    with the `F`-predicted curve overlaid.
 9. **Population statistics** over the 10 tracked fronts — frontogenetic vs frontolytic
    fractions, lifetime vs mean `F`.
-10. *(Appendix)* Analytic validation from Phase 0.
+10. **Term budget** — `2F`, measured vertical term, measured surface-flux term, subfilter
+   `tau`, and residual, side by side (§2.3). With the Q13 transfer this is a real budget
+   rather than a two-term comparison with a catch-all.
+
+**Validation set V1-V6, written by `validate.py` itself** (§6 Phase 0) — not an appendix
+afterthought but a milestone deliverable. Four of them are the gates; two are supporting.
+
+- **V1** *(gate)* Cartesian deformation: measured vs exact `exp(2 alpha t)`.
+- **V2** *(gate)* Native-grid metric test against analytic gradients.
+- **V3** *(gate)* Discrete null test: the slope scatter, whose fitted slope is the baseline
+  drawn on Figure 2.
+- **V4** *(gate)* Interpolation bias under uniform zero-strain flow, where the truth is zero.
+- **V5** Half-cell interpolation demonstration — truth vs bilinear-`G` vs cubic-`b`, negative
+  bias at the maximum annotated.
+- **V6** Land-halo QA: coastline before/after the 7-cell halo, confirming no gradient ribbon.
 
 ---
 
@@ -508,9 +612,10 @@ dev/frontogenesis/
     coarsegrain.py              filter, explicit subfilter flux tau, Germano closure (§5.4)
     budget.py                   measured vs predicted, residual, closure check (§6 Phase 2)
     stats.py                    slope estimators, binning, feature-level bootstrap (§11)
-    tracking.py                 N=10 front tracking over follow()
-    validate.py                 the four validation tests (§6 Phase 0)
-    figures.py                  Figures 1-10
+    vertical.py                 chunk-derived b_z, w gradients, surface-flux term (§2.2, §2.3)
+    tracking.py                 flow-informed N=10 front tracking over follow() (§5.7)
+    validate.py                 the four validation tests, each writing a PNG (§6 Phase 0)
+    figures.py                  Figures 1-10 (incl. 2b, 3b) and V1-V6
   data/                         cached zarr
   figs/                         PNGs
 ```
@@ -536,24 +641,33 @@ code, inline comments explaining the physics.
 | Cross-front `delta b` / width / peak | no | — |
 | Coarse-graining / subfilter flux `tau` | no | — |
 | Discrete null test harness | no | — |
+| Flow-informed tracking (mask advection into `score_candidate`) | no — but both halves exist | §5.7 |
+| Chunk-derived vertical + surface-flux terms | no | §2.2, §2.3 |
 
 ---
 
 ## 10. Open items and risks
 
-**BLOCKING — Q11, branch strategy.** Not yet decided.
+**Q11, branch strategy — RESOLVED (Q15).** Agreed sequence, with Lauren executing steps 2-3:
 
-- *fronts:* `frontogenesis` and `origin/viz_tools` have diverged (14 commits on the former
-  absent from the latter; both independently created `llc/meta.py` and `llc/publish.py`;
-  both edited `build_v5.py` and `properties/run.py`). We need `tile_find` and
-  `front_tracking.py`, which exist **only** on `viz_tools`.
-- *preprocessing:* the checked-out `llc4320_v2` is **102 commits behind main** (HEAD
-  2026-08-31 vs main 2026-09-11). Everything needed is in **2 unmerged commits** on
-  `tiles-surface-only`, itself 19 behind main.
-- *Recommendation:* merge current `main` into `tiles-surface-only` (2 commits to replay,
-  low risk) and work from there; for `fronts`, merge `viz_tools` into `frontogenesis` and
-  resolve the add/add conflicts once. Also unresolved: whether `tiles-surface-only` is
-  yours to merge or Lauren's.
+1. **Merge PR #24** (`build_v5` -> `main`, fronts repo). Clean: 10 ahead, **0 behind**.
+   *Still open as of 2026-09-26 — this is the only real gate on tidiness.*
+2. **Lauren rebases `viz_tools` onto the new `main`** (65 ahead / 6 behind). The
+   `llc/meta.py` and `llc/publish.py` add/add conflicts I worried about in round 3 get
+   resolved here, once, by the person who wrote viz_tools.
+3. **Fast-forward `tiles-surface-only`** into `main` (llc repo) — **0 behind / 4 ahead**, so
+   no rebase is needed, contrary to the original concern. `COMODO_COORD_META` on `main`
+   already carries `c_grid_axis_shift: -0.5`.
+4. **Rebase `frontogenesis`** onto the result. Its 5 commits touch **only**
+   `dev/frontogenesis/`, so they replay with zero conflicts.
+
+`frontogenesis` was branched off **`build_v5`**, not `viz_tools`.
+
+**Work is not blocked on this.** The library route (§5.1) needs only `dbof` importable from
+`tiles-surface-only`, and front finding/tracking needs `viz_tools` — both available as feature
+branches today. M0-M3 can proceed against them. The one hard requirement: the coding doc's §2
+API table is pinned to those branches' line numbers, so it **must be re-verified once the
+merges land**, before anything runs against it.
 
 **Risks, ranked.**
 
@@ -593,8 +707,8 @@ negative. Selecting a heavy-tailed quadratic on *either* endpoint contaminates t
 `grad b(t+dt)` and their errors correlate positively. The midpoint evaluation also fixes
 this.
 
-**Effective sample size.** The field is strongly autocorrelated: 72 h on one tile is *tens
-of frontal features*, not `10^7` independent pixels. OLS on a kurtotic quantity like `G` is
+**Effective sample size.** The field is strongly autocorrelated: 72 h on one tile is *tens of
+independent patches*, not `10^7` independent pixels. OLS on a kurtotic quantity like `G` is
 dominated by a handful of pixels.
 
 **Procedure.**
@@ -604,7 +718,14 @@ dominated by a handful of pixels.
   `X < 0`** — diabatic damping is asymmetric, and a single slope averages over the
   asymmetry that carries the physics.
 - Quote **ratio estimators** `sum(Y)/sum(X)` alongside the regressions.
-- **Bootstrap over frontal features and hours, never over pixels.**
+- **Bootstrap over blocks, never over pixels** — and the block differs by milestone:
+  **contiguous spatial blocks and hours in Phase 2** (where no front objects exist yet), and
+  **frontal features and hours in Phase 3** (where they do). Both respect the real point, which
+  is that pixels are not independent.
+- **Front-pixel selection in Phase 2 needs no labelling.** Take `G` above a stated percentile at
+  the **midpoint time**, inside `mask_analysis`. This is independent of both endpoints, which is
+  exactly what the selection-bias argument above demands — and it keeps front *finding* (and its
+  thresholding, thinning and despurring choices) out of the budget milestone entirely.
 - Calibrate against the Phase-0 discrete null test, where the true slope is 1 by
   construction (§6, test 3), and quote every measured slope **relative to that baseline**.
 
