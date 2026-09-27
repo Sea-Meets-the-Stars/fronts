@@ -31,7 +31,8 @@ from fronts.finding import io as finding_io
 from fronts.llc import io as llc_io
 from fronts.llc import meta as llc_meta
 from fronts.llc import publish as llc_publish
-from fronts.properties import run as prun
+from fronts.llc import stores as llc_stores
+from fronts.runs import config as run_config
 from fronts.runs.prototypes.one_full import build_v5
 
 PIPELINES = ("SURF", "OSN", "DEPTH")
@@ -301,12 +302,12 @@ def spies(monkeypatch, tmp_path):
     # defaulting to "nothing is built yet".  A test wanting existing stores
     # sets spies["state"].result to check_existence.ZARR_FULL.
     state = _Spy(result=check_existence.ZARR_MISSING, log=order, name="state")
-    monkeypatch.setattr(prun.check_existence, "plan_zarr", state)
-    monkeypatch.setattr(prun, "create_s3_filesystems",
+    monkeypatch.setattr(llc_stores.check_existence, "plan_zarr", state)
+    monkeypatch.setattr(llc_stores, "create_s3_filesystems",
                         lambda endpoint: (None, None))
     s["state"] = state
 
-    monkeypatch.setattr(prun, "generate_global_dataset", s["generate"])
+    monkeypatch.setattr(llc_stores, "generate_global_dataset", s["generate"])
     monkeypatch.setattr(build_v5, "generate_global_dataset", s["generate"])
     monkeypatch.setattr(build_v5, "export_channels", s["export"])
     monkeypatch.setattr(build_v5, "find_gradb2_fronts", s["find"])
@@ -353,7 +354,7 @@ def test_step1_checks_one_date_and_believes_it(spies, surf_cfg):
     """
     build_v5.main(1, surf_cfg)
     assert len(spies["state"].calls) == 1
-    first_prefix = prun.read_build_config(surf_cfg)["date_prefixes"][0]
+    first_prefix = run_config.read_build_config(surf_cfg)["date_prefixes"][0]
     assert f"/{first_prefix}/" in spies["state"].calls[0][0][1]
 
 
@@ -478,11 +479,11 @@ def test_export_channels_skips_files_that_already_exist(
 
     spy = _Spy()
     monkeypatch.setattr(llc_io, "zarr_to_nc", spy)
-    out = prun.export_channels(surf_cfg, ts, ["gradb2"], version="V5test")
+    out = llc_stores.export_channels(surf_cfg, ts, ["gradb2"], version="V5test")
     assert spy.calls == []                       # skipped
     assert out == [target]
 
-    prun.export_channels(surf_cfg, ts, ["gradb2"], version="V5test",
+    llc_stores.export_channels(surf_cfg, ts, ["gradb2"], version="V5test",
                          clobber=True)
     assert len(spy.calls) == 1                   # clobber forces it
 
@@ -492,34 +493,34 @@ def test_export_channels_skips_files_that_already_exist(
 # ===========================================================================
 
 def test_channel_for_root_resolves_per_pipeline(surf_cfg, depth_cfg):
-    assert prun.channel_for_root(surf_cfg, "gradb2") == "gradb2"
-    assert prun.channel_for_root(depth_cfg, "gradb2") == "gradb2_sfc"
-    assert prun.channel_for_root(depth_cfg, "gradb2",
+    assert run_config.channel_for_root(surf_cfg, "gradb2") == "gradb2"
+    assert run_config.channel_for_root(depth_cfg, "gradb2") == "gradb2_sfc"
+    assert run_config.channel_for_root(depth_cfg, "gradb2",
                                  depth_suffix="z25m") == "gradb2_z25m"
 
 
 def test_channel_for_root_rejects_a_suffix_the_config_does_not_build(depth_cfg):
     with pytest.raises(ValueError, match="finding_suffix"):
-        prun.channel_for_root(depth_cfg, "gradb2", depth_suffix="mld")
+        run_config.channel_for_root(depth_cfg, "gradb2", depth_suffix="mld")
 
 
 def test_channel_for_root_rejects_an_unknown_root(surf_cfg):
     with pytest.raises(ValueError, match="not produced by any active subset"):
-        prun.channel_for_root(surf_cfg, "N2")     # DEPTH-only
+        run_config.channel_for_root(surf_cfg, "N2")     # DEPTH-only
 
 
 def test_subset_for_channel(surf_cfg, depth_cfg):
-    assert prun.subset_for_channel(surf_cfg, "gradb2") == "frontal_structure"
-    assert prun.subset_for_channel(depth_cfg, "gradb2_sfc") == "frontal_structure"
+    assert run_config.subset_for_channel(surf_cfg, "gradb2") == "frontal_structure"
+    assert run_config.subset_for_channel(depth_cfg, "gradb2_sfc") == "frontal_structure"
 
 
 def test_all_property_roots_follows_the_pipeline(surf_cfg, depth_cfg):
     """The root list follows the pipeline, with no overlap between the two."""
-    surf = set(prun.all_property_roots(surf_cfg))
+    surf = set(run_config.all_property_roots(surf_cfg))
     assert {"gradb2", "density", "buoyancy", "rossby_number"} <= surf
     assert not ({"N2", "Ri", "ertel_pv", "KE"} & surf)   # DEPTH-only
 
-    depth = set(prun.all_property_roots(depth_cfg))
+    depth = set(run_config.all_property_roots(depth_cfg))
     assert {"N2", "R_ib", "gradb2"} <= depth
     assert not ({"density", "buoyancy"} & depth)        # SURF-only
 
@@ -531,19 +532,19 @@ def test_all_property_roots_always_expand_cleanly(surf_cfg, depth_cfg):
     raises ValueError on every root the active subsets do not produce.
     """
     for cfg in (surf_cfg, depth_cfg):
-        roots = prun.all_property_roots(cfg)
-        channels = prun.expand_property_roots(roots, cfg)
+        roots = run_config.all_property_roots(cfg)
+        channels = run_config.expand_property_roots(roots, cfg)
         assert len(channels) >= len(roots)
 
 
 def test_exclude_roots_are_dropped(surf_cfg):
-    roots = prun.all_property_roots(surf_cfg, exclude=["density", "buoyancy"])
+    roots = run_config.all_property_roots(surf_cfg, exclude=["density", "buoyancy"])
     assert "density" not in roots and "buoyancy" not in roots
     assert "gradb2" in roots
 
 
 def test_read_build_config_merges_defaults_with_the_yaml(surf_cfg, depth_cfg):
-    cfg = prun.read_build_config(surf_cfg)
+    cfg = run_config.read_build_config(surf_cfg)
     assert cfg["pipeline"] == "SURF"
     assert cfg["run_id"] == "V5test"
     assert cfg["timestamps"] == ["2012-11-09T12_00_00", "2012-11-10T06_00_00"]
@@ -554,8 +555,8 @@ def test_read_build_config_merges_defaults_with_the_yaml(surf_cfg, depth_cfg):
     assert cfg["exclude_roots"] == []             # from BUILD_DEFAULTS
 
     # A config with no build: block still gets every default.
-    d = prun.read_build_config(depth_cfg)
-    assert set(prun.BUILD_DEFAULTS) <= set(d)
+    d = run_config.read_build_config(depth_cfg)
+    assert set(run_config.BUILD_DEFAULTS) <= set(d)
     assert d["depth_suffixes"] == ["sfc", "z25m"]
 
 
@@ -650,7 +651,7 @@ _RUN_CFG = os.path.join(
 
 @pytest.mark.skipif(not os.path.exists(_RUN_CFG), reason="config not present")
 def test_shipped_config_is_coherent():
-    cfg = prun.read_build_config(_RUN_CFG)
+    cfg = run_config.read_build_config(_RUN_CFG)
     assert cfg["pipeline"] == "SURF"
     assert len(cfg["date_iterations"]) == 100
     assert len(set(cfg["date_iterations"])) == 100      # no duplicates
@@ -667,10 +668,10 @@ def test_shipped_config_is_coherent():
     assert raw["output"]["bucket"] == "dbof/"
 
     # Steps 1-3 resolve without touching S3.
-    channel = prun.channel_for_root(_RUN_CFG, cfg["gradb2_root"],
+    channel = run_config.channel_for_root(_RUN_CFG, cfg["gradb2_root"],
                                     depth_suffix=cfg["finding_suffix"])
     assert channel == "gradb2"
-    assert prun.subset_for_channel(_RUN_CFG, channel) == "frontal_structure"
+    assert run_config.subset_for_channel(_RUN_CFG, channel) == "frontal_structure"
 
     # The finding config it names actually exists.
     from fronts.finding import config as find_config
@@ -680,7 +681,7 @@ def test_shipped_config_is_coherent():
 @pytest.mark.skipif(not os.path.exists(_RUN_CFG), reason="config not present")
 def test_shipped_config_dates_match_the_transfer_config():
     """Every date is one of the timesteps sitting in LLC4320_RAW/SURFACE."""
-    cfg = prun.read_build_config(_RUN_CFG)
+    cfg = run_config.read_build_config(_RUN_CFG)
     for date in cfg["date_iterations"]:
         prefix = date_to_run_id(date)               # raises if out of range
         assert len(prefix) == 15 and prefix[8] == "_"
@@ -689,8 +690,8 @@ def test_shipped_config_dates_match_the_transfer_config():
 def test_generate_global_dataset_builds_the_right_command(monkeypatch):
     """The subprocess argv is the contract with run_all_subsets."""
     spy = _Spy()
-    monkeypatch.setattr(prun.subprocess, "run", spy)
-    prun.generate_global_dataset(
+    monkeypatch.setattr(llc_stores.subprocess, "run", spy)
+    llc_stores.generate_global_dataset(
         "cfg.yaml", "/base", subsets=["frontal_structure", "icearea"],
         generate_only=True, ice_mask=True, pipeline="SURF", run_id="V5test")
     cmd = spy.args[0]
@@ -902,7 +903,7 @@ output:
     llc_io.set_fronts_path(str(tmp_path / "Fronts"))
     llc_io.set_run_layout("V5/SURF", file_tag="V5test")
 
-    cfg = prun.read_build_config(cfg_path)
+    cfg = run_config.read_build_config(cfg_path)
     path = llc_meta.write_run_meta(cfg, cfg_path,
                                    extra={"gradb2_channel": "gradb2",
                                           "gradb2_subset": "frontal_structure"})
@@ -972,13 +973,13 @@ def _paths_for(cfg_path, tmp_path):
     from dbof.global_dataset_creation.config import default_output_folder
     from dbof.global_dataset_creation.zarr_dataset_global import make_run_prefix
 
-    cfg = prun.read_build_config(cfg_path)
+    cfg = run_config.read_build_config(cfg_path)
     llc_io.set_fronts_path(str(tmp_path / "Fronts"))
     llc_io.set_run_layout(cfg["run_dir"], file_tag=cfg["run_id"])
 
-    channel = prun.channel_for_root(cfg_path, cfg["gradb2_root"],
+    channel = run_config.channel_for_root(cfg_path, cfg["gradb2_root"],
                                     depth_suffix=cfg["finding_suffix"])
-    subset = prun.subset_for_channel(cfg_path, channel)
+    subset = run_config.subset_for_channel(cfg_path, channel)
     folder = cfg["folder"] or default_output_folder(cfg["pipeline"])
     ts = cfg["timestamps"][0]
     return cfg, {
@@ -1062,7 +1063,7 @@ def test_build_version_comes_from_the_driver_not_the_config(tmp_path):
     cfg_path = _write(tmp_path, "claims_otherwise.yaml",
                       _SURF_DOTTED_YAML.replace('build_version: "v2_00"',
                                                 'build_version: "SOMETHING_ELSE"'))
-    cfg = prun.read_build_config(cfg_path, build_version=build_v5.BUILD_VERSION)
+    cfg = run_config.read_build_config(cfg_path, build_version=build_v5.BUILD_VERSION)
     assert build_v5.BUILD_VERSION == "V5"
     assert cfg["run_dir"] == "V5/SURF"
     assert cfg["run_id"] == "v2_00_2"          # the source is still recorded

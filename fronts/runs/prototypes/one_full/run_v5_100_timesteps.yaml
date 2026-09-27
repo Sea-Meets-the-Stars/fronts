@@ -73,7 +73,7 @@ active_subsets:
 
 # ---------------------------------------------------------------------------
 # build_v5 knobs.  Every key has a default in
-# fronts.properties.run.BUILD_DEFAULTS, so this block is optional.
+# fronts.runs.config.BUILD_DEFAULTS, so this block is optional.
 # ---------------------------------------------------------------------------
 build:
   # Products land in $OS_OGCM/LLC/Fronts/V5/SURF/ -- the V5 comes from

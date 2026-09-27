@@ -53,7 +53,7 @@ def write_run_meta(cfg: dict, config_file: str, out_dir: str = None,
     Parameters
     ----------
     cfg : dict
-        Result of :func:`fronts.properties.run.read_build_config`.
+        Result of :func:`fronts.runs.config.read_build_config`.
     config_file : str
         Path to the run YAML, recorded for provenance.
     out_dir : str, optional

@@ -50,7 +50,7 @@ its products — the property files would land where co-location does not look.
 
 ### What "skip" means for the generate pass
 
-Step 1 goes through `fronts.properties.run.generate_for_channels()`, which asks
+Step 1 goes through `fronts.llc.stores.generate_for_channels()`, which asks
 `check_existence.plan_zarr()` about **only the channel this step reads** — not
 the subset's full channel list:
 
@@ -159,7 +159,7 @@ build:
   exclude_roots:  []         # roots to skip in co-location
 ```
 
-Every key has a default (`fronts.properties.run.BUILD_DEFAULTS`), so the block
+Every key has a default (`fronts.runs.config.BUILD_DEFAULTS`), so the block
 is optional.
 
 **Ice mask.** Two independent toggles, because you usually want fronts found on
