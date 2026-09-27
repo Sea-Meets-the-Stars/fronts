@@ -43,9 +43,15 @@ pytest fronts/tests/test_dbof_utils.py::test_find_entry  # single test
 
 - **`fronts/llc/`** - LLC4320 model data access
   - `io.py` - Load LLC coordinates, cutouts, and velocity fields from local or S3
+  - `stores.py` - Build the zarr stores on S3 (via `dbof`) and export channels to NetCDF
   - `slurp.py` - Bulk data ingestion
 
+- **`fronts/runs/`** - Build drivers and their configuration
+  - `config.py` - Run-YAML parsing (`read_build_config`, `BUILD_DEFAULTS`) and pipeline-aware channel resolution
+  - `prototypes/one_full/build_v5.py` - The find → group → co-locate driver
+
 - **`fronts/properties/`** - Front property measurements
+  - `run.py` - Step entry points: `group_fronts`, `colocate_fronts`
   - `measure.py` - Measure properties (e.g., average field values) along fronts
 
 ### Data Flow

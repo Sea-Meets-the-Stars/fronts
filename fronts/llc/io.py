@@ -26,6 +26,64 @@ _fronts_root = None
 if os.getenv('OS_OGCM') is not None:
     _fronts_root = os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts')
 
+# Run layout.  ``_run_dir`` is the sub-path under the root that holds one
+# build's products; ``_file_tag`` is the suffix stamped into every filename.
+# They are separate so a build can be organised by its own version while the
+# files stay named after the dataset they were derived from.  Both fall back to
+# the ``version`` argument when unset.
+_run_dir = None
+_file_tag = None
+
+
+def set_run_layout(run_dir: str, file_tag: str = None):
+    """Set the output sub-path and filename tag for this run.
+
+    ::
+
+        set_fronts_path('/.../LLC/Fronts')
+        set_run_layout('V5/SURF', file_tag='v2_2_01')
+        # -> /.../LLC/Fronts/V5/SURF/20111204_000000/
+        #        LLC4320_2011-12-04T00_00_00_gradb2_v2_2_01.nc
+
+    Parameters
+    ----------
+    run_dir : str
+        Sub-path under the Fronts root, e.g. ``'V5/SURF'``.
+    file_tag : str, optional
+        Filename suffix, e.g. the source ``run_id``.  Defaults to *run_dir*.
+    """
+    global _run_dir, _file_tag
+    _run_dir = run_dir
+    _file_tag = file_tag if file_tag is not None else run_dir
+
+
+def clear_run_layout():
+    """Fall back to using the ``version`` argument for both path and tag."""
+    global _run_dir, _file_tag
+    _run_dir = None
+    _file_tag = None
+
+
+def _resolve_run_dir(version: str) -> str:
+    return _run_dir if _run_dir is not None else version
+
+
+def _resolve_file_tag(version: str) -> str:
+    return _file_tag if _file_tag is not None else version
+
+
+def run_root(version: str = None, generate: bool = False) -> str:
+    """Return the directory holding all timestamps for this run.
+
+    ``{fronts_path}/{run_dir}`` -- the level above the per-timestamp folders,
+    where run-wide files such as the ``.meta`` descriptor live.
+    """
+    d = os.path.join(get_fronts_path(), _resolve_run_dir(version))
+    if generate:
+        os.makedirs(d, exist_ok=True)
+    return d
+
+
 def set_fronts_path(path:str):
     """Set the root directory for all Fronts I/O products.
 
@@ -100,7 +158,7 @@ def fronts_dir(version: str, timestamp: str, generate: bool = False) -> str:
         str: The path to the directory.
     """
     ts_dir = _format_timestamp(timestamp)
-    d = os.path.join(get_fronts_path(), version, ts_dir)
+    d = os.path.join(get_fronts_path(), _resolve_run_dir(version), ts_dir)
     if generate:
         os.makedirs(d, exist_ok=True)
     # Return
@@ -132,7 +190,7 @@ def derived_filename(timestamp:str, field:str,
     # Generate base.  The tag is the run_id used verbatim (no 'V' prefix), so
     # it matches dbof.run_all_subsets, which names exported NetCDFs
     # LLC4320_{date}_{channel}_{run_id}.nc.
-    basefile = f'{root}_{timestamp}_{field}_{version}.nc'
+    basefile = f'{root}_{timestamp}_{field}_{_resolve_file_tag(version)}.nc'
 
     # Join and return
     return os.path.join(path, basefile)
@@ -296,17 +354,44 @@ def grab_velocity(cutout:pandas.core.series.Series, ds=None,
                     
 def zarr_to_nc(timestamp: str, config_file: str, subset: str,
                 field: str = None, channels: list = None,
-                version: str = None, run_id: str = None):
-    """Write netcdf from the S3 zarr store.
+                version: str = None, run_id: str = None,
+                ice_mask: bool = False,
+                ice_mask_dataset_name: str = 'icearea.zarr'):
+    """Write netcdf from the S3 zarr store, for ONE timestamp.
 
     Pass either `field` (single field, e.g. 'gradb2_sfc') or `channels` (list
     of field names for multi-channel subsets). The output path is placed under
-    ``PATH/V{version}/YYYYMMDD_HHMMSS/``.  Use :func:`set_fronts_path` to
+    ``PATH/{version}/YYYYMMDD_HHMMSS/``.  Use :func:`set_fronts_path` to
     override the root directory.
 
     The S3 location and zarr store name are resolved from the (thin, global)
     config YAML plus the canonical ``subset_definitions`` in the preprocessing
     package -- the ``subsets:`` block no longer lives in the YAML.
+
+    Parameters
+    ----------
+    timestamp : str
+        Snapshot timestamp, e.g. '2012-11-09T12_00_00'.  ONLY this snapshot is
+        converted: its date_prefix is derived here and handed to
+        ``zarr_to_netcdf`` explicitly, so the call is safe for a config holding
+        any number of dates.
+    config_file : str
+        Path to the (thin) global YAML config.
+    subset : str
+        dbof subset owning the channel(s), e.g. 'frontal_structure'.
+    field : str, optional
+        Single fully-expanded channel name.
+    channels : list, optional
+        Multiple channel names (mutually exclusive with *field*).
+    version : str
+        Run tag (the run_id), used verbatim in the output path.
+    run_id : str, optional
+        Override the run_id read from the config.
+    ice_mask : bool
+        NaN-mask ice-covered points (SIarea > 0) during the export.  Requires
+        ``icearea.zarr`` to exist for the same run_id + date_prefix.
+    ice_mask_dataset_name : str
+        Zarr store holding SIarea.  Only used when *ice_mask* is True.
     """
     name = field if field is not None else subset
     full_path = derived_filename(timestamp, name, version=version)
@@ -331,6 +416,11 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
     # folder is pipeline-derived unless explicitly overridden in the YAML.
     folder = output.get('folder') or default_output_folder(pipeline)
 
+    # One snapshot per call -- 'YYYYMMDD_HHMMSS'.
+    date_prefix = _format_timestamp(timestamp)
+
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
     zarr_to_netcdf.main(
         os.path.dirname(full_path),
         output_filename=os.path.basename(full_path),
@@ -339,7 +429,9 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
         s3_endpoint=output.get('s3_endpoint', 'https://s3-west.nrp-nautilus.io'),
         bucket=output.get('bucket', 'dbof/'),
         channels=[field] if field is not None else channels,
-        dates=data_cfg.get('date_iterations'),
+        date_prefix=date_prefix,
         dataset_name=dataset_name,
-        folder=folder)
+        folder=folder,
+        ice_mask=ice_mask,
+        ice_mask_dataset_name=ice_mask_dataset_name)
     return full_path

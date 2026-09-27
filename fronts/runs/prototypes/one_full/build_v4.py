@@ -35,8 +35,8 @@ from fronts.llc import io as llc_io
 from fronts.finding.run import find_gradb2_fronts
 from fronts.properties.run import group_fronts
 from fronts.properties.run import colocate_fronts
-from fronts.properties.run import expand_property_roots
-from fronts.properties.run import generate_global_dataset
+from fronts.runs.config import expand_property_roots
+from fronts.llc.stores import generate_global_dataset
 
 # Use the producer's own date helpers so derived timestamps match the exported
 # NetCDF filenames exactly (date -> prefix -> 'YYYY-MM-DDTHH_MM_SS').
