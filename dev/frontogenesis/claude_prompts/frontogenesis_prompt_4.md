@@ -35,10 +35,18 @@ already exist; if it does not, M1 was not finished.
 ### `vertical.py` — the terms that make this a real budget
 
 - `b_z` from chunk `k = 0..2` Theta/Salt (`drF[0] = 1.0 m`, `Z[0] = -0.5 m`).
-- `vertical_term` = `-b_z (w_x b_x + w_y b_y)`. Note the subtlety: the **continuum** tilting term
-  vanishes at the surface because `w -> 0` there, but `k=0` is a finite ~1 m cell whose budget
-  carries the flux through its *base*, where `w` does not vanish. Expected ~30% of `F` by day and
-  ~0 at night — that diurnal signature is itself a check that the term is right.
+- `vertical_term` = `grad_h b . grad_h[ -W_k1 (b_k1 - b)/drF ]`, from the chunk **`W(k_l=1)`**
+  (corrected 2026-09-28, M0 task 3; coding §4.6). Note the subtlety: the **continuum** tilting
+  term vanishes at the surface because the velocity *relative to the free surface* vanishes
+  there (`w = D eta/Dt`, not `w = 0` — the OSN `W(k_l=0)` is `dEta/dt`, ~5e-5 m s^-1, tidal),
+  but `k=0` is a finite 1 m cell whose budget carries the flux through its *base*, where the
+  model's `W(k_l=1)` combines that `dEta/dt` part with the convergence part `+drF delta`. Use
+  the model's `W`, not `-drF delta` (wrong sign, missing part), and difference the tendency
+  before taking `grad_h` so that `-w grad(b_z) . grad b` is not dropped; report the factorised
+  `-b_z (w_x b_x + w_y b_y)` as a diagnostic. Expected ~30% of `F` by day and ~0 at night
+  (M0's surface-only bracket: 0.4-14% rms across `b_z = 1e-5..4e-4`, order-one pointwise at
+  fronts) — that diurnal signature, and its tidal phase, are themselves checks that the term
+  is right.
 - `surface_flux_term` = `grad b . grad B_sfc`. Convert heat and freshwater flux to a top-cell
   buoyancy tendency using thermal and haline expansion coefficients from **the same JMD95 EOS**
   as `operators.buoyancy`. **Treat `oceQsw` separately from `oceQnet`:** a large fraction of
@@ -117,8 +125,10 @@ never against 1.
 
 - Do not quote a "frontogenesis efficiency" before criterion 1 passes.
 - Do not call a slope below 1 "diabatic damping" without Figure 2b. Implicit numerical
-  diffusion damps `G` at 0.1-1 f — the same order as the strain — so a slope of 0.5-0.8 is
-  fully explicable with zero air-sea flux.
+  diffusion (OS7MP; planning §2.3, corrected 2026-09-28) damps `G` at 0.1-0.5 f at `4 dx` —
+  the same order as the strain — and at 3-10% of the kinematic rate at 10 km, so a slope of
+  0.5-0.8 at the grid scale is fully explicable with zero air-sea flux; quote `kappa_num` at
+  the scale of the feature, not as one number.
 - Do not run `tile_find`, label, thin or despur here. Front *pixels* are a percentile of `G` at
   the midpoint time (above); front *objects* are M4.
 

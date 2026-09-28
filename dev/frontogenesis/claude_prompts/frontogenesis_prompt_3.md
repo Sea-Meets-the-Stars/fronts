@@ -30,7 +30,10 @@ window without re-checking that overlap.
 - `llc_wind`: `KPPhbl, oceTAUX, oceTAUY` (also `k=0`, hourly; coverage 2011-11-01 -> 2012-07-15,
   so our window sits inside it). `KPPhbl` is the key interpretive variable for the diurnal
   residual, so it is not optional.
-- Static grid once: `XC, YC, dxC, dyC, dxG, dyG, rA, rAz, CS, SN, hFacC, Depth`.
+- Static grid once (already written by M0 as `tile330_grid.zarr`, §3.1): `XC, YC, dxC, dyC,
+  dxG, dyG, rA, rAz, CS, SN, hFacC, Depth` plus `hFacW, hFacS` and the 0-d `drF, Z, Zl`.
+  `oceTAUX`/`oceTAUY` come masked with the centred mask; store as-is, re-mask with
+  `hFacW`/`hFacS` at use (M0 task 3).
 
 Write `osn_tiles.pull_series(timestamps, out_zarr, ..., clobber=False)` — schemas in
 `frontogenesis_coding.md` §3.1-§3.2. **This concat step exists nowhere in either repo**: the
@@ -48,9 +51,13 @@ Use **`vertical.load_chunk_levels(window, k_max=2, out_zarr=...)`**. Load only `
 `Theta, Salt, W, oceQnet, oceQsw, oceFWflx` — schema in `frontogenesis_coding.md` §3.3. The store
 holds 51 levels at ~539 MB per timestep; nothing obliges us to read them.
 
-**Also capture `drF` from the chunk store's 3-D grid** (`process_llc4320_3d_grid`, which adds
-`Z, Zl, Zu, Zp1, drF`). `vertical.py` needs it and **OSN's 2-D grid does not carry it** — this is
-the only place it can come from. Confirm `drF[0] = 1.0 m` and `Z[0] = -0.5 m` here.
+**Also capture `drF` for `k = 0..2` from the chunk store's 3-D grid** (`process_llc4320_3d_grid`,
+which adds `Z, Zl, Zu, Zp1, drF`). `vertical.py` needs the `k = 1, 2` values; OSN carries only
+the `k = 0` scalar (`drF = 1.0`, already in `tile330_grid.zarr` — corrected 2026-09-28, M0).
+Cross-check `drF[0] = 1.0 m` and `Z[0] = -0.5 m` here. **Load `W` on interfaces `k_l = 0..2`**,
+not just `k_l = 0`: `vertical_term` takes the cell-base `W(k_l=1)` (coding §4.6), because the
+model's linear free surface makes `W(k_l=0) = dEta/dt`, a free-surface signal rather than a
+flux (planning §2.2).
 
 These three levels are what turn the finite-top-cell vertical term and the surface-flux part of
 the diabatic term from *inferred* into *measured* (planning §2.2-§2.3). That is the single

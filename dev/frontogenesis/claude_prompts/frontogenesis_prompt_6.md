@@ -82,5 +82,8 @@ Figure inventory with paths; the headline numbers as reported; and an explicit s
 which planning-doc claims the results **confirmed** and which they **overturned**. That last
 item matters most: this project has already overturned four of its own claims during planning
 (the residual being purely diabatic, the unfiltered limit isolating it, interpolation error
-being negligible, and heat fluxes being unavailable), and the writeup should be honest about
+being negligible, and heat fluxes being unavailable) and five more in M0 against real data
+(land stored as 0 — it is NaN; `W[k_l=0] ~ 0` — it is `dEta/dt`; 1.8-2.3 km spacing — it is
+1.7-2.1 km on a 90-degree-rotated face; rotation terms ~0.1% — they are identically zero; a
+single `kappa_num` — it is strongly scale-dependent), and the writeup should be honest about
 which survived contact with data.

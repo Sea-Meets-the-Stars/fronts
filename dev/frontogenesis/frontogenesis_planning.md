@@ -11,6 +11,12 @@ draft — that the residual is purely diabatic (§2.3), that the unfiltered limi
 diabatic part (§5.4), and that semi-Lagrangian interpolation error is negligible (§5.3) —
 and added the discrete null test that now gates Phase 2 (§6). Those corrections are folded
 in below and are the reason §6 has four validation tests instead of two.
+**Updated 2026-09-28 (M0 task 3, against real OSN data; log entry of that date):** five more
+claims corrected in place — OSN land is NaN, not 0 (§5.5); `W[k_l=0]` is `dEta/dt` under the
+model's *linear* free surface, not ~0 (§2.2); the grid spacing is 1.68-2.07 km and face 10 is
+rotated 90 degrees (§4); the rotation terms of §5.2 are identically zero on this tile; and the
+advection scheme is OS7MP with a strongly scale-dependent `kappa_num` (§2.3). Each spot is
+marked "(corrected 2026-09-28, M0 task 3)".
 
 ---
 
@@ -70,40 +76,68 @@ D/Dt ( (1/2) G )  =  F  -  b_z (w_x b_x + w_y b_y)  +  grad_h b . grad_h B
                      kinematic   tilting                diabatic
 ```
 
-At `z = 0`, `w` vanishes identically *along the surface*, so its along-surface derivatives
-`w_x` and `w_y` vanish too, and the **tilting term drops out identically**. The 3-D
-material derivative also reduces to its horizontal form. The surface budget is therefore
+At the free surface `z = eta`, `w` does **not** vanish — the kinematic boundary condition is
+`w = D eta/Dt`. What vanishes identically along the surface is the velocity *relative to* the
+surface, `w - D eta/Dt`, and that is what the along-surface derivatives see: evaluating the
+budget on `b_s(x, y, t) = b(x, y, eta, t)`, the terms `b_z (eta_t + u . grad eta - w)` cancel
+by the kinematic condition, so the **tilting term drops out** and the 3-D material derivative
+reduces to its horizontal form. The surface budget is therefore
 
 ```
 D_h/Dt ( (1/2) G )  =  F  +  grad_h b . grad_h B
 ```
 
 with `D_h = d/dt + u d/dx + v d/dy`. This is why surface-only data is *sufficient* for
-this question rather than a compromise: there is no missing kinematic term.
+this question rather than a compromise: there is no missing kinematic term. *(Corrected
+2026-09-28, M0 task 3: an earlier version said "`w` vanishes identically at `z = 0`". It does
+not — in the data `W[k_l=0]` is `dEta/dt`, median `5.5e-5 m s^-1`, p99 `9.6e-5`, correlation
+0.994 and slope 1.04 against the centred hourly `Eta` difference — and the conclusion rests on
+the kinematic condition, not on `w = 0`.)*
 
-**The continuum argument is right; the data are not the continuum.** The free-surface
-correction is genuinely negligible — `w(eta) = D(eta)/Dt` is non-zero but its horizontal
-gradient is `~1e-10 s^-1`, and `z*` dilation is `O(eta/H) ~ 2e-4`. But `k=0` is a finite
-cell (nominally ~1 m; confirm from `drF` in Phase 0), so the stored `b` is a cell average
-and its budget contains the flux through the **cell base**, where `w` does *not* vanish:
-`w(-dz) = -dz * delta ~ 3e-5 m s^-1` at a convergent front.
+**The continuum argument is right; the data are not the continuum.** LLC4320 runs a
+**linear implicit free surface** (`implicitFreeSurface`, `exactConserv`; `nonlinFreeSurf` and
+`select_rStar` unset — §2.3), so there is no `z*` dilation: the top cell is a fixed box of
+thickness `drF[0] = 1.0 m` that the free surface moves through, and the model's
+`W(k_l=0) = dEta/dt` is a coordinate-relative flux through the *top* of that box which the
+tracer equation sets to zero (`gad_advection.F`; the surface transport is zeroed and the
+resulting global non-conservation is left alone, `linFSConserveTr` unset). Its horizontal
+gradient is `|grad_h W| ~ 1e-9 s^-1` (median `9.5e-10`, p99 `3.4e-9`; corrected 2026-09-28
+from an earlier `~1e-10`), which contributes `< ~1%` of `F` in rms for any plausible `b_z`.
+The stored `b` is a cell average, and its budget contains the flux through the **cell base**,
+where (continuity, `z` up) `w(-dz) = w(0) + dz * delta`: the `dEta/dt` part (`~5e-5 m s^-1`,
+tidal, reversing) is ~5x the convergence part (`dz * |delta|` median `1.1e-5`, p99 `5.3e-5`
+at fronts), but the convergence part carries most of the *gradient* (`dz |grad delta|` median
+`4.8e-9`, p99 `2.2e-8 s^-1`). *(Corrected 2026-09-28: an earlier version wrote
+`w(-dz) = -dz * delta`, wrong sign and missing the `dEta/dt` part.)*
 
 This matters more than "a small correction" in summer. With a diurnal warm layer giving
 `dT ~ 0.1-0.3 K` between `k=0` and `k=1`, `b_z ~ 2-4e-4 s^-2`, and the vertical
 contribution `-b_z (w_x b_x + w_y b_y)` reaches **~30% of F by day** and ~0 at night. So
 the tilting term is not absent — it is *reintroduced by the discretisation*, with a strong
-diurnal cycle.
+diurnal cycle. M0 task 3 bracketed it from the surface fields alone: with the cell-base
+convergence gradient and `b_z = 1e-5 / 1e-4 / 4e-4 s^-2` the term is 0.4% / 3.7% / 14% of
+`F` in rms over the tile and order-one pointwise at fronts (median `|T|/|F|` 1.6% / 16% /
+63%), consistent with the ~30% figure at the warm-layer end.
 
 **This term is now measured, not bounded.** Lauren is transferring **hourly full-depth**
 `CHUNKS/monterey_bay` for the whole 72-hour window (51 levels; decision Q13), so `k = 1, 2`
-Theta/Salt give `b_z` and subsurface `W` gives `w_x`, `w_y` at *every* timestep. What was a
-bound from 11 snapshots becomes an explicit budget term. Confirmed from the source while
+Theta/Salt give `b_z` and the chunk **`W(k_l=1)`** — the model's own cell-base velocity,
+which already contains both the `dEta/dt` and the convergence parts — gives `w_x`, `w_y` at
+*every* timestep. Build the term from that `W`, not from `delta` (corrected 2026-09-28). Also
+do not assume `b_z` is uniform across the front: the factorised form `-b_z grad w . grad b`
+drops `-w grad(b_z) . grad b`, which with `w ~ 5e-5 m s^-1` and front-scale changes in
+stratification is not obviously smaller, so `vertical.py` computes the top-cell vertical
+advective tendency `-w_base (b_base - b)/drF` first and takes `grad_h b . grad_h` of it. What
+was a bound from 11 snapshots becomes an explicit budget term. Confirmed from the source while
 sizing that transfer: **`drF[0] = 1.0 m`, `Z[0] = -0.5 m`**, 51 levels to ~968 m — so the
 "~1 m top cell" above is a measured fact, not an assumption.
 
-*Where `drF` comes from.* OSN's grid is 2-D and carries no `drF`, so `vertical.py` must take it
-from the **chunk store's 3-D grid** (`process_llc4320_3d_grid`, which adds `Z, Zl, Zu, Zp1,
-drF`). It is part of the §3.3 chunk product, not the §3.1 OSN grid.
+*Where `drF` comes from.* The OSN gridfile **does** carry the top-cell vertical scalars as 0-d
+coordinates — `drF = 1.0`, `Z = -0.5`, `Zl = 0.0`, `Zp1 = 0.0` (k = 0 only; `process_llc4320_grid`
+drops them, so `osn_tiles.load_grid` re-attaches them; corrected 2026-09-28, M0 task 2) — and
+they are written to the §3.1 grid. The chunk store's 3-D grid (`process_llc4320_3d_grid`, which
+adds `Z, Zl, Zu, Zp1, drF` for all levels) is the source for `k = 1, 2` and a cross-check on
+`drF[0]`.
 
 ### 2.3 What the residual means
 
@@ -115,13 +149,31 @@ Residual  =  measured D_h G/Dt  -  2F
 The residual contains at least four things:
 
 1. **Implicit numerical diffusion.** LLC4320 carries no explicit horizontal tracer
-   diffusion; its tracer advection is a high-order monotonicity-preserving scheme (confirm
-   the exact scheme from the model configuration in Phase 0) whose implicit dissipation is
-   scale-selective and switches on precisely at the grid-scale gradients that *define* our
-   fronts. Order of magnitude: `kappa_num ~ (0.01-0.1) u dx ~ 6-60 m^2 s^-1`, damping `G`
-   at a `4 dx` feature at `2 kappa k^2 ~ (0.7-7)e-5 s^-1` — i.e. **0.1-1 f, the same order
-   as the strain itself**. A slope of 0.5-0.8 is fully explicable by model numerics with
-   zero air-sea flux.
+   diffusion (`diffKhT`, `diffK4T` unset, i.e. 0); its tracer advection is
+   **`tempAdvScheme = saltAdvScheme = 7`**, the flux-limited seventh-order
+   monotonicity-preserving scheme of Daru & Tenaud (2004) (OS7MP), with
+   `multiDimAdvection`, `StaggerTimeStep`, `deltaT = 25 s`, a linear implicit free surface
+   (`nonlinFreeSurf`/`select_rStar` unset), JMD95Z EOS, biharmonic Leith viscosity
+   (`viscC4Leith = 2.1-2.15` in our window) and KPP. Source: `MITgcm_contrib/llc_hires/
+   llc_4320/input/data`, https://raw.githubusercontent.com/MITgcm-contrib/llc_hires/master/
+   llc_4320/input/data (production-era commit `4627a7a8` differs only in the Leith
+   coefficient), corroborated by the NASA S-MODE model description. *(Confirmed 2026-09-28,
+   M0 task 3.)* Its implicit dissipation is strongly scale-selective and switches on
+   precisely at the grid-scale gradients that *define* our fronts. From the exact Fourier
+   symbol of the unlimited 7th-order upwind kernel, `kappa_num / (|u| dx)` = 0.093 at `2 dx`,
+   0.023 at `4 dx`, 4.7e-3 at 10 km, 1.1e-4 at 20 km (`dx = 1.8 km`, small-`k dx` limit
+   `|u| dx^7 k^6 / 280`). With the tile's speeds (`|u|` median 0.19, p90 0.38, p99 0.64
+   m s^-1): at `4 dx` (7 km) `kappa ~ 8-27 m^2 s^-1` and `G` is damped at
+   `2 kappa k^2 ~ (1.2-4)e-5 s^-1` — **0.1-0.5 f, the same order as the strain**, e-folding
+   in 7-23 h; at the **10 km front scale** `kappa ~ 1.7-5.6 m^2 s^-1`, `2 kappa k^2 ~
+   (1.3-4.4)e-6 s^-1`, e-folding 2.6-9 days, so 30-70% of `G` survives the 72 h window and
+   numerics are 3-10% of the kinematic rate; at `2 dx` `G` e-folds in under 1.5 h. Where the
+   monotonicity limiter engages (1-2-cell fronts, extrema) the local diffusivity rises toward
+   the first-order-upwind bound `|u| dx / 2 ~ 170-580 m^2 s^-1`, so at the sharpest fronts
+   the numerics are the whole story. *(Corrected 2026-09-28: the earlier single figure
+   "`kappa ~ (0.01-0.1) u dx ~ 6-60 m^2 s^-1`, 0.1-1 f" is the `4 dx` value and is an order
+   of magnitude too pessimistic at 10 km; the scale dependence is the point.)* A slope of
+   0.5-0.8 at the grid scale is fully explicable by model numerics with zero air-sea flux.
 2. **The finite-top-cell vertical term** (§2.2), ~30% of `F` by day — **now measured**
    at every timestep from the hourly full-depth chunks.
 3. **Genuine diabatic forcing** — KPP diffusive and non-local fluxes, and shortwave
@@ -194,8 +246,14 @@ Read through fsspec's built-in `reference://` filesystem (`engine="zarr"`,
 `consolidated=False`) — the `kerchunk` package itself is not required.
 
 **Region.** Rect-grid tile 330 = rect `(i=13320, j=9720)` -> **face 10**, face-local
-`j 0:720, i 2880:3600`; box approximately **lon -127.99..-113.00, lat 26.66..38.20**,
-720x720 native cells at ~1.8-2.3 km spacing.
+`j 0:720, i 2880:3600`; box **lon -127.99..-113.01, lat 26.66..38.27**, 720x720 native cells
+at **1.68-2.07 km** spacing (`dxC` 1.68-1.90, `dyC` 1.82-2.07 km; 1.71 x 1.85 km at 37N;
+`dyC/dxC = 1.086` everywhere). **Face 10 is rotated 90 degrees:** `CS = 0`, `SN = -1` in
+every cell, longitude varies along `j` (exactly 1/48 deg per cell) and latitude along `i`
+(`i` increasing *southward*), so `j`/`V`/`dyC` are zonal and `i`/`U`/`dxC` meridional
+(`u_east = V`, `v_north = -U`). `dyC` is the `(1/48) deg cos(lat)` zonal spacing; the
+meridional spacing is 8% smaller. *(Corrected 2026-09-28, M0 task 3; an earlier version said
+"~1.8-2.3 km", lat to 38.20, and implied `i` was zonal.)*
 
 **Window.** **2012-07-02 00:00 -> 2012-07-04 23:00 UTC**, 72 consecutive hours.
 
@@ -207,13 +265,19 @@ and makes the eventual depth cross-check (Phase 4) far more useful.
 
 **Fields pulled.** Raw only: `Theta`, `Salt`, `U` (on `i_g`), `V` (on `j_g`), plus `W` and
 `Eta` for diagnostics. Grid (static, pulled once):
-`XC, YC, dxC, dyC, dxG, dyG, rAz, rA, Depth, hFacC, SN, CS`.
+`XC, YC, dxC, dyC, dxG, dyG, rAz, rA, Depth, hFacC, SN, CS`, plus — from the raw gridfile,
+which `process_llc4320_grid` drops — the staggered land fractions **`hFacW`, `hFacS`** (the
+`U`/`V` masks; binary at k=0, equal to the minimum of the adjacent `hFacC`) and the 0-d
+**`drF`, `Z`, `Zl`** (added 2026-09-28, M0 tasks 2-3).
 
 **Second OSN store — pull it too.** `cnh-bucket-1/llc_wind/` carries
 `KPPhbl, PhiBot, oceTAUX, oceTAUY, SIarea` (also `k=0`, hourly), coverage
 2011-11-01 -> 2012-07-15 — **our window sits inside it**. `KPPhbl` (boundary-layer depth) is
 the key interpretive variable for the diurnal residual of §2.3, and the wind stress gives the
-forcing context. Neither OSN store carries heat fluxes.
+forcing context. Neither OSN store carries heat fluxes. Note (M0 task 3): `oceTAUX`/`oceTAUY`
+sit on `i_g`/`j_g` but are masked with the *centred* `hFacC` mask — 922 / 565 finite values
+lie on faces the model treats as land — so re-mask with `hFacW`/`hFacS` before any
+stress-divergence.
 
 **Third source — hourly full-depth chunks (decision Q13).**
 `LLC4320_RAW/CHUNKS/monterey_bay`, being extended by Lauren to **hourly for all 72 hours**,
@@ -260,7 +324,7 @@ everything downstream in `dev/frontogenesis/py`. **No modification to
 EP     = "https://mghp.osn.xsede.org"
 tile   = rect_ij_to_tile(13320, 9720)                     # face 10, j 0:720, i 2880:3600
 g      = process_llc4320_grid(get_remote_gridfile(EP))    # static, once
-g_tile = _ensure_comodo_attrs(g.isel(face=[tile.face_idx], **_tile_indexer(g, tile)).compute())
+g_tile = ensure_comodo_attrs(g.isel(face=[tile.face_idx], **_tile_indexer(g, tile)).compute())
 grid   = set_xgcm_grid(g_tile, use_connections=False)
 for ts in timestamps:
     ds = get_remote_llc_data(EP, osn_date_to_iteration(ts), [tile.face_idx])
@@ -294,11 +358,15 @@ re-deriving tested code. The corrected rule:
   centres, then `di = U dt/dxC`, `dj = V dt/dyC`. No rotation, no round-trip.
 
 *Known approximation.* Rotation invariance is exact only for a spatially constant rotation;
-`CS`/`SN` vary across the tile, so "rotate then differentiate" and "differentiate then
-rotate" differ by terms in `grad CS`, `grad SN`. Scale estimate: the grid angle changes by
-a few degrees across 720 cells, giving `~4e-8 m^-1 * 0.2 m/s ~ 8e-9 s^-1` against strain
-rates `~1e-5 s^-1` — about **0.1%**. Spherical metric terms (`u tan(phi)/a ~ 2e-8 s^-1`)
-are similarly negligible. Both to be confirmed numerically in Phase 0, not assumed.
+where `CS`/`SN` vary, "rotate then differentiate" and "differentiate then rotate" differ by
+terms in `grad CS`, `grad SN`. **On tile 330 they do not vary at all** (corrected 2026-09-28,
+M0 task 3): `SN = -1.0` exactly and `|CS| < 1.3e-12` in every cell, the grid angle is
+`-90.000` degrees with zero range, `|grad SN| = 0` and `u |grad CS| ~ 1e-17 s^-1` — the
+rotation is an exact axis swap and the rotation terms are **identically zero**, not "~0.1%"
+as an earlier version estimated from "a few degrees across 720 cells". The only neglected
+term is the spherical metric term `u tan(phi)/a`: median `1.8e-8 s^-1`, p99 `6.8e-8`, i.e.
+**0.09% of the local strain at the median and 0.5-0.7% at p99** (measured `|sigma|` median
+`1.9e-5 s^-1`, p99 `7.9e-5`). Confirmed numerically in Phase 0.
 
 ### 5.3 Measured D_h G/Dt — semi-Lagrangian
 
@@ -325,7 +393,9 @@ assuming it.
 1. **Displacements are not 0.2-0.4 cells.** That is the *typical* value. In 1 m s^-1
    filaments, and with tidal and inertial currents added, displacement exceeds **1.5 cells**
    — and those are exactly the strong-front pixels the study is about. The error budget
-   must be quoted at the tail, not the median.
+   must be quoted at the tail, not the median. *(Confirmed 2026-09-28, M0 task 3, on
+   2012-07-02 00:00: ocean median 0.37 cells, p99 1.28, max 3.5; on front pixels
+   (`G > p90`) median 0.54, p99 1.64, max 2.5; speed median 0.19, p99 0.64 m s^-1.)*
 2. **Interpolate `b`, not `G`, and use high order.** Bilinear interpolation of `G` at a
    half-cell offset has error `dx^2 G_xx / 8`, which for a front of width ~1.5 cells is
    ~5.5% of `G` and is **systematically negative at maxima** — it fabricates apparent
@@ -367,20 +437,25 @@ slope/correlation is reported as a function of `L` (Figure 3).
 
 ### 5.5 Land
 
-MITgcm stores land as 0, so `b(Theta=0, Salt=0)` is finite and any ocean cell adjacent to
-coast inherits the full land/ocean jump — a gradient far larger than any real front.
-Nothing in the existing code masks before differencing.
+**OSN stores land as NaN, not 0** (corrected 2026-09-28, M0 task 3; an earlier version
+assumed the MITgcm convention of 0, under which `b(Theta=0, Salt=0)` would be finite and every
+coastal ocean cell would inherit the land/ocean jump). Checked cell by cell on tile 330:
+`Theta, Salt, W, Eta` and the `llc_wind` fields are NaN in exactly the 161,523 `hFacC == 0`
+cells; `U` is NaN in exactly the `hFacW == 0` cells and `V` in exactly the `hFacS == 0` cells
+(so `U`/`V` are NaN on 922 / 565 coast-facing faces whose centre is ocean); no finite values on
+land, no NaN in the ocean, and the pattern is static in time. `hFacC` is binary at `k = 0` (no
+partial cells). So there is **no coastal gradient ribbon**: the dbof stencils propagate NaN,
+and the 3-cell stencil part of the halo happens by itself.
 
-A **dilated land mask of 7 cells (~13 km)** — 3 for the Jacobian+interp stencil, 4 for the
-widest filter half-width — is applied to `b`, `u`, `v` **before any differencing**.
+A **dilated land mask of 7 cells (12-13 km at 37N)** — 3 for the Jacobian+interp stencil, 4
+for the widest filter half-width — is still applied to `b`, `u`, `v` **before any
+differencing**: the NaN propagation covers the stencil, but the filter needs its full support
+and `coast_distance_km` needs a clean `skfmm` distance.
 
 Two defects in the existing helper must be handled:
 `halo_mask.llc_native_grid_halo_mask` returns a 2-D array early when a face is entirely
 land (`halo_mask.py:74-75`), and a `k`-carrying `hFacC` makes the mask 4-D and breaks
 `skfmm`. Convention: **True = retained**, land = False, plain numpy.
-
-Unverified: whether OSN stores land as 0 or NaN. One-line Phase-0 check; the halo is
-correct either way.
 
 ### 5.6 Offshore restriction
 
@@ -448,14 +523,14 @@ No science until the operators are known good.
 
 | Task | Exit criterion |
 |---|---|
-| Environment | `dbof` importable; `xgcm<0.10`, `scikit-fmm` present |
+| Environment | `dbof` importable; `xgcm>=0.10`, `scikit-fmm` present |
 | Comodo sign | one assertion that `c_grid_axis_shift == -0.5` (already resolved 2026-09-01; we only pin it) |
-| `W[k_l=0] ~ 0` | confirms §2.2 empirically rather than by argument |
-| OSN land fill | determine 0 vs NaN |
+| `W[k_l=0] ~ 0`? | **done 2026-09-28: no** — `W(0) = dEta/dt` (linear free surface); §2.2 rewritten; tilting term bracketed |
+| OSN land fill | **done 2026-09-28: NaN**, cell-for-cell equal to `hFacC`/`hFacW`/`hFacS` (§5.5) |
 | Halo mask | 7-cell halo working on a single face; both helper defects handled |
-| Rotation/metric terms | `grad CS`, `grad SN` and spherical terms confirmed < 0.5% of strain |
+| Rotation/metric terms | **done 2026-09-28**: rotation terms identically zero on face 10; metric term 0.1% median, <= 0.7% p99 of strain (§5.2) |
 | Coarse-grained budget | `tau` computed explicitly; budget closes at each `L` (§5.4) |
-| Advection scheme | exact tracer scheme identified from the model config; `kappa_num` estimated |
+| Advection scheme | **done 2026-09-28**: OS7MP (`tempAdvScheme = 7`), no explicit horizontal diffusion; scale-dependent `kappa_num` in §2.3 |
 | **Validation** | four tests (below), all passing |
 
 **Validation is four tests, not one, and every one writes a PNG.** Lauren asked for the
@@ -489,8 +564,9 @@ continuum checks; the last two are the ones that actually protect the headline n
   truth vs `G` from bilinear-`G` vs `G` from cubic-`b`, with the negative bias at the maximum
   annotated. The clearest statement of why §5.3 item 2 exists, and it doubles as a regression
   test.
-- **V6 — land-halo QA.** The coastline before and after the halo, confirming no gradient ribbon
-  survives.
+- **V6 — land-halo QA.** The coastline before and after the halo. Land is NaN (§5.5), so
+  there is no gradient ribbon to remove; the figure shows the stencil's own NaN rim, the
+  7-cell halo and the `_tile_indexer` high-edge rim, and confirms the mask geometry.
 
 ### Phase 1 — Data
 
@@ -594,7 +670,8 @@ afterthought but a milestone deliverable. Four of them are the gates; two are su
 - **V4** *(gate)* Interpolation bias under uniform zero-strain flow, where the truth is zero.
 - **V5** Half-cell interpolation demonstration — truth vs bilinear-`G` vs cubic-`b`, negative
   bias at the maximum annotated.
-- **V6** Land-halo QA: coastline before/after the 7-cell halo, confirming no gradient ribbon.
+- **V6** Land-halo QA: coastline before/after the 7-cell halo (land is NaN, so this shows the
+  stencil rim and mask geometry rather than a ribbon).
 
 ---
 
@@ -676,11 +753,12 @@ merges land**, before anything runs against it.
 | **Implicit numerical diffusion mimics diabatic damping** at the same order as the strain | Figure 2b; `kappa_num` estimate; residual-vs-`grad^4` structure (§2.3) |
 | **Discrete operators bias the slope 0.7-1.4 with no physics** (chain-rule + C-grid interpolation attenuation) | Phase-0 discrete null test, slope = 1 +/- 0.05 required (§6, test 3) |
 | **Semi-Lagrangian interpolation bias is 25-80% of the signal** and signed | interpolate `b` at cubic+ order, not `G`; uniform-flow null test (§6, test 4) |
-| Land contamination dominates coastal gradients | 7-cell halo before differencing (§5.5); verify on the QA plot |
+| Land contamination dominates coastal gradients | retired 2026-09-28: land is NaN (§5.5); the 7-cell halo remains for filter support and `skfmm` |
+| `W(k_l=0) = dEta/dt` mistaken for a surface flux, or the cell-base term built from `-dz delta` | use the chunk `W(k_l=1)` directly (§2.2); check the tidal phase of the vertical term |
 | 72 h cannot separate K1 / M2 / inertial (3, 5.8, 3.6 cycles) and samples one wind state | stated as a limit; extending to 504 h is the first follow-on |
 | LLC4320 tides reported over-energetic; reversible tidal strain pushes the slope toward 1 | bin by tidal phase; confirm the tidal-forcing issue in Phase 0 |
 | The OSN code path has **never been run** — no OSN test, no `tile_find` test, no NaN-input finding test | Phase 0 runs one hour end-to-end before the 72 |
-| `ocean14` is py3.14; `xgcm<0.10` / `scikit-fmm` wheels may not exist | fall back to a py3.13 env |
+| `ocean14` is py3.14; `xgcm>=0.10` / `scikit-fmm` wheels may not exist | fall back to a py3.13 env (done: py3.13, xgcm 0.10.1) |
 | Filter sweep misinterpreted as noise control rather than a change of budget | write the coarse-grained budget out first (§5.4) |
 | Hourly sampling aliases inertial (19.9 h) / M2 (12.4 h) motions | Figure 5; report `tau` distribution |
 | Regression slope biased by correlated errors in a quadratic predictor | addressed in §11 |

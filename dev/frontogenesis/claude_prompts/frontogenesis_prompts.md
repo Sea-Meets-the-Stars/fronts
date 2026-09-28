@@ -1211,3 +1211,468 @@ error that reading each one in isolation cannot surface.
 
 **Still outstanding (not blocking):** PR #24 remains open, so the Q15 merge sequence has not run;
 once it does, the coding doc's §2 API table must be re-verified before M0 executes against it.
+
+### 2026-09-27 — Execution prompt 1, task 1: environment (Fable)
+
+**Scope.** Task 1 of `frontogenesis_prompt_1.md` only (env). Tasks 2-5 not started.
+
+**Env `frontogenesis`, Python 3.13.15.** 3.14 was checked and rejected: conda-forge does carry
+`scikit-fmm 2025.6.23` builds for `python 3.14.* *_cp314` and `xgcm 0.9.0` is noarch
+(`Requires-Python >=3.9`), so the prompt's literal test *passes* — but PyPI has **no** scikit-fmm
+wheel for 3.14 (`pip download --only-binary=:all:` under the py3.14 `ocean14` env: "from versions:
+none"), `xgcm 0.9.0` depends on the unmaintained `future` (1.0.0, Feb 2024, predates 3.13/3.14),
+and `fronts` drags `timm==0.3.2`, PyQt6, pyvista/trame and healpy, none of which are worth
+debugging on 3.14 for this project. The prompt says "prefer 3.13"; 3.13 it is.
+
+**Install commands (in order).**
+
+```bash
+# dbof worktree (main checkout stays on full_globals_run_for_cutouts_v2_2)
+cd ~/Oceanography/python/llc4320-native-grid-preprocessing && git fetch origin
+git worktree add ~/Oceanography/python/llc4320-tiles-surface-only -b tiles-surface-only origin/tiles-surface-only
+
+mamba create -y -n frontogenesis -c conda-forge python=3.13 numpy scipy xarray dask zarr pandas \
+  matplotlib scikit-image scikit-learn h5py h5netcdf netcdf4 pyyaml cartopy cmocean seaborn bokeh \
+  tqdm astropy astropy-healpix healpy gsw "xgcm<0.10" xmitgcm scikit-fmm s3fs fsspec ujson \
+  pytorch torchvision pyarrow boto3 cftime emcee corner ipython pyvista skan smart_open \
+  umap-learn llvmlite pyqtgraph pytest importlib-metadata pip setuptools future
+
+PY=~/miniforge3/envs/frontogenesis/bin/python
+(cd ~/Oceanography/python/llc4320-tiles-surface-only && $PY -m pip install -e . --no-deps)
+(cd ~/Oceanography/python/fronts && $PY -m pip install -e .)   # with deps: a --dry-run showed it
+      # adds only PyQt6, timm 0.3.2, trame*, pyobjc — torch untouched
+```
+
+`kerchunk` not installed, as specified. `pip check` reports two metadata-only complaints from
+`dbof`'s pins (`xarray==2025.10.1`, `xgcm>=0.10`); harmless for the first, see below for the second.
+
+**Resolved versions.**
+
+| package | version | | package | version |
+|---|---|---|---|---|
+| python | 3.13.15 | | s3fs | 2026.9.0 |
+| numpy | 2.5.3 | | fsspec | 2026.9.0 |
+| xarray | 2026.7.0 | | ujson | 6.0.0 |
+| dask | 2026.8.0 | | h5netcdf | 1.8.1 |
+| zarr | 3.4.0 | | matplotlib | 3.11.2 |
+| xgcm | **0.9.0** | | torch | **2.13.0** (conda-forge cpu; not the 2.8.0 pin) |
+| xmitgcm | 0.5.2 | | scipy / pandas | 1.18.1 / 3.0.6 |
+| scikit-fmm | 2025.6.23 | | torchvision | 0.28.0 |
+
+- `dbof` — editable from worktree `~/Oceanography/python/llc4320-tiles-surface-only`, branch
+  `tiles-surface-only` @ **`938bce1`** (2026-09-16 "nb check"), tracking origin. Untouched.
+- `fronts` — editable from `~/Oceanography/python/fronts`, branch **`frontogenesis`** @ `5b30711`
+  (2026-09-27, merge of origin/main). Not switched.
+- Exports: `dev/frontogenesis/env/frontogenesis_env.yml` (`conda env export --no-builds`) and
+  `dev/frontogenesis/env/frontogenesis_pip_freeze.txt`.
+
+**Smoke test (no data pulled).** All of these import from the env: `dbof`; `rect_ij_to_tile`,
+`process_llc4320_grid`, `get_remote_gridfile`, `get_remote_llc_data`, `get_remote_llc_wind_data`,
+`set_xgcm_grid`, `osn_date_to_iteration`, `_tile_indexer`, plus `native_gradient`,
+`calculate_fields`, `static_masks`, `halo_mask` (so `skfmm` links); `fronts` and
+`fronts.finding.algorithms.fronts_from_gradb2`; `xgcm` 0.9.0 (< 0.10 asserted); `skfmm`.
+`rect_ij_to_tile(13320, 9720)` -> `TileInfo(tile_idx=330, face_idx=10, j_face_slice=0:720,
+i_face_slice=2880:3600)` as the prompt states; `osn_date_to_iteration('2012-07-02 00:00:00')`
+-> 1022976.
+
+**Surprises / contradictions with the prompt and coding doc — three, one of them blocking.**
+
+1. **BLOCKING: `xgcm<0.10` is incompatible with `dbof @ tiles-surface-only`.** `set_xgcm_grid`
+   (`dbof/llc4320_ingestion/grid.py:121`) calls `xgcm.Grid(ds_grid, padding='fill')`, and
+   `padding=` exists only in xgcm >= 0.10 (0.9.0's constructor takes `periodic`/`boundary`;
+   0.10's takes `padding`). Verified offline on a 4x3 synthetic staggered dataset:
+   `set_xgcm_grid(ds, use_connections=False)` -> `TypeError: Grid.__init__() got an unexpected
+   keyword argument 'padding'`, whereas `xgcm.Grid(ds, periodic=False, boundary='fill')` works.
+   The branch's own `pyproject.toml` pins `xgcm>=0.10` with the comment "earlier releases cannot
+   exchange a staggered vector pair across a rotated face connection on dask-backed input", and no
+   other `dbof` code passes `periodic=` or `boundary=`. So the coding doc's reason for `<0.10`
+   ("0.10 removed `periodic` and renamed `boundary`") is *true of xgcm* but *backwards for dbof*:
+   dbof already targets the 0.10 API. Left at 0.9.0 as instructed; the fix is one of
+   (a) `mamba install -n frontogenesis -c conda-forge "xgcm>=0.10"` — recommended, it is what
+   `calculate_fields`/`native_gradient` were developed against — then re-export the env files, or
+   (b) keep 0.9 and build the grid in `osn_tiles.py` with
+   `xgcm.Grid(g_tile, periodic=False, boundary='fill')` instead of `set_xgcm_grid`. Decide before
+   task 2.
+2. **`_ensure_comodo_attrs` does not exist** on `tiles-surface-only` @ 938bce1. Coding doc §2.2
+   places it at `tile_utils.py:334` and `_tile_indexer` at L372; in fact `_tile_indexer` is at
+   L334 and the comodo helper is the *public* `ensure_comodo_attrs(ds, *, strict=False,
+   source=None)` in `dbof/llc4320_ingestion/grid.py` (commit 8af5371 "update comodo",
+   2026-09-02, then cd31497 "restructure"). The task-2 snippet must import that instead.
+3. **Branch state differs from the prompt.** PR #24 (`build_v5` -> `main`) was **merged today**,
+   2026-09-27 12:27 UTC, not "still open". `fronts` is on `frontogenesis`, which is `main` + 18
+   commits (it contains PR #24). It is **not** based on `viz_tools`: `origin/viz_tools` has 65
+   commits absent from both `main` and `frontogenesis` (merge-base 6807f82), and two files the
+   coding doc §2.5 cites exist **only** on `viz_tools`: `fronts/front_tracking.py` and
+   `fronts/llc/tiles.py` (also the `run_v5_*_chunks.yaml` configs Lauren mentioned). The other
+   §2.5 files (`finding/algorithms.py`, `finding/pyboa.py`, `properties/colocation.py`,
+   `properties/algorithms.py`, `runs/prototypes/one_full/build_v5.py`, `viz/curtains.py`) are
+   present on `frontogenesis`. M0-M3 do not need `front_tracking.py`; M4 does, so `viz_tools`
+   has to be merged into `frontogenesis` (or the file cherry-picked) before then.
+
+Minor: `dbof`'s declared deps also pin `boto3==1.41.5`, `dask==2025.10.0`, `s3fs==2025.9.0`;
+all ignored via `--no-deps`, and nothing imported so far cares.
+
+**Addendum (2026-09-28) — xgcm upgraded, overriding the prompt's `xgcm<0.10` pin.** The pin is
+wrong for `tiles-surface-only`: `set_xgcm_grid` (`grid.py:133,136`) passes `padding='fill'`,
+which exists only in xgcm>=0.10, and the branch's `pyproject.toml` itself requires
+`xgcm>=0.10`. Ran `mamba install -n frontogenesis -c conda-forge "xgcm>=0.10"`, which moved
+only xgcm, from 0.9.0 to **0.10.1**; torch is still 2.13.0. Checked on a synthetic staggered
+dataset: `ensure_comodo_attrs` followed by `set_xgcm_grid(ds, use_connections=False)` builds
+X and Y axes, not periodic, with `padding='fill'`. `env/frontogenesis_env.yml` and
+`env/frontogenesis_pip_freeze.txt` were re-exported. `pip check` still lists `ecco-v4-py`,
+`reader` and `seawater` as missing, but grep finds no import of any of them in
+`src/dbof`, so they are unused declared deps and were left out. The remaining pin mismatches
+(torch==2.8.0, xarray, dask, s3fs, boto3) are expected with `--no-deps`.
+**Contradiction with the planning/coding docs:** any reference there to `xgcm<0.10` (or to
+`periodic=`/`boundary=` arguments) should be corrected to `xgcm>=0.10` with `padding=`.
+
+### 2026-09-28 — Execution prompt 1, task 2: first contact with the data (Fable)
+
+**Scope.** Task 2 of `frontogenesis_prompt_1.md` only: `py/osn_tiles.py` far enough to load one
+timestamp from both OSN stores. Tasks 3-5 (five questions, `tile330_grid.zarr`, QA plot) not
+started; no physics written.
+
+**Written.** `dev/frontogenesis/py/osn_tiles.py` (new `py/` dir, ~170 lines): `TILE_RECT_I/J`,
+`OSN_ENDPOINT`, `CORE_VARS`, `WIND_VARS`; `tile_spec()` (wraps `rect_ij_to_tile`),
+`tile_indexer()` (wraps `dbof`'s private `_tile_indexer`), `load_grid(endpoint, tile=None)`
+(`get_remote_gridfile` -> `process_llc4320_grid` -> `isel(face=[10], tile)` -> `.compute()` ->
+`ensure_comodo_attrs`, plus the §3.1 attrs `face_index, j_face_start, i_face_start, rect_i,
+rect_j, source`), `build_xgcm()` (`set_xgcm_grid(..., use_connections=False)`),
+`load_hour(ts, tile=None, endpoint, keep=CORE_VARS, compute=True)` and
+`load_wind_hour(ts, ...)` (`keep=KPPhbl, oceTAUX, oceTAUY`). Both hourly loaders share a tail
+that selects `keep`, subsets to the tile with the same indexer, restores `time` as a length-1
+dim (`expand_dims`, so hours concatenate later), computes, and **raises `ValueError` if the
+store's decoded `time` differs from the requested timestamp** — the iteration conversion is
+checked against the store's own clock on every pull. `pull_series` (§4.1) not written (M2).
+Nothing outside `dev/frontogenesis/` touched; `tiles-surface-only` untouched.
+
+**Run: `'2012-07-02 00:00:00'` -> OSN iter 1022976, tile 330 (face 10, j 0:720, i 2880:3600).**
+
+- `get_remote_gridfile`: 14 s (13 kerchunk JSONs, lazy). Raw store dims
+  `(face 13, j/i/j_g/i_g 4320, time 10312)`; **every variable arrives as a coordinate** (zero
+  data_vars), 38 coords including `XG, YG, hFacW, hFacS, rAw, rAs, drC, drF, Z, Zl, Zu, Zp1,
+  PHrefC, rhoRef, niter, time`. `hFacC` is `(face, j, i)` — 2-D, no `k`.
+- `load_grid()`: 18 s, 24.9 MB in memory, dims `(face 1, j 720, i 720, i_g 720, j_g 720)`, all
+  twelve §3.1 vars float32 `(1,720,720)`: `XC YC rA Depth hFacC SN CS` on `(j,i)`; `dxC dyG` on
+  `(j,i_g)`; `dyC dxG` on `(j_g,i)`; `rAz` on `(j_g,i_g)`. Box lon -127.990..-113.010, lat
+  26.659..**38.267** (planning §4 says 38.20 — minor). `dxC` median **1796 m**, `dyC` median
+  **1950 m** (quick read only; the proper answer to question 3 is task 3's).
+- `build_xgcm()`: builds in <0.01 s — X (`i` center, `i_g` left) and Y (`j` center, `j_g` left),
+  not periodic, `padding='fill'`, xgcm 0.10.1.
+- `load_hour`: 7.0 s, 12.5 MB; `Theta Salt W Eta (time,face,j,i)`, `U (time,face,j,i_g)`,
+  `V (time,face,j_g,i)`, all float32 `(1,1,720,720)`; scalar coords `k=0, k_l=0, niter=1022976`,
+  `time=['2012-07-02T00:00:00']` (encoding `seconds since 2011-09-10`). Value ranges: Theta
+  11.3..33.1, Salt 28.4..48.4, U -1.01..1.17, V -1.00..1.75, W -9.2e-5..1.5e-4, Eta -2.8..2.0.
+- `load_wind_hour`: 5.6 s, 6.2 MB; `KPPhbl (time,face,j,i)` 0.5..60.3 m, `oceTAUX (…,j,i_g)`,
+  `oceTAUY (…,j_g,i)`; same `niter`/`time` as the surf store. Store also offers `PhiBot`, `SIarea`.
+- Ocean: **`hFacC>0` fraction 0.6884** (hFacC min 0, max 1; `Depth>0` fraction identical).
+  Incidental, *not* task 3's answer: the finite fraction of every centred field (`Theta, Salt, W,
+  Eta, KPPhbl, oceTAU*`) is also **0.6884** and `U`/`V` 0.6866/0.6873 — i.e. land looks like NaN
+  in the data, not 0. Task 3 should confirm this against `hFacC` cell by cell.
+- Wall total ~45 s for grid + two stores; bytes on the wire not measured (the kerchunk reads go
+  through s3fs; in-memory sizes above are the float32 tile arrays).
+
+**Trap confirmations.**
+
+1. **Comodo attrs survive `process_llc4320_grid` on real OSN data.** Traced at four points: the
+   raw gridfile already carries `axis` (+ `c_grid_axis_shift=-0.5` on `i_g`/`j_g`, plus
+   `long_name`, `standard_name`, `swap_dim`) on all four horizontal index coords; identical after
+   `process_llc4320_grid` (`reset_coords()` demotes only non-index coords — index coords keep
+   their attrs), after `isel`, and after `ensure_comodo_attrs` (a no-op here, since
+   `comodo_attrs` defers to an existing `axis`). So the §2.1 trap ("can DROP comodo attrs") does
+   **not** fire for the OSN gridfile; `ensure_comodo_attrs` stays in `load_grid` as a cheap
+   guard for other stores, and `set_xgcm_grid` builds either way.
+2. **Timestamp formats.** (a) Both OSN stores are keyed by the *same* OSN iteration
+   (`osn_date_to_iteration`, MIT + 10368): iter 1022976 gives `time == 2012-07-02T00:00:00` and
+   `niter == 1022976` from **both** `llc_surf` and `llc_wind`, equal to the requested timestamp.
+   There is no second OSN time convention; the "two timestamp formats" of the acceptance criteria
+   are dbof's `'%Y-%m-%d %H:%M:%S'` vs `front_tracking`'s `'%Y-%m-%dT%H_%M_%S'` (§2.5 trap).
+   (b) That round trip verified: `'2012-07-02 00:00:00'` -> `'2012-07-02T00_00_00'` -> back,
+   equal. `load_hour` accepts only the dbof format and rejects the underscore form with
+   `ValueError` (strptime against `DATE_FMT`), so a wrong-format string cannot silently pull
+   the wrong hour. The tracking-side converter itself belongs in `tracking.py` (M4), not here.
+3. `calculate_jacobian` args and `halo_mask.py:75` — not exercised (M1 / task 3).
+
+**Contradictions / corrections to the docs.**
+
+- **`drF` is in the OSN gridfile.** Coding doc (prompt 1 §3, coding §6 M0) says "OSN's grid is
+  2-D and carries no `drF`; confirmed in M2 from the chunk store's 3-D grid". The 2-D part is
+  right (`hFacC` has no `k`), but the gridfile carries the top-cell vertical scalars:
+  **`drF = 1.0`, `Z = -0.5`, `Zl = 0.0`, `Zp1 = 0.0`** (all 0-d float32, k = 0 only), plus
+  `drC`, `Zu`, `PHrefC`, `rhoRef`. `process_llc4320_grid` drops them (not in `coords_to_keep`);
+  `process_llc4320_3d_grid` would keep them. So `drF[0] = 1.0 m`, `Z[0] = -0.5 m` is confirmable
+  from OSN now; M2's chunk-grid check becomes a cross-check, not the only source.
+- **§4.1 `load_hour` "(lazy)"**: implemented with `compute=True` by default (the task asked for
+  computed tiles); `compute=False` returns the lazy view. The signature `load_hour(ts, tile,
+  endpoint=...)` is honoured with `tile=None` defaulting to `tile_spec()`.
+- **§3.2 dims `(time, j, i)`**: the loaders keep a length-1 `face` dim (`(time, face, j, i)`)
+  because `native_gradient` documents its inputs as `(face, j, i)` and `face_seam_mask` needs
+  it; drop it at zarr-write time (task 4) if §3.2 is to be taken literally, or amend §3.2.
+- `get_remote_gridfile` output has a `time` dim of 10312 hourly records (2011-09-13T00 ->
+  2012-11-15T15) with `niter` — a ready-made iteration<->time table matching planning §4's
+  coverage. Harmless; `process_llc4320_grid` drops it.
+- Planning §4's box lat upper bound 38.20 is 38.267 on the tile's `YC`.
+- Minor: `get_remote_llc_data` prints six progress lines per call; fine for one hour, noisy for 72.
+
+**Nothing blocks task 3.** Network access from this machine works anonymously; all five
+questions can be answered from `load_grid()` + `load_hour()` (+ `load_wind_hour()`) as written.
+
+### 2026-09-28 — Execution prompt 1, task 3: five empirical questions (Fable)
+
+**Scope.** Task 3 of `frontogenesis_prompt_1.md` only. Tasks 4-5 (`tile330_grid.zarr`, QA plot)
+not started; no physics module written. Everything below is from
+`dev/frontogenesis/py/m0_recon.py` (new, throwaway but reproducible, ~330 lines; runs in ~280 s,
+network-bound) against tile 330 at `2012-07-01 23:00`, `2012-07-02 00:00` (= t0, all statistics)
+and `01:00`, plus the `llc_wind` store at t0, plus `hFacW`/`hFacS` cut from the raw gridfile
+(`process_llc4320_grid` drops them). Where a gradient is needed it is the **dbof operator M1
+will use** (`calculate_native_gradient_tracer`, `calculate_jacobian`,
+`calculate_native_strain_vorticity`, `buoyancy_of_field`, `_frontogenesis_formula`), so the
+numbers are for the real stencils. "Interior" = ocean, 3 cells clear of land and of the tile
+rim (345,420 of 356,877 ocean cells); "front" = interior with `G` above its interior p90
+(34,542 cells). Q5 is documentary (web) plus a kernel calculation that needs no data.
+
+**Q1 — Land is NaN, not 0; cell-for-cell equal to the `hFac` masks.** 518,400 cells; `hFacC==0`
+in 161,523 (ocean fraction 0.6884); `hFacC` takes only the values 0 and 1 at k=0 (no partial
+cells). `hFacW==0` in 162,445 and `hFacS==0` in 162,088, and `hFacW[j,i] ==
+min(hFacC[j,i-1], hFacC[j,i])`, `hFacS[j,i] == min(hFacC[j-1,i], hFacC[j,i])` at 100% of
+cells. Cell-by-cell: `Theta, Salt, W, Eta` (core) and `KPPhbl, PhiBot, SIarea` (wind store)
+are NaN in exactly the 161,523 `hFacC==0` cells — 0 finite-on-land, 0 NaN-on-ocean. `U` is NaN
+in exactly the 162,445 `hFacW==0` cells and `V` in exactly the 162,088 `hFacS==0` cells (so `U`
+is NaN in 922 and `V` in 565 cells whose *centre* is ocean: the coast-facing velocity faces).
+Exact zeros in the ocean: `Theta/Salt/Eta` none; `W` 4 cells (`hFac=1`, float32 zeros, noise);
+`SIarea` all ocean cells (no ice, as expected). The NaN pattern is identical at t-1h and t+1h.
+One oddity: **`oceTAUX`/`oceTAUY` are masked with the centred `hFacC` mask, not `hFacW`/`hFacS`**
+— 922 / 565 finite values sit on faces the model treats as land. Harmless for context plots,
+but any stress-divergence must re-mask with `hFacW`/`hFacS`.
+*Verdict:* **NaN.** `b(0,0)` never happens; there is no coastal gradient ribbon to see. Since
+the dbof stencils propagate NaN, the 3-cell stencil part of the 7-cell halo is automatic; the
+explicit halo is still needed for the 4-cell filter support and for `skfmm` distances.
+
+**Q2 — `W[k_l=0]` is not ~0: it is `dEta/dt`.** OSN carries only the `k_l=0` interface (dims
+`(time, face, j, i)`, scalar coord `k_l=0`); there is no second interface to compare against.
+Over the ocean `|W|`: median **5.5e-5**, p90 8.2e-5, p99 9.6e-5, max 1.5e-4 m/s; signed median
++5.4e-5 (the whole tile is rising at t0: tile-mean `Eta` 1.058 -> 1.304 -> 1.427 m over t-1h,
+t0, t+1h, spatial std of the hourly change 0.084 m — a tide, on a ~1.3 m mean offset).
+Against the free-surface rate: centred `(Eta(t+1h)-Eta(t-1h))/2h` vs `W(t0)`: **corr 0.9936,
+regression slope W/(dEta/dt) = 1.037, rms residual 3.6e-6 m/s = 6% of rms W**; forward
+`(Eta(t+1h)-Eta(t0))/1h`: corr 0.81, slope 1.35 (it is centred half an hour late). A centred
+±1 h difference under-recovers the rate of an M2 harmonic by `sin(x)/x = 0.958`, i.e. the
+expected slope is 1.044 — the measured 1.037 is that. So `W(k_l=0) = dEta/dt(t0)` to within
+the sampling error. This is exactly what the model does: LLC4320 runs a **linear** implicit
+free surface with `exactConserv=.TRUE.` (Q5; `nonlinFreeSurf`/`select_rStar` unset), and
+`integrate_for_w.F` integrates continuity from the bottom, so `wVel(k=1) = dEtaHdt`.
+Horizontal gradient at the surface: `|grad_h W|` interior median **9.5e-10**, p90 2.0e-9, p99
+3.4e-9, max 1.3e-8 s^-1 — 10-30x the `~1e-10 s^-1` quoted in planning §2.2. For scale, on the
+same stencils: `|grad b|` median 4.1e-8, p99 4.3e-7 s^-2; `|F|` median 9.7e-21, p99 3.1e-18
+s^-5; `|delta|` median 1.1e-5, p99 5.3e-5 s^-1; `drF*|grad delta|` median 4.8e-9, p99 2.2e-8
+s^-1. Note **`|W(0)|` (5.5e-5) is 5x `drF*|delta|` (1.1e-5)**: the vertical velocity at the base
+of the 1 m top cell is dominated by the free-surface motion, not by the convergence.
+Tilting term `T = -b_z (w_x b_x + w_y b_y)` vs `F`, with `b_z` bracketed because surface-only
+data cannot give it (1e-5 well-mixed, 1e-4 moderate, 4e-4 diurnal warm layer, s^-2; planning
+§2.2), reported as `rms(T)/rms(F)` over the interior and, in brackets, the median pointwise
+`|T|/|F|` at fronts:
+- using the surface `W` gradient (what OSN gives): **0.03% [0.15%], 0.3% [1.5%], 1.2% [6%]**;
+- using the cell-base convergence part `drF*grad(delta)`: **0.4% [1.6%], 3.7% [16%], 14% [63%]**
+  (pointwise p90 at fronts reaches 4.2 at `b_z=4e-4`, where `F` itself is near zero).
+*Physics.* In a linear-free-surface MITgcm the top cell is a fixed 1 m box that the free
+surface moves through. Checked in the source (`pkg/generic_advdiff/gad_advection.F`, the
+default non-`GAD_MULTIDIM_COMPRESSIBLE` branch; `model/src/calc_adv_flow.F`): the surface
+transport is set to zero, the vertical sweep subtracts `T*(rTrans_base - 0)`, so the top-cell
+vertical tendency is the advective form `-w_base (T_base - T)/drF` with `w_base = W(0) +
+drF*delta` (z up), and the global non-conservation `w(0)*T` is left alone (`linFSConserveTr`
+unset). There is no spurious `T*dEta/dt/drF` term, but the cell **is** ventilated through its
+base at `~dEta/dt` (tidal, reversing). Consequences for §2.2: (i) the continuum argument's
+premise "w vanishes at z=0" is false as stated — what vanishes is the velocity *relative to the
+free surface*, and the along-surface budget `D_h b/Dt = B` follows from the kinematic condition
+`w = D eta/Dt`, not from `w = 0`; the conclusion survives, the sentence does not; (ii) the
+discrete top-cell vertical term is real and must be built from the **model's `W(k_l=1)`** (M2
+chunk store) — `w(-dz) = -dz*delta` has the wrong sign (continuity gives `+dz*delta`) and
+omits the dominant `dEta/dt` part; (iii) the `b_z`-uniform form `-b_z grad w . grad b` drops
+`-w grad(b_z) . grad b`, which with `w ~ 5e-5` and front-scale changes in stratification is
+not obviously smaller — `vertical.py` should compute `-grad_h b . grad_h[ w_base (b_base -
+b)/drF ]` directly rather than the factorised form.
+*Verdict:* **"W[k_l=0] ~ 0" is contradicted**; `W(0) = dEta/dt`. The tilting term's *surface*
+part is <~1% of `F` in rms for any plausible `b_z`, so surface-only data remain sufficient for
+the kinematic side; the *cell-base* part is 0.4-14% rms (order-one pointwise) across the `b_z`
+bracket — same order as planning's "~30% by day" — and stays a measured M2/M3 term.
+
+**Q3 — Spacing is 1.7-2.1 km, not 1.8-2.3; and face 10 is rotated 90 degrees.** `YC` spans
+26.659-38.267N; the 36.5-37.5N band is 46,800 cells. In that band: `dxC` **1.698-1.719 km
+(median 1.708)**, `dyC` **1.838-1.862 km (median 1.850)**; full tile `dxC` 1.681-1.903 (median
+1.796), `dyC` 1.819-2.070 (median 1.950); `dxG == dxC` and `dyG == dyC` to three figures.
+`dyC/dxC` is a constant **1.086** (1.0816-1.0878). Orientation: `XC` is constant along `i` and
+changes along `j` by exactly `1/48 deg` per cell (`XC[0,0] = -127.990`, `XC[-1,0] = -113.010`);
+`YC` changes along `i` (`YC[0,0] = 38.267`, `YC[0,-1] = 26.659`). With `CS = 0`, `SN = -1`
+(Q4) the dbof rotation is `u_east = V`, `v_north = -U`: **on this face `j`/`V`/`dyC` are
+zonal (eastward) and `i`/`U`/`dxC` are meridional (`i` increasing southward)**; `dyC` is the
+`(1/48) deg cos(lat)` zonal spacing (1.852 km at 37N — matches), and the meridional spacing is
+8% smaller. Expected "1.8-2.3 km" is high; the 7-cell halo is 12.0 km meridional x 13.0 km
+zonal at 37N ("~13 km" stands). Speed at centres (`interp_pair_to_center` of raw `U,V`), ocean:
+median **0.193**, p90 0.381, p99 0.643, max 1.74 m/s (band: median 0.25, p99 0.72). Hourly
+displacement in index space, `di = |u| dt/dxC`, `dj = |v| dt/dyC`: ocean `|d|` median **0.37
+cells**, p90 0.75, p99 **1.28**, max 3.5; 30% of ocean cells exceed 0.5 cell, 3.4% exceed 1,
+0.4% exceed 1.5; at fronts (`G > p90`) median **0.54**, p90 1.10, p99 **1.64**, max 2.5; in the
+37N band median 0.52, p99 1.51.
+*Verdict:* planning §5.3's "typical 0.2-0.4 cells" (0.37) and "exceeds 1.5 cells at the strong-
+front tail" (p99 1.64 at fronts) are both confirmed; the km spacing and the axis orientation
+need correcting (coding §2.5's `follow(km_per_px=2.3)` default is 25% too large here: ~1.8).
+
+**Q4 — Rotation terms are identically zero on this tile; the metric term is ~0.1%.** `SN` is
+exactly `-1.0` in every cell (one distinct float32 value); `CS` is zero to rounding (12,087
+distinct values, all with `|CS| <= 1.24e-12`); the grid angle `atan2(SN, CS)` is `-90.000 deg`
+everywhere, range 0.000 deg. Hence `|grad CS|` median 8e-17 m^-1 (dbof operator and
+`np.gradient` agree), `|grad SN| = 0`, and `u|grad CS|` median 1.5e-17 s^-1, max 3e-16 —
+**0.0000%** of 1e-5 and of the measured strain. Measured strain `|sigma| =
+sqrt(sigma_n^2 + sigma_s^2)` from `calculate_native_strain_vorticity` (shear squared then
+`interp_corner_squared`), interior: median **1.9e-5**, p90 4.1e-5, p99 7.9e-5, max 3.9e-4
+s^-1; at fronts median 2.9e-5, p99 1.2e-4 (the interpolated Jacobian gives median 1.7e-5).
+Spherical metric term `u tan(phi)/a`: median **1.8e-8**, p90 3.9e-8, p99 6.8e-8, max 1.3e-7
+s^-1; vs the nominal 1e-5: median 0.18%, p99 0.68%, max 1.26%; vs the local `|sigma|`
+pointwise: median **0.09%**, p99 0.54% (fronts 0.09%, 0.60%); ratio of medians 0.096%.
+*Verdict:* confirmed, more strongly than claimed — there is no rotation error at all on face
+10 (rotate-then-differentiate and differentiate-then-rotate are the same exact axis swap), and
+the only neglected term is the metric one at 0.1% median, 0.5-0.7% in the low-strain tail.
+
+**Q5 — `tempAdvScheme = saltAdvScheme = 7` (OS7MP), no explicit horizontal diffusion, linear
+free surface, staggered time step.** No MITgcm namelist exists anywhere under `~/Oceanography`
+(grep for `tempAdvScheme|select_rStar|nonlinFreeSurf|staggerTimeStep` and `find -name data`
+both empty). Source: **`MITgcm_contrib/llc_hires/llc_4320/input/data`** (GitHub mirror
+https://github.com/MITgcm-contrib/llc_hires; raw
+https://raw.githubusercontent.com/MITgcm-contrib/llc_hires/master/llc_4320/input/data;
+production-era commit `4627a7a8`, 2014-06-27, differs from master only in `viscC4Leith`,
+`chkptFreq` and two I/O flags — both fetched and diffed here). `&PARM01` verbatim:
+`viscAr=5.6614e-04, no_slip_sides=.TRUE., no_slip_bottom=.TRUE., diffKrT=5.44e-7,
+diffKrS=5.44e-7, rhonil=1027.5, eosType='JMD95Z', hFacMin=0.3, implicitDiffusion=.TRUE.,
+implicitViscosity=.TRUE., viscC4Leith=2.0 (2014) / 2.15 (master), viscC4Leithd=same,
+viscA4GridMax=0.8, useAreaViscLength=.TRUE., highOrderVorticity=.TRUE.,
+bottomDragQuadratic=0.0021, tempAdvScheme=7, saltAdvScheme=7, StaggerTimeStep=.TRUE.,
+multiDimAdvection=.TRUE., vectorInvariantMomentum=.TRUE., implicitFreeSurface=.TRUE.,
+exactConserv=.TRUE., convertFW2Salt=-1., useRealFreshWaterFlux=.TRUE., implicSurfPress=0.6,
+implicDiv2DFlow=0.6`; `&PARM03`: `deltaT=25., abEps=0.1, dumpfreq=3600.`; `&PARM04`:
+`usingCurvilinearGrid=.TRUE., delR = 1.00, 1.14, 1.30, ...` (**90 values**; `drF[0]=1.0 m`
+agrees with the OSN gridfile). **Absent, hence MITgcm defaults: `diffKhT=diffK4T=0`,
+`viscAh=viscA4=0`, `nonlinFreeSurf=0`, `select_rStar=0`, `linFSConserveTr=.FALSE.`** — so no
+z*, a linear implicit free surface, Crank-Nicolson-ish barotropic stepping, KPP
+(`data.pkg: useKPP=.TRUE.`; `data.kpp: Ricr=0.3559, Riinfty=0.6998`), tidal potential via
+`data.exf apressurefile='EOG_pres_tide'`. Code: `checkpoint65v` with only CPP/SIZE headers in
+`code/` at production time (`readme.txt`); the 2023 "Skitka modified Leith" files on master are
+for later reruns. Leith timeline from the file's git history: 2.0 until the crash/restart at
+step 870912 (~2012-05-19; commit `8b35601d`), 2.1 after, later 2.15 (commit `aa9d6571`, step
+undocumented) — **our July 2012 window is after the restart, so 2.1 or 2.15**. Published
+confirmation: NASA S-MODE model description
+(https://data.nas.nasa.gov/smode/smodedata/data/Info/model_description.pdf): "same as LLC4320:
+... a flux-limited, seventh-order, monotonicity-preserving advection scheme (Daru and Tenaud,
+2004) and the modified Leith scheme of Fox-Kemper and Menemenlis (2008) ... KPP ... Cd =
+0.0021"; Rocha et al. 2016 JPO App. D (dt = 25 s, points to `MITgcm_contrib/llc_hires`). Su
+2018 / Torres 2018 / Arbic 2018 full texts not retrievable (paywall); not quoted.
+*`kappa_num`.* The unlimited OS7MP kernel is the 7th-order upwind-biased face interpolation
+`(-3, 25, -101, 319, 214, -38, 4)/420` on `i-3..i+3`; its semi-discrete Fourier symbol gives
+the exact scale-dependent implicit diffusivity `kappa/(|u| dx)` = **0.093 at 2dx, 0.066 at 3dx,
+0.023 at 4dx, 4.7e-3 at 5.6dx (10 km), 6.8e-4 at 8dx, 1.1e-4 at 11dx (20 km)**; the
+modified-equation form `|u| dx^7 k^6 / 280` agrees for `lambda >= 4dx` and overshoots at 2dx.
+Courant `u dt/dx` at dt=25 s is 0.003 (median) to 0.009 (p99), so the one-step time
+correction is negligible. With `dx = 1.8 km` and the tile's speeds (`|u| dx` = 342 / 684 /
+1152 m^2/s at median / p90 / p99), the damping rate of `G` is `2 kappa k^2`:
+- **grid scale 2dx (3.6 km):** kappa 32 / 63 / 107 m^2/s, `G` e-folds in **1.4 / 0.7 / 0.4 h**;
+- **4dx (7.2 km):** kappa 7.9 / 16 / 27 m^2/s, `2 kappa k^2` = 1.2 / 2.4 / 4.1e-5 s^-1, `G`
+  e-folds in **23 / 11.5 / 6.8 h**, 4% / 0.2% / 0% of `G` survives 72 h;
+- **front scale 10 km:** kappa **1.7 / 3.3 / 5.6 m^2/s**, `2 kappa k^2` = **1.3 / 2.6 /
+  4.4e-6 s^-1**, `G` e-folds in **212 / 106 / 63 h** (8.8 / 4.4 / 2.6 d), 71% / 51% / 32% of `G`
+  survives the 72 h window;
+- 20 km: kappa 0.04-0.12 m^2/s, e-folding ~1-4 x 10^4 h — nothing.
+Where the MP limiter engages (1-2-cell fronts, local extrema) the local diffusivity rises
+toward the first-order-upwind bound `|u| dx / 2` = 171-576 m^2/s (`G` e-folding at 10 km of
+2.1-0.6 h), so at the ~1.5-cell fronts of planning §5.3 the numerics are the whole story.
+Relative to the kinematic rate `2F/G ~ 2|sigma| ~ 4e-5 s^-1`: numerics are **3-10% at 10 km,
+30-100% at 4dx, >100% at 2dx**. Planning §2.3's "kappa ~ (0.01-0.1) u dx ~ 6-60 m^2/s,
+(0.7-7)e-5 s^-1 at 4dx, 0.1-1 f" is the 4dx number and holds there (0.023 u dx; 0.14-0.5 f
+at f = 8.9e-5); it does not transfer to 10 km, where the same scheme is an order of magnitude
+gentler. Uncertainties, honestly: the relevant `|u|` is the grid-relative speed along each
+split direction, not the flow relative to the front; the limiter's engagement is
+front-by-front, so the true value at a given front lies anywhere between the unlimited kernel
+and the first-order bound; explicit vertical `diffKrT = 5.44e-7` and KPP are separate,
+diabatic, and in the residual by design.
+
+**Contradictions with the planning doc (and what should change — docs not edited).**
+
+1. **§5.5 "MITgcm stores land as 0"** — OSN stores **NaN**, cell-for-cell equal to `hFacC`
+   (centred), `hFacW` (`U`), `hFacS` (`V`). No coastal ribbon exists; task 5's QA plot will not
+   show one (a 3-cell NaN rim from the stencils will appear instead). The 7-cell halo's
+   justification becomes filter support + `skfmm`, not `b(0,0)`.
+2. **§2.2 "At z=0, w vanishes identically along the surface"** — `W(k_l=0)` is `dEta/dt`,
+   median 5.5e-5 m/s, corr 0.994 / slope 1.04 against the centred `Eta` difference. The
+   surface budget's conclusion stands via the kinematic BC; the stated reason is wrong. Also in
+   §2.2: "`w(eta)` ... horizontal gradient `~1e-10 s^-1`" is 9.5e-10 median, 3.4e-9 p99; "`z*`
+   dilation `O(eta/H)`" does not apply (linear free surface, no `z*`); "`w(-dz) = -dz delta`"
+   has the wrong sign and omits the dominant `dEta/dt` part (`|W(0)|` is 5x `drF|delta|`) —
+   `vertical.py` must use the chunk `W(k_l=1)` directly, and should not assume `b_z` uniform.
+3. **§4 / prompt 1 "~1.8-2.3 km"** — 1.68-2.07 km; 1.71 (meridional) x 1.85 (zonal) km at 37N.
+   And **face 10 is rotated**: `j`/`V`/`dyC` are zonal, `i`/`U`/`dxC` meridional, `i` increasing
+   southward (`CS=0, SN=-1`). Coding §2.5 `follow(km_per_px=2.3)` should be ~1.8 for this tile;
+   §3.1's grid attrs should record the orientation.
+4. **§5.2 "grid angle changes by a few degrees across 720 cells ... ~0.1%"** — the angle is
+   exactly -90 deg everywhere; the rotation terms are identically zero; only the metric term
+   remains, at 0.1% median / 0.5-0.7% p99. The §5.2 caveat can be reduced to the metric term.
+5. **§2.3 "confirm the exact scheme"** — confirmed: OS7MP (`tempAdvScheme=7`), `diffKhT=0`,
+   biharmonic Leith 2.1-2.15 on momentum, linear free surface, `StaggerTimeStep`, JMD95Z EOS
+   (consistent with §5.1's JMD95 choice). The `kappa` bracket is right at 4dx and an order of
+   magnitude too pessimistic at 10 km; §2.3 should state the scale dependence.
+6. Confirmed, not contradicted: §5.3's displacement numbers (0.37 median, 1.64 p99 at fronts);
+   §2.2's "~30% of F by day" is inside the measured 4-14% rms / order-one pointwise range.
+7. Data notes for M2: `oceTAUX/Y` are masked with the centred mask (re-mask with
+   `hFacW/hFacS`); `Eta` carries a ~1.3 m mean offset plus a tide of ~0.1 m/h; `hFacC` is
+   binary at k=0.
+
+**Before tasks 4-5.** (a) The QA plot's brief ("see the coastal gradient ribbon if question 1
+answers 0") is void — show the stencil NaN rim and the high-edge rim instead. (b)
+`tile330_grid.zarr` should also carry `hFacW`, `hFacS` (from the raw gridfile; they are the
+`U`/`V` masks) and the 0-d `drF, Z, Zl` scalars, and record `CS=0, SN=-1` / axis orientation
+in attrs. (c) No change to the operators is implied by Q4; the rotation is an exact axis swap.
+
+Files: created `dev/frontogenesis/py/m0_recon.py`; modified this log only.
+
+**Addendum (2026-09-28, same session) — corrections applied to the docs, on JXP's approval.**
+Each spot edited in place, marked "(corrected 2026-09-28, M0 task 3)" or similar; nothing
+unrelated rewritten.
+
+- `frontogenesis_planning.md` header ("Reviewed"): appended the five M0 corrections to the
+  list of overturned claims.
+- planning §2.2: premise rewritten (kinematic BC `w = D eta/Dt`, not `w = 0`; data numbers);
+  linear free surface / no `z*`; `|grad_h W| ~ 1e-9`; `w(-dz) = w(0) + dz delta` with the
+  `dEta/dt` part; surface-only bracket of the tilting term; the term is built from the chunk
+  `W(k_l=1)` and the unfactorised form (drops nothing); `drF`/`Z`/`Zl` are in the OSN gridfile.
+- planning §2.3 item 1: OS7MP `tempAdvScheme = 7`, namelist settings and source URL,
+  scale-dependent `kappa_num` (2dx / 4dx / 10 km / 20 km) and the limiter bound.
+- planning §4 "Region": 1.68-2.07 km, lat to 38.27, face-10 orientation (`CS=0, SN=-1`, `i`
+  southward, `j` zonal); "Fields pulled": `hFacW, hFacS, drF, Z, Zl` added to the grid;
+  "Second OSN store": `oceTAUX/Y` centred-mask note.
+- planning §5.2 "Known approximation": rotation terms identically zero on face 10; metric term
+  0.09% median / 0.5-0.7% p99.
+- planning §5.3 item 1: displacement numbers confirmed (annotation only).
+- planning §5.5: land is NaN (cell-by-cell evidence); halo justification restated; the
+  "unverified" paragraph removed.
+- planning §6 Phase-0 table: four rows marked done with the results; V6 description; §7 V6
+  line; §10 risk table: land-contamination row retired, `W(0)=dEta/dt` row added.
+- `frontogenesis_coding.md` §2.5: `follow(km_per_px=2.3)` annotated (~1.8 for tile 330).
+- coding §3.1: `hFacW, hFacS, drF, Z, Zl` and orientation / spacing / `land_fill` attrs.
+- coding §3.2: land-NaN and `oceTAUX/Y` mask notes. §3.3: `W` on `k_l = 0..2`, `drF(k)`.
+- coding §4.2: 12-14 km at 1.7-2.1 km; `dxC` meridional; `ocean_mask == isfinite(Theta)` assert.
+- coding §4.6: `vertical_term` signature now takes `b, b_x, b_y, b_k1, W_k1, drF` and the
+  rationale (chunk `W(k_l=1)`, unfactorised form).
+- coding §6 M0: task 3 answers recorded; task 4 grid contents; task 6 QA-plot brief and
+  acceptance (no ribbon expected). §6 M2: `drF` wording, `W(k_l=1)` requirement.
+- coding §8 pitfalls: four new items (`W(k_l=1)`, face orientation, `oceTAU` re-mask,
+  scale-dependent `kappa_num`).
+- `frontogenesis_prompt_1.md`: `drF` note, status line for tasks 1-3, task 4 grid contents,
+  task 5 QA-plot brief, acceptance bullet.
+- `frontogenesis_prompt_2.md`: halo km (12-14) and the `ocean_mask` assertion.
+- `frontogenesis_prompt_3.md`: grid list / `oceTAU` note; `drF` for `k = 0..2` and `W` on
+  `k_l = 0..2`.
+- `frontogenesis_prompt_4.md`: `vertical_term` bullet; the numerical-diffusion "do not".
+- `frontogenesis_prompt_6.md`: the overturned-claims list extended with the five M0 items.
+
+Not changed, deliberately: `frontogenesis_prompt_5.md` (no restated claim; `km_per_px` is
+never hard-coded there and the NaN-land remark at its line 33 was already correct); planning
+§2.3 items 2-4, §5.1, §5.4, §5.6-§5.7, §11-§12 (no claim touched by task 3); the dbof
+`native_gradient` docstrings that call model-x "zonal" (outside `dev/frontogenesis/`); and
+the task-3 log entry above, which stays as the record of what was found.

@@ -102,7 +102,7 @@ def get_remote_gridfile(endpoint_url)                    # L241 -> all 13 faces,
 def process_llc4320_grid(grid_ds)                        # L37
       # -> XC,YC,dxC,dyC,dxG,dyG,rAz,rA,Depth,hFacC,SN,CS
       # *** TRAP: uses reset_coords(), which can DROP comodo attrs.
-      #     Always _ensure_comodo_attrs() before set_xgcm_grid(). ***
+      #     Always ensure_comodo_attrs() before set_xgcm_grid(). ***
 ```
 
 ### 2.2 Tile indexing and xgcm (`dbof`)
@@ -122,11 +122,12 @@ COMODO_COORD_META = {                                       # L9
     'i':   {'axis': 'X'},
     'i_g': {'axis': 'X', 'c_grid_axis_shift': -0.5},
 }
-def set_xgcm_grid(ds_grid, use_connections: bool = True)    # L44 -> xgcm.Grid; we pass False
+def ensure_comodo_attrs(ds, *, strict=False, source=None)  # L46 -> Dataset (public; not in tile_utils)
+def set_xgcm_grid(ds_grid, use_connections: bool = True)    # L121 -> xgcm.Grid; we pass False
+      # calls xgcm.Grid(..., padding='fill') -> REQUIRES xgcm>=0.10 (verified 2026-09-28)
 
-# dbof/tiles/tile_utils.py  -- both are short private helpers; copy rather than import if preferred
-def _ensure_comodo_attrs(ds) -> xr.Dataset                  # L334
-def _tile_indexer(ds, tile) -> dict                         # L372
+# dbof/tiles/tile_utils.py  -- short private helper; copy rather than import if preferred
+def _tile_indexer(ds, tile) -> dict                         # L334
       # {'j','j_g'} -> tile.j_face_slice ; {'i','i_g'} -> tile.i_face_slice, for dims present.
       # Staggered dims take the SAME slice -> the high-edge derivative rim is invalid.
 ```
@@ -207,6 +208,8 @@ def anchor_at_point(labels, lon, lat, point_lon, point_lat, step, *,
                     max_km=80.0, pad=0.5) -> (Anchor, km)                # L346
 def follow(labels_at, times, anchor, *, km_per_px=2.3, max_score=2.5,
            weights=None, min_pixels=5) -> Track                          # L505
+      # km_per_px default 2.3 is 25% too large for tile 330 (1.7-2.1 km; median dxC 1.80,
+      # dyC 1.95 km) -- pass it from the measured grid (corrected 2026-09-28, M0 task 3)
 @dataclass class Track: anchor, labels, centres, links                   # L239
       # .label_at(step), .steps(), .gaps(n_steps), .weakest(n=3)
 ```
@@ -258,11 +261,19 @@ All under `dev/frontogenesis/data/`.
 
 ```
 dims   : (j: 720, i: 720) plus staggered i_g, j_g
-vars   : XC, YC, dxC, dyC, dxG, dyG, rA, rAz, CS, SN, hFacC, Depth
+vars   : XC, YC, dxC, dyC, dxG, dyG, rA, rAz, CS, SN, hFacC, Depth,
+         hFacW(j,i_g), hFacS(j_g,i),          # U/V land masks; raw gridfile, dropped by
+                                              # process_llc4320_grid -- re-attach
+         drF, Z, Zl                           # 0-d, k=0 only: 1.0, -0.5, 0.0 (OSN gridfile)
 attrs  : face_index=10, j_face_start=0, i_face_start=2880, rect_i=13320, rect_j=9720,
-         source='OSN', git_commit, created
+         source='OSN', git_commit, created,
+         orientation='CS=0, SN=-1: j/V/dyC zonal (eastward), i/U/dxC meridional
+                      (i increasing southward); u_east=V, v_north=-U',
+         dx_km_37N=1.71, dy_km_37N=1.85, land_fill='NaN'
 ```
 Comodo attrs (`axis`, `c_grid_axis_shift=-0.5`) must be present on `i`,`i_g`,`j`,`j_g`.
+*(`hFacW`, `hFacS`, `drF`, `Z`, `Zl` and the orientation/spacing/land attrs added 2026-09-28,
+M0 tasks 2-3.)*
 
 ### 3.2 `tile330_raw_20120702T00_72h.zarr` — the Phase-1 product
 
@@ -276,7 +287,11 @@ attrs  : iterations (list), endpoint, stores=['llc_surf','llc_wind'], git_commit
 ```
 `KPPhbl`/`oceTAU*` come from the **second** OSN store (`llc_wind`), which covers our window.
 Heat fluxes are in neither *OSN* store — they come from the chunk store (§3.3), which is what
-makes the diabatic term measurable rather than inferred (Q13).
+makes the diabatic term measurable rather than inferred (Q13). Land is **NaN** in every field
+(M0 task 3): centred fields exactly where `hFacC == 0`, `U` where `hFacW == 0`, `V` where
+`hFacS == 0`. Exception: `oceTAUX`/`oceTAUY` arrive masked with the *centred* mask despite
+living on `i_g`/`j_g` — store them as they come, but re-mask with `hFacW`/`hFacS` (§3.1)
+before any stress-divergence.
 
 ### 3.3 `tile330_chunk_20120702T00_72h.zarr` — the extra budget terms (Q13)
 
@@ -285,9 +300,10 @@ holds all 51 levels; we want three.
 
 ```
 dims : (time: 72, k: 3, j: 720, i: 720) + staggered
-vars : Theta(time,k,j,i), Salt(time,k,j,i), W(time,k,j,i),
-       oceQnet(time,j,i), oceQsw(time,j,i), oceFWflx(time,j,i)
-attrs : source='CHUNKS/monterey_bay', levels='k=0..2', git_commit
+vars : Theta(time,k,j,i), Salt(time,k,j,i), W(time,k_l,j,i),   # W on interfaces k_l=0..2;
+                                                              # k_l=1 is the top-cell base
+       oceQnet(time,j,i), oceQsw(time,j,i), oceFWflx(time,j,i), drF(k)
+attrs : source='CHUNKS/monterey_bay', levels='k=0..2, k_l=0..2', git_commit
 ```
 
 ### 3.4 `tile330_derived_L{L}.zarr` — per filter scale
@@ -345,9 +361,13 @@ def analysis_mask(grid_ds, halo_cells=7,
 **Our API takes cells; the underlying helper takes km.** `generate_halo_land_mask(ds_grid,
 target_km_res, ...)` uses `target_km_res` directly as `halo_km`, so `masking.halo_mask` must
 convert: `halo_km = halo_cells * median(dxC)`. Our requirement is **7 cells** (3 for the
-Jacobian+interp stencil, 4 for the widest filter half-width), which is ~13-16 km across the
-tile's 1.8-2.3 km spacing. **Convert from the measured `dxC`; never hard-code the km value.**
-Both `halo_mask` and `analysis_mask` therefore take `halo_cells`.
+Jacobian+interp stencil, 4 for the widest filter half-width), which is ~12-14 km across the
+tile's 1.7-2.1 km spacing (corrected 2026-09-28, M0 task 3; `dxC` is the *meridional* spacing
+on this face, `dyC` the zonal — see §3.1 orientation). **Convert from the measured `dxC`;
+never hard-code the km value.** Both `halo_mask` and `analysis_mask` therefore take
+`halo_cells`. Land is already NaN in the OSN fields (planning §5.5), so `ocean_mask` from
+`hFacC` and the finite pattern of `Theta` must agree cell for cell — assert it — and the
+halo's job is filter support and `skfmm` distance, not removing a `b(0,0)` ribbon.
 
 ### 4.3 `py/operators.py` — the single shared operator
 
@@ -400,14 +420,24 @@ Without this the filter sweep is uninterpretable (planning §5.4).
 ```python
 def load_chunk_levels(window, k_max=2, out_zarr=None):  -> str | xr.Dataset  # §3.3, M2
 def b_z(Theta, Salt, grid_ds, drF):                     -> xr.DataArray      # top-cell b_z
-def vertical_term(b_x, b_y, b_z, W, grid_ds, grid):     -> xr.DataArray      # -b_z(w_x b_x + w_y b_y)
+def vertical_term(b, b_x, b_y, b_k1, W_k1, drF,
+                  grid_ds, grid):                       -> xr.DataArray      # grad_h b . grad_h[ -W_k1 (b_k1 - b)/drF ]
 def surface_flux_term(b_x, b_y, oceQnet, oceQsw, oceFWflx,
                       Theta, Salt, drF, grid_ds, grid):  -> xr.DataArray     # grad b . grad B_sfc
 ```
+`vertical_term` (corrected 2026-09-28, M0 task 3) takes the chunk store's **`W(k_l=1)`** — the
+model's own cell-base vertical velocity, which already contains both the `dEta/dt` part
+(~5e-5 m s^-1, tidal; LLC4320 has a *linear* free surface, so `W(k_l=0) = dEta/dt` and is a
+coordinate-relative flux the tracer equation sets to zero) and the convergence part
+(`+drF*delta`). Do **not** rebuild it from `delta`, and do not use the OSN `W(k_l=0)` as a
+flux. Compute the top-cell vertical advective tendency `-W_k1 (b_k1 - b)/drF` first and take
+the horizontal gradient of that, rather than the factorised `-b_z (w_x b_x + w_y b_y)`,
+which drops `-w grad(b_z) . grad b`; report the factorised form as a diagnostic only.
 `surface_flux_term` must convert heat and freshwater flux into a buoyancy tendency for the top
 cell (thermal + haline expansion coefficients from the same JMD95 EOS as `operators.buoyancy`),
 and must treat the **shortwave absorbed inside the top cell** separately from `oceQnet` —
-that is why `oceQsw` was requested. `drF[0] = 1.0 m`, `Z[0] = -0.5 m` (confirmed).
+that is why `oceQsw` was requested. `drF[0] = 1.0 m`, `Z[0] = -0.5 m` (confirmed; also carried
+as 0-d scalars by the OSN gridfile and written to §3.1).
 
 ### 4.7 `py/budget.py`
 
@@ -513,33 +543,37 @@ Each becomes one execution prompt doc.
 writing physics.
 
 Tasks:
-1. Environment: `dbof` importable (`pip install -e . --no-deps` + `xgcm<0.10`,
+1. Environment: `dbof` importable (`pip install -e . --no-deps` + `xgcm>=0.10`,
    `scikit-fmm`, `s3fs`, `ujson`, `xmitgcm`, `zarr`, `dask`). Fall back to a py3.13 env if
    py3.14 wheels are missing.
 2. `osn_tiles.tile_spec()`, `load_grid()`, `load_hour()` for **one** timestamp.
-3. Answer, empirically, and record in the log (**five** questions — `drF` is not among them,
-   since OSN's grid is 2-D and carries no `drF`; that is confirmed in M2 from the chunk grid):
-   - Is OSN land stored as **0 or NaN**?
-   - Is `W[k_l=0] ~ 0`? (validates planning §2.2)
-   - `dxC`/`dyC` at 37N — the actual native spacing (sets the halo km and the displacement estimate).
-   - Magnitude of `grad CS`, `grad SN` terms vs strain (expect < 0.5%), and `u tan(phi)/a`.
-   - The model's tracer advection scheme, and an estimate of `kappa_num`.
-4. **Write `tile330_grid.zarr` (§3.1).** The grid is static — one pull. M1's V2 and V6 tests need
-   it, so it belongs here rather than in M2.
+3. Answer, empirically, and record in the log (**five** questions — `drF` is not among them;
+   the OSN gridfile carries it as a 0-d scalar, `drF = 1.0`, confirmed in M0 task 2 and
+   cross-checked in M2 from the chunk grid). **All five answered 2026-09-28 (M0 task 3 log):**
+   - Is OSN land stored as **0 or NaN**? — **NaN**, cell-for-cell equal to `hFacC`/`hFacW`/`hFacS`.
+   - Is `W[k_l=0] ~ 0`? — **No: `W(0) = dEta/dt`** (linear free surface); planning §2.2 rewritten.
+   - `dxC`/`dyC` at 37N — **1.71 / 1.85 km** (tile 1.68-2.07); face 10 is rotated (§3.1 attrs).
+   - `grad CS`, `grad SN` terms vs strain — **identically zero**; `u tan(phi)/a` 0.1% median, <= 0.7% p99.
+   - Advection scheme — **OS7MP (`tempAdvScheme = 7`)**, `diffKhT = 0`; scale-dependent `kappa_num` in planning §2.3.
+4. **Write `tile330_grid.zarr` (§3.1)**, including `hFacW`, `hFacS`, the 0-d `drF`/`Z`/`Zl` and
+   the orientation attrs. The grid is static — one pull. M1's V2 and V6 tests need it, so it
+   belongs here rather than in M2.
 5. **Pull two consecutive timestamps**, not one. M1's gate 3 has a variant driven by real LLC
    velocities, which needs a midpoint velocity and therefore two hours.
 6. QA plot of one snapshot: `Theta`, `G`, and the land mask from `hFacC`. **No halo yet** — the
-   halo is M1, and the point of this plot is to *see* the coastal gradient ribbon if land is
-   stored as 0. Also show the invalid rim that `_tile_indexer` leaves on the high edges (the
-   staggered dims take the same slice as the centred ones).
+   halo is M1. Land is NaN (task 3), so there is no coastal gradient ribbon to see; the plot
+   should instead show the stencil's own NaN rim along the coast (`G` undefined within ~3
+   cells of land) and confirm `isfinite(Theta) == (hFacC > 0)`. Also show the invalid rim that
+   `_tile_indexer` leaves on the high edges (the staggered dims take the same slice as the
+   centred ones). *(Corrected 2026-09-28, M0 task 3.)*
 5. Confirm the three §2 traps on real data: comodo attrs survive `process_llc4320_grid`
    (or are restored), `halo_mask.py:75` is not reached, and the two timestamp formats are
    converted correctly.
 
 **Acceptance:** two consecutive hours load end to end from both OSN stores;
 `tile330_grid.zarr` written; all five questions answered in the log with numbers; QA plot written
-and the coastline inspected. Note the QA plot is expected to **show** a ribbon if land is 0 —
-that is a finding, not a failure.
+and the coastline inspected (a stencil NaN rim is expected; a gradient ribbon is not, since land
+is NaN — if one appears, something upstream has filled NaN with 0).
 
 ### M1 — Operators and validation  *(planning Phase 0b)*  — **HARD GATE**
 
@@ -566,8 +600,10 @@ validating the operators, not part of the budget run.
 Tasks: `pull_series` (resumable), both OSN stores, 72 hours
 **2012-07-02 00:00 -> 2012-07-04 23:00 UTC**, write the §3.2 zarr. Then
 `vertical.load_chunk_levels` for `k = 0..2` + the three flux fields -> §3.3 zarr, **including
-`drF` from the chunk 3-D grid** (`process_llc4320_3d_grid`), which `vertical.py` needs and OSN
-does not carry. Confirm `drF[0] = 1.0 m` here.
+`drF` for `k = 0..2` from the chunk 3-D grid** (`process_llc4320_3d_grid`), which `vertical.py`
+needs; OSN carries only the `k = 0` scalar (`drF = 1.0`, already in §3.1 — corrected
+2026-09-28). Cross-check `drF[0] = 1.0 m` here. The chunk `W` must include **`k_l = 1`** (the
+cell-base velocity `vertical_term` takes; §4.6), not just `k_l = 0`.
 
 `tile330_grid.zarr` came from M0; `tile330_masks.nc` comes from M1. M2 writes neither.
 
@@ -665,7 +701,7 @@ Distilled from the adversarial review. Re-read before each milestone.
 - [ ] Did not call a slope < 1 "diabatic damping" without Figure 2b separating numerical
       diffusion from air-sea forcing.
 - [ ] Did not claim the residual is purely diabatic (it is not — planning §2.3).
-- [ ] `_ensure_comodo_attrs` run after `process_llc4320_grid`, before `set_xgcm_grid`.
+- [ ] `ensure_comodo_attrs` run after `process_llc4320_grid`, before `set_xgcm_grid`.
 - [ ] `halo_mask.py:75` early-return not silently hit; output shape asserted.
 - [ ] Timestamps converted between `dbof`'s `'%Y-%m-%d %H:%M:%S'` and `front_tracking`'s
       `'%Y-%m-%dT%H_%M_%S'`.
@@ -678,5 +714,11 @@ Distilled from the adversarial review. Re-read before each milestone.
 - [ ] `vertical` and `surface_flux` terms actually present in the budget — if `chunk_ds` is
       missing, `closure_report` says so rather than quietly reverting to a catch-all residual.
 - [ ] Loaded only `k = 0..2` from the chunk store; it holds all 51 levels.
+- [ ] `vertical_term` built from the chunk `W(k_l=1)`, not from `delta` and not from the OSN
+      `W(k_l=0)` — which is `dEta/dt`, a free-surface signal, not a flux (planning §2.2).
+- [ ] Remembered that on face 10 `i`/`U`/`dxC` are meridional (`i` southward) and `j`/`V`/`dyC`
+      zonal (`CS=0, SN=-1`); any "zonal/meridional" label on a native axis checked against §3.1.
+- [ ] `oceTAUX`/`oceTAUY` re-masked with `hFacW`/`hFacS` before any stress derivative.
+- [ ] `kappa_num` quoted at the scale of the feature (planning §2.3), not as one number.
 - [ ] Every validation test wrote its PNG.
 - [ ] §2's API line numbers re-verified if the Q15 merges have landed.

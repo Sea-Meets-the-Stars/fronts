@@ -27,8 +27,10 @@ keeps M2 independent of M1 so the two can run in parallel.
 - **Our API takes `halo_cells`; the helper takes km.** `generate_halo_land_mask(ds_grid,
   target_km_res, ...)` uses `target_km_res` directly as `halo_km`, so `halo_mask` converts
   internally: `halo_km = halo_cells * median(dxC)`. Requirement is **7 cells** (3 for the
-  Jacobian+interp stencil, 4 for the widest filter half-width) — roughly 13-16 km across the
-  tile. Use the **measured** `dxC` from M0; never hard-code the km value.
+  Jacobian+interp stencil, 4 for the widest filter half-width) — roughly 12-14 km across the
+  tile (spacing 1.7-2.1 km; corrected 2026-09-28, M0 task 3). Use the **measured** `dxC` from
+  M0; never hard-code the km value. Land is already NaN in the OSN fields (planning §5.5), so
+  `ocean_mask` must equal `isfinite(Theta)` cell for cell — assert it in `test_masking.py`.
 - **Handle the two known defects.** `halo_mask.llc_native_grid_halo_mask` returns a 2-D array
   early when a face is entirely land (`halo_mask.py:74-75`), silently and with inverted
   convention; and a `k`-carrying `hFacC` makes the mask 4-D and breaks `skfmm`. Collapse `k`

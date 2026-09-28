@@ -29,13 +29,13 @@ both sides of the comparison ourselves so they share one gradient stencil and on
 
 ### 1. Environment
 
-Create a dedicated env. **Prefer Python 3.13**; try 3.14 only if `xgcm<0.10` and `scikit-fmm`
+Create a dedicated env. **Prefer Python 3.13**; try 3.14 only if `xgcm>=0.10` and `scikit-fmm`
 wheels exist for it, and fall back to 3.13 the moment they do not. Install `dbof` from `tiles-surface-only` with **`pip install -e . --no-deps`**:
 its `torch==2.8.0` / `timm==0.3.2` pins are reachable only through
 `cutout_dataset_creation/dask_pipeline.py` and `spatial_cutouts.py`, which we never import, and
 a plain install would downgrade torch underneath `fronts`.
 
-Then add: **`xgcm<0.10`** (0.10 removed `periodic` and renamed `boundary`), `scikit-fmm`,
+Then add: **`xgcm>=0.10`** (`set_xgcm_grid` passes `padding='fill'`, which is 0.10+ only; corrected 2026-09-28 — the original `<0.10` pin was wrong), `scikit-fmm`,
 `s3fs`, `ujson`, `xmitgcm`, `zarr`, `dask`, `h5netcdf`, `matplotlib`. `kerchunk` the package is
 **not** needed — the OSN refs are read through fsspec's built-in `reference://` filesystem.
 
@@ -48,7 +48,7 @@ Write `dev/frontogenesis/py/osn_tiles.py` far enough to load **one** timestamp:
 ```python
 tile   = rect_ij_to_tile(13320, 9720)          # -> face 10, j 0:720, i 2880:3600
 g      = process_llc4320_grid(get_remote_gridfile(EP))
-g_tile = _ensure_comodo_attrs(g.isel(face=[tile.face_idx], **_tile_indexer(g, tile)).compute())
+g_tile = ensure_comodo_attrs(g.isel(face=[tile.face_idx], **_tile_indexer(g, tile)).compute())
 grid   = set_xgcm_grid(g_tile, use_connections=False)
 ds     = get_remote_llc_data(EP, osn_date_to_iteration('2012-07-02 00:00:00'), [tile.face_idx])
 ```
@@ -56,7 +56,7 @@ ds     = get_remote_llc_data(EP, osn_date_to_iteration('2012-07-02 00:00:00'), [
 `EP = "https://mghp.osn.xsede.org"`. See `frontogenesis_coding.md` §2 for exact signatures —
 **use them, do not guess.** Note the three traps recorded there, especially that
 `process_llc4320_grid` calls `reset_coords()` and can drop the comodo attrs, so
-`_ensure_comodo_attrs` must run before `set_xgcm_grid`.
+`ensure_comodo_attrs` (public, `dbof.llc4320_ingestion.grid`) must run before `set_xgcm_grid`.
 
 Also load one timestamp from the second OSN store via `get_remote_llc_wind_data` (`KPPhbl`,
 `oceTAUX`, `oceTAUY`).
@@ -80,22 +80,35 @@ These are currently assumptions. Each is a one-liner against real data.
    `kappa_num`. This matters because implicit numerical diffusion is the leading alternative
    explanation for any slope below 1 (planning §2.3).
 
-**`drF` is deliberately not on this list.** OSN's grid is 2-D and carries no `drF`; the top-cell
-thickness (`drF[0] = 1.0 m`, `Z[0] = -0.5 m`) is confirmed in M2 from the chunk store's 3-D grid.
+**`drF` is deliberately not on this list.** The OSN gridfile carries the top-cell scalars
+`drF = 1.0`, `Z = -0.5`, `Zl = 0.0` as 0-d coordinates (found in task 2; `process_llc4320_grid`
+drops them, so `load_grid` re-attaches them — corrected 2026-09-28); M2 cross-checks them
+against the chunk store's 3-D grid.
+
+**Status 2026-09-28: tasks 1-3 done** (log entries of 2026-09-27/28). The five answers: land is
+**NaN**; `W[k_l=0]` is **`dEta/dt`**, not ~0; spacing **1.71 x 1.85 km** at 37N with face 10
+rotated (`i` meridional/southward, `j` zonal); rotation terms **identically zero**, metric term
+0.1%; scheme **OS7MP** (`tempAdvScheme = 7`). Planning §2.2/§2.3/§4/§5.2/§5.5 and coding
+§3.1/§4.6 were corrected accordingly; tasks 4-5 below follow the corrected versions.
 
 ### 4. Write `tile330_grid.zarr`, and pull two hours
 
 - **The static grid (§3.1).** One pull, reused by everything. M1's V2 and V6 tests need it on
-  disk, which is why it belongs here rather than in M2.
+  disk, which is why it belongs here rather than in M2. Per the corrected §3.1 it must also
+  carry **`hFacW`, `hFacS`** (from the raw gridfile — they are the `U`/`V` land masks and
+  `process_llc4320_grid` drops them), the 0-d **`drF`, `Z`, `Zl`**, and the orientation /
+  spacing / `land_fill='NaN'` attrs.
 - **Two consecutive timestamps**, not one: M1's gate 3 has a variant driven by real LLC
   velocities and therefore needs a midpoint velocity.
 
 ### 5. QA plot
 
 One snapshot: `Theta`, `G = |grad b|^2`, and the land mask from `hFacC`. **No halo** — that is
-M1, and the whole point of this plot is to *see* the coastal gradient ribbon if question 1
-answers "0". Also show the invalid rim on the high edges, which arises because `_tile_indexer`
-gives the staggered dims the same slice as the centred ones. Write to `dev/frontogenesis/figs/`.
+M1. Question 1 answered "NaN" (corrected 2026-09-28), so there is **no coastal gradient ribbon
+to see**; instead show the stencil's own NaN rim along the coast (`G` undefined within ~3 cells
+of land), overlay `isfinite(Theta)` against `hFacC > 0` to confirm they coincide, and show the
+invalid rim on the high edges, which arises because `_tile_indexer` gives the staggered dims
+the same slice as the centred ones. Write to `dev/frontogenesis/figs/`.
 
 ---
 
@@ -107,7 +120,8 @@ gives the staggered dims the same slice as the centred ones. Write to `dev/front
 - **All four §2 traps confirmed against real data**: comodo attrs survive (or are restored after)
   `process_llc4320_grid`; `calculate_jacobian`'s `u_x, v_y` arguments really are `U, V`;
   `halo_mask.py:75` is not reached; and the two timestamp formats convert correctly.
-- QA plot written and the coastline inspected. **A ribbon here is a finding, not a failure.**
+- QA plot written and the coastline inspected. A stencil NaN rim is expected; **a gradient
+  ribbon is not** (land is NaN) — if one appears, something upstream has filled NaN with 0.
 
 ## Do not
 
