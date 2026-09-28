@@ -74,8 +74,11 @@ def tile_indexer(ds: xr.Dataset, tile: TileInfo) -> dict:
 
     Wraps ``dbof``'s private ``_tile_indexer``.  Staggered dims (``i_g``,
     ``j_g``) take the *same* slice as the centred ones, so the tile carries
-    the staggered point on its low edge only -- the high-edge derivative rim
-    is invalid.
+    the staggered point on its low edge only.  With xgcm ``padding='fill'``
+    (fill value 0) the derivative rim is then invalid -- and *finite* -- on
+    all four tile edges: G one cell everywhere (low edges ~1e6x from
+    differencing against 0, high edges ~0.5x from interpolating with 0), the
+    Jacobian one cell on the low edges and two on the high (M0 task 5).
     """
     return _tile_indexer(ds, tile)
 
@@ -119,6 +122,10 @@ def load_grid(endpoint: str = OSN_ENDPOINT, tile: TileInfo = None) -> xr.Dataset
     extra = raw.reset_coords()[list(GRID_EXTRA_VARS)]
     g_tile = xr.merge([_subset_tile(g, tile), _subset_tile(extra, tile)]).compute()
     g_tile = ensure_comodo_attrs(g_tile)
+    # XC/YC are coords, as in the raw gridfile and the hourly stores
+    # (process_llc4320_grid's reset_coords() demotes them); otherwise a
+    # plain xr.merge([hour, grid]) raises MergeError (M0 task 4/5)
+    g_tile = g_tile.set_coords(['XC', 'YC'])
     # spacing at 37N, from the data (task-3 log: 1.71 x 1.85 km).  Masked
     # positionally: dxC/dyC sit on the staggered dims, and an xarray
     # ``where`` against a (j, i) band would broadcast to 4-D instead
@@ -197,10 +204,12 @@ def write_grid(grid_ds: xr.Dataset = None, out=None, clobber: bool = False) -> s
     -------
     str
         Path written.  Dims ``(j, i)`` + ``i_g``/``j_g``, ``face`` a scalar
-        coord; comodo attrs on the four horizontal dims; provenance attrs.
+        coord, ``XC``/``YC`` coords (not data vars, so an hour merges with
+        the grid without ``MergeError``); comodo attrs on the four horizontal
+        dims; provenance attrs.
     """
     g = load_grid() if grid_ds is None else grid_ds
-    missing = set(CORE_GRID_VARS + GRID_EXTRA_VARS) - set(g.data_vars)
+    missing = set(CORE_GRID_VARS + GRID_EXTRA_VARS) - set(g.variables)
     if missing:
         raise ValueError(f'grid is missing {sorted(missing)}')
     # the orientation attr is a statement about this face; check it

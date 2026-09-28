@@ -58,9 +58,9 @@ def load_snapshot():
     """Grid + hour t0 merged on (face, j, i), float64, with an xgcm grid."""
     g = ot.open_grid(with_face=True)
     raw = xr.open_zarr(ot.DATA_DIR / RAW).load()
-    hour = raw.sel(time=SNAPSHOT).drop_vars(['XC', 'YC']).expand_dims('face')
-    # XC/YC are data vars in the grid store (§3.1) and coords in the raw
-    # store (§3.2); dropping them from the hour avoids the MergeError
+    hour = raw.sel(time=SNAPSHOT).expand_dims('face')
+    # XC/YC are coords in both stores (§3.1 corrected, M0 task 5), so the
+    # plain merge works -- no drop_vars needed
     ds = xr.merge([hour, g]).astype('float64')
     return ds, ot.build_xgcm(g)
 

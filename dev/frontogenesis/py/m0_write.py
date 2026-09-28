@@ -61,7 +61,10 @@ check(dict(gs.sizes) == {'j': 720, 'i': 720, 'i_g': 720, 'j_g': 720},
 check('face' in gs.coords and gs.face.ndim == 0 and int(gs.face) == 10,
       'face kept as scalar coord = 10')
 want = set(CORE_GRID_VARS + GRID_EXTRA_VARS)
-check(want <= set(gs.data_vars), f'all {len(want)} §3.1 vars present: {sorted(gs.data_vars)}')
+check(want <= set(gs.variables), f'all {len(want)} §3.1 vars present: {sorted(gs.data_vars)}')
+# XC/YC are coords (M0 task 5; §3.1), like the hourly stores, so hour+grid merge plainly
+check({'XC', 'YC'} <= set(gs.coords) and not {'XC', 'YC'} & set(gs.data_vars),
+      f'XC/YC are coords, not data vars: coords {sorted(gs.coords)}')
 dims_expect = {'hFacW': ('j', 'i_g'), 'hFacS': ('j_g', 'i'), 'hFacC': ('j', 'i'),
                'dxC': ('j', 'i_g'), 'dyC': ('j_g', 'i'), 'rAz': ('j_g', 'i_g'),
                'drF': (), 'Z': (), 'Zl': ()}
@@ -99,6 +102,11 @@ for v in sorted(want):
                          equal_nan=True), f'{v} round-trips bit-for-bit')
 # hFacW/hFacS against a real hour's U/V NaN masks; hFacC against Theta
 t = time.time(); h0 = load_hour(T0); walls['load_hour_check'] = time.time() - t
+# a plain merge of an hour with the grid must work (task 4 found MergeError on XC/YC)
+m = xr.merge([h0, gf])
+check({'Theta', 'U', 'dxC', 'hFacC'} <= set(m.data_vars) and {'XC', 'YC'} <= set(m.coords)
+      and dict(m.sizes)['face'] == 1,
+      f'xr.merge([hour, grid]) works without dropping XC/YC: {len(m.data_vars)} data vars')
 h0 = h0.squeeze(('time', 'face'))
 for v, hf in (('U', 'hFacW'), ('V', 'hFacS'), ('Theta', 'hFacC')):
     nan = np.isnan(h0[v].values); land = gs[hf].values == 0
