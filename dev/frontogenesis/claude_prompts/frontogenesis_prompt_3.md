@@ -30,8 +30,11 @@ window without re-checking that overlap.
 - `llc_wind`: `KPPhbl, oceTAUX, oceTAUY` (also `k=0`, hourly; coverage 2011-11-01 -> 2012-07-15,
   so our window sits inside it). `KPPhbl` is the key interpretive variable for the diurnal
   residual, so it is not optional.
-- Static grid once (already written by M0 as `tile330_grid.zarr`, §3.1): `XC, YC, dxC, dyC,
-  dxG, dyG, rA, rAz, CS, SN, hFacC, Depth` plus `hFacW, hFacS` and the 0-d `drF, Z, Zl`.
+- Static grid once (already written by M0 as `tile330_grid.zarr`, §3.1): `XC, YC` (as coords,
+  like the hourly stores, so `xr.merge([hour, grid])` works plainly — corrected 2026-09-28, M0
+  task 5), `dxC, dyC, dxG, dyG, rA, rAz, CS, SN, hFacC, Depth` plus `hFacW, hFacS` and the 0-d
+  `drF, Z, Zl`; `face = 10` is a scalar coord in both stores (`expand_dims('face')` /
+  `open_grid(with_face=True)` before any dbof operator).
   `oceTAUX`/`oceTAUY` come masked with the centred mask; store as-is, re-mask with
   `hFacW`/`hFacS` at use (M0 task 3).
 

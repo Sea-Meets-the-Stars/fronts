@@ -38,7 +38,7 @@ Fix these once. Most of the failure modes in planning §2.3 and §11 are convent
 | Quantity | Symbol in code | Units | Notes |
 |---|---|---|---|
 | buoyancy | `b` | m s^-2 | `b = +g sigma0/rho0` via `calculate_fields.buoyancy_of_field` (**JMD95**, not TEOS-10). `g=9.81`, `rho0=1000.0`. **Increases with density** — the negative of textbook `b`. Harmless (`G`,`F` quadratic; alignment enters as `cos 2theta`). Do not 'fix' it. |
-| front strength | `G` | s^-4 | `G = |grad_h b|^2`; the repo's `gradb2` |
+| front strength | `G` | s^-4 | `G = |grad_h b|^2 = b_x^2 + b_y^2` from the **same** `grad_b` (`calculate_native_gradient_tracer`) that feeds `F`. **Not** the repo's `gradb2` / `calculate_grad_squared_tracer` (squares on the staggered points first): the two differ by **0.911x** in the interior median, and the identity `F = (1/2) DG/Dt` only holds discretely when `G` and `F` share `b_x, b_y`. The repo's `gradb2` is for front *finding* (M4) only (corrected 2026-09-28, M0 task 5). |
 | frontogenesis tendency | `F` | s^-5 | `F = -(u_x b_x^2 + (u_y+v_x) b_x b_y + v_y b_y^2)` |
 | measured tendency | `DGDt` | s^-5 | `D_h G / Dt` |
 
@@ -110,13 +110,13 @@ def process_llc4320_grid(grid_ds)                        # L37
 ```python
 # dbof/tiles/tile_mapping.py
 def rect_ij_to_tile(i_rect: int, j_rect: int) -> TileInfo   # L112  NOTE ARG ORDER (i, j)
-@dataclass(frozen=True) class TileInfo:                     # L47
+@dataclass(frozen=True) class TileInfo:                     # L48 (re-verified 2026-09-28, M0 task 5)
     tile_idx, tile_j_rect, tile_i_rect, rect_j_slice, rect_i_slice,
     face_idx, j_face_slice, i_face_slice
 # ours: rect_ij_to_tile(13320, 9720) -> face_idx=10, j 0:720, i 2880:3600
 
 # dbof/llc4320_ingestion/grid.py
-COMODO_COORD_META = {                                       # L9
+COMODO_COORD_META = {                                       # L11 (re-verified 2026-09-28, M0 task 5)
     'j':   {'axis': 'Y'},
     'j_g': {'axis': 'Y', 'c_grid_axis_shift': -0.5},
     'i':   {'axis': 'X'},
@@ -129,21 +129,35 @@ def set_xgcm_grid(ds_grid, use_connections: bool = True)    # L121 -> xgcm.Grid;
 # dbof/tiles/tile_utils.py  -- short private helper; copy rather than import if preferred
 def _tile_indexer(ds, tile) -> dict                         # L334
       # {'j','j_g'} -> tile.j_face_slice ; {'i','i_g'} -> tile.i_face_slice, for dims present.
-      # Staggered dims take the SAME slice -> the high-edge derivative rim is invalid.
+      # Staggered dims take the SAME slice -> the derivative rim is invalid on ALL FOUR
+      # tile edges, and FINITE, not NaN: xgcm padding='fill' pads the missing neighbour
+      # with 0, so the low edges (j=0, i=2880) difference against 0 (G ~1e6x) and the
+      # high edges (j=719, i=3599) interpolate with 0 (G ~0.5x).  Crop test: G 1 cell on
+      # every edge; Jacobian 1 cell on the low edges, 2 on the high.  The land halo does
+      # not remove it -- masking.analysis_mask(edge_cells=...) does
+      # (corrected 2026-09-28, M0 task 5).
 ```
 
 ### 2.3 Physics operators (`dbof`)
 
 ```python
 # dbof/utils/native_gradient.py                -- ALL return geographic-basis quantities
-def calculate_native_gradient_tracer(ds_value, ds_grid, grid)   # L126 -> (zonal, merid)
-def calculate_jacobian(u_x, v_y, ds_merge, grid)                # L53  -> (du_dx, du_dy, dv_dx, dv_dy)
+#   (line numbers re-verified 2026-09-28 at tiles-surface-only 938bce1, M0 task 5: the
+#   file grew by 77 lines since the survey; the earlier L13/L53/L126/L224/L301 are stale)
+def calculate_native_gradient_tracer(ds_value, ds_grid, grid)   # L203 -> (zonal, merid)
+def calculate_jacobian(u_x, v_y, ds_merge, grid)                # L130 -> (du_dx, du_dy, dv_dx, dv_dy)
       # *** TRAP: args named u_x, v_y but they ARE U and V (the raw staggered fields). ***
-def calculate_grad_squared_tracer(ds_value, ds_grid, grid)      # L224 -> |grad s|^2 at centres
-def calculate_native_strain_vorticity(u_x, v_y, ds_grid, grid)  # L301 -> dict, NOT a tuple:
+      # Confirmed on real data (M0 task 5): a numpy replica from U/V is bit-identical.
+      # Swapping them does NOT raise on numpy-backed inputs -- xgcm interps V along X
+      # (it has i), the CS/SN multiply broadcasts (j_g, i_g) x (j, i) to 4-D and the
+      # process is OOM-killed; only dask-backed inputs raise KeyError.  Assert dims.
+def calculate_grad_squared_tracer(ds_value, ds_grid, grid)      # L301 -> |grad s|^2 at centres
+      # squares on the staggered points BEFORE interpolating: 1.10x the component form
+      # (b_x^2 + b_y^2) in the interior median -- front FINDING only, never our G (§1.1)
+def calculate_native_strain_vorticity(u_x, v_y, ds_grid, grid)  # L378 -> dict, NOT a tuple:
       #   'strain_normal_center', 'divergence_center'   on (j, i)
       #   'vorticity_corner',     'strain_shear_corner' on (j_g, i_g)  <- interp to centres!
-def rotate_vector_to_geographic(u_x, v_y, ds_merge, grid, *, interpolate=True)   # L13
+def rotate_vector_to_geographic(u_x, v_y, ds_merge, grid, *, interpolate=True)   # L91
 
 # dbof/preprocessing/calculate_fields.py       -- NOTE: on tiles-surface-only the file is
 #   calculate_fields.py.  "calculate_additional_fields.py" is the name on the OLD llc4320_v2
@@ -261,7 +275,14 @@ All under `dev/frontogenesis/data/`.
 
 ```
 dims   : (j: 720, i: 720) plus staggered i_g, j_g
-vars   : XC, YC, dxC, dyC, dxG, dyG, rA, rAz, CS, SN, hFacC, Depth,
+coords : XC(j,i), YC(j,i),                    # COORDS, as in the raw gridfile and §3.2, so
+                                              # xr.merge([hour, grid]) works; face = 10 as a
+                                              # scalar coord, open_grid(with_face=True)
+                                              # restores the (face, j, i) dim the dbof
+                                              # operators expect (corrected 2026-09-28,
+                                              # M0 task 5; process_llc4320_grid demotes
+                                              # them, load_grid re-promotes)
+vars   : dxC, dyC, dxG, dyG, rA, rAz, CS, SN, hFacC, Depth,
          hFacW(j,i_g), hFacS(j_g,i),          # U/V land masks; raw gridfile, dropped by
                                               # process_llc4320_grid -- re-attach
          drF, Z, Zl                           # 0-d, k=0 only: 1.0, -0.5, 0.0 (OSN gridfile)
@@ -282,9 +303,13 @@ dims   : (time: 72, j: 720, i: 720) + i_g, j_g
 vars   : Theta(time,j,i), Salt(time,j,i), U(time,j,i_g), V(time,j_g,i),
          W(time,j,i), Eta(time,j,i),
          KPPhbl(time,j,i), oceTAUX(time,j,i_g), oceTAUY(time,j_g,i)
-coords : time (datetime64), XC, YC
+coords : time (datetime64), XC, YC, niter(time), face (= 10, scalar), k, k_l
 attrs  : iterations (list), endpoint, stores=['llc_surf','llc_wind'], git_commit
 ```
+`face` is kept as a scalar coord in both stores; `expand_dims('face')` on a snapshot (or
+`open_grid(with_face=True)` for the grid) restores the `(face, j, i)` layout the dbof operators
+expect. `XC`/`YC` are coords in both, so an hour merges with the grid plainly (corrected
+2026-09-28, M0 task 5).
 `KPPhbl`/`oceTAU*` come from the **second** OSN store (`llc_wind`), which covers our window.
 Heat fluxes are in neither *OSN* store — they come from the chunk store (§3.3), which is what
 makes the diabatic term measurable rather than inferred (Q13). Land is **NaN** in every field
@@ -316,7 +341,8 @@ vars : b, G, two_F, DGDt_semilag, DGDt_euler, subfilter, vertical, surface_flux,
 ### 3.5 `tile330_masks.nc`
 
 ```
-vars : mask_ocean, mask_halo, mask_offshore, mask_analysis, coast_distance_km
+vars : mask_ocean, mask_halo, mask_offshore, mask_edge, mask_analysis, coast_distance_km
+       # mask_edge: the tile-edge margin (§4.2; added 2026-09-28, M0 task 5)
 ```
 
 ---
@@ -351,9 +377,17 @@ def ocean_mask(grid_ds):                          -> np.ndarray  # bool, True=oc
 def halo_mask(grid_ds, halo_cells=7):             -> np.ndarray  # bool, True=retained
 def coast_distance_km(grid_ds):                   -> np.ndarray  # float, km to nearest land
 def offshore_mask(grid_ds, min_km=100.0):         -> np.ndarray  # bool
+def edge_mask(grid_ds, edge_cells=7):             -> np.ndarray  # bool, False within edge_cells of ANY tile edge
 def analysis_mask(grid_ds, halo_cells=7,
-                  min_km=100.0):                  -> np.ndarray  # halo & offshore & ocean
+                  min_km=100.0, edge_cells=7):    -> np.ndarray  # halo & offshore & ocean & edge
 ```
+**`edge_mask` exists because the tile-edge rim is finite, not NaN** (corrected 2026-09-28,
+M0 task 5; §2.2, planning §5.5): xgcm's `padding='fill'` pads the missing high staggered point
+with 0, so `G` is wrong by ~1e6x on the low edges (`j = 0`, `i = 2880`) and ~0.5x on the high
+edges (`j = 719`, `i = 3599`), and the Jacobian is wrong 1 cell deep on the low edges and 2 on
+the high. The land halo cannot see it (`skfmm` measures distance from `hFacC == 0`) and the
+offshore cut leaves the open-ocean west and north edges alone. Minimum `edge_cells` for the raw
+operators is 2; the default 7 matches the land halo once the filter half-width (4) is counted.
 `halo_mask` wraps `llc_native_grid_halo_mask` and **must handle two known defects**
 (planning §5.5): the 2-D early return when a face is entirely land, and a `k`-carrying
 `hFacC` that makes the mask 4-D and breaks `skfmm`. Collapse `k` first; assert output shape.
@@ -361,7 +395,8 @@ def analysis_mask(grid_ds, halo_cells=7,
 **Our API takes cells; the underlying helper takes km.** `generate_halo_land_mask(ds_grid,
 target_km_res, ...)` uses `target_km_res` directly as `halo_km`, so `masking.halo_mask` must
 convert: `halo_km = halo_cells * median(dxC)`. Our requirement is **7 cells** (3 for the
-Jacobian+interp stencil, 4 for the widest filter half-width), which is ~12-14 km across the
+Jacobian+interp stencil — measured reach is 1 cell for `G` and 2 for the Jacobian/`F`, so this
+is one cell conservative (M0 task 5); 4 for the widest filter half-width), which is ~12-14 km across the
 tile's 1.7-2.1 km spacing (corrected 2026-09-28, M0 task 3; `dxC` is the *meridional* spacing
 on this face, `dyC` the zonal — see §3.1 orientation). **Convert from the measured `dxC`;
 never hard-code the km value.** Both `halo_mask` and `analysis_mask` therefore take
@@ -378,7 +413,9 @@ through it** (planning §5.1).
 def buoyancy(ds):                                 -> xr.DataArray  # wraps calculate_fields.buoyancy_of_field
 def lowpass(field, L_cells):                      -> same type     # L_cells=0 -> identity
 def grad_b(b, grid_ds, grid):                     -> (b_x, b_y)    # via calculate_native_gradient_tracer (geographic)
-def gradb2(b, grid_ds, grid):                     -> G
+def gradb2(b, grid_ds, grid):                     -> G             # = b_x^2 + b_y^2 from grad_b, NOT
+      # calculate_grad_squared_tracer (a different stencil, 0.911x; V3 would start biased
+      # by ~0.9). Both sides of the comparison share b_x, b_y (§1.1; M0 task 5).
 def jacobian(U, V, grid_ds, grid):                -> (u_x, u_y, v_x, v_y)
 def frontogenesis(b, U, V, grid_ds, grid):        -> F             # inputs ALREADY filtered
 def strain_divergence(U, V, grid_ds, grid):       -> (delta, sigma_n, sigma_s, sigma_mag)
@@ -471,13 +508,18 @@ is reported relative to the M1 discrete-null baseline.
 def test_cartesian_deformation(alpha=1e-5, png=True)   -> dict   # V1; G ~ exp(2 alpha t)
 def test_native_metric(grid_ds, png=True)              -> dict   # V2; analytic f(XC,YC)
 def test_discrete_null(velocities='strain', png=True)  -> dict   # V3; MUST give slope = 1 +/- 0.05
+      # expect a ~0.8 attenuation of the interpolated Jacobian before co-location (M0 task 5:
+      # trace vs flux-form divergence slope 0.80, corr 0.97); G from the same b_x, b_y as F
 def test_interpolation_bias(png=True)                  -> dict   # V4; uniform flow, true DGDt = 0
 # two supporting figures
 def demo_interp_half_cell(png=True)                    -> dict   # V5; the figure Lauren asked for
-def qa_land_halo(grid_ds, png=True)                    -> dict   # V6; coastline before/after halo
+def qa_land_halo(grid_ds, png=True)                    -> dict   # V6; coastline before/after halo,
+      # plus the finite tile-edge rim and the edge_cells margin that removes it (M0 task 5)
 ```
 
-**Four gates, six PNGs (V1-V6).** Every one writes to `dev/frontogenesis/figs/` — part of
+**Four gates, six PNGs (V1-V6).** Every one writes to `dev/frontogenesis/figs/` (the fronts
+`.gitignore` ignores `*.png`; `figs/.gitignore` un-ignores them with `!*.png`, added 2026-09-28,
+M0 task 5 — verify with `git check-ignore -v` if a figure fails to show up) — part of
 acceptance, not an extra. `demo_interp_half_cell` (V5) renders a synthetic front shifted half a
 cell and plots truth vs `G` from bilinear-`G` vs `G` from cubic-`b`, annotating the negative bias
 at the maximum. `test_discrete_null` must also **return the fitted slope**, because Figure 2
@@ -524,7 +566,7 @@ marked `@pytest.mark.network` smoke test of the OSN pull.
 | Test | Guards |
 |---|---|
 | `test_operators.py` | gradient of an analytic field; `F` vs the repo's `frontogenesis_tendency` unfiltered; factor-of-two convention |
-| `test_masking.py` | halo width; the two `halo_mask` defects; `True`=retained |
+| `test_masking.py` | halo width; the two `halo_mask` defects; `True`=retained; `ocean_mask == isfinite(Theta)`; the tile-edge margin covers the crop-test rim (`m0_qa_checks.check_edge_rim`; M0 task 5) |
 | `test_semilag.py` | zero-velocity identity; uniform-flow translation; interpolation order |
 | `test_coarsegrain.py` | `tau` -> 0 as `L` -> 0; Germano consistency |
 | `test_stats.py` | estimators on synthetic data with known slope |
@@ -562,10 +604,13 @@ Tasks:
    velocities, which needs a midpoint velocity and therefore two hours.
 6. QA plot of one snapshot: `Theta`, `G`, and the land mask from `hFacC`. **No halo yet** — the
    halo is M1. Land is NaN (task 3), so there is no coastal gradient ribbon to see; the plot
-   should instead show the stencil's own NaN rim along the coast (`G` undefined within ~3
-   cells of land) and confirm `isfinite(Theta) == (hFacC > 0)`. Also show the invalid rim that
-   `_tile_indexer` leaves on the high edges (the staggered dims take the same slice as the
-   centred ones). *(Corrected 2026-09-28, M0 task 3.)*
+   should instead show the stencil's own NaN rim along the coast (`G` undefined 1 cell from
+   land, the Jacobian 2 cells — not "~3") and confirm `isfinite(Theta) == (hFacC > 0)`. Also
+   show the invalid rim that `_tile_indexer` leaves on **all four** tile edges (the staggered
+   dims take the same slice as the centred ones and xgcm pads with 0, so the rim is finite:
+   1 cell for `G`, 1 / 2 cells for the Jacobian on the low / high edges). **Done 2026-09-28:**
+   `figs/m0_qa_tile330_20120702T00.png`, `py/m0_qa_plot.py`, `py/m0_qa_checks.py`.
+   *(Corrected 2026-09-28, M0 task 3; measured values M0 task 5.)*
 5. Confirm the three §2 traps on real data: comodo attrs survive `process_llc4320_grid`
    (or are restored), `halo_mask.py:75` is not reached, and the two timestamp formats are
    converted correctly.
@@ -574,6 +619,8 @@ Tasks:
 `tile330_grid.zarr` written; all five questions answered in the log with numbers; QA plot written
 and the coastline inspected (a stencil NaN rim is expected; a gradient ribbon is not, since land
 is NaN — if one appears, something upstream has filled NaN with 0).
+**M0 closed 2026-09-28** (task-5 log entry: all five criteria PASS; all four §2 traps confirmed
+on real data).
 
 ### M1 — Operators and validation  *(planning Phase 0b)*  — **HARD GATE**
 
@@ -581,7 +628,8 @@ is NaN — if one appears, something upstream has filled NaN with 0).
 
 Tasks: `masking.py`, `operators.py`, `semilag.py`, `coarsegrain.py`, `validate.py`, plus their
 tests. **`masking.py` is M1's, so `tile330_masks.nc` (§3.5) is written here**, using the static
-grid from M0 — not in M2. `coarsegrain.py` is also M1's: V-gate closure of `tau` is part of
+grid from M0 — not in M2. `analysis_mask` includes the **tile-edge margin** (`edge_cells`, §4.2)
+— the edge rim is finite and the land halo does not remove it (added 2026-09-28, M0 task 5). `coarsegrain.py` is also M1's: V-gate closure of `tau` is part of
 validating the operators, not part of the budget run.
 
 **Acceptance — all four must pass:**
@@ -589,7 +637,11 @@ validating the operators, not part of the budget run.
 2. Native-metric test reproduces analytic gradients to < 1%.
 3. **`test_discrete_null` gives slope = 1 +/- 0.05 on front pixels.** If it fails, co-locate
    the operators or raise the scheme order until it passes. *Do not proceed on a failure* —
-   C-grid interpolation attenuation alone can bias the slope 0.7-1.4 (planning §6).
+   C-grid interpolation attenuation alone can bias the slope 0.7-1.4 (planning §6); M0 task 5
+   measured the interpolated Jacobian trace at **0.80x** the flux-form divergence (corr 0.97),
+   so a correction of that size is expected, and `G` must be `b_x^2 + b_y^2` from the same
+   `grad_b` as `F` (§1.1) or the slope starts a further 0.91x off (corrected 2026-09-28, M0
+   task 5).
 4. `test_interpolation_bias` quantifies the uniform-flow bias; it becomes a permanent error
    bar on every later slope.
 5. **All six PNGs (V1-V6: four gates plus two supporting) written to `figs/`.** Lauren asked for these
@@ -720,5 +772,15 @@ Distilled from the adversarial review. Re-read before each milestone.
       zonal (`CS=0, SN=-1`); any "zonal/meridional" label on a native axis checked against §3.1.
 - [ ] `oceTAUX`/`oceTAUY` re-masked with `hFacW`/`hFacS` before any stress derivative.
 - [ ] `kappa_num` quoted at the scale of the feature (planning §2.3), not as one number.
-- [ ] Every validation test wrote its PNG.
-- [ ] §2's API line numbers re-verified if the Q15 merges have landed.
+- [ ] Every validation test wrote its PNG (and it shows in `git status` — `figs/.gitignore`
+      un-ignores `*.png`).
+- [ ] §2's API line numbers re-verified 2026-09-28 at `938bce1` (M0 task 5); redo if the Q15
+      merges land.
+- [ ] Output dims asserted after **every** dbof operator call (`('face', 'j', 'i')` or the
+      staggered pair): a centred mask x staggered field, or swapped `calculate_jacobian` args,
+      silently broadcasts to 4-D on numpy-backed inputs (OOM) and raises only on dask
+      (M0 tasks 4-5).
+- [ ] Tile-edge margin (`edge_cells`) applied on **all four** edges — the rim is finite, not
+      NaN, and neither the land halo nor the offshore cut removes it (M0 task 5).
+- [ ] `G` formed from the same `b_x, b_y` as `F` (`operators.gradb2 = b_x^2 + b_y^2`), never
+      from `calculate_grad_squared_tracer` (0.911x; M0 task 5).

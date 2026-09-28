@@ -2000,3 +2000,69 @@ M0 closes. "Do not" list respected: no physics module, no 72 h pull, nothing out
 
 Files: created `dev/frontogenesis/py/m0_qa_plot.py`, `dev/frontogenesis/py/m0_qa_checks.py`,
 `dev/frontogenesis/figs/m0_qa_tile330_20120702T00.png`; this log.
+
+**Addendum (2026-09-28, same session) — corrections applied to the docs and code, on JXP's
+approval.** Each spot edited in place and marked "(corrected 2026-09-28, M0 task 5)" or
+"(added 2026-09-28, M0 task 5)"; nothing unrelated rewritten.
+
+- `frontogenesis_planning.md` header: a second "Updated 2026-09-28 (M0 task 5)" paragraph
+  listing the four new corrections (tile-edge rim, stencil rim widths, `G` stencil, Jacobian
+  attenuation). §2.1: `G = b_x^2 + b_y^2` from the same `b_x, b_y` as `F`; the repo's `gradb2`
+  (`calculate_grad_squared_tracer`, 0.911x) is for front finding only. §5.5: measured rim
+  widths (1 / 2 cells, counts) and the coastal decay; "3 for the Jacobian+interp stencil"
+  annotated as one cell conservative; new paragraph on the finite four-edge tile rim and the
+  `edge_cells` margin. §6 test 3: measured trace-vs-divergence slope 0.80 / corr 0.97 as the
+  expected correction; V6 description: all four edges, finite, plus the margin. §10 risk
+  table: the operator-bias row annotated with 0.80 and the `G`-stencil rule; new tile-edge row.
+- `frontogenesis_coding.md` §1.1: `G` row rewritten (component stencil, not the repo's
+  `gradb2`). §2.2: `TileInfo` L48, `COMODO_COORD_META` L11, `_tile_indexer` note rewritten
+  (all four edges, finite, fill 0, crop-test widths). §2.3: `native_gradient.py` line numbers
+  +77 (L91 / L130 / L203 / L301 / L378) with the re-verification note; `calculate_jacobian`
+  trap extended (numpy-backed swapped call broadcasts to 4-D and is OOM-killed, dask raises
+  `KeyError`); `calculate_grad_squared_tracer` annotated "front finding only". §3.1: `XC`, `YC`
+  moved from `vars` to `coords`, `face` scalar coord and `open_grid(with_face=True)` noted.
+  §3.2: coords line completed (`niter`, `face`, `k`, `k_l`) and the same `face`/merge note.
+  §3.5: `mask_edge` added. §4.2: new `edge_mask(grid_ds, edge_cells=7)`, `analysis_mask`
+  gains `edge_cells=7`, with the rationale; the 7-cell budget annotated with the measured
+  reach. §4.3: `gradb2` comment (component form, not `calculate_grad_squared_tracer`). §4.9:
+  V3 comment (expect ~0.8), V6 comment (edge rim + margin), the `figs/.gitignore` note. §5
+  test table: `test_masking.py` guards the `ocean_mask` identity and the edge margin against
+  `m0_qa_checks.check_edge_rim`. §6 M0 task 6: rim widths and four-edge wording fixed, "Done"
+  line with the file names; "M0 closed 2026-09-28" status; M1 tasks: `analysis_mask` includes
+  the edge margin; M1 acceptance 3: the 0.80 measurement and the `G`-stencil rule. §8: PNG
+  item extended (`figs/.gitignore`); line-number item reworded (re-verified at `938bce1`);
+  three new items (assert dims after every dbof call; tile-edge margin; `G` from the same
+  `b_x, b_y` as `F`).
+- `claude_prompts/frontogenesis_prompt_1.md` task 5: "~3 cells" and "high edges" corrected as
+  a record, with a "Done 2026-09-28" line.
+- `frontogenesis_prompt_2.md`: masking — measured rim reach; new bullet for `edge_mask` /
+  `edge_cells` with the crop-test evidence and a `test_masking.py` requirement; operators —
+  new bullets for `gradb2 = b_x^2 + b_y^2` (0.911x) and for asserting output dims (with the
+  `calculate_jacobian` confirmation); V3 — the 0.80 / 0.91 numbers; acceptance 5 — the
+  `figs/.gitignore` note and V6 must show the edge rim + margin.
+- `frontogenesis_prompt_3.md`: grid list — `XC, YC` as coords; `face` scalar coord note.
+- `frontogenesis_prompt_6.md`: the overturned-claims list extended with the four M0 task-5
+  items.
+- Not changed, deliberately: `frontogenesis_prompt_4.md` and `_5.md` (no restated claim:
+  `mask_analysis` is used by name only, and prompt 5's `gradb2` is the front-finding use, which
+  stays on the repo's stencil); planning §4 "Fields pulled" (lists names only); the task-5 log
+  entry above, which stays as the record; dbof (read-only).
+
+**Code and data (same session).**
+- `py/osn_tiles.py`: `load_grid` now `set_coords(['XC', 'YC'])` (with the reason), so the
+  in-memory grid and the store both carry them as coords; `write_grid`'s presence check uses
+  `variables` rather than `data_vars`; `tile_indexer` and `write_grid` docstrings updated
+  (four-edge finite rim; coords).
+- `py/m0_write.py`: presence check on `variables`; new checks "XC/YC are coords, not data vars"
+  and "`xr.merge([hour, grid])` works without dropping XC/YC" (21 data vars).
+- `py/m0_qa_plot.py`: the `drop_vars(['XC', 'YC'])` workaround removed (plain merge); `XC`/`YC`
+  read with `.squeeze()` since `expand_dims('face')` leaves coords on `(j, i)`.
+- `figs/.gitignore` (`!*.png`, with a comment): `git check-ignore -v` now reports the negating
+  rule (`figs/.gitignore:3:!*.png`) and the PNG shows in `git status`.
+- **Re-run `m0_write.py`** (OSN fast this time: `load_grid` 10.6 s, `load_hours` 15.0 s):
+  both stores rewritten, **90 checks ok, 0 FAIL**, including the two new ones; grid 1.9 MB /
+  raw 21 MB on disk as before; `git_commit = 49b1867+dirty`, `dbof_commit = 938bce1`.
+- **Re-run `m0_qa_plot.py`** on the rewritten stores: every number identical (Jacobian replica
+  max diff 0.0; `halo_mask` (1, 720, 720), 342,682 retained; 0 mismatches; rim 2,174 / 4,204;
+  ribbon profile 75.8x .. 9.8x; `G_comp/G_sq` 0.9106; edge crop test unchanged); figure
+  regenerated and inspected, unchanged.

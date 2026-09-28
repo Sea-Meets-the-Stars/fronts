@@ -154,7 +154,9 @@ def draw_map(ax, X, Y, C, cmap, norm=None, land=None, **kw):
 
 
 def make_figure(ds, f, cls, d_taxi, counts, edge_rim, out_png):
-    X, Y = ds.XC.values[0], ds.YC.values[0]
+    # XC/YC are coords (§3.1): expand_dims('face') leaves them (j, i), so
+    # squeeze rather than index the face axis
+    X, Y = ds.XC.squeeze().values, ds.YC.squeeze().values
     oc = ds.hFacC.values[0] > 0
     land = ~oc
     theta = ds.Theta.values[0]

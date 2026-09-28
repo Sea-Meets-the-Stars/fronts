@@ -85,5 +85,9 @@ item matters most: this project has already overturned four of its own claims du
 being negligible, and heat fluxes being unavailable) and five more in M0 against real data
 (land stored as 0 — it is NaN; `W[k_l=0] ~ 0` — it is `dEta/dt`; 1.8-2.3 km spacing — it is
 1.7-2.1 km on a 90-degree-rotated face; rotation terms ~0.1% — they are identically zero; a
-single `kappa_num` — it is strongly scale-dependent), and the writeup should be honest about
-which survived contact with data.
+single `kappa_num` — it is strongly scale-dependent), plus four from M0's QA plot (a NaN rim on
+the high tile edges only — it is finite and on all four edges, the low ones worst; a ~3-cell
+stencil rim — it is 1 cell for `G`, 2 for `F`; `G` as the repo's `gradb2` — it must share
+`b_x, b_y` with `F`, the stencils differ by 0.91x; and the interpolated Jacobian trace measured
+at 0.80x the flux-form divergence; corrected 2026-09-28, M0 task 5), and the writeup should be
+honest about which survived contact with data.

@@ -105,10 +105,15 @@ rotated (`i` meridional/southward, `j` zonal); rotation terms **identically zero
 
 One snapshot: `Theta`, `G = |grad b|^2`, and the land mask from `hFacC`. **No halo** — that is
 M1. Question 1 answered "NaN" (corrected 2026-09-28), so there is **no coastal gradient ribbon
-to see**; instead show the stencil's own NaN rim along the coast (`G` undefined within ~3 cells
-of land), overlay `isfinite(Theta)` against `hFacC > 0` to confirm they coincide, and show the
-invalid rim on the high edges, which arises because `_tile_indexer` gives the staggered dims
-the same slice as the centred ones. Write to `dev/frontogenesis/figs/`.
+to see**; instead show the stencil's own NaN rim along the coast (`G` undefined 1 cell from
+land, the Jacobian 2 cells — the original "~3" was an over-estimate; corrected 2026-09-28, M0
+task 5), overlay `isfinite(Theta)` against `hFacC > 0` to confirm they coincide, and show the
+invalid rim on the tile edges, which arises because `_tile_indexer` gives the staggered dims
+the same slice as the centred ones (found to be on **all four** edges and finite, not NaN,
+since xgcm pads with 0 — the original brief said "high edges"; corrected 2026-09-28, M0
+task 5). Write to `dev/frontogenesis/figs/`.
+**Done 2026-09-28:** `figs/m0_qa_tile330_20120702T00.png`, `py/m0_qa_plot.py`,
+`py/m0_qa_checks.py`; M0 acceptance audited in the task-5 log entry, all criteria PASS.
 
 ---
 

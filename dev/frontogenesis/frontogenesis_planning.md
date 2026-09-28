@@ -17,6 +17,14 @@ model's *linear* free surface, not ~0 (§2.2); the grid spacing is 1.68-2.07 km 
 rotated 90 degrees (§4); the rotation terms of §5.2 are identically zero on this tile; and the
 advection scheme is OS7MP with a strongly scale-dependent `kappa_num` (§2.3). Each spot is
 marked "(corrected 2026-09-28, M0 task 3)".
+**Updated 2026-09-28 (M0 task 5, QA plot and acceptance; log entry of that date):** four more
+— the `_tile_indexer` derivative rim is on **all four** tile edges and is *finite*, not NaN
+(xgcm `padding='fill'` pads with 0; low edges are the worse ones), so the analysis mask needs an
+explicit edge margin the land halo cannot supply (§5.5, §6 V6); the stencil NaN rim is 1 cell for
+`G` and 2 for the Jacobian/`F`, not ~3 (§5.5); `G` must be formed from the same `b_x, b_y` that
+enter `F`, not from the repo's `gradb2` stencil, which differs by 0.91x (§2.1); and the
+interpolated Jacobian's trace is 20% attenuated against the flux-form divergence (slope 0.80),
+the size of correction §6 test 3 should expect. Marked "(corrected 2026-09-28, M0 task 5)".
 
 ---
 
@@ -49,12 +57,20 @@ buoyancy. `G` and `F` are quadratic in `grad b` so nothing downstream is affecte
 alignment angle enters only as `cos(2 theta)`, which is invariant under the flip. **Do not
 "fix" the sign** — just record it so `grad b` arrows are read correctly.
 
-The front-strength field — the same quantity the repo already uses as its primary front
-indicator, `gradb2`:
+The front-strength field:
 
 ```
-G = |grad_h b|^2                              [s^-4]
+G = |grad_h b|^2  =  b_x^2 + b_y^2            [s^-4]
 ```
+
+formed from the **same** `b_x, b_y` (`calculate_native_gradient_tracer`: diff, interp to
+centres, rotate) that enter `F` below — that is what makes the discrete identity
+`F = (1/2) DG/Dt` hold on the grid. The repo's own front indicator `gradb2`
+(`calculate_grad_squared_tracer`, which squares on the staggered points *before*
+interpolating) is a different stencil: on tile 330 the component form is **0.911x** its
+interior median, so mixing the two would bias the §6 null slope by ~0.9 before any physics.
+The repo's `gradb2` is used only for front *finding* in Phase 3, where only the pattern matters
+(corrected 2026-09-28, M0 task 5).
 
 The kinematic frontogenesis function:
 
@@ -445,12 +461,30 @@ cells; `U` is NaN in exactly the `hFacW == 0` cells and `V` in exactly the `hFac
 (so `U`/`V` are NaN on 922 / 565 coast-facing faces whose centre is ocean); no finite values on
 land, no NaN in the ocean, and the pattern is static in time. `hFacC` is binary at `k = 0` (no
 partial cells). So there is **no coastal gradient ribbon**: the dbof stencils propagate NaN,
-and the 3-cell stencil part of the halo happens by itself.
+and the stencil part of the halo happens by itself. Measured on the QA plot (M0 task 5): `G` is
+NaN in exactly the ocean cells at taxicab distance 1 from land (2,174 cells; diff + interp
+reaches one centre), the Jacobian and hence `F` in exactly those at distance <= 2 (4,204
+cells; interp, diff, interp). Median `G` decays smoothly from 76x the interior at 2 cells to
+10x at 10 cells — the coastal upwelling front, not a stencil artefact (a `b(0,0)` ribbon would
+be ~1e7x and confined to one cell) (corrected 2026-09-28, M0 task 5).
 
-A **dilated land mask of 7 cells (12-13 km at 37N)** — 3 for the Jacobian+interp stencil, 4
-for the widest filter half-width — is still applied to `b`, `u`, `v` **before any
-differencing**: the NaN propagation covers the stencil, but the filter needs its full support
-and `coast_distance_km` needs a clean `skfmm` distance.
+A **dilated land mask of 7 cells (12-13 km at 37N)** — 3 for the Jacobian+interp stencil
+(measured reach 2; one cell conservative), 4 for the widest filter half-width — is still applied
+to `b`, `u`, `v` **before any differencing**: the NaN propagation covers the stencil, but the
+filter needs its full support and `coast_distance_km` needs a clean `skfmm` distance.
+
+**The tile edges need their own margin** (corrected 2026-09-28, M0 task 5). `_tile_indexer`
+gives the staggered dims the same slice as the centred ones, so the tile holds each cell's
+*low* staggered point but not the high one, and xgcm's `padding='fill'` (`set_xgcm_grid`,
+`fill_value=None`) pads the missing neighbour with **0**. The result is an invalid rim on
+**all four** edges whose values are **finite, not NaN**: differencing against 0 at the low
+edges (`j = 0`, `i = 2880`) gives `G` ~1e6x its neighbours, interpolating with 0 at the high
+edges (`j = 719`, `i = 3599`) halves it; the Jacobian's extra interp carries the high-edge
+error one cell further. Crop test: `G` invalid 1 cell on every edge, the Jacobian 1 cell on the
+low edges and 2 on the high. Neither the land halo (`skfmm` distance from `hFacC == 0`; a tile
+edge is not land) nor the 100 km offshore cut (the west and north edges are open ocean) removes
+it, so `analysis_mask` carries an explicit **`edge_cells`** margin: >= 2 cells for the raw
+operators, **7** once filter support is counted — the same budget as the land halo.
 
 Two defects in the existing helper must be handled:
 `halo_mask.llc_native_grid_halo_mask` returns a 2-D array early when a face is entirely
@@ -548,7 +582,12 @@ continuum checks; the last two are the ones that actually protect the headline n
    staggering puts `b_x` on faces, `u_x` at centres, `u_y` and `v_x` at corners; each
    interpolation to a common point multiplies a `4 dx` amplitude by `cos(k dx / 2) ~ 0.71`,
    and `G` (two interpolated gradients) and `F` (three interpolated factors) are attenuated
-   **differently** — a slope bias of roughly 0.7-1.4 with no physics in it at all.
+   **differently** — a slope bias of roughly 0.7-1.4 with no physics in it at all. Measured
+   on tile 330 (M0 task 5): the trace of the interpolated Jacobian regresses on the flux-form
+   divergence (`calculate_native_strain_vorticity`, no interpolation, no rotation) with
+   **slope 0.80, corr 0.97** — a 20% attenuation of the predicted side is the size of
+   correction to expect here, on top of the 0.91x from a mismatched `G` stencil (§2.1) if
+   `G` were not built from the same `b_x, b_y` as `F` (corrected 2026-09-28, M0 task 5).
    *Test:* advect a synthetic tracer with prescribed strain (and separately with the real
    LLC velocities) using our exact discrete operators and semi-Lagrangian step, and
    **require slope = 1 +/- 0.05 on front pixels** before touching real data. If it fails,
@@ -565,8 +604,11 @@ continuum checks; the last two are the ones that actually protect the headline n
   annotated. The clearest statement of why §5.3 item 2 exists, and it doubles as a regression
   test.
 - **V6 — land-halo QA.** The coastline before and after the halo. Land is NaN (§5.5), so
-  there is no gradient ribbon to remove; the figure shows the stencil's own NaN rim, the
-  7-cell halo and the `_tile_indexer` high-edge rim, and confirms the mask geometry.
+  there is no gradient ribbon to remove; the figure shows the stencil's own NaN rim (1 cell for
+  `G`, 2 for the Jacobian), the 7-cell halo, the `_tile_indexer` rim on **all four** tile edges
+  (finite, not NaN — §5.5) and the `edge_cells` margin that removes it, and confirms the mask
+  geometry (corrected 2026-09-28, M0 task 5; M0's `figs/m0_qa_tile330_20120702T00.png` is the
+  no-halo precursor).
 
 ### Phase 1 — Data
 
@@ -751,7 +793,8 @@ merges land**, before anything runs against it.
 | Risk | Mitigation |
 |---|---|
 | **Implicit numerical diffusion mimics diabatic damping** at the same order as the strain | Figure 2b; `kappa_num` estimate; residual-vs-`grad^4` structure (§2.3) |
-| **Discrete operators bias the slope 0.7-1.4 with no physics** (chain-rule + C-grid interpolation attenuation) | Phase-0 discrete null test, slope = 1 +/- 0.05 required (§6, test 3) |
+| **Discrete operators bias the slope 0.7-1.4 with no physics** (chain-rule + C-grid interpolation attenuation; measured 0.80 on the Jacobian trace, M0 task 5) | Phase-0 discrete null test, slope = 1 +/- 0.05 required (§6, test 3); `G` from the same `b_x, b_y` as `F` (§2.1) |
+| Tile-edge rim is **finite** (xgcm fill 0), on all four edges, and invisible to the land halo and the offshore cut (added 2026-09-28, M0 task 5) | explicit `edge_cells` margin in `analysis_mask` (§5.5); V6 shows it |
 | **Semi-Lagrangian interpolation bias is 25-80% of the signal** and signed | interpolate `b` at cubic+ order, not `G`; uniform-flow null test (§6, test 4) |
 | Land contamination dominates coastal gradients | retired 2026-09-28: land is NaN (§5.5); the 7-cell halo remains for filter support and `skfmm` |
 | `W(k_l=0) = dEta/dt` mistaken for a surface flux, or the cell-base term built from `-dz delta` | use the chunk `W(k_l=1)` directly (§2.2); check the tidal phase of the vertical term |
