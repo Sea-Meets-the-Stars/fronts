@@ -1676,3 +1676,327 @@ never hard-coded there and the NaN-land remark at its line 33 was already correc
 §2.3 items 2-4, §5.1, §5.4, §5.6-§5.7, §11-§12 (no claim touched by task 3); the dbof
 `native_gradient` docstrings that call model-x "zonal" (outside `dev/frontogenesis/`); and
 the task-3 log entry above, which stays as the record of what was found.
+
+### 2026-09-28 — Execution prompt 1, task 4: tile330_grid.zarr and two hours (Fable)
+
+**Scope.** Task 4 of `frontogenesis_prompt_1.md` only: the static grid store (§3.1) and a
+two-hour raw product in the §3.2 layout. Task 5 (QA plot) not started; no 72-hour pull; no
+physics module (`operators`/`semilag`/`masking`) written; `pull_series` (M2, resumable) not
+written. Nothing outside `dev/frontogenesis/` touched; `tiles-surface-only` untouched
+(`dbof` at `938bce1`).
+
+**Written.**
+- `dev/frontogenesis/data/tile330_grid.zarr` — **1.8 MB** on disk (29.1 MB in memory).
+- `dev/frontogenesis/data/tile330_raw_20120702T00_2h.zarr` — **21 MB** on disk (41.5 MB in
+  memory); hours `2012-07-02 00:00:00` and `01:00:00` from both OSN stores.
+- `dev/frontogenesis/data/.gitignore` (`*`, `!.gitignore`): the fronts `.gitignore` ignores
+  `*.nc/*.npy/*.parquet/*.csv/*.png` but **not `*.zarr`**, so without this the stores would
+  show up as untracked; `git check-ignore` confirms the zarrs are ignored.
+- `dev/frontogenesis/py/osn_tiles.py` extended (~170 -> 358 lines; §1.3's ~400-line cap
+  respected): `CORE_GRID_VARS`, `GRID_EXTRA_VARS = hFacW, hFacS, drF, Z, Zl`, `ORIENTATION`,
+  `DATA_DIR = dev/frontogenesis/data`; `load_grid()` now opens the gridfile **once**, runs
+  `process_llc4320_grid` on it and cuts the extras from the same raw dataset with the same
+  tile indexer (`raw.reset_coords()[GRID_EXTRA_VARS]`, as `m0_recon.py` did), merges, computes,
+  `ensure_comodo_attrs`, and adds the §3.1 attrs (`orientation`, `dx_km_37N`/`dy_km_37N`
+  measured from the data as band medians, `land_fill='NaN'`); new `write_grid(grid_ds, out,
+  clobber)`, `open_grid(path, with_face=True)`, `load_hours(timestamps, ..., include_wind,
+  grid_ds)` (concat along `time` from both stores, in memory — the building block `pull_series`
+  will loop over), `write_raw(ds, out, clobber)`; private helpers `_git_commit`, `_provenance`
+  (`git_commit`, `dbof_commit`, `created`), `_drop_face`, `_clean_encoding`, `_out_path`.
+  `_finish_hour` (both hourly loaders) gained two lines: index coords cast to int64 and
+  `niter` made a `time` coord (see "found" below).
+- `dev/frontogenesis/py/m0_write.py` (new, 190 lines): pulls, writes, re-opens and verifies
+  both stores; every check raises on failure; prints sizes and wall times. Reproducible with
+  `/Users/xavier/miniforge3/envs/frontogenesis/bin/python m0_write.py`.
+
+**Decisions.**
+1. **Face dim dropped in the stored products, per §1.2/§3.1/§3.2** (task 2 flagged the
+   loaders keep it). On disk: grid `(j, i)` + `i_g, j_g`; raw `(time, j, i)` + `i_g, j_g`.
+   `face` survives as a **scalar coord (= 10)**, so `expand_dims('face')` restores the
+   `(face, j, i)` layout the dbof operators expect — `open_grid(with_face=True)` (the default)
+   does exactly that; `with_face=False` gives the stored layout. In-memory `load_grid`/
+   `load_hour`/`load_wind_hour` still keep the length-1 face dim, unchanged for M1's operator
+   work. `face_index=10` is also an attr on both stores.
+2. **Output location `dev/frontogenesis/data/`**, as coding §3 ("All under
+   `dev/frontogenesis/data/`") and planning Q4 specify; `.gitignore` added there (above).
+3. **`hFacW`, `hFacS`, `drF`, `Z`, `Zl` are data variables** (the raw gridfile has them as
+   coords), matching the "vars" line of §3.1; `drF/Z/Zl` are 0-d float32 with their source
+   attrs (`units='m'`, `standard_name`, `positive='down'`).
+4. **Zarr format 3** (zarr-python 3.4.0 default; xarray 2026.7.0), Zstd codec, one
+   `(720, 720)` chunk per variable in the grid and **one `(1, 720, 720)` chunk per hour per
+   variable** in the raw product (the append unit for M2's `pull_series`). The kerchunk
+   source encoding (chunks still carrying the face dim) is stripped before writing, otherwise
+   `to_zarr` rejects the squeezed arrays. `time` encoded as `int64` `seconds since 2011-09-10`,
+   the stores' own convention. xarray warns that consolidated metadata is not part of the v3
+   spec; harmless, both stores re-open with plain `xr.open_zarr`.
+5. `write_grid` **asserts `SN == -1` and `|CS| < 1e-6`** before writing the `orientation`
+   attr, so the string cannot outlive a change of tile; `dx_km_37N`/`dy_km_37N` are computed
+   (median `dxC`/`dyC` over `36.5 <= YC <= 37.5`, rounded to 0.01 km) and the verification
+   asserts they equal the task-3 values 1.71/1.85.
+6. `git_commit` is recorded as `09b5643+dirty` (the `+dirty` because `osn_tiles.py` itself
+   is uncommitted at write time); `dbof_commit = 938bce1` (clean). Re-run `m0_write.py` after
+   committing if a clean hash is wanted — the pull is ~5-8 min, network-bound.
+
+**Verification — `tile330_grid.zarr` re-opened from disk (all pass).**
+- dims `{j: 720, i: 720, i_g: 720, j_g: 720}`, no `face` dim; coords `face, i, i_g, j, j_g`.
+- all **17** vars present: `CS, Depth, SN, XC, YC, Z, Zl, drF, dxC, dxG, dyC, dyG, hFacC,
+  hFacS, hFacW, rA, rAz`; dims `hFacW(j, i_g)`, `hFacS(j_g, i)`, `hFacC(j, i)`, `dxC(j, i_g)`,
+  `dyC(j_g, i)`, `rAz(j_g, i_g)`, `drF/Z/Zl ()`; **all float32**; `drF=1.0, Z=-0.5, Zl=0.0`.
+- comodo attrs survive the round-trip: `j: axis=Y`, `i: axis=X`, `j_g: axis=Y, shift=-0.5`,
+  `i_g: axis=X, shift=-0.5`; index coords int64 `0..719` / `2880..3599`.
+- `build_xgcm` (= `set_xgcm_grid(use_connections=False)`) builds from the re-opened store in
+  both layouts: X (`i` center, `i_g` left), Y (`j` center, `j_g` left), not periodic,
+  `padding='fill'`.
+- attrs: `face_index=10, j_face_start=0, i_face_start=2880, rect_i=13320, rect_j=9720,
+  source='OSN', endpoint, git_commit='09b5643+dirty', dbof_commit='938bce1',
+  created='2026-09-28T18:14:34+00:00', orientation='CS=0, SN=-1: j/V/dyC zonal (eastward),
+  i/U/dxC meridional (i increasing southward); u_east=V, v_north=-U', dx_km_37N=1.71,
+  dy_km_37N=1.85, land_fill='NaN'`.
+- every variable equals the in-memory pull **bit-for-bit** (NaN-aware).
+- against a real hour (t0): `isnan(U) == (hFacW == 0)` at **162,445** land faces, 0
+  mismatches; `isnan(V) == (hFacS == 0)` at **162,088**, 0 mismatches; `isnan(Theta) ==
+  (hFacC == 0)` at **161,523**, 0 mismatches (task 3's counts reproduced from disk).
+
+**Verification — `tile330_raw_20120702T00_2h.zarr` re-opened from disk (all pass).**
+- dims `{time: 2, j: 720, i: 720, i_g: 720, j_g: 720}`; vars exactly `Theta, Salt, U, V, W,
+  Eta, KPPhbl, oceTAUX, oceTAUY`, each `(2, 720, 720)` float32 on the §3.2 dims (`U`,
+  `oceTAUX` on `i_g`; `V`, `oceTAUY` on `j_g`); coords `time, niter(time), XC(j, i),
+  YC(j, i), i, i_g, j, j_g, face=10, k=0, k_l=0`; comodo attrs on all four horizontal dims,
+  index values equal to the grid store's.
+- `time = ['2012-07-02T00:00:00', '2012-07-02T01:00:00']`; attrs `iterations = [1022976,
+  1023120]` (difference **144** = one hour), `niter(time)` coord equal to it, `timestamps`,
+  `endpoint='https://mghp.osn.xsede.org'`, `stores=['llc_surf', 'llc_wind']`, tile attrs,
+  `land_fill='NaN'`, `git_commit`, `dbof_commit`, `created`.
+- chunks `(1, 720, 720)`; `time` encoding `seconds since 2011-09-10`.
+- NaN pattern at **both** hours: `Theta, Salt, W, Eta, KPPhbl` NaN exactly where `hFacC == 0`,
+  `U` where `hFacW == 0`, `V` where `hFacS == 0` — 0 mismatches in all 14 checks; the Theta
+  mask is identical at t0 and t1. `oceTAUX`/`oceTAUY` are NaN exactly where `hFacC == 0`
+  (centred mask; 922 / 565 cells differ from `hFacW`/`hFacS`), as task 3 found and §3.2 now
+  states — stored as they come.
+- concat is correct: the two hours differ (max `|t1 - t0|`: Theta 1.87 C, U 0.68 m/s, Eta
+  0.53 m, KPPhbl 24 m); `Theta[t1]` and `V[t1]` equal a **fresh `load_hour('2012-07-02
+  01:00:00')` bit-for-bit**, and `Theta[t0]` a fresh `load_hour(t0)`; `XC/YC` equal the grid
+  store's.
+
+**Wall times** (network-bound; OSN was slow during the final run — the same calls took
+45-56 s / 7 s / 6 s in earlier runs today): `load_grid` 192 s (52 s and 56 s in the two
+earlier runs), `write_grid` 0.2 s, `load_hours` (2 x core + 2 x wind) 186 s (76 s earlier),
+`write_raw` 0.2 s, one `load_hour` 21-47 s. Writing is negligible; the pull dominates, so M2's
+72 hours will be ~30-90 min at these rates and `pull_series` must be resumable.
+
+**Found on the way (data / code facts, not in the docs).**
+1. **Both hourly stores decode every index coord as float64** (`i, i_g, j, j_g, k, k_l,
+   niter` — kerchunk's fill-value promotion), whereas the gridfile gives int64. Merging the two
+   stores with `combine_attrs='drop'` then stripped the comodo attrs from `i_g`/`j_g` (xarray's
+   `combine_attrs` applies to *variable* attrs too) — caught by the verification, fixed:
+   `_finish_hour` now casts the index coords to int64 (attrs kept) and `load_hours` merges
+   with `compat='override', combine_attrs='override'`, so the raw product's index coords are
+   int64 and identical to the grid's. `xr.merge([hour, grid])` in M1/M3 now aligns on equal
+   int indexes rather than float-vs-int.
+2. A first version computed `dx_km_37N` with `dxC.where(band)`; `dxC` sits on `(j, i_g)` and
+   the band on `(j, i)`, so xarray broadcast to 4-D and the "band" median was the tile-wide
+   1.80 km. Caught by the verification against task 3's 1.71; fixed with positional numpy
+   masking (as `m0_recon.py` does). Worth remembering for M1: **any `where`/arithmetic
+   between a centred mask and a staggered field silently broadcasts** — go through xgcm
+   `interp` or numpy.
+3. `to_zarr` refuses the loaded hours unless the kerchunk `encoding` (chunks `(1, 1, 720,
+   720)` with the face dim) is cleared first; `_clean_encoding` does that.
+
+**Contradictions with the docs — none new; two points for the record.**
+- §3.1/§3.2 say `(j, i)`; task 2's loaders keep `face`. Resolved by decision 1 (stored
+  without the dim, restored on open); the docs need no change, but §3.1/§3.2 could add "`face`
+  kept as a scalar coord; `open_grid(with_face=True)` restores the dim".
+- §3.2 lists `attrs: iterations, endpoint, stores, git_commit`; the product also carries
+  `timestamps`, `dbof_commit`, `created`, `land_fill` and the tile attrs, and the coords
+  `niter(time)`, `k`, `k_l`, `face` beyond `time, XC, YC`. Supersets, not conflicts.
+- Prompt 1 task 4's name for the two-hour product is unspecified; used
+  `tile330_raw_20120702T00_2h.zarr` by analogy with §3.2's `_72h`.
+- **§3.1 vs §3.2 disagree on `XC`/`YC`**: §3.1 lists them as *vars* (and
+  `process_llc4320_grid`'s `reset_coords()` makes them data variables in the grid store), §3.2
+  as *coords* on the raw product. Both stores follow their own section, so a naive
+  `xr.merge([hour, grid])` raises `MergeError: unable to determine if these variables should
+  be coordinates or not ... {'YC', 'XC'}` (found in an offline re-open test after the log
+  above was written). Either `hour.drop_vars(['XC', 'YC'])` or `grid.set_coords(['XC', 'YC'])`
+  before the merge works (both verified: 26 / 24 data vars). **The docs should pick one** —
+  making `XC`/`YC` coords in §3.1 too (`set_coords` in `load_grid`) is the smaller change and
+  matches the raw gridfile; not done here since it alters the stored §3.1 contract.
+
+**For task 5 (QA plot).** `open_grid()` gives the grid with `face` restored and
+`xr.open_zarr(DATA_DIR / 'tile330_raw_20120702T00_2h.zarr')` the two hours (`expand_dims('face')`
+before handing a snapshot to the dbof operators, or merge with `open_grid(with_face=False)`);
+`hFacC > 0` is the land mask; land is NaN in every field so no gradient ribbon; the stencil NaN
+rim and the high-edge rim are what to show. `m0_recon.py` still runs but its own raw
+`hFacW/hFacS` pull is now redundant (`load_grid()` carries them).
+
+Files: modified `dev/frontogenesis/py/osn_tiles.py`; created `dev/frontogenesis/py/m0_write.py`,
+`dev/frontogenesis/data/.gitignore`, the two zarr stores; this log.
+
+### 2026-09-28 — Execution prompt 1, task 5: QA plot and M0 acceptance (Fable)
+
+**Scope.** Task 5 of `frontogenesis_prompt_1.md` (QA plot, no halo) plus the M0 acceptance
+audit, including the two §2 traps left unconfirmed by tasks 2-4 (`calculate_jacobian` args;
+`halo_mask.py:75`). Offline, from the two task-4 stores; no network. No physics module
+(`operators`/`semilag`/`masking`) written, no 72 h pull, no halo adopted. Nothing outside
+`dev/frontogenesis/` touched; `dbof` read-only at `938bce1`.
+
+**Written.**
+- `dev/frontogenesis/figs/m0_qa_tile330_20120702T00.png` (200 dpi, 3800 x 2300, 1.8 MB).
+- `dev/frontogenesis/py/m0_qa_plot.py` (~300 lines): loads `open_grid(with_face=True)` and
+  `tile330_raw_20120702T00_2h.zarr`, merges t0 (after `drop_vars(['XC','YC'])` on the hour —
+  the §3.1/§3.2 disagreement from task 4 — and `expand_dims('face')`), casts to float64,
+  computes `b` via `calculate_fields.buoyancy_of_field` (JMD95, p=0), `G` via
+  `calculate_grad_squared_tracer` (the repo's `grad_b2` stencil) and via
+  `calculate_native_gradient_tracer` (`b_x^2 + b_y^2`), the Jacobian via `calculate_jacobian`,
+  prints every diagnostic, draws the figure. Run: `<env python> m0_qa_plot.py` (~30 s).
+- `dev/frontogenesis/py/m0_qa_checks.py` (~200 lines): the trap checks and the tile-edge
+  crop test, read-only, importable by M1's tests. A positional-numpy replica of the ECCO
+  interp-rotate-diff-interp-rotate stencil lives here (`jacobian_numpy`) — a check, not an
+  operator.
+
+**Figure — what it shows** (maps via `pcolormesh(XC, YC, ...)`, so north-up / east-right
+regardless of the rotated face; the inset likewise, with cell edges drawn).
+- (a) `Theta` at `2012-07-02 00:00`, 11.3-33 C (colour p1-p99), land `hFacC = 0` grey.
+- (b) `log10 G`, `calculate_grad_squared_tracer`, colour clipped to the interior p1-p99.5
+  (`-16.6 .. -12.4`); the north (`i = 2880`) and west (`j = 0`) tile edges saturate — see (f).
+- (c) validity map of the whole tile with a rectangle marking the inset; counts in the box.
+- (d) cell-level inset, Monterey Bay (`j 263..310, i 2952..2999`): the G NaN rim is exactly
+  one cell wide along the coast (red), the Jacobian rim two cells (orange).
+- (e) ribbon test: median / p90 `G` vs taxicab distance to land, tile edges excluded.
+- (f) tile-edge crop test: fraction of cells whose value changes when the tile edge moves.
+
+**Numbers.**
+1. **`isfinite(Theta) == (hFacC > 0)` cell for cell:** 518,400 cells, 356,877 ocean, 356,877
+   finite `Theta`, **0 mismatches** (task 3/4 reproduced from the on-disk stores).
+2. **Stencil NaN rim.** `G` finite in 354,703 cells (both stencils); ocean cells with NaN `G`:
+   **2,174**, and they are *exactly* the ocean cells at taxicab distance 1 from land
+   (`array_equal` True; chessboard-distance histogram also all at 1, i.e. diagonal-only
+   neighbours of land keep a finite `G`). **Width 1 cell, not "~3"** — the tracer stencil is
+   diff (1 cell) + interp back (1 cell), which reaches one centre from a NaN. The Jacobian's
+   NaN rim is **4,204** ocean cells = exactly taxicab `d <= 2` (interp U/V to centres, diff,
+   interp: two centres from a NaN). So `F = -(J : grad b grad b)` is undefined within 2 cells
+   of land; task 3's "3 cells clear" interior and §4.2's "3 for the Jacobian+interp stencil"
+   are one cell conservative — safe, no change needed.
+3. **No coastal gradient ribbon.** Median `G` (interior, `d >= 20`, tile edges excluded)
+   **1.86e-15 s^-4**, p90 2.29e-14. By taxicab distance from land, median/interior =
+   **75.8x (d=2), 44.4x (3), 28.1x (4), 20.7x (5), 17.4x (6), 15.9x (7), 13.0x (8), 11.3x (9),
+   9.8x (10)** (`b_x^2+b_y^2` stencil: 64.6x, 39.8x, 27.1x, ... 10.6x). A smooth 10-cell decay
+   is the coastal upwelling front, not a stencil artefact: a `b(0,0)`-type ribbon would be
+   ~1e-8 s^-4 (**~1e7x** the interior) and confined to `d = 2` — and the tile's own `j = 0`
+   edge, where xgcm *does* difference against a 0 fill, shows exactly that: median `G`
+   7.3e-9 (dotted line in (e)). Nothing upstream has filled NaN with 0. (M3 note: the coastal
+   band dominates the upper `G` percentiles; the 100 km offshore mask removes it.)
+4. **Tile-edge rim — both edges are invalid, and the values are finite, not NaN.** xgcm
+   `padding='fill'` with `set_xgcm_grid`'s `fill_value=None` pads with **0** (checked: max
+   `|diff_X(b)[i_g=2880] - b[i=2880]| = 0.0`). Crop test (recompute on the tile cropped by 32
+   cells on every side, diff against the full-tile values at the same cells; a cell that changes
+   is one the edge contaminates): **`G`: 1 cell on every edge** (offset 0 changes in 100% of
+   cells, offset 1 in 0%, on all four edges, both stencils); **Jacobian: 1 cell on the low
+   edges, 2 cells on the high edges** (offsets 0 and 1 at 100% on `j = 719` and `i = 3599`).
+   Why: the low staggered point of each cell is in the tile, the high one is not, so at a low
+   edge the *diff* sees the 0 fill (bogus, huge) and at a high edge the *interp* sees it
+   (halved); the Jacobian's extra interp-before-diff carries the high-edge error one cell
+   further. Magnitudes (median vs offsets 1-3): `G` low edges **1.7e6x / 8.3e5x**, high edges
+   **0.50x / 0.58x**; `|J|` low edges 3.0x / 4.8x, high edges 0.8x / 1.0x (the high-edge
+   Jacobian error is a mix of halving and sign, invisible in a median of magnitudes — the
+   crop test is the authority). Ocean cells in the union rim: 2,634.
+5. **Two `G` stencils differ by ~9%**: interior median of `(b_x^2 + b_y^2) /
+   calculate_grad_squared_tracer` = **0.911** (interp-then-square attenuates). See
+   "contradictions" (4) — M1 must pick one.
+
+**Trap confirmations (the two outstanding ones; all four now done).**
+- **(i) `calculate_jacobian(u_x, v_y, ...)` takes the raw staggered `U`, `V`.** Source
+  (`native_gradient.py` L130-200 at `938bce1`): L164 passes `u_x, v_y` to
+  `rotate_vector_to_geographic`, whose `interp_pair_to_center` interpolates `u_x` along X
+  (needs `i_g`) and `v_y` along Y (needs `j_g`); `compute_velocity_jacobian`
+  (`calculate_fields.py` L162) calls it with `ds_merge.U, ds_merge.V`. Empirically: a
+  positional-numpy replica of the full stencil from `U`/`V` (`m0_qa_checks.jacobian_numpy`)
+  reproduces all four components **bit-for-bit** (max abs diff 0.0 on 352,673 cells, NaN
+  patterns equal); on this face (`CS=0, SN=-1`) `du_east/dx_east` equals `d(V_c)/d(model j)`
+  to 2.4e-16. The swapped call `calculate_jacobian(V, U, ...)` raises `KeyError` on
+  dask-backed inputs — but on numpy-backed inputs it does **not** raise: xgcm interps `V`
+  along X (it has `i`), the `CS`/`SN` multiply broadcasts `(j_g, i_g) x (j, i)` to 4-D and the
+  process was OOM-killed (exit 137). Independent physics check: `du_dx + dv_dy` vs the
+  flux-form `divergence_center` from `calculate_native_strain_vorticity` (no rotation, no
+  interpolation): **corr 0.969, regression slope 0.80** (n 347,333) — the right quantities in
+  the right slots, with the interpolated Jacobian **20% attenuated** relative to the flux
+  form, inside planning §6's 0.7-1.4 bracket. V3 will see this.
+- **(ii) `halo_mask.py:75` is not reached.** L74-75 read `elif (phi==-1).any(): return mask_f`
+  — the branch for a face with masked cells and **no** unmasked cells, i.e. a face that is
+  entirely land (`hFacC == 0` everywhere). Tile: `phi == -1` in 161,523 cells, `phi == 1` in
+  356,877, so the L59 condition `(phi==-1).any() and (phi==1).any()` is True and the skfmm
+  branch runs. Run read-only on the tile with `halo_km = 12.0` (`hFacC == 0` as an xarray
+  `(face, j, i)` bool; the function indexes `mask[face].values`): returns `ndarray` bool
+  **(1, 720, 720)**, 342,682 retained of 356,877 ocean (96.0%; 14,195 excluded). The bug
+  reproduced on an all-land face: returns the **2-D** `(720, 720)` input, all True. M1's
+  `masking.halo_mask` should assert `out.ndim == 3` exactly as §2.4 says.
+- (iii) comodo attrs and (iv) timestamp formats: confirmed in task 2 (attrs survive
+  `process_llc4320_grid` on the OSN gridfile, `ensure_comodo_attrs` a no-op guard; the
+  dbof-vs-`front_tracking` round trip verified, `load_hour` rejects the underscore form).
+
+**dbof line numbers vs coding §2 (at `938bce1`).** `native_gradient.py` is **+77 lines**
+throughout: `rotate_vector_to_geographic` L91 (doc L13), `calculate_jacobian` L130 (L53),
+`calculate_native_gradient_tracer` L203 (L126), `calculate_grad_squared_tracer` L301 (L224),
+`calculate_native_strain_vorticity` L378 (L301). `grid.py` `COMODO_COORD_META` L11 (doc L9);
+`tile_mapping.py` `class TileInfo` L48 (doc L47). All others match (`date_iterations` L31/38/64,
+`get_raw_data` L21/151/241, `preproc_llc_core_data` L37, `rect_ij_to_tile` L112,
+`ensure_comodo_attrs` L46, `set_xgcm_grid` L121, `_tile_indexer` L334, `calculate_fields`
+L66/96/122/134/145/168/254/627/654, `physical_constants` G L12 / RHO0 L19, `static_masks` L5,
+`halo_mask` L5; the L74-75 bug is where the doc says).
+
+**M0 acceptance audit (prompt 1).**
+
+| Criterion | Verdict | Evidence |
+|---|---|---|
+| Two consecutive hours load end to end, both OSN stores, reproducible env | **PASS** | task 1 env (py3.13, resolved versions logged); task 4: `tile330_raw_20120702T00_2h.zarr`, `time = [00:00, 01:00]`, iterations 1022976/1023120 (diff 144), `llc_surf` + `llc_wind` vars, `m0_write.py` reproduces it |
+| `tile330_grid.zarr` written (§3.1) | **PASS** | task 4: 17 vars incl. `hFacW/hFacS/drF/Z/Zl`, orientation/spacing/`land_fill` attrs, comodo attrs survive re-open; used from disk by this task (`open_grid`) |
+| All five questions answered in the log, with numbers | **PASS** | task 3 entry (NaN land; `W(0) = dEta/dt`; 1.71 x 1.85 km, rotated face; rotation terms 0, metric 0.1%; OS7MP + scale-dependent `kappa_num`) |
+| Four §2 traps confirmed on real data | **PASS** | comodo (task 2), timestamps (task 2), `calculate_jacobian` args (here, bit-identical replica), `halo_mask.py:75` (here, branch not reached; bug reproduced on an all-land face) |
+| QA plot written; coastline inspected; NaN rim expected, gradient ribbon not | **PASS** | this figure: rim = taxicab `d = 1` exactly (2,174 cells); coastal `G` decays smoothly 76x -> 10x over `d = 2..10`; a ribbon would be ~1e7x at `d = 2` and is absent |
+
+M0 closes. "Do not" list respected: no physics module, no 72 h pull, nothing outside
+`dev/frontogenesis/`.
+
+**Contradictions with the docs / things that should change before M1 (docs not edited).**
+1. **"Invalid rim on the high edges"** (prompt 1 task 5; coding §2.2 `_tile_indexer` note, §6
+   M0 task 6; `osn_tiles.tile_indexer` docstring; dbof's own `_tile_indexer` docstring
+   "derivative-based properties NaN an edge rim"): **all four edges are invalid, and the
+   values are finite, not NaN.** Low edges are the worse ones (`G` ~1e6x, from differencing
+   against xgcm's 0 fill); high edges are halved (`G`) and two cells deep (Jacobian). The
+   land halo will not remove them (a tile edge is not land; `skfmm` distance is measured
+   from `hFacC == 0`), nor will the 100 km offshore mask on the open-ocean west and north
+   edges. **`masking.analysis_mask` (§3.5/§4.2) needs an explicit tile-edge margin**: at
+   least 2 cells for the raw operators, and the same 7 cells as the land halo once the filter
+   support (half-width 4) and the Jacobian reach are counted. Wording to change in §2.2, §6
+   and prompt 1.
+2. **"`G` undefined within ~3 cells of land"** (prompt 1 task 5, coding §6 M0 task 6): it is
+   exactly **1 cell** for `G` and **2 cells** for the Jacobian / `F`. The 7-cell halo budget
+   ("3 for the Jacobian+interp stencil") is one cell conservative; keep it, fix the prose.
+3. **§2's `native_gradient.py` line numbers are stale** (+77; list above), plus
+   `COMODO_COORD_META` L11 and `TileInfo` L48. The §8 checklist item "re-verify if the Q15
+   merges have landed" should just say "re-verified 2026-09-28 at `938bce1`" with these values.
+4. **Which `G` stencil?** §1.1 says "`G = |grad_h b|^2`; the repo's `gradb2`" (=
+   `calculate_grad_squared_tracer`, squares on the staggered points), §4.3 has
+   `gradb2(b, grid_ds, grid)` unspecified, and `F` is built from the *components*
+   (`calculate_native_gradient_tracer`). The two differ by **0.91x** in the interior median.
+   The discrete identity `F = (1/2) DG/Dt` only holds when `G` is formed from the same
+   `b_x, b_y` that enter `F`; using the repo's `gradb2` for `G` and the components for `F`
+   biases V3's null slope by ~0.9 before any physics. **M1 must fix `operators.gradb2 =
+   b_x^2 + b_y^2` from `grad_b`** (or derive both from the staggered squares) and say so in
+   §1.1/§4.3; the repo's `gradb2` stays for front *finding* (M4), where only the pattern matters.
+5. **Interpolated Jacobian is 20% attenuated** against the flux-form divergence (slope 0.80,
+   corr 0.97). Not a contradiction — planning §6 predicted 0.7-1.4 — but it is the size of
+   the V3 correction to expect, and worth recording next to the "quote every slope against
+   the M1 null baseline" rule.
+6. **The swapped-argument Jacobian call fails silently on numpy-backed data** (4-D broadcast,
+   OOM), loudly only on dask-backed data. Task 4's "centred mask x staggered field broadcasts
+   to 4-D" pitfall is general: add "assert `out.dims == ('face', 'j', 'i')` after every dbof
+   operator call" to §8, and keep M1's operators on dask or assert dims.
+7. **`figs/*.png` are git-ignored** by `fronts/.gitignore` (`*.png`, line 7), so the QA plot
+   and M1's six acceptance PNGs will not be tracked unless `dev/frontogenesis/figs/` gets a
+   negating `.gitignore` (as `data/` got one for the opposite reason) or the figures are
+   committed with `git add -f`. Decide before M1.
+8. Confirmed, not contradicted: land is NaN (0 mismatches), `hFacC` binary, the task-3/4
+   counts, the §2.4 bug at L74-75, and `set_xgcm_grid`'s `padding='fill'` (xgcm 0.10.1).
+
+Files: created `dev/frontogenesis/py/m0_qa_plot.py`, `dev/frontogenesis/py/m0_qa_checks.py`,
+`dev/frontogenesis/figs/m0_qa_tile330_20120702T00.png`; this log.

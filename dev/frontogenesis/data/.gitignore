@@ -1,0 +1,3 @@
+# Multi-MB zarr products (coding doc §3) are never committed; regenerate with py/osn_tiles.py
+*
+!.gitignore
