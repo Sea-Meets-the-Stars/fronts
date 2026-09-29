@@ -2,8 +2,9 @@
 two supporting figures V5-V6.  Each function writes one PNG to
 ``dev/frontogenesis/figs/`` and returns a dict of the numbers.
 
-Written so far (M1 task 1): ``qa_land_halo`` -> **V6**.  The other
-V-functions arrive with the modules they exercise (tasks 3, 5, 6).
+Written so far: ``qa_land_halo`` -> **V6** (M1 task 1);
+``demo_interp_half_cell`` -> **V5** (M1 task 3).  The four gates arrive with
+tasks 5 and 6.
 
 Maps are drawn with ``pcolormesh(XC, YC, ...)`` so they come out north-up,
 east-right on the rotated face 10 (``i`` runs south, ``j`` runs east).
@@ -20,13 +21,18 @@ from matplotlib.colors import ListedColormap, BoundaryNorm   # noqa: E402
 from matplotlib.patches import Rectangle                     # noqa: E402
 from scipy import ndimage                                    # noqa: E402
 
+from scipy import special                                    # noqa: E402
+
 import osn_tiles as ot                                       # noqa: E402
 import masking as mk                                         # noqa: E402
+import operators as op                                       # noqa: E402
+import semilag as sl                                         # noqa: E402
 import m0_qa_checks as qc                                    # noqa: E402
 from m0_qa_plot import draw_map, edge_profile                # noqa: E402
 from m1_write_masks import gulf_of_california_check          # noqa: E402
 from dbof.utils import native_gradient as ng                 # noqa: E402
 from dbof.preprocessing.calculate_fields import buoyancy_of_field  # noqa: E402
+from dbof.llc4320_ingestion.grid import ensure_comodo_attrs  # noqa: E402
 
 FIG_DIR = Path(__file__).resolve().parents[1] / 'figs'
 RAW = 'tile330_raw_20120702T00_2h.zarr'
@@ -234,6 +240,198 @@ def qa_land_halo(grid_ds, png: bool = True) -> dict:
     return res
 
 
+# ---------------------------------------------------------------------------
+# synthetic grids for the offline gates
+# ---------------------------------------------------------------------------
+def synthetic_uniform_grid(nj=32, ni=96, dx=1800.0, dy=1800.0):
+    """A uniform, unrotated (``CS = 1``) C-grid with comodo attrs and its
+    xgcm grid, for the offline V-functions.  Model x runs along ``i``
+    (``x = i dx`` at the centres, ``U`` at ``x - dx/2``), y along ``j``.
+    Returns ``(grid_ds, grid, x, y)`` with ``x``, ``y`` the ``(1, nj, ni)``
+    centre positions."""
+    one = np.ones((1, nj, ni))
+    g = xr.Dataset(
+        {'dxC': (('face', 'j', 'i_g'), one * dx), 'dyC': (('face', 'j_g', 'i'), one * dy),
+         'dxG': (('face', 'j_g', 'i'), one * dx), 'dyG': (('face', 'j', 'i_g'), one * dy),
+         'rA': (('face', 'j', 'i'), one * dx * dy), 'rAz': (('face', 'j_g', 'i_g'), one * dx * dy),
+         'CS': (('face', 'j', 'i'), one), 'SN': (('face', 'j', 'i'), 0.0 * one),
+         'hFacC': (('face', 'j', 'i'), one)},
+        coords={'j': np.arange(nj), 'i': np.arange(ni), 'j_g': np.arange(nj), 'i_g': np.arange(ni)})
+    g = ensure_comodo_attrs(g)
+    jj, ii = np.meshgrid(np.arange(nj), np.arange(ni), indexing='ij')
+    return g, ot.build_xgcm(g), (ii * dx)[None], (jj * dy)[None]
+
+
+# ---------------------------------------------------------------------------
+# V5: the interpolation choice, made visible
+# ---------------------------------------------------------------------------
+def _erf_front(x, x0, sigma_G_cells, dx, b0=1e-2):
+    """``b = b0 erf((x - x0)/(sqrt 2 sigma_b))`` with ``sigma_b = sqrt 2
+    sigma_G``: ``G = b_x^2`` is a Gaussian of standard deviation ``sigma_G``
+    cells, and bilinear interpolation at a half-cell offset errs by
+    ``dx^2 G_xx / 8 = -G / (8 sigma_G^2)`` at its maximum -- ``-5.56%`` for
+    the ``sigma_G = 1.5`` front of planning §5.3."""
+    sb = np.sqrt(2.0) * sigma_G_cells * dx
+    return b0 * special.erf((x - x0) / (np.sqrt(2.0) * sb))
+
+
+def _half_cell_curves(sigma_G, nj=16, ni=96, dx=1800.0, x0_frac=0.3, orders=(1, 3, 5)):
+    """The V5 experiment for one front width: ``G`` after a half-cell shift
+    along ``i`` by every route, on the middle row.  Truth is the same
+    discrete stencil applied to the exactly shifted ``b`` (so the stencil's
+    own truncation cancels and only the interpolation error remains)."""
+    g, grid, x, _ = synthetic_uniform_grid(nj=nj, ni=ni, dx=dx)
+    x0 = (ni / 2 + x0_frac) * dx
+    b = xr.DataArray(_erf_front(x, x0, sigma_G, dx), dims=('face', 'j', 'i'))
+    b_shift = xr.DataArray(_erf_front(x - 0.5 * dx, x0, sigma_G, dx), dims=('face', 'j', 'i'))
+    row = nj // 2
+    out = dict(x_cells=(x[0, row] - x0) / dx - 0.5,          # distance from the shifted front centre x0 + dx/2
+               truth=op.gradb2(b_shift, g, grid).values[0, row],
+               analytic=(_erf_front(x[0, row] - 0.5 * dx + 1e-3 * dx, x0, sigma_G, dx)
+                         - _erf_front(x[0, row] - 0.5 * dx - 1e-3 * dx, x0, sigma_G, dx)) ** 2
+               / (2e-3 * dx) ** 2)
+    G = op.gradb2(b, g, grid)
+    # the trap: interpolate G itself, bilinearly
+    out['bilinear_G'] = sl.interp_to_departure(G, 0.5, 0.0, 1, allow_low_order=True).values[0, row]
+    # the rule: interpolate b onto the departure stencil, then the same stencil
+    for order in orders:
+        out[f'b_order{order}'] = sl.gradb2_at_departure(
+            b, 0.5, 0.0, g, order, allow_low_order=True).values[0, row]
+    # the tile-edge rim is finite and wrong (xgcm's 0 fill, M0 task 5) and
+    # the interpolation reach is up to 3 cells: blank 4 cells on each end
+    for name in list(out):
+        if name != 'x_cells':
+            out[name] = out[name].copy()
+            out[name][:4] = np.nan
+            out[name][-4:] = np.nan
+    return out
+
+
+def demo_interp_half_cell(png: bool = True) -> dict:
+    """**V5**: a synthetic front (``G`` Gaussian, ``sigma_G = 1.5`` cells,
+    i.e. ~1.5 cells wide) shifted by half a cell -- truth vs ``G`` from
+    bilinear-interpolated ``G`` vs ``G`` from cubic-interpolated ``b``
+    (``semilag.gradb2_at_departure``: ``b`` onto the departure stencil,
+    then the ``operators.grad_b`` stencil), with the negative bias at the
+    maximum annotated in % of ``G`` against the ``dx^2 G_xx / 8G`` prediction
+    and planning §5.3's ~5.5%.  Offline.  Returns the numbers."""
+    sigma_G = 1.5
+    c = _half_cell_curves(sigma_G)
+    k = int(np.argmax(np.nan_to_num(c['truth'])))
+    pred = -1.0 / (8 * sigma_G ** 2)
+
+    def bias(name):
+        return float((c[name][k] - c['truth'][k]) / c['truth'][k])
+
+    res = dict(sigma_G_cells=sigma_G, shift_cells=0.5,
+               bias_bilinear_G=bias('bilinear_G'), bias_b_order1=bias('b_order1'),
+               bias_b_order3=bias('b_order3'), bias_b_order5=bias('b_order5'),
+               bias_predicted=float(pred),
+               bias_analytic_1d=float(np.exp(-0.25 / (2 * sigma_G ** 2)) - 1.0),
+               peak_ratio_bilinear_G=float(np.nanmax(c['bilinear_G']) / np.nanmax(c['truth'])),
+               peak_ratio_b_order3=float(np.nanmax(c['b_order3']) / np.nanmax(c['truth'])))
+    # the bias at the maximum against the front width
+    widths = np.array([1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0])
+    sweep = {name: [] for name in ('bilinear_G', 'b_order1', 'b_order3', 'b_order5')}
+    for w in widths:
+        cw = _half_cell_curves(w)
+        kw = int(np.argmax(np.nan_to_num(cw['truth'])))
+        for name in sweep:
+            sweep[name].append(float((cw[name][kw] - cw['truth'][kw]) / cw['truth'][kw]))
+    res['sweep_sigma_G_cells'] = widths.tolist()
+    res['sweep_bias'] = {k_: v for k_, v in sweep.items()}
+    res['png'] = None
+    if not png:
+        return res
+
+    col = {'truth': 'black', 'bilinear_G': '#c8102e', 'b_order1': '#f4a259',
+           'b_order3': '#1f5fa8', 'b_order5': '#2a9d8f'}
+    lab = {'bilinear_G': 'G interpolated bilinearly (the trap)',
+           'b_order1': 'b interpolated bilinearly, then the stencil',
+           'b_order3': 'b interpolated cubic (order 3), then the stencil  [the rule]',
+           'b_order5': 'b interpolated quintic (order 5), then the stencil'}
+    x = c['x_cells']
+    win = np.abs(x) <= 6
+    fig, (pa, pb, pc) = plt.subplots(1, 3, figsize=(19, 6.2))
+
+    # (a) the profiles
+    Gmax = np.nanmax(c['truth'])
+    pa.plot(x[win], c['analytic'][win] / Gmax, '-', color='#999999', lw=1.0,
+            label='analytic G of the shifted front (continuum; the stencil attenuates it)')
+    pa.plot(x[win], c['truth'][win] / Gmax, '-', color=col['truth'], lw=2.0,
+            label='truth: the stencil on the exactly shifted b')
+    for name, mk_ in (('bilinear_G', 's'), ('b_order1', 'v'), ('b_order3', 'o'), ('b_order5', 'D')):
+        pa.plot(x[win], c[name][win] / Gmax, mk_, color=col[name], ms=6, mfc='none', mew=1.6,
+                label=lab[name])
+    xk = x[k]
+    pa.annotate(f'bias at the maximum:\nbilinear G {100 * res["bias_bilinear_G"]:+.2f}%\n'
+                f'bilinear b {100 * res["bias_b_order1"]:+.2f}%\n'
+                f'cubic b {100 * res["bias_b_order3"]:+.2f}%\nquintic b {100 * res["bias_b_order5"]:+.2f}%'
+                f'\n\nprediction dx² G_xx/8G = {100 * pred:+.2f}%\n(planning §5.3: ~5.5%)',
+                xy=(xk, c['bilinear_G'][k] / Gmax), xytext=(2.6, 0.55), fontsize=9,
+                arrowprops=dict(arrowstyle='->', color=col['bilinear_G']),
+                bbox=dict(boxstyle='round', fc='white', ec='#888888'))
+    pa.set_xlabel('distance from the front centre [cells]')
+    pa.set_ylabel('G / max G (truth)')
+    pa.set_title(f'(a) G = |grad b|² after a half-cell shift; front sigma_G = {sigma_G} cells '
+                 '(~1.5 cells wide)', fontsize=10)
+    pa.set_xlim(-11.5, 6.3)                      # room for the legend over the flat left tail
+    pa.legend(fontsize=7.5, loc='upper left')
+    pa.grid(alpha=0.3)
+
+    # (b) the relative error across the front
+    for name in ('bilinear_G', 'b_order1', 'b_order3', 'b_order5'):
+        with np.errstate(invalid='ignore', divide='ignore'):
+            rel = 100 * (c[name] - c['truth']) / c['truth']
+        ok = win & (c['truth'] > 0.05 * Gmax)
+        pb.plot(x[ok], rel[ok], '-', color=col[name], lw=1.8, label=lab[name].split('  [')[0])
+    # the bilinear prediction across the front: the chord of a convex function
+    # lies above it, so interp - truth = +dx^2 G_xx / 8 -- negative at the
+    # maximum (G_xx < 0), positive on the flanks
+    Gt = c['truth']
+    with np.errstate(invalid='ignore', divide='ignore'):
+        pred_curve = 100 * (np.roll(Gt, -1) - 2 * Gt + np.roll(Gt, 1)) / (8 * Gt)
+    ok = win & (Gt > 0.05 * Gmax)
+    pb.plot(x[ok], pred_curve[ok], ':', color='black', lw=1.5, label='prediction dx² G_xx / 8G (bilinear)')
+    pb.axhline(0, color='#888888', lw=0.8)
+    pb.axvline(xk, color='#888888', lw=0.8, ls='--')
+    pb.set_xlabel('distance from the front centre [cells]')
+    pb.set_ylabel('(G_interp - G_truth) / G_truth  [%]')
+    pb.set_title('(b) relative error: negative at the maximum, positive on the flanks --\n'
+                 'bilinear G flattens the front and fabricates frontogenesis', fontsize=10)
+    pb.legend(fontsize=7.5, loc='upper center')
+    pb.grid(alpha=0.3)
+    pb.set_ylim(-9, 9)
+
+    # (c) the bias at the maximum vs the front width
+    for name in ('bilinear_G', 'b_order1', 'b_order3', 'b_order5'):
+        pc.plot(widths, -100 * np.array(sweep[name]), 'o-', color=col[name], lw=1.6, ms=5,
+                label=lab[name].split('  [')[0])
+    pc.plot(widths, 100 / (8 * widths ** 2), ':', color='black', lw=1.5,
+            label='prediction dx² G_xx / 8G = 1 / (8 sigma_G²)')
+    pc.axvline(sigma_G, color='#888888', lw=0.8, ls='--')
+    pc.axhline(5.5, color='#c8102e', lw=0.8, ls=':')
+    pc.text(4.1, 5.5, '~5.5% (planning §5.3)', fontsize=8, color='#c8102e', va='bottom')
+    pc.set_yscale('log')
+    pc.set_xlabel('front width sigma_G [cells]')
+    pc.set_ylabel('-bias at the maximum [%]  (all negative)')
+    pc.set_title('(c) bias at the maximum vs front width, half-cell shift\n'
+                 '(per-hour signal 2F dt / G is 7-20%: bilinear G is 25-80% of it)', fontsize=10)
+    pc.legend(fontsize=7.5, loc='lower left')
+    pc.grid(alpha=0.3, which='both')
+
+    fig.suptitle('V5: interpolate b (order >= 3), never G -- a synthetic front shifted by half a cell '
+                 '(semilag.gradb2_at_departure vs bilinear G)', fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    FIG_DIR.mkdir(exist_ok=True)
+    out = FIG_DIR / 'V5_interp_half_cell.png'
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
+    res['png'] = str(out)
+    return res
+
+
 if __name__ == '__main__':
     import pprint
+    pprint.pprint(demo_interp_half_cell())
     pprint.pprint(qa_land_halo(ot.open_grid(with_face=True)))

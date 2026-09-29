@@ -125,8 +125,8 @@ Each task finishes with its own tests passing. Tests go in `dev/frontogenesis/py
 tasks: each V-function is written in the task whose module it exercises. The dependency chain
 is masking → operators → semilag → validation; `coarsegrain` needs only `operators`.
 
-**Status 2026-09-29: tasks 1-2 done** (log entries "Execution prompt 2, task 1" and "task 2");
-tasks 3-7 not started. M0 is closed (prompt 1, task-5 log entry). Task 1 delivered `py/masking.py`,
+**Status 2026-09-29: tasks 1-3 done** (log entries "Execution prompt 2, task 1", "task 2" and
+"task 3"); tasks 4-7 not started. M0 is closed (prompt 1, task-5 log entry). Task 1 delivered `py/masking.py`,
 `data/tile330_masks.nc` (ocean 356,877 → halo 341,960 at 12.57 km = 7 x median `dxC` → offshore
 273,431 → analysis 262,925), `py/tests/test_masking.py` (17 pass), `validate.qa_land_halo` →
 `figs/V6_land_halo_tile330.png`. The Gulf of California is its own ocean component in the tile
@@ -138,6 +138,16 @@ both M0 hours (max |dF| = 0 on all 352,673 finite cells); `gradb2`/`grad_b2` int
 **0.9106** (M0's cell set), 0.9098 on the analysis mask. `lowpass` is a top-hat of half-width
 `L/2` that **propagates NaN** (no renormalisation), so `halo_cells = 7` stands: `F` at `L = 8`
 is finite on every analysis-mask cell (NaN only in 249 coastal `mask_halo` cells at chessboard 5).
+Task 3 delivered `py/semilag.py` (the five contract functions plus `midpoint_time`,
+`grad_b_at_departure`, `gradb2_at_departure`), `py/tests/test_semilag.py` (15 pass; suite 53) and
+`validate.demo_interp_half_cell` → `figs/V5_interp_half_cell.png`. Interpolation is local Lagrange
+(order 1/3/5), not `map_coordinates` (its prefilter leaks a filled NaN 46%/12%/3.3% at 1/2/3 nodes);
+`G(x_d)` is `b` interpolated onto the five-point departure stencil with the displacement held
+fixed, then the `grad_b` stencil (bit-for-bit `operators.gradb2` at zero displacement) — **not** the
+gradient of the shifted field, which measures the residual (~0 under pure strain). Half-cell bias at
+the maximum of a 1.5-cell front: order 1 **−5.0%** (bilinear `G` −4.9%, prediction −5.56%), order 3
+**−0.54%**, order 5 −0.10%. Real hours: measured and Eulerian finite on all 262,925 analysis cells,
+corr 0.74, slope 0.73; order 1 fabricates +5.2% of `G` per hour on front pixels.
 
 ### 1. `masking.py`, `tile330_masks.nc`, and V6
 

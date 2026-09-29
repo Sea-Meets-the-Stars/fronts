@@ -2392,3 +2392,236 @@ Files: created `py/operators.py`, `py/tests/test_operators.py`; modified `py/tes
 (`masks_ds` fixture), `frontogenesis_planning.md` (§2.4 sign, marked), `frontogenesis_coding.md`
 (§1.2 kernel/NaN policy; §4.3 strain rotation and alignment comments, marked),
 `claude_prompts/frontogenesis_prompt_2.md` (status line) and this log.
+
+### 2026-09-29 — Execution prompt 1, task 6: M0 acceptance deck
+
+**Scope.** Task 6 of `frontogenesis_prompt_1.md` only. No physics, no network, no data store
+touched; nothing outside `dev/frontogenesis/deck/` written except the task-6 status line in
+`frontogenesis_prompt_1.md`. **Full log is in `dev/frontogenesis/deck/README.md`**, as task 6
+directs; this entry is the pointer.
+
+**Built.** `deck/Frontogenesis_M0_Acceptance.pptx` — 12 slides, 1.3 MB. Title; Contents; one
+slide per task (1-6); an M0 acceptance slide; and **three finding slides** beyond the
+one-per-task brief: the two overturned planning claims, implicit numerical diffusion by scale,
+and hourly displacement. The extra three are justified by the prompt's own framing — a
+contradicted planning claim is "the most valuable output of this milestone", and burying two of
+them inside a five-row task-3 slide would have understated them.
+
+Scripts kept beside the deck as instructed: `deck/make_m0_figs.py` (three figures plus a LANCZOS
+downscale of the real QA plot) and `deck/build_m0_deck.py`. Figures in `deck/figs_m0/`.
+
+**Provenance discipline.** Every number on the slides is quoted from the task 1-5 log entries
+above; `make_m0_figs.py` opens no store and makes no network call. The deck therefore cannot
+drift from the log — but it also inherits any error in the log, so it is a presentation
+artefact, not an independent check. Said plainly in the README.
+
+**QA.** Geometry and overflow checked programmatically across all 12 slides: no off-slide
+shapes, no estimated text overflow, margins >= 0.5 in; content dumped and verified against the
+logs; 4 images placed. **Visual QA was again not possible** — no LibreOffice on this machine
+(`soffice` absent), the same limitation recorded for the planning deck on 2026-09-19. The
+geometry check is a proxy, not a substitute.
+
+**Dependency.** `python-pptx 1.0.2` installed into the `frontogenesis` env. Deliberately **not**
+added to `env/frontogenesis_env.yml` — nothing in the analysis path imports it, and the env
+export should stay a record of the *scientific* stack.
+
+**Flagged while writing it.** The 2026-09-19 planning deck still asserts the two claims M0
+overturned (land stored as 0; `w` vanishing at the surface). It should be rebuilt from the
+corrected planning doc before it is shown to anyone; noted in `deck/README.md`. It also remains
+un-uploaded to the AIOcean Drive.
+
+### 2026-09-29 — Execution prompt 2, task 3: semilag.py and V5 (Fable)
+
+**Scope.** Task 3 of `frontogenesis_prompt_2.md` only: `py/semilag.py`, `py/tests/test_semilag.py`,
+`validate.demo_interp_half_cell` (V5). Tasks 4-7 not started: no `coarsegrain.py`, no V1-V4 gate,
+no data pulled. Offline, from the two M0 stores and `tile330_masks.nc`. Nothing outside
+`dev/frontogenesis/` touched; `dbof` read-only at `938bce1`; `masking.py`, `operators.py` and
+`tile330_masks.nc` unchanged. Nothing committed. The user approved the planning §2.4 sign
+correction (M1 task 2) on 2026-09-29, provisionally ("for now").
+
+**Written.**
+- `py/semilag.py` (423 lines, functions only; §1.3's ~400 exceeded by the module docstring, which
+  carries the interpolation/NaN rationale — flagged below): the five contract functions of coding
+  §4.4 — `centre_velocities(U, V, grid_ds, grid)`, `departure_index(u_c, v_c, grid_ds, dt=3600,
+  n_iter=3, vel_order=1)`, `interp_to_departure(field, di, dj, order=3, *, allow_low_order=False)`,
+  `measured_DGDt(b_t, b_tp1, u_mid, v_mid, grid_ds, grid, dt=3600, order=3, n_iter=3, *,
+  allow_low_order=False)`, `eulerian_DGDt(G_t, G_tp1, u_mid, v_mid, grid_ds, grid, dt=3600)` — plus
+  `midpoint_time(f_t, f_tp1) = 0.5 (f_t + f_tp1)` (the helper for `F` and front selection),
+  `grad_b_at_departure` and `gradb2_at_departure(b, di, dj, grid_ds, order)` (the piece V3/V4/V5
+  reuse). Reuses `operators.grad_b`/`gradb2`, the dims guards, `masking._positional` and dbof's
+  `interp_pair_to_center`; every output has dims asserted; float64 throughout. `u_mid`/`v_mid` may
+  be the raw staggered midpoint pair (centred internally) or an already centred pair.
+- `py/tests/test_semilag.py` (15 tests: 14 offline on `test_operators.synthetic_cgrid`, both
+  orientations where the axis pairing matters; 1 `needs_grid`).
+- `py/validate.py` (+~200 lines): `demo_interp_half_cell(png=True) -> dict` → **V5 →
+  `figs/V5_interp_half_cell.png`** (200 dpi, 3800 x 1240, 0.45 MB; shows in `git status`,
+  `git check-ignore -v` → `figs/.gitignore:3:!*.png`), plus `synthetic_uniform_grid` for the
+  offline gates. `qa_land_halo` untouched.
+
+**Design: what `G(x_d, t)` is — and what it is not.** `measured_DGDt = [G(x, t+dt) − G(x_d, t)]/dt`
+with `G(x, t+dt) = operators.gradb2(b_tp1)` and `G(x_d, t)` from `b_t` interpolated onto the
+**five-point tracer stencil centred at the departure point** — `x_d`, `x_d ± e_i`, `x_d ± e_j`,
+the displacement held fixed across the stencil — followed by the *same* diff / `dxC` / interp /
+`CS,SN`-rotate stencil as `calculate_native_gradient_tracer`, replicated in numpy in the same
+operation order (at zero displacement the result is **bit-for-bit** `operators.gradb2`, max
+difference 0.0; `dxC`, `dyC`, `CS`, `SN` taken at the arrival cell, a 0.02%/cell effect). It never
+interpolates `G`. The tempting shortcut — interpolate `b_t` at `x_d(x)` for every `x` and hand the
+shifted field to `operators.gradb2` — is **wrong**, and this is the one thing in the contract that
+reads as if it asked for it: `grad[b_t(x_d(x))] = (I − grad d)^T grad b(x_d)` carries the strain
+of the departure map, and in the adiabatic limit `b_t(x_d(x))` *is* `b_{t+dt}(x)`, so
+`[G_{t+dt} − G(shifted b)]/dt` is the residual, not `DG/Dt`. Measured on the pure deformation
+`u = −a x, v = a y` with the exact solution `b = b0 tanh(x e^{at}/ell)` (`a = 1e-5`, `dt = 3600`;
+`test_deformation_measures_DGDt_not_the_residual`): the stencil construction gives measured/`2F_mid`
+**0.966 [0.960, 0.967]** at `ell = 4 dx` and **0.979 [0.956, 0.989]** at `8 dx` (0.951 at 3 dx,
+0.976 at 6 dx; face-10 orientation 0.963 / 0.979), the shift-then-differentiate construction gives
+**+0.0003 / +0.0001** (max |·| < 0.025). The residual 2-4% is not interpolation (order 5 changes
+it by < 0.5%): it is the centred-difference truncation not being conserved as the front sharpens
+(measured/exact-along-parcel 0.982 at 4 dx, 0.996 at 8 dx, 0.965 at 3 dx — for a 3-cell tanh the
+stencil returns 0.930 of the true `G`, and that factor changes under strain). That is exactly the
+chain-rule violation V3 (task 6) is designed to measure; nothing was tuned here.
+
+**Design: interpolation and NaN.** `interp_to_departure` is tensor-product **Lagrange**
+interpolation of odd degree `order` on the `order + 1` nearest nodes per axis (2 x 2 bilinear,
+4 x 4 cubic, 6 x 6 quintic), evaluated at `(j − dj, i − di)`; `order` must be odd (even raises);
+`order < 3` raises unless `allow_low_order=True` (test-only, used by the order-1 bias test and V5).
+Not `scipy.ndimage.map_coordinates`: a B-spline of order ≥ 2 needs the recursive prefilter, whose
+response decays as `0.268^k` for the cubic, so a NaN must be filled first and the fill then leaks
+into the coefficients **46% / 12% / 3.3% / 0.9% / 0.24% / 0.06%** of the jump at 1 / 2 / 3 / 4 /
+5 / 6 nodes away (measured on a Gaussian with one node zeroed) — "the stencil touches NaN → NaN" could not be
+made exact without masking ~6 cells from every NaN; `prefilter=False` would turn the spline into a
+smoothing approximation that attenuates fronts. The Lagrange kernel is local: the support is
+exactly the `(order+1)^2` nodes, so the NaN rule is exact — **NaN wherever the support contains a
+NaN or leaves the tile, or `di`/`dj` is NaN; nothing is filled** (nodes whose weight happens to be 0
+at an integer offset count too, deliberately, so the NaN pattern does not jump as `d → 0`). Integer
+displacements reproduce node values bit-for-bit (weights exactly 1 and 0), which is what makes the
+whole-cell translation exact; polynomials of degree `order` are reproduced to 1e-13. Because the
+five stencil points share one fractional offset, "interpolate then difference" equals "difference
+then interpolate" away from NaN. `centre_velocities` uses `interp_pair_to_center` (the Jacobian's
+first step) and sets the **last centre along each interpolated axis to NaN** — the tile has no high
+staggered face there and xgcm's `padding='fill'` would average with 0 (M0 task 5); the coast-facing
+`U`/`V` faces are NaN in the stores, so `u_c` is NaN one cell into the ocean. `departure_index`:
+`di = u_c dt/dxC`, `dj = v_c dt/dyC` with the spacing at the centre (mean of the two faces, NaN at
+the last cell), refined by `n_iter = 3` midpoint iterations `d ← dt u(x − d/2)` with the velocity
+interpolated **bilinearly** (`vel_order = 1`): the order rule protects the sharp front in `b`, the
+velocity is smooth at the grid scale, and on the real hour `vel_order = 3` moves the departure by
+at most **0.032 cell** (median 0.0014). The iteration itself matters at the 0.04-0.17-cell level
+(below). On a linear flow it converges to `d = dt u/(1 − a dt/2)`, within 1e-3 cell of the exact
+`x(e^{a dt} − 1)` (the first guess is 0.03 cell off). NaN reach at zero velocity from a NaN in `b`:
+chessboard 1 / 2 / 3 at order 1 / 3 / 5 (the `G(t+dt)` rim plus the support); with flow it grows
+with the displacement. `eulerian_DGDt = (G_tp1 − G_t)/dt + u·grad[0.5 (G_t + G_tp1)]` with `grad`
+from `operators.grad_b` (geographic) and the centred model-basis velocity rotated with `CS`/`SN`.
+
+**Velocity-spacing pairing, verified on `tile330_grid.zarr`.** `dxC` is on `(j, i_g)`, `dyC` on
+`(j_g, i)`. `dxC[j, i_g = i]` equals the haversine distance between the centres `(j, i−1)` and
+`(j, i)` to within 0.9995-1.0002, and `dyC[j_g = j, i]` the distance between `(j−1, i)` and `(j, i)`
+to 0.9997-1.0001; the cross pairing (`dyC` against the along-`i` distance) is 1.081-1.088 off.
+`dxG/dxC` 1.00007-1.00010, `dyG/dyC` 0.99990-0.99993; both spacings vary along `i` only (latitude;
+`std` along `j` 0.02 m), by at most 0.02% per cell. So `U` (on `i_g`, the component along `i`)
+pairs with `dxC` and index `i`; `V` (on `j_g`) with `dyC` and `j` — in native index space with no
+rotation, exactly as planning §5.2/§5.3 say. That `i` is meridional (southward) and `j` zonal on
+face 10 is irrelevant to the departure: `U` is the component along `i` whatever `i` points at.
+Pinned in `test_departure_pairing_on_face10_no_rotation` (an eastward flow is model `V` and moves
+along `j` by `c dt/dyC`, not `c dt/dxC`; a northward flow is `−U` along `−i`).
+
+**Bias numbers (V5 and `test_interpolation_order_bias_at_a_front_maximum`).** Front
+`b = b0 erf((x − x0)/(√2 σ_b))`, `σ_b = √2 σ_G`, so `G = b_x²` is a Gaussian of `σ_G = 1.5` cells
+(planning §5.3's "front ~1.5 cells wide"; its prediction `dx² G_xx/8G = −1/(8 σ_G²) = −5.56%`
+at the maximum; the analytic 1-D bilinear value is −5.40%). Shift by half a cell; truth = the same
+discrete stencil on the exactly shifted `b` (so the stencil's own attenuation — the discrete
+maximum is 0.95 of the continuum — cancels and only the interpolation error remains). Relative
+error at the maximum: **bilinear `G` −4.94%**, **bilinear `b` then the stencil −4.99%** (the same
+leading-order bias: `b_x` errs by `dx² b_xxx/8`, squared), **cubic `b` −0.54%** (9x smaller),
+**quintic `b` −0.10%** (5x smaller again); all negative, i.e. the interpolation flattens the
+maximum and fabricates frontogenesis, and positive on the convex flanks (panel b, tracking
+`+dx² G_xx/8G`). Against the front width (panel c, half-cell shift, −bias at the maximum):
+`σ_G` = 1.0 / 1.25 / 1.5 / 2 / 3 / 4 / 6 cells → bilinear `G` 9.7 / 6.8 / 4.9 / 2.9 / 1.35 / 0.77 /
+0.35%; cubic `b` 2.0 / 1.0 / 0.54 / 0.19 / 0.041 / 0.013 / 0.003%; quintic `b` 0.67 / 0.25 / 0.10 /
+0.022 / 0.002 / 0.0004 / 0.00003%. The peak-vs-peak ratio is 0.951 (bilinear `G`) vs 0.995
+(cubic `b`). V5 annotates the four biases, the prediction and the ~5.5%.
+
+**Real-hour smoke (`test_two_hours_smoke`, M0's two hours, `L = 0`).** Displacement over the
+hour (ocean): median **0.364**, p90 0.732, p99 **1.252**, max 2.09 cells (M0 task 3 from the raw
+`|u| dt/dx`: 0.37 / 0.75 / 1.28 / 3.5 — the max is lower because the iteration averages the
+midpoint velocity and the 0-padded edge centres are now NaN); `di`/`dj` NaN in 5,235 ocean cells
+(coast and edge); midpoint iteration vs first guess p99 0.042, max 0.167 cell on the analysis
+mask. `measured_DGDt` and `eulerian_DGDt`: dims `('face', 'j', 'i')`, `(1, 720, 720)`, float64,
+**finite on all 262,925 `mask_analysis` cells** (finite ocean cells 345,961 / 351,843 of 356,877;
+NaN reach chessboard 2 from land), 1.0 s for both. On the analysis mask: rms **1.21e-18 vs
+1.23e-18 s^-5** (same order), median |·| 5.96e-20 vs 6.33e-20, **corr 0.740, slope (semilag on
+Eulerian) 0.730**. Diagnostic only (V3 is task 6): against `2F` at the midpoint time, all analysis
+cells corr 0.49 / 0.39 and slope 0.970 / 0.784 (semilag / Eulerian); on front pixels (`G_mid` >
+p90 in the mask, n 26,293) corr 0.505 / 0.424, slope **0.967 / 0.779**; median `2F dt/G` on those
+pixels is 0.015, median `|DGDt| dt/G` 0.126. Order sensitivity on front pixels: order 1 − order 3
+median `(ΔDGDt) dt/G` = **+0.052** — the fabricated 5% of `G` per hour, on real data, of the same
+size as the V5 prediction; order 5 − order 3: rms difference 0.108 of rms, slope vs `2F` 0.911
+(order 3: 0.967). So the choice between cubic and quintic is a ~5% effect on the real front pixels
+(they include 1-2-cell features); **V4 (task 5) should sweep `order = 3, 5`** and the order used
+should be quoted with the bias.
+
+**Tests — `pytest dev/frontogenesis/py/tests`: 53 passed in 4.6 s** (`test_masking.py` 17 +
+`test_operators.py` 21 + `test_semilag.py` 15; `-m "not needs_grid"` → 41 passed, 12 deselected,
+0.6 s). `test_semilag.py`: the kernel reproduces tensor polynomials of its degree to 1e-13 and
+integer shifts bit-for-bit, DataArray/numpy in and out; the order rule (raises below 3 without the
+override, even orders always, in `interp_to_departure`, `gradb2_at_departure` and
+`measured_DGDt`); **zero velocity** (×2 orientations): `G(x_d)` bit-for-bit `operators.gradb2`,
+`measured_DGDt` and `eulerian_DGDt` exactly 0; **whole-cell translation** (×2 orientations ×2
+axes, `dxC = 1800`, `dyC = 2250` so both `dx/dt` are exact binary ratios): `di`/`dj` exactly 1,
+`DGDt` exactly 0, `G(x_d)` bit-for-bit the rolled `G`; the face-10 pairing; the midpoint iteration
+on a linear flow; the **order bias** (numbers above, with bounds); **NaN at a synthetic coast**
+(diagonal coast plus an island, the tile's anisotropic spacing, `U`/`V` NaN on coast-facing faces):
+every finite `DGDt` is *identical* to the land-free result and the NaN set equals an independent
+loop-based reconstruction of "support touches NaN or leaves the tile" for the velocity iteration
+and the five stencil points, plus `G(t+dt)`'s rim; the **deformation** test (×2) with the naive
+construction ≈ 0 and the Eulerian estimate within 0.90-1.05 of `2F` and correlated > 0.99 with the
+semi-Lagrangian one; the real-hour smoke (bounds on the displacement statistics, finiteness, corr
+> 0.5, rms ratio in [0.5, 2], the order-1 fabrication > 2%/h).
+
+**Contradictions / things to flag.**
+1. **The contract's wording invites the wrong construction.** Prompt 2 ("interpolates `b` to the
+   departure points and then differentiates with the same `operators.grad_b` stencil") and coding
+   §4.4 ("interpolates `b`, then differentiates") read naturally as "shift the field, then call
+   `gradb2`", which measures `DG/Dt − 2F` (≈ 0 under pure strain, above) and would have sent V3 to
+   slope 0. Planning §5.3's "onto the departure-point stencil" is the correct reading. Clarified
+   in coding §4.4 and planning §5.3 item 2 ("clarified/measured 2026-09-29, M1 task 3"); pinned by
+   `test_deformation_measures_DGDt_not_the_residual`.
+2. **`operators.grad_b` cannot literally be called at the departure points** (it differences in
+   the arrival frame), so `grad_b_at_departure` replicates the dbof stencil in numpy — the same
+   kind of replica as `m0_qa_checks.jacobian_numpy`, and pinned bit-for-bit to `operators.gradb2`
+   at zero displacement and to the rolled `G` at a whole-cell shift. Not duplication of
+   `operators.py` (which is a wrapper), but a second copy of the `calculate_native_gradient_tracer`
+   arithmetic; if that dbof stencil ever changes, the zero-velocity test will say so.
+3. **Coding §4.4's "cubic+ REQUIRED" and "cubic splines" (task prompt) → local Lagrange, not
+   splines**, for the NaN reason above. `map_coordinates` is not used anywhere.
+4. **Order 3 vs 5 is a ~5% effect on the real front pixels** (slope vs `2F` 0.967 vs 0.911; rms
+   difference 11%), larger than the synthetic 1.5-cell-front numbers suggest because real fronts
+   include 1-2-cell features (order 3 bias at `σ_G = 1`: −2.0%). The default stays `order = 3`
+   per the contract; V4 must report the order and sweep it.
+5. **The chain-rule violation at 3-4 dx is 3-7%, not "order unity".** Prompt 2 criterion 3 says
+   centred differences violate the chain rule "at `O((k dx)²)` — ~2.5 at a `4 dx` feature, order
+   unity". Measured on the pure deformation: measured/`2F` 0.951 at 3 dx, 0.966 at 4 dx, 0.979 at
+   8 dx (the `(k dx)²` is the prefactor; the coefficient is small). The 0.80-0.85x Jacobian
+   attenuation (M0 task 5 / M1 task 2) is the larger of V3's two known effects. Wording only; the
+   gate's ±0.05 stands.
+6. `measured_DGDt` is NaN where the departure support touches the coast, so its reach is
+   displacement-dependent (chessboard 2 minimum on the real hour, up to ~5 where a parcel comes
+   from near land); `mask_analysis` (≥ 100 km) is untouched, but anything evaluated inside the halo
+   alone must use `isfinite`, as M1 task 2 already recommended.
+7. **Planning §5.3's displacement max (3.5 cells) was the raw `|u| dt/dx` at a centre**; the
+   semi-Lagrangian departure (midpoint velocity, edge centres NaN) has max 2.09 on this hour.
+   p99 1.25 agrees. Not a contradiction; the tail claim ("exceeds 1.5 cells") still holds at the
+   front p99 (1.64 in M0).
+8. `semilag.py` is 423 lines against §1.3's "~400", the excess being the module docstring's
+   interpolation/NaN rationale; `validate.py` is 437 and will grow with V1-V4 — it should be split
+   at task 5 (e.g. `validate_gates.py` / `validate_figs.py`) rather than nested.
+9. Not a contradiction, for the record: the Eulerian and semi-Lagrangian estimates agree only to
+   corr 0.74 / slope 0.73 on the real hour at `L = 0`, and neither correlates with `2F` above 0.5
+   pointwise. No interpretation here (M1 produces no science); M3's closure and the filter sweep
+   are where this belongs.
+
+**Status line updated** in `frontogenesis_prompt_2.md` (tasks 1-3 done). Coding §6 M1 untouched
+until the milestone closes (task 7).
+
+Files: created `py/semilag.py`, `py/tests/test_semilag.py`, `figs/V5_interp_half_cell.png`;
+modified `py/validate.py` (`demo_interp_half_cell`, `synthetic_uniform_grid`, docstring),
+`frontogenesis_coding.md` (§4.4 clarification, marked), `frontogenesis_planning.md` (§5.3 item 2
+measured note, marked), `claude_prompts/frontogenesis_prompt_2.md` (status paragraph) and this log.

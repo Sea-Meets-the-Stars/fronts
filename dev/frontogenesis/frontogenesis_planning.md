@@ -424,6 +424,13 @@ assuming it.
    frontogenesis. Against a signal of `2F dt / G ~ 7-20%` per hour, that bias is
    **25-80% of the signal**. Use cubic (or quintic) interpolation of `b` onto the
    departure-point stencil, then differentiate, and validate the order chosen (§6).
+   *(Measured 2026-09-29, M1 task 3, V5: at a half-cell shift of a `sigma_G = 1.5`-cell front the
+   bias at the maximum is −4.9% for bilinear `G`, −5.0% for bilinear `b`-then-stencil (the same
+   leading-order bias), −0.54% at cubic and −0.10% at quintic, against the −5.56% prediction; on
+   the real hours bilinear `b` adds +5.2% of `G` per hour to the measured tendency on front
+   pixels. "Onto the departure-point stencil" is literal: the stencil is centred at `x_d` with
+   the displacement held fixed — the gradient of the shifted field `b_t(x_d(x))` would measure
+   the residual, not `DG/Dt`; see coding §4.4.)*
 3. **Evaluate `F` at the trajectory midpoint time**, not at an endpoint. M2 strain rotates
    ~29 degrees per hour, so `F(t)` and `F(t+dt)` differ by tens of percent; using an
    endpoint both adds noise and correlates that noise with the measured side (§11).

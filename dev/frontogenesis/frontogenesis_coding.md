@@ -453,6 +453,17 @@ def eulerian_DGDt(G_t, G_tp1, u_mid, v_mid, grid_ds, grid,
 **`measured_DGDt` interpolates `b`, then differentiates** — it does *not* interpolate `G`.
 Interpolating `G` bilinearly biases it negative at maxima by 25-80% of the signal, i.e. it
 fabricates frontogenesis (planning §5.3). `order >= 3` is not optional.
+*(Clarified 2026-09-29, M1 task 3.)* "Interpolate `b`, then differentiate" means: `b_t`
+interpolated onto the five-point tracer stencil **centred at the departure point** (the
+displacement held fixed across the stencil), then the `operators.grad_b` stencil —
+`semilag.gradb2_at_departure`. It does **not** mean the gradient of the shifted field
+`b_t(x_d(x))`: that field is the adiabatic prediction of `b_{t+dt}`, so its `G` cancels the
+kinematic term and `[G_{t+dt} - G(b_t(x_d(x)))]/dt` measures the *residual* (~0 under pure strain,
+`test_semilag.py`), not `DG/Dt`. The interpolation is a local Lagrange kernel of odd order
+(1 / 3 / 5 = 2 / 4 / 6 nodes per axis; NaN wherever the support touches NaN or leaves the tile),
+not a prefiltered B-spline (`map_coordinates`), whose recursive prefilter leaks a filled NaN
+46% / 12% / 3.3% / 0.9% into the coefficients 1 / 2 / 3 / 4 nodes away. Departures: `di = U dt/dxC` along `i`,
+`dj = V dt/dyC` along `j`, verified against the haversine centre distances on the tile grid.
 
 ### 4.5 `py/coarsegrain.py`
 

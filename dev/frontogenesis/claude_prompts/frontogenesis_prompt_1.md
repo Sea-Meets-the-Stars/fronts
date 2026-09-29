@@ -115,6 +115,18 @@ task 5). Write to `dev/frontogenesis/figs/`.
 **Done 2026-09-28:** `figs/m0_qa_tile330_20120702T00.png`, `py/m0_qa_plot.py`,
 `py/m0_qa_checks.py`; M0 acceptance audited in the task-5 log entry, all criteria PASS.
 
+### 6. Slides
+
+Generate a small slide deck for M0 acceptance: a title, a table of contents, and one slide per
+task. Write to `dev/frontogenesis/deck/`.  
+Include figures where you can (and put the Python scripts to generate them in the deck directory).  Log your work in the deck/README.md file.
+**Done 2026-09-29:** `deck/Frontogenesis_M0_Acceptance.pptx` (12 slides), built by
+`deck/make_m0_figs.py` + `deck/build_m0_deck.py`, figures in `deck/figs_m0/`, logged in
+`deck/README.md`. Three finding slides added beyond one-per-task (the two overturned claims,
+numerical diffusion by scale, hourly displacement). Every number quoted from the task logs; no
+recomputation, no network. Geometry/overflow QA clean; **visual QA not possible** (no
+LibreOffice on this machine, as for the planning deck).
+
 ---
 
 ## Acceptance criteria
