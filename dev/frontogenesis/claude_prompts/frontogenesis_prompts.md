@@ -2625,3 +2625,351 @@ Files: created `py/semilag.py`, `py/tests/test_semilag.py`, `figs/V5_interp_half
 modified `py/validate.py` (`demo_interp_half_cell`, `synthetic_uniform_grid`, docstring),
 `frontogenesis_coding.md` (§4.4 clarification, marked), `frontogenesis_planning.md` (§5.3 item 2
 measured note, marked), `claude_prompts/frontogenesis_prompt_2.md` (status paragraph) and this log.
+
+### 2026-09-29 — Execution prompt 2, task 4: coarsegrain.py (Fable)
+
+**Scope.** Task 4 of `frontogenesis_prompt_2.md` only: `py/coarsegrain.py` and
+`py/tests/test_coarsegrain.py`. Tasks 5-7 not started: no V1-V4 gate, no data pulled, no budget on
+real data beyond the one-hour smoke test the task asks for. Offline, from the two M0 stores and
+`tile330_masks.nc`. Nothing outside `dev/frontogenesis/` touched; `dbof` read-only at `938bce1`;
+`masking.py`, `operators.py`, `semilag.py`, `validate.py` and the nc unchanged. Nothing committed
+(the user committed tasks 1-3 mid-session; the only uncommitted files are this task's).
+
+**Written.**
+- `py/coarsegrain.py` (273 lines, functions only): the two contract functions of coding §4.5 —
+  `subfilter_flux(b, U, V, L_cells, grid_ds, grid) -> (tau_x, tau_y)` and
+  `subfilter_term(b_bar, tau_x, tau_y, grid_ds, grid, tau_delta=None) -> term` — plus
+  `subfilter_bdelta(b, U, V, L_cells, grid_ds, grid) -> tau_delta` (the dilatation part, below),
+  `subfilter_advection(tau_x, tau_y, grid_ds, grid, tau_delta=None) -> sigma`,
+  `flux_divergence(fx, fy, grid_ds, grid)` (the model's flux-form divergence at the centres,
+  bit-for-bit `calculate_native_strain_vorticity`'s `divergence_center` away from the last
+  row/column, which are NaN here instead of xgcm's finite 0-padded value),
+  `b_at_velocity_points(b, grid)` and `filt(field, L_cells)` (`operators.lowpass`, or a sequence
+  of scales applied in turn — the composite filter the Germano identity needs). Uses
+  `operators.lowpass`, `grad_b` and the dims guards; every xgcm call is preceded by a staggering
+  check and followed by a dims assertion; float64; NaN propagates as in `lowpass`, nothing filled.
+- `py/tests/test_coarsegrain.py` (435 lines, 10 tests: 9 offline on `test_operators.synthetic_cgrid`,
+  1 `needs_grid`).
+
+**Factor and sign (derivation, in the module docstring).** Overbar = `lowpass` (linear, normalised,
+shift-invariant; commutes with the discrete gradient, M1 task 2). Filter `d_t b + u.grad b = B` and
+split the advection into resolved + subfilter: `d_t bbar + ubar.grad bbar = Bbar − sigma`,
+`sigma := mean(u.grad b) − ubar.grad bbar`. Take `grad`, dot with `grad bbar`, and use
+`−grad bbar . grad(ubar.grad bbar) = F(ubar, bbar) − ubar.grad(Gbar/2)` (the identity behind
+`F = ½ DG/Dt`): **`Dbar/Dt (Gbar/2) = F(ubar, bbar) + grad bbar.grad Bbar − grad bbar.grad sigma`**.
+So the term in **F units** (s^-5) is `T = −grad bbar . grad sigma`, which is what `subfilter_term`
+returns — the same units as planning §5.4's equation, which is written for `Dbar/Dt (Gbar/2)`.
+In the `DG/Dt` budget the study compares (`two_F` vs `DGDt`, coding §1.1):
+`Dbar Gbar/Dt = 2 Fbar + 2 T + 2 grad bbar.grad Bbar`, so **M3's `subfilter` field must be
+`2 * subfilter_term`**. The sign: `sigma` is a sink of `bbar`, hence the minus; `T > 0` where the
+subfilter advection sharpens the resolved gradient. Attrs carry `convention` and `form`.
+The flux form: `u.grad b = div(u b) − b delta` ⇒ `sigma = div tau − tau_delta` with
+`tau = mean(u b) − ubar bbar` and `tau_delta = mean(b delta) − bbar deltabar`. For a non-divergent
+flow `tau_delta = 0` and `T = −grad bbar.grad(div tau)` (coding §4.5, planning §5.4). **The surface
+flow is divergent** (`delta` 0.1-0.5 f at fronts, planning §2.2) and `tau_delta ~ b' delta'` is the
+same order as `div tau ~ u' b'/L`, so `subfilter_bdelta` supplies it and `subfilter_term` takes it
+as an optional argument — omitted, the contract's non-divergent form is returned.
+
+**Flux placement (decision): staggered velocity points, flux form, model basis.** `b` is averaged
+to the U point `(j, i_g)` and the V point `(j_g, i)` (two-point mean; the first face along each axis
+NaN — no low neighbour in the tile, xgcm would average with 0), `U b_u` and `V b_v` are filtered
+*there* with the kernel that filters `U` and `V` (`lowpass` acts on `i_g`/`j_g` as on `i`/`j`), so
+`tau_x = mean(U b_u) − Ubar mean(b_u)` on `(j, i_g)`, `tau_y` on `(j_g, i)`, with
+`mean(b_u) = interp(bbar)` exactly by commutation. `div tau` is the model's flux-form divergence
+`(Δ_X(tau_x dyG) + Δ_Y(tau_y dxG))/rA` at the centres (last centre NaN), `delta` for `tau_delta` the
+same operator on `(U, V)`; `grad sigma` and `grad bbar` are both `operators.grad_b` (geographic; the
+dot product is invariant, so `tau` stays model-basis). Why: (i) it is how the model advects — `U`
+times the face value is its tracer flux (OS7MP reconstructs the face value at higher order; the
+*resolved* flux of the filtered budget is the second-order one); (ii) "the same filter on `b`, `U`
+and `V`" (coding §1.2) is then literal, the flux living on the velocity's own points; (iii) the
+divergence reaches the centres in one difference, with no interpolation of the flux and no extra
+half-cell attenuation of the third derivative the term is. The alternative — everything at the
+centres from `interp_pair_to_center(U, V)` — differs by the `O(dx²)` product-rule mismatch between
+the flux and advective forms; the closure test measures that error together with the chain-rule
+violation V3 is about, and finds the `bbar` budget closing ∝ dx² (below), so the placement is
+consistent with `semilag`'s centred departure velocity to the order of the scheme.
+
+**Germano: holds to round-off (max 4e-16 relative), for the composite filter.** With `tau` at `L1`,
+`T` at the composite level (`L1` then `L2`, `filt` with a sequence) and the Leonard flux
+`Leo = subfilter_flux(lowpass(b, L1), lowpass(U, L1), lowpass(V, L1), L2)`: `T − lowpass(tau, L2) =
+Leo` on every finite cell (identical NaN sets), for `(L1, L2) = (2, 4), (4, 2), (2, 2)`, both
+components. It is an algebraic identity for any linear filter, so "exactly" up to floating point —
+**provided the combined filter is the composition**. It is *not* one of our `lowpass` scales: two
+top-hats compose to a trapezoid, and using a single top-hat of scale `L1 + L2` as the "combined"
+filter misses by 31-43% rms. Hence `L_cells` accepts a sequence.
+
+**`tau → 0` as `L → 0`.** At `L = 0` `tau` is exactly 0.0 on every finite cell (`lowpass` is the
+identity, so `mean(ub) − ubar bbar` is the same product twice). For smooth fields (50-70 km scales)
+`tau_x / [M2 (U_x b_x + U_y b_y)]`, `M2 = L(L+2) dx²/12` the kernel's second moment (the Clark /
+gradient model): median **0.968 / 0.910 / 0.731** at `L = 2 / 4 / 8`, rms `tau` growing x2.8 and
+x2.7 — i.e. `tau = O(L²)`.
+
+**Closure (the main test; `test_closure_of_the_coarse_grained_budget[shear|divergent]`).** Exact
+solutions of `d_t b + u.grad b = 0` (verified to 1e-3 by fine differences): `b0` = a 30°-tilted
+tanh front of width 7.2 km plus a 21.6 x 18 km sinusoid; flows (a) **shear** `u = 0.3 sin(2πy/28.8
+km)`, `v = 0` (non-divergent, `ubar ≠ u`), `b = b0(x − u(y) t, y)`; (b) **divergent** `u = 0.2
+sin(2πx/36 km)`, `v = 0.3 sin(2πy/28.8 km)` (separable; the 1-D sine back-trajectory
+`tan(θ0/2) = tan(θ/2) e^{−akt}` is analytic, `delta` varies at 20-29 km). Physical set-up fixed, grid
+refined: `dx = 3.6 / 1.8 / 0.9 km` with `L = 2 / 4 / 8` (filter 10.8 / 9 / 8.1 km; 64 x 32 → 256 x
+128 cells), `dt = 3600 s`. Measured = `semilag.measured_DGDt(bbar_t, bbar_tp1, Ubar, Vbar)`,
+predicted = `2 F(bbar_mid, Ubar, Vbar) + 2 T(mid)`, on interior front pixels (`Gbar > 0.2 max`,
+n = 70-1738), rms residual over rms measured:
+
+| flow | dx, L | 2T / meas | residual without T | **with T** | flux form only |
+|---|---|---|---|---|---|
+| shear | 3600, 2 | 0.38 | 0.55 | **0.20** | 0.20 |
+| shear | 1800, 4 | 0.48 | 0.55 | **0.085** | 0.085 |
+| shear | 900, 8 | 0.44 | 0.47 | **0.041** | 0.041 |
+| shear | 900, 8, dt 900 | 0.46 | 0.47 | **0.022** | 0.022 |
+| divergent | 3600, 2 | 0.59 | 0.85 | **0.33** | 0.44 |
+| divergent | 1800, 4 | 0.60 | 0.68 | **0.12** | 0.42 |
+| divergent | 900, 8 | 0.55 | 0.58 | **0.090** | 0.39 |
+| divergent | 900, 8, dt 900 | 0.54 | 0.57 | **0.032** | 0.38 |
+
+The `bbar` budget at the midpoint, `mean(d_t b) + ubar_c.grad bbar + sigma` (exact `d_t b` by a 60 s
+centred difference; `ubar_c` from `centre_velocities` rotated to geographic), rms over rms of the
+resolved advection: shear **0.121 / 0.036 / 0.0093** (∝ dx², x3.3 and x3.9 per halving) with
+`sigma` 35-40% of the advection and 0.36-0.49 without it; divergent **0.22 / 0.051 / 0.014** with,
+0.42-0.75 without, **0.70 / 0.38 / 0.28 with the flux form alone**. So: the term is O(1) (`2T` is
+38-60% of the measured tendency), the budget does not close without it, it closes to **< 10% at
+900 m** and the residual shrinks with resolution; the 4-9% floor at `dt = 3600` is the
+midpoint-field time discretisation (`0.5 (b_t + b_tp1)` vs `b(t_mid)`, `(dt u k)²/8` of the
+sinusoid), since `dt = 900 s` at the same `dx` takes it to 2-3% while the `bbar` budget (evaluated
+at `t_mid` exactly) is unaffected. Stated tolerance in the test: `res < 0.10` and `b_res < 0.04` at
+900 m, `res < 0.5 res_no` at every level, monotone in resolution, `b_res(900) < 0.4 b_res(3600)`,
+`res(dt 900) < 0.6 res(dt 3600)`; on the divergent flow the flux form leaves > 3x the closed
+residual at the two finer levels (1.2x at the coarsest, where discretisation dominates); on the shear
+flow `tau_delta` is exactly 0. Face-10 orientation (`test_closure_on_the_rotated_face`, 1.8 km,
+`L = 4`): 0.076 / 0.116 (shear / divergent) vs 0.085 / 0.119 unrotated — `tau` in the model basis and
+the invariant dot product are handled.
+
+**NaN at a synthetic coast** (diagonal coast + island, the tile's anisotropic spacing, `U`/`V` NaN on
+the coast-facing faces, `L = 2, 4, 8`): every finite `tau`, `tau_delta` and term is *identical* to
+the land-free result; the term is NaN within chessboard **`L/2 + 2`** of land (measured min reach)
+and finite beyond `L/2 + 3`; the tile-edge rim is NaN `L/2 + 2` deep. Same reach as `F` (M1 task 2),
+so `halo_cells = 7` / `edge_cells = 7` still cover it.
+
+**Real hour (`test_first_hour_smoke`, hour 0, `L = 2, 4, 8`).** `tau`, `tau_delta`, `Fbar` and the
+term finite on all 262,925 `mask_analysis` cells; dims `('face', 'j', 'i_g')` / `('face', 'j_g',
+'i')` / `('face', 'j', 'i')`. rms(term)/rms(`Fbar`), median |term/`Fbar`|, corr(term, `Fbar`):
+
+| L | analysis mask | front pixels (`Gbar` > p90, n 26,293) | rms `Fbar` (s^-5) |
+|---|---|---|---|
+| 2 | **0.31**, 0.35, −0.66 | 0.30, 0.25, −0.67 | 1.8e-19 |
+| 4 | **0.50**, 0.71, −0.60 | 0.48, 0.46, −0.62 | 9.7e-20 |
+| 8 | **0.70**, 1.15, −0.54 | 0.68, 0.71, −0.55 | 4.0e-20 |
+
+So the term is O(1) in the sense the planning means — not small at any `L` — but it **grows with
+`L`** (0.3 → 0.7 of `Fbar` in rms while `Fbar` itself falls 4.5x from `L = 2` to 8) rather than
+staying constant, and it is anti-correlated with `Fbar`. **The flux form alone overstates it 2.2x
+in rms at every `L`** (flux-only / full = 2.17 / 2.30 / 2.15): the `grad delta . grad b` part of
+`div tau` is cancelled by `tau_delta` (in the Clark limit `div tau − tau_delta ≈ M2 ∂_i u_j ∂_i∂_j b`,
+the `M2 grad delta . grad b` piece dropping out), and on this divergent surface flow that piece is
+larger than what remains. M3 must pass `tau_delta`. No interpretation beyond that (M1 produces no
+science).
+
+**`L → dx` behaviour (characterised, not toleranced).** The explicit term is exactly 0 at `L = 0`
+and `O(L²)` at small `L` (Clark limit above; on the real hour 0.31 of `Fbar` at `L = 2`, the
+smallest scale in the set). It therefore does not "become" the model's numerical-diffusion term:
+the OS7MP implicit dissipation acts on the model's `b` before we ever see it and is never in an
+explicit `tau` built from the model fields — it sits in the residual at every `L`, filtered along
+with everything else (and, being grid-scale-selective, its filtered magnitude decreases with `L`).
+Planning §5.4's sentence holds for the *total* subfilter flux (explicit + implicit); noted there.
+
+**Tests — `pytest dev/frontogenesis/py/tests`: 63 passed in 6.0 s** (`test_masking.py` 17 +
+`test_operators.py` 21 + `test_semilag.py` 15 + `test_coarsegrain.py` 10; `-m "not needs_grid"` →
+50 passed, 13 deselected, 1.5 s). `test_coarsegrain.py`: the exact solutions satisfy the advection
+equation (x2 flows); `tau` at `L = 0` and the Clark asymptotics; Germano (three scale pairs, both
+components, and the single-top-hat mismatch); `flux_divergence` vs the repo's `divergence_center`
+(bit-for-bit, rotated grid) and the dims guards (`flux_divergence(V, U)`, `subfilter_flux(U, U, V)`
+raise before xgcm); closure (x2 flows, four levels each, both budgets); the rotated face; NaN at the
+coast; the real hour.
+
+**Contradictions / things to flag.**
+1. **Coding §4.5 / planning §5.4's `−grad(bbar).grad(div tau)` is the non-divergent form and does not
+   close the surface budget.** The surface flow is divergent; the exact term needs
+   `sigma = div tau − tau_delta`. On the synthetic divergent flow the flux form leaves 38-44% of the
+   `Gbar` tendency unclosed (vs 9-12% with `tau_delta`); on the real hour it overstates the term
+   2.2x. Added `subfilter_bdelta` and the optional `tau_delta` argument (the contract signatures
+   are unchanged); coding §4.5 and planning §5.4 corrected, marked.
+2. **Units of the budget field `subfilter` were unspecified** (coding §3.4, §4.7, planning §6 Phase
+   2 write `measured − 2F − subfilter − …`). `subfilter_term` returns F units, matching planning
+   §5.4's `Dbar/Dt (Gbar/2)` equation; the budget field must be `2 * subfilter_term`. Recorded in
+   coding §4.5; M3's `compute_budget` should name it accordingly (or `two_` it, per §1.1).
+3. **"As `L → dx` it becomes the numerical-diffusion term"** (planning §5.4, prompt 2 contract and
+   task 4 text) is true of the total subfilter flux, not of the explicit `tau`, which is exactly 0 at
+   `L = 0` and `O(L²)` after (above). Noted in planning §5.4; the sweep's `L = 0` column is `2F` vs
+   measured with the whole numerical term in the residual, not a limit of the `tau` term.
+4. **"`O(1)` at every `L`"**: measured 0.30 / 0.50 / 0.70 of `Fbar` at `L = 2 / 4 / 8` on hour 0 —
+   O(1) but growing with `L`, not constant. Recorded in planning §5.4.
+5. **The Germano identity is exact only for the composite filter.** Coding §5's "Germano
+   consistency" cannot be checked between two members of `{2, 4, 8}` directly (two top-hats do not
+   compose to a top-hat; 31-43% mismatch). `filt` / `L_cells` as a sequence is the accommodation.
+6. The closure tolerance has a `dt` floor: at `dt = 3600` the `Gbar` budget on the synthetic
+   fields closes to 4% (shear) / 9% (divergent) at 900 m, dominated by the midpoint-field time
+   discretisation of the *test* (`0.5 (b_t + b_tp1)` vs `b(t_mid)`), not by the operators. On real
+   hours the same midpoint construction is used by design (coding §1.2), so a few-% term of this
+   kind is part of M3's closure budget; V3 (task 6) will see it too.
+7. `filt`'s composite `L_cells` is a small extension of the contract's `L_cells: int` (coding §1.2
+   "integer `L_cells` in {0, 2, 4, 8}"); the integer path is unchanged.
+8. Not a contradiction, for the record: on the real hour the term is *anti*-correlated with `Fbar`
+   at every `L` (−0.54 to −0.67). No interpretation here.
+
+**Status paragraph updated** in `frontogenesis_prompt_2.md` (tasks 1-4 done). Coding §6 M1 untouched
+until the milestone closes (task 7).
+
+Files: created `py/coarsegrain.py`, `py/tests/test_coarsegrain.py`; modified `frontogenesis_coding.md`
+(§4.5: `subfilter_bdelta`, `tau_delta`, units, placement — marked), `frontogenesis_planning.md`
+(§5.4: divergence and the `L → dx` precision — marked), `claude_prompts/frontogenesis_prompt_2.md`
+(status paragraph) and this log.
+
+### 2026-09-29 — Execution prompt 2, task 5: gates V1, V2, V4 (Fable, restarted)
+
+**Scope.** Task 5 of `frontogenesis_prompt_2.md` only: `validate.test_cartesian_deformation` (V1),
+`test_native_metric` (V2), `test_interpolation_bias` (V4), their PNGs, `py/tests/test_validate.py`, and
+the split of `validate.py` a previous (stalled) session had half-done. Tasks 6-7 not started: no V3,
+no `test_nan_finding.py`, no data pulled, nothing committed. `masking.py`, `operators.py`, `semilag.py`,
+`coarsegrain.py` and the data stores untouched. The user reaffirmed approval of the planning §2.4 sign
+correction (for now) on 2026-09-29.
+
+**Written / the split.**
+- `py/validate.py` (512 lines): the numbers only. `test_cartesian_deformation(alpha=1e-5, png=True, ...)`,
+  `test_native_metric(grid_ds, png=True, ...)`, `test_interpolation_bias(png=True, ...)` — the §4.9
+  signatures, extra keyword arguments (grid size, widths, sweeps) defaulted — each returning a dict
+  with a `gate` entry, plus the unchanged `demo_interp_half_cell` (V5) and `qa_land_halo` (V6) and
+  their helpers (`_snapshot_fields` stays, `test_masking.py` imports it). `__test__ = False` on the
+  three `test_*` names; pytest collects nothing from it (checked with `--collect-only`).
+- `py/synthetic.py` (294 lines, inherited and reviewed): `synthetic_cgrid`, `model_components`, `da`,
+  `deformation_fields` (the grid helpers `test_operators.py` used to define — it now re-exports them
+  from here, so `test_semilag` / `test_coarsegrain` are unchanged), `synthetic_uniform_grid`,
+  `inner`, `erf_front`, `deformation_case` / `deformation_step` / `deformation_series` (V1),
+  `uniform_shift_bias` (V4/V5); added `wave`, `sphere_radius` (V2) and `real_hour_fractions`,
+  `REAL_HOUR_CELLS` (V4). All of the inherited builders were read and exercised; they are sound:
+  the deformation departure is the converged midpoint rule (`x (1 + e/2)/(1 - e/2)` vs `e^e`,
+  `e = a dt`, 4e-6 apart), the backward chain interpolates the displacement bilinearly, which is exact
+  for the linear flow, and `uniform_shift_bias` builds `b_tp1` as the exactly translated `b_t` (integer
+  shifts give `rel = 0.0` to the bit, tilted front included).
+- `py/validate_figs.py` (473 lines, inherited): `fig_V1`, `fig_V2`, `fig_V4`, `fig_V5`, `fig_V6`, one
+  per PNG, taking the dicts/arrays `validate.py` computed. Fixed: `fig_V2` took eight positional arrays
+  and computed the latitude bins itself (now `(res, ctx)`, the bins come from `validate.py` with the
+  local truncation prediction per component); `fig_V1`'s profile panel assumed four widths; `fig_V4`
+  panel (b) put an exact 0 on a log axis (symlog) and panel (c)'s title hard-coded "sigma_G^-4" (now
+  the fitted slopes). V5/V6 re-rendered **byte-identical** (`git status` shows them unmodified).
+- `py/tests/test_validate.py` (6 tests: V1, V2 `needs_grid`, V3 slot skipped, V4, V5, V6 `needs_grid`;
+  `png=False`). `python validate.py` writes all six PNGs.
+
+**V1 — Cartesian deformation: PASS.** `u = -a x, v = a y`, `a = 1e-5 s^-1`, `dt = 3600`, front
+`b = b0 tanh(x/ell)` on a 128^2 grid of 1.8 km, both orientations (`CS = 1` and face 10's `CS = 0,
+SN = -1`: **bit-identical**, max difference 4e-15). What is compared: `G` from `operators.gradb2` at
+the arrival cells and from `semilag.gradb2_at_departure` (order 3) at the departure points of
+`semilag.departure_index`, on the exact solution `b(x, t) = b0 tanh(x e^{at}/ell)`;
+`semilag.measured_DGDt` reproduces `(G_1 - G_d)/dt` **bit-for-bit** (max rel diff 0.0).
+- *The gate:* parcels arriving at every front pixel (`G >= 0.2 max`, n = 1568) followed backwards
+  through **8 chained semi-Lagrangian hours** at the reference width `ell = 8 dx` (tanh; `sigma_G`
+  ~ 3.6 cells): `max |G(t_n)/G(t_0) / exp(2 a t_n) - 1|` over parcels and steps = **0.776%**
+  (rms at 8 h 0.53%; `exp(2at)` reaches 1.78) — **< 1%, PASS**.
+- *Vs front width (one-step growth rate `ln[G(x, t+dt)/G(x_d, t)]/(2 a dt)`, front pixels):* median
+  0.9949 [0.9896, 1.0030] at 8 dx, 0.9928 at 6 dx, 0.9825 at 4 dx, 0.9663 at 3 dx, 0.9235 at 2 dx;
+  rms error **0.65 / 1.11 / 2.42 / 4.19 / 9.03%** at 8 / 6 / 4 / 3 / 2 dx, i.e. **order 1.90 in
+  `dx/ell`** (4-8 dx). Over the 8 h chain the max error is 0.78 / 1.57 / 3.09 / 4.43 / 7.86%.
+  The deficit sits on the flanks (panel d), where the discrete gradient of a sharpening tanh is
+  attenuated most: it is the **centred stencil's truncation**, not the scheme.
+- *The semi-Lagrangian step alone* (`G_d` against the same stencil applied to the analytic `b` at the
+  exact departure point, so the stencil's truncation cancels): max **0.354 / 0.174 / 0.085 / 0.026 /
+  0.010%** at 2 / 3 / 4 / 6 / 8 dx (order 3); 0.148 / 0.028 / 0.009 / 0.001 / 0.0006% (order 5).
+  **< 1% at every width — PASS** (this is planning §6's "scheme in isolation").
+
+**V2 — native-grid metric: PASS.** `f = sin(2 pi (lon - lon0)/2 deg) cos(2 pi (lat - lat0)/2 deg)`
+(96 x 124 cells; `lon0 = -123.52`, `lat0 = 31.54` = the analysis-mask means) through
+`operators.grad_b` on `tile330_grid.zarr` (face 10, `CS = -2e-17`, `SN = -1`), against the exact
+gradient on a sphere of **R = 6370 km** (MITgcm `rSphere`; the grid's own `dxC`/`dyC` over the
+haversine centre distances give **6370.0 / 6369.2 km**). Errors normalised by `max |grad f|` on
+`mask_analysis` (262,925 cells; all finite): **`b_x` max 0.077%, rms 0.033%, p99 0.071%; `b_y` max
+0.041%, rms 0.018%, p99 0.037%** — **< 1%, PASS** by 13x; pointwise relative error where
+`|grad f| > 0.5 max`: 0.080%. Where it is worst: `b_x` at 37.54N 124.49W (j 168, i 48; the north end,
+where a lon-wave crest coincides with the largest phase advance per cell), `b_y` at 32.03N 127.01W.
+The error is the stencil's truncation, predicted per cell as `-(theta^2/6) f'` with `theta` the
+phase advance per cell (measured/predicted max 0.077/0.071%, 0.041/0.038%; the rms-vs-latitude curves
+lie on the prediction, panel d; halving/doubling the wavelength scales the max error by 3.8x / 3.2x —
+order 1.8). *The metric alone* (linear `lon - lon0`, `lat - lat0`: no truncation): **max 0.0122% /
+0.0114%**, scale medians 0.99994 (`dyC` is 0.012% under `R cos(lat) dlambda` at 6370 km) / 1.0000.
+Components swapped (a wrong `CS`/`SN`) would give **87%**. `dxC / dyC`: 1.69 / 1.83 km at the north
+end, 1.90 / 2.06 km at the south.
+
+**V4 — interpolation bias: recorded.** `semilag.measured_DGDt` under a uniform flow that translates
+an `erf` front (`G` Gaussian of `sigma_G` cells) by a prescribed displacement per hour, `b_tp1` the
+exactly shifted `b_t`, so the true `DG/Dt = 0`. Reported as `rel = DGDt dt / G(t+dt)`, the fabricated
+tendency per hour as a fraction of `G` (positive at the maximum = fabricated frontogenesis), rms over
+front pixels (`G >= 0.2 max`) and signed at the maximum. 64 x 96 grid, 8-cell margin.
+- **Headline error bar (definition):** the rms over front pixels of `DGDt dt/G` for the
+  **`sigma_G = 1.5`-cell front at order 3**, averaged in quadrature over the sub-cell cross-front
+  displacement implied by the task-3 real-hour distribution (`|d|` lognormal with median 0.364 and
+  p99 1.252 cells, capped at 2.09; direction isotropic; only the fractional part of the cross-front
+  component matters, integer shifts being exact): **0.28% of `G` per hour** (all-cross-front upper
+  bound 0.33%; signed at the front maximum +0.30%). Against the 7-20% per-hour signal `2F dt/G`:
+  **1.4-4.0%** of the signal. Order 1: 2.30% (11-33% of the signal); order 5: 0.060% (0.3-0.9%).
+- *Sub-cell fraction* (`sigma_G = 1.5`, rms / signed at the max): order 3 **0.36% / +0.54%** at a
+  half cell, 0.31% at 0.25, 0.26% at 0.75, 0.14% at 0.1, **0 at 0 and 1** (rms 0.0); order 1
+  3.46% / +4.99%; order 5 0.076% / +0.10%. Asymmetric about 0.5 because the Lagrange nodes are
+  floor-based (`-1..2`), a property of the kernel.
+- *Direction* (0.5 cells at 0 / 30 / 45 / 60 / 90 deg from `i`): front along `j`, order 3: 0.36 /
+  0.43 / 0.39 / 0.31 / **0.000%** (along-front is exact); front tilted 30 deg: 0.25 / 0.26 / 0.25 /
+  0.21 / 0.03% — both kernel axes engaged, no larger than the 1-D case.
+- *Front width* (rms at a half cell → at the real-hour distribution), `sigma_G` = 1.0 / 1.5 / 2 / 3 /
+  4 / 6 cells: order 3 **1.61 / 0.36 / 0.135 / 0.031 / 0.010 / 0.002% → 1.02 / 0.28 / 0.099 / 0.021 /
+  0.007 / 0.001%**; order 5 0.62 / 0.076 / 0.018 / 0.002 / 0.0004 / 0.00003% → 0.38 / 0.060 / 0.013 /
+  0.001 / 0 / 0%; order 1 6.8 / 3.5 / 2.0 / 0.90 / 0.51 / 0.23% → 4.6 / 2.3 / 1.35 / 0.62 / 0.35 /
+  0.16%. Fitted slopes for `sigma_G >= 1.5`: **`sigma_G^-3.8` (order 3), `^-5.6` (order 5),
+  `^-2.0` (order 1)**.
+- *Order sweep, summary:* at the recorded operating point (order 3, 1.5 cells) the bias is 8x below
+  order 1 and 4.6x above order 5; at 1 cell it is 1.0% of `G`/h at order 3 and 0.38% at order 5.
+
+**Tests — `pytest dev/frontogenesis/py/tests`: 68 passed, 1 skipped (the V3 slot) in 15.6 s**
+(`test_masking` 17 + `test_operators` 21 + `test_semilag` 15 + `test_coarsegrain` 10 +
+`test_validate` 5 + 1 skip; `-m "not needs_grid"` → 53 passed, 1 skipped, 15 deselected, 8.3 s).
+`test_validate.py` asserts: V1 series < 1% (both orientations), semilag-only < 1% at every width,
+`measured_DGDt` bit-for-bit, convergence order in [1.5, 2.5], orientations identical; V2 max < 1%,
+metric alone < 0.1%, swapped > 50%, wavelength order in [1.7, 2.3], measured < 2x predicted,
+R within 5 km of 6370; V4 integer shifts exact, order hierarchy (1 > 5x order 3 > 3x order 5), order-1
+half-cell > 2%, order-3 < 0.6%, positive at the maximum, width slope < -3, and a **regression bound**
+(headline < 1% of `G`/h, i.e. < 15% of the smallest signal) — not a criterion, the criteria set none;
+V5 reproduces the task-3 biases (-4.94 / -4.99 / -0.54 / -0.10%); V6 reproduces the task-1 counts.
+PNGs (200 dpi, all in `git status`, `git check-ignore -v` → `figs/.gitignore:3:!*.png`):
+`figs/V1_cartesian_deformation.png`, `figs/V2_native_metric.png`, `figs/V4_interpolation_bias.png`
+(new); `figs/V5_interp_half_cell.png`, `figs/V6_land_halo_tile330.png` (re-rendered, identical).
+
+**Contradictions / things to flag.**
+1. **Criterion 1's "< 1%" is front-width dependent.** The literal comparison (`G` along parcels vs
+   `exp(2at)`) passes at `ell = 8 dx` (0.78% over 8 h) and fails it at `<= 6 dx` (1.6% at 6 dx, 3.1%
+   at 4 dx, 7.9% at 2 dx): the centred stencil's truncation, second order in `dx/ell`, which both
+   sides of the budget share. The semi-Lagrangian step itself (planning §6's "scheme in isolation")
+   is < 0.36% at every width. Not tuned — the gate is stated at its reference width and the
+   dependence reported; the chain-rule/truncation mismatch is exactly what V3 (task 6) measures on
+   the `2F` side (task 3 measured 0.966 at 4 dx). Coding §6 M1 criterion 1 left as is; the width is
+   recorded here.
+2. **The synthetic error bar understates the real-hour order sensitivity.** Order 3 vs 5 differ by
+   0.22% of `G`/h at `sigma_G = 1.5`, but task 3 found ~5% of `G`/h between them on the real front
+   pixels (which include <= 1-cell features: at `sigma_G = 1.0` the order-3 bias is 1.0% of `G`/h,
+   order 5 0.38%). **Quote the error bar with its width: 0.28% (1.5-cell) to 1.0% (1-cell) of `G`
+   per hour at order 3**, i.e. up to 14% of a 7% signal on the sharpest real fronts — and M3 should
+   report the slope at order 5 alongside order 3 (a 5%-of-signal-class check, per task 3).
+3. **The direction of the real displacement relative to the front is unknown**, so the headline
+   assumes an isotropic direction; the all-cross-front value (0.33%) is the bound. V3 with `llc`
+   velocities (task 6) is where the real distribution enters.
+4. `validate.py` is 512 lines against §1.3's ~400 even after the split (the docstrings state what
+   each gate compares, which is the point of the module); `validate_figs.py` 473. Flagged, not
+   trimmed further — a third split (`validate_gates.py`) would move the contract names off
+   `validate.py`.
+5. Not a contradiction: the grid's zonal metric `dyC` implies 6369.2 km against `dxC`'s 6370.0
+   (0.012%), the whole of the "metric alone" error; a 1-cell V2 wavelength sweep would be needed to
+   see anything metric-like above the truncation, and there is nothing (panel d).
+6. Coding §4.9 says V2 "needs the real tile grid" only; it also reads `data/tile330_masks.nc` for
+   `mask_analysis` (falls back to `masking.build_masks`), like V6.
+
+**Status paragraph updated** in `frontogenesis_prompt_2.md` (tasks 1-5 done). Coding §6 M1 untouched
+until the milestone closes (task 7).
+
+Files: created `py/synthetic.py`, `py/validate_figs.py`, `py/tests/test_validate.py`,
+`figs/V1_cartesian_deformation.png`, `figs/V2_native_metric.png`, `figs/V4_interpolation_bias.png`;
+modified `py/validate.py` (split + V1/V2/V4), `py/tests/test_operators.py` (grid helpers imported
+from `synthetic.py`), `claude_prompts/frontogenesis_prompt_2.md` (status paragraph) and this log.

@@ -469,9 +469,22 @@ not a prefiltered B-spline (`map_coordinates`), whose recursive prefilter leaks 
 
 ```python
 def subfilter_flux(b, U, V, L_cells, grid_ds, grid):   -> (tau_x, tau_y)  # mean(ub) - ubar bbar
-def subfilter_term(b_bar, tau_x, tau_y, grid_ds, grid):-> term            # -grad(bbar).grad(div tau)
+      # on the U/V points, model basis, from the UNFILTERED b, U, V (filters internally;
+      # L_cells may be a sequence = the composite filter, for the Germano identity)
+def subfilter_bdelta(b, U, V, L_cells, grid_ds, grid): -> tau_delta       # mean(b delta) - bbar deltabar
+def subfilter_term(b_bar, tau_x, tau_y, grid_ds, grid,
+                   tau_delta=None):                    -> term            # -grad(bbar).grad(div tau - tau_delta)
 ```
 Without this the filter sweep is uninterpretable (planning §5.4).
+*(Corrected 2026-09-29, M1 task 4.)* **Units:** `subfilter_term` returns the term in **F units**
+(`D/Dt(Gbar/2) = F + term + ...`, planning §5.4's equation); the §3.4 budget field `subfilter`
+is **`2 * subfilter_term`** so that it sits beside `two_F` and the measured `DGDt`. **Divergence:**
+`-grad(bbar).grad(div tau)` is the non-divergent form; the surface flow is divergent, and the
+exact subfilter advection is `sigma = div tau - tau_delta` with `tau_delta = mean(b div u) -
+bbar div ubar` (`subfilter_bdelta`). On hour 0 the flux form alone overstates the term 2.2x in
+rms at every `L` — M3 must pass `tau_delta`. **Placement:** `u b` is formed on the staggered
+velocity points (`b` averaged to the U/V point, flux form, as the model advects), `div` is the
+model's flux-form divergence at the centres, and both gradients are `operators.grad_b`.
 
 ### 4.6 `py/vertical.py` — the extra budget terms from the chunk store (Q13)
 

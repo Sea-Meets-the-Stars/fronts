@@ -125,8 +125,17 @@ Each task finishes with its own tests passing. Tests go in `dev/frontogenesis/py
 tasks: each V-function is written in the task whose module it exercises. The dependency chain
 is masking → operators → semilag → validation; `coarsegrain` needs only `operators`.
 
-**Status 2026-09-29: tasks 1-3 done** (log entries "Execution prompt 2, task 1", "task 2" and
-"task 3"); tasks 4-7 not started. M0 is closed (prompt 1, task-5 log entry). Task 1 delivered `py/masking.py`,
+**Status 2026-09-29: tasks 1-5 done** (log entries "Execution prompt 2, task 1" to "task 5");
+tasks 6-7 not started. M0 is closed (prompt 1, task-5 log entry). Task 4 delivered
+`py/coarsegrain.py` (`subfilter_flux`, `subfilter_term` per §4.5, plus `subfilter_bdelta` — the
+dilatation part the divergent surface flow needs — `subfilter_advection`, `flux_divergence`,
+`b_at_velocity_points`, `filt`) and `py/tests/test_coarsegrain.py` (10 pass; suite 63). The term
+is returned in **F units** (`subfilter = 2 * term` in the M3 budget); `u b` is formed on the
+staggered velocity points (flux form); Germano holds to round-off (4e-16) for the composite
+filter; the coarse-grained `Gbar` budget closes on exact advection solutions to 4% (shear) / 9%
+(divergent) rms at 900 m and not without the term (47-85%), the `bbar` budget to 0.9-1.4%
+(∝ dx²); on hour 0 the term is 0.30 / 0.50 / 0.70 of `Fbar` in rms at `L = 2 / 4 / 8`, and the
+flux form without `tau_delta` overstates it 2.2x. Task 1 delivered `py/masking.py`,
 `data/tile330_masks.nc` (ocean 356,877 → halo 341,960 at 12.57 km = 7 x median `dxC` → offshore
 273,431 → analysis 262,925), `py/tests/test_masking.py` (17 pass), `validate.qa_land_halo` →
 `figs/V6_land_halo_tile330.png`. The Gulf of California is its own ocean component in the tile
@@ -148,6 +157,20 @@ gradient of the shifted field, which measures the residual (~0 under pure strain
 the maximum of a 1.5-cell front: order 1 **−5.0%** (bilinear `G` −4.9%, prediction −5.56%), order 3
 **−0.54%**, order 5 −0.10%. Real hours: measured and Eulerian finite on all 262,925 analysis cells,
 corr 0.74, slope 0.73; order 1 fabricates +5.2% of `G` per hour on front pixels.
+Task 5 delivered V1, V2, V4 (`figs/V1_cartesian_deformation.png`, `V2_native_metric.png`,
+`V4_interpolation_bias.png`), `py/tests/test_validate.py` (5 pass + the V3 slot skipped; suite 68 + 1
+skip) and the split of `validate.py` into `validate.py` (numbers), `validate_figs.py` (the PNGs) and
+`synthetic.py` (grids and exact solutions; `test_operators.py` now imports its grid helpers from there).
+**V1 PASS**: `G` along parcels over 8 chained hours vs `exp(2at)` to **0.78%** at `ell = 8 dx`, both
+orientations bit-identical; the one-step growth-rate error is the centred stencil's truncation, order
+1.9 in `dx/ell` (0.65 / 1.1 / 2.4 / 4.2 / 9.0% rms at 8 / 6 / 4 / 3 / 2 dx), while the semi-Lagrangian
+step alone is < 0.36% at every width. **V2 PASS**: `b_x` max 0.077%, `b_y` max 0.041% on
+`mask_analysis` (metric alone 0.012%; components swapped would be 87%; the grid implies R = 6370.0 km).
+**V4 recorded**: headline error bar **0.28% of `G` per hour** = rms over front pixels of `DGDt dt/G`
+for a 1.5-cell front at order 3 over the real-hour cross-front displacement distribution (median 0.36,
+p99 1.25 cells, isotropic; 0.33% all-cross-front), i.e. 1.4-4.0% of the 7-20% signal; order 1 2.3%,
+order 5 0.06%; half cell 0.36% rms / +0.54% at the maximum; falls as `sigma_G^-3.8`, so **1.0% at a
+1-cell front** — quote the bar with its width.
 
 ### 1. `masking.py`, `tile330_masks.nc`, and V6
 
@@ -246,6 +269,13 @@ corr 0.74, slope 0.73; order 1 fabricates +5.2% of `G` per hour on front pixels.
 - If every criterion passes, mark **M1 closed** here and in coding §6 M1.
 
 *Discharges:* criterion 6 (the remaining tests); the audit closes all seven criteria.
+
+### 8. Slides
+
+Generate a small slide deck for M1 acceptance: a title, a table of contents, and one slide per
+task. Write to `dev/frontogenesis/deck/`.  
+Include figures where you can (and put the Python scripts to generate them in the deck directory).  Log your work in the deck/README.md file.
+For the text, try never to use anything smaller than 20pt font
 
 ---
 

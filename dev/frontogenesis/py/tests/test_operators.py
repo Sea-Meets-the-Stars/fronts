@@ -23,81 +23,21 @@ from scipy import ndimage
 import operators as op
 import masking as mk
 import osn_tiles as ot
-from dbof.llc4320_ingestion.grid import ensure_comodo_attrs
 from dbof.utils import native_gradient as ng
 from dbof.preprocessing import calculate_fields as cf
 
 
 # ---------------------------------------------------------------------------
-# a synthetic C-grid with analytic positions
+# the synthetic C-grid with analytic positions lives in synthetic.py (M1
+# task 5); re-exported here because test_semilag / test_coarsegrain import it
 # ---------------------------------------------------------------------------
-def synthetic_cgrid(nj=48, ni=64, dx=1800.0, dy=2000.0, rotated=False, land=None):
-    """Uniform C-grid on ``(face, j, i)`` with comodo attrs and an xgcm grid.
-
-    Model coordinates: ``x_M = i dx`` (axis X, dim ``i``), ``y_M = j dy``
-    (axis Y, dim ``j``); ``U`` sits at ``x_M - dx/2`` (``i_g``, comodo
-    shift -0.5), ``V`` at ``y_M - dy/2`` (``j_g``).  ``dx != dy`` so a
-    swapped metric shows.  ``rotated=True`` is face 10's orientation.
-    Returns ``(grid_ds, grid, pos)`` where ``pos(kind)`` gives the
-    geographic ``(x_east, y_north)`` of the 'c', 'u' or 'v' points as
-    ``(1, nj, ni)`` arrays.
-    """
-    CS, SN = (0.0, -1.0) if rotated else (1.0, 0.0)
-    one = np.ones((1, nj, ni))
-    hfacc = one.copy()
-    if land is not None:
-        hfacc[0][land] = 0.0
-    g = xr.Dataset(
-        {'dxC': (('face', 'j', 'i_g'), one * dx), 'dyC': (('face', 'j_g', 'i'), one * dy),
-         'dxG': (('face', 'j_g', 'i'), one * dx), 'dyG': (('face', 'j', 'i_g'), one * dy),
-         'rA': (('face', 'j', 'i'), one * dx * dy), 'rAz': (('face', 'j_g', 'i_g'), one * dx * dy),
-         'CS': (('face', 'j', 'i'), one * CS), 'SN': (('face', 'j', 'i'), one * SN),
-         'hFacC': (('face', 'j', 'i'), hfacc)},
-        coords={'j': np.arange(nj), 'i': np.arange(ni),
-                'j_g': np.arange(nj), 'i_g': np.arange(ni)})
-    g = ensure_comodo_attrs(g)
-    grid = ot.build_xgcm(g)
-    jj, ii = np.meshgrid(np.arange(nj), np.arange(ni), indexing='ij')
-
-    def pos(kind):
-        x_m = ii * dx - (dx / 2 if kind == 'u' else 0.0)
-        y_m = jj * dy - (dy / 2 if kind == 'v' else 0.0)
-        # r = x_M e_xM + y_M e_yM with e_xM = (CS, SN), e_yM = (-SN, CS)
-        return (x_m * CS - y_m * SN)[None], (x_m * SN + y_m * CS)[None]
-    return g, grid, pos
-
-
-def model_components(u_east, v_north, rotated):
-    """Geographic -> model components (the inverse of the CS/SN rotation):
-    on face 10 ``U = -v_north``, ``V = u_east``."""
-    CS, SN = (0.0, -1.0) if rotated else (1.0, 0.0)
-    return u_east * CS + v_north * SN, -u_east * SN + v_north * CS
-
-
-def da(arr, dims):
-    return xr.DataArray(np.asarray(arr, dtype='float64'), dims=dims)
-
-
-C_DIMS, U_DIMS, V_DIMS = ('face', 'j', 'i'), ('face', 'j', 'i_g'), ('face', 'j_g', 'i')
+from synthetic import (synthetic_cgrid, model_components, da, deformation_fields,  # noqa: E402,F401
+                       C_DIMS, U_DIMS, V_DIMS)
 
 
 def interior(a, m=3):
     """Drop ``m`` cells on every edge (the finite tile-edge rim)."""
     return a[0, m:-m, m:-m]
-
-
-def deformation_fields(g, pos, rotated, a=1e-5, b0=1e-2, ell=None):
-    """Pure deformation ``u = -a x, v = a y`` and a front ``b = b0 tanh(x/ell)``
-    across the compressional (x) axis, on the synthetic grid."""
-    ell = 4 * 1800.0 if ell is None else ell
-    xc, yc = pos('c')
-    xu, yu = pos('u')
-    xv, yv = pos('v')
-    xc0 = xc.mean()
-    b = da(b0 * np.tanh((xc - xc0) / ell), C_DIMS)
-    U, _ = model_components(-a * (xu - xc0), a * yu, rotated)
-    _, V = model_components(-a * (xv - xc0), a * yv, rotated)
-    return b, da(U, U_DIMS), da(V, V_DIMS)
 
 
 # ---------------------------------------------------------------------------

@@ -457,6 +457,21 @@ filter cutoff — precisely where `|grad bbar|^2` has its variance. It is `O(1)`
 diffusion term of §2.3.** The claim that the unfiltered limit isolates the diabatic part
 was wrong.
 
+*(Corrected 2026-09-29, M1 task 4.)* Two precisions. (i) The equation above is the
+non-divergent form: with `div u = delta != 0` — the surface flow, where `delta` is 0.1-0.5 f at
+fronts — the exact subfilter advection is `sigma = div tau - tau_delta`,
+`tau_delta = mean(b delta) - bbar deltabar`, and the term is `- grad bbar . grad sigma`; on
+hour 0 of tile 330 the flux form alone overstates the term 2.2x in rms because the
+`grad delta . grad b` part of `div tau` is cancelled by `tau_delta` (`coarsegrain.py`). (ii)
+"As `L -> dx` it becomes the numerical-diffusion term" is a statement about the *total*
+(explicit + implicit) subfilter flux: the *explicit* term computed from the model fields is
+exactly zero at `L = 0` (the filter is the identity) and `O(L^2)` at small `L` (the Clark /
+gradient-model limit, `tau ~ L (L + 2) dx^2 / 12 grad u . grad b`); the model's own OS7MP
+dissipation is never in it and stays in the residual at every `L`. Measured on hour 0
+(`mask_analysis`): rms(term)/rms(`Fbar`) = **0.30 / 0.50 / 0.70** at `L = 2 / 4 / 8`,
+anti-correlated with `Fbar` (−0.66 / −0.60 / −0.54) — O(1) in the sense of not small, growing
+with `L` rather than constant.
+
 So the sweep as originally conceived measures the subfilter fraction at each cutoff, not a
 "diabatic efficiency". To make it a legitimate diagnostic we have the full fields, so we
 **compute `tau` explicitly** (Germano-identity / Aluie coarse-graining) at each `L` and

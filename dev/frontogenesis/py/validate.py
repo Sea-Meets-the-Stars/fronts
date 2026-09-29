@@ -1,53 +1,420 @@
-""" M1 validation figures (coding doc §4.9): the four gates V1-V4 and the
-two supporting figures V5-V6.  Each function writes one PNG to
-``dev/frontogenesis/figs/`` and returns a dict of the numbers.
+""" M1 validation gates (coding doc §4.9): the four gates V1-V4 and the two
+supporting figures V5-V6.  Each function computes the numbers, returns them
+as a dict and (``png=True``) hands them to ``validate_figs.fig_V*`` for the
+PNG in ``dev/frontogenesis/figs/``.  Synthetic grids and exact solutions
+come from ``synthetic.py``; nothing here is imported by the science path.
 
-Written so far: ``qa_land_halo`` -> **V6** (M1 task 1);
-``demo_interp_half_cell`` -> **V5** (M1 task 3).  The four gates arrive with
-tasks 5 and 6.
+Written: ``test_cartesian_deformation`` -> **V1**, ``test_native_metric`` ->
+**V2**, ``test_interpolation_bias`` -> **V4** (M1 task 5);
+``demo_interp_half_cell`` -> **V5** (task 3); ``qa_land_halo`` -> **V6**
+(task 1).  ``test_discrete_null`` -> **V3** is task 6.
 
-Maps are drawn with ``pcolormesh(XC, YC, ...)`` so they come out north-up,
-east-right on the rotated face 10 (``i`` runs south, ``j`` runs east).
+The ``test_*`` names are the contract's; ``__test__ = False`` keeps pytest
+from collecting them here (``tests/test_validate.py`` runs them).
 """
-
-from pathlib import Path
 
 import numpy as np
 import xarray as xr
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt                              # noqa: E402
-from matplotlib.colors import ListedColormap, BoundaryNorm   # noqa: E402
-from matplotlib.patches import Rectangle                     # noqa: E402
-from scipy import ndimage                                    # noqa: E402
+from scipy import ndimage
 
-from scipy import special                                    # noqa: E402
+import osn_tiles as ot
+import masking as mk
+import operators as op
+import semilag as sl
+import synthetic as sy
+import validate_figs as vf
+import m0_qa_checks as qc
+from m1_write_masks import gulf_of_california_check
+from dbof.utils import native_gradient as ng
+from dbof.preprocessing.calculate_fields import buoyancy_of_field
 
-import osn_tiles as ot                                       # noqa: E402
-import masking as mk                                         # noqa: E402
-import operators as op                                       # noqa: E402
-import semilag as sl                                         # noqa: E402
-import m0_qa_checks as qc                                    # noqa: E402
-from m0_qa_plot import draw_map, edge_profile                # noqa: E402
-from m1_write_masks import gulf_of_california_check          # noqa: E402
-from dbof.utils import native_gradient as ng                 # noqa: E402
-from dbof.preprocessing.calculate_fields import buoyancy_of_field  # noqa: E402
-from dbof.llc4320_ingestion.grid import ensure_comodo_attrs  # noqa: E402
-
-FIG_DIR = Path(__file__).resolve().parents[1] / 'figs'
+FIG_DIR = vf.FIG_DIR
 RAW = 'tile330_raw_20120702T00_2h.zarr'
 SNAPSHOT = '2012-07-02T00:00:00'
-
-# V6 classes: value -> (label, colour)
-V6_CLASSES = [
-    (0, 'land (hFacC = 0)', '#b0b0b0'),
-    (1, 'retained: mask_analysis', '#e6f0fa'),
-    (2, 'removed by the land halo', '#c8102e'),
-    (3, 'removed by the offshore cut only', '#f4a259'),
-    (4, 'removed by the tile-edge margin only', '#5b2a86'),
-]
+DT = sy.DT
+R_SPHERE = 6370e3            # MITgcm rSphere; the tile's dxC/dyC give 6370.0 km (V2)
+REAL_HOUR_CELLS = sy.REAL_HOUR_CELLS
 
 
+def _rms(a):
+    return float(np.sqrt(np.nanmean(np.asarray(a, dtype='float64') ** 2)))
+
+
+def _front(G, margin):
+    """Front pixels: ``G >= 0.2 max`` inside ``margin`` cells of the edge."""
+    m = sy.inner(G.shape, margin) & np.isfinite(G)
+    return m & (G >= 0.2 * np.nanmax(np.where(m, G, np.nan)))
+
+
+# ---------------------------------------------------------------------------
+# V1: Cartesian deformation
+# ---------------------------------------------------------------------------
+def test_cartesian_deformation(alpha=1e-5, png=True, n=128, n_steps=8, widths=(2, 3, 4, 6, 8),
+                               ref_ell_cells=8, dt=DT, margin=8) -> dict:
+    """**V1**: pure deformation ``u = -a x, v = a y`` with the front
+    ``b = b0 tanh(x/ell)`` on a uniform ``n x n`` C-grid, both orientations
+    (``CS = 1`` and face 10's ``CS = 0, SN = -1``).  ``b`` is conserved, so
+    along a parcel ``G = |grad b|^2`` grows exactly as ``exp(2 a t)``.
+
+    What is compared (all ``G`` from ``operators.gradb2`` / the same stencil
+    at the departure point, ``semilag.gradb2_at_departure``, order 3):
+
+    * **the gate** -- ``G`` along the parcels arriving at every front pixel
+      (``G >= 0.2 max``) after ``n_steps`` chained semi-Lagrangian hours,
+      ``G(t_n)/G(t_0)`` against ``exp(2 a t_n)``, at the reference width
+      ``ell = ref_ell_cells dx``: ``series_max_err_ref = max |ratio - 1|``
+      over parcels and steps, required ``< 1%``;
+    * the one-step growth rate ``ln[G(x, t+dt) / G(x_d, t)] / (2 a dt)``
+      on front pixels against the front width (``rate``), whose error is
+      the centred stencil's truncation, second order in ``dx/ell``;
+    * the semi-Lagrangian step alone: ``G(x_d, t)`` against the same
+      stencil applied to the analytic ``b`` at the *exact* departure point
+      (``semilag_err_max``), which isolates departure + interpolation from
+      the stencil's own truncation (``< 1%`` at every width, orders 3 and 5);
+    * ``semilag.measured_DGDt`` reproduces ``[G_1 - G_d]/dt`` bit-for-bit.
+    Offline.  Returns the numbers.
+    """
+    res = dict(alpha=float(alpha), dt=float(dt), n=int(n), n_steps=int(n_steps),
+               widths_cells=[float(w) for w in widths], ref_ell_cells=float(ref_ell_cells),
+               interp_order=3, front_definition='G >= 0.2 max, %d cells from the edge' % margin,
+               series_t_hours=[k * dt / 3600.0 for k in range(n_steps + 1)],
+               rate={}, series={}, semilag_err_max={'order3': [], 'order5': []},
+               profiles=dict(widths=[float(w) for w in widths if w != 3], x_over_ell={}, rate={}))
+    for rotated, key in ((False, 'CS=1'), (True, 'face10')):
+        r_ = dict(median=[], min=[], max=[], rms_err=[], n=[])
+        for w in widths:
+            case = sy.deformation_case(ell_cells=w, a=alpha, rotated=rotated, n=n)
+            st = sy.deformation_step(case, 0.0, dt=dt, order=3)
+            G1, Gd = st['G_1'].values[0], st['G_d'].values[0]
+            front = _front(G1, margin) & np.isfinite(Gd)
+            with np.errstate(divide='ignore', invalid='ignore'):     # sech^4 underflows off-front
+                rate = np.log(G1 / Gd) / (2 * alpha * dt)
+            r_['median'].append(float(np.median(rate[front])))
+            r_['min'].append(float(rate[front].min()))
+            r_['max'].append(float(rate[front].max()))
+            r_['rms_err'].append(_rms(rate[front] - 1.0))
+            r_['n'].append(int(front.sum()))
+            if not rotated:
+                # the step alone, isolated from the stencil's truncation
+                st5 = sy.deformation_step(case, 0.0, dt=dt, order=5)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    res['semilag_err_max']['order3'].append(
+                        float(np.abs(Gd / st['G_d_ref'][0] - 1)[front].max()))
+                    res['semilag_err_max']['order5'].append(
+                        float(np.abs(st5['G_d'].values[0] / st5['G_d_ref'][0] - 1)[front].max()))
+                if w in res['profiles']['widths']:
+                    row = n // 2
+                    sel = front[row]
+                    res['profiles']['x_over_ell'][str(float(w))] = \
+                        ((case['xc'][0, row] - case['xc0']) / case['ell'])[sel].tolist()
+                    res['profiles']['rate'][str(float(w))] = rate[row][sel].tolist()
+            if w == ref_ell_cells:
+                t, G = sy.deformation_series(case, n_steps=n_steps, dt=dt, order=3)
+                ratio = G[:, front] / G[0, front]
+                err = ratio / np.exp(2 * alpha * t)[:, None] - 1.0
+                res['series'][key] = dict(n=int(front.sum()), max_err=float(np.abs(err).max()),
+                                          rms_err_final=_rms(err[-1]),
+                                          median=np.median(ratio, axis=1).tolist(),
+                                          min=ratio.min(axis=1).tolist(), max=ratio.max(axis=1).tolist())
+                # the contract function is the same arithmetic
+                DG = sl.measured_DGDt(case['b_exact'](0.0), case['b_exact'](dt), case['U'], case['V'],
+                                      case['g'], case['grid'], dt=dt).values[0]
+                res['series'][key]['measured_DGDt_max_rel_diff'] = float(np.nanmax(
+                    np.abs(DG[front] - (G1 - Gd)[front] / dt) / np.abs((G1 - Gd)[front] / dt)))
+        res['rate'][key] = r_
+    w = np.array(res['widths_cells'])
+    e = np.array(res['rate']['CS=1']['rms_err'])
+    sel = w >= 4
+    res['convergence_order'] = float(-np.polyfit(np.log(w[sel]), np.log(e[sel]), 1)[0])
+    res['series_max_err_ref'] = max(s['max_err'] for s in res['series'].values())
+    res['semilag_err_max_all'] = max(res['semilag_err_max']['order3'])
+    res['orientation_max_diff'] = float(np.max(np.abs(np.array(res['rate']['CS=1']['median'])
+                                                      - np.array(res['rate']['face10']['median']))))
+    res['gate'] = dict(threshold=0.01, series_pass=bool(res['series_max_err_ref'] < 0.01),
+                       semilag_pass=bool(res['semilag_err_max_all'] < 0.01))
+    res['png'] = vf.fig_V1(res) if png else None
+    return res
+
+
+# ---------------------------------------------------------------------------
+# V2: native-grid metric
+# ---------------------------------------------------------------------------
+def _grad_arrays(f, g, grid):
+    bx, by = op.grad_b(xr.DataArray(f[None], dims=('face', 'j', 'i')), g, grid)
+    return bx.values[0], by.values[0]
+
+
+def test_native_metric(grid_ds, png=True, L_lon_deg=2.0, L_lat_deg=2.0, R=R_SPHERE) -> dict:
+    """**V2**: the analytic ``f(XC, YC) = sin(2 pi (lon - lon0)/L_lon) cos(2 pi
+    (lat - lat0)/L_lat)`` through ``operators.grad_b`` on the real tile grid,
+    against its exact geographic gradient on a sphere of radius ``R``
+    (6370 km, MITgcm's ``rSphere``; the tile's ``dxC``/``dyC`` imply 6370.0
+    km, ``R_from_dxC``/``R_from_dyC``).  Errors are normalised by ``max |grad
+    f|`` on ``mask_analysis`` (the gradient passes through zero); the gate is
+    ``max |b_x - f_east|, max |b_y - f_north| < 1%`` there.  The linear
+    functions ``lon - lon0`` and ``lat - lat0`` (``lin_*``) carry no
+    truncation, so their error is the metric alone (``dxC``, ``dyC``, ``CS``,
+    ``SN``); the sinusoid's is the stencil's ``-(k dx)^2/6``, predicted per
+    cell from the local phase advance (``truncation_*``).  ``err_if_
+    components_swapped`` says what a wrong ``CS``/``SN`` would look like.
+    ``@pytest.mark.needs_grid``.  Returns the numbers.
+    """
+    g = grid_ds if 'face' in grid_ds.dims else grid_ds.expand_dims('face')
+    grid = ot.build_xgcm(g)
+    X, Y = g.XC.squeeze().values, g.YC.squeeze().values
+    masks_path = ot.DATA_DIR / 'tile330_masks.nc'
+    masks = mk.open_masks(masks_path) if masks_path.exists() else mk.build_masks(g)
+    ana, oc = masks['mask_analysis'].values, masks['mask_ocean'].values
+    lon0, lat0 = float(np.mean(X[ana])), float(np.mean(Y[ana]))
+    f, fe, fn = sy.wave(X, Y, lon0, lat0, L_lon_deg, L_lat_deg, R)
+    bx, by = _grad_arrays(f, g, grid)
+    gmax = float(np.nanmax(np.hypot(fe, fn)[ana]))
+    err_x, err_y = (bx - fe) / gmax, (by - fn) / gmax
+    res = dict(L_lon_deg=float(L_lon_deg), L_lat_deg=float(L_lat_deg), R_m=float(R),
+               lon0=lon0, lat0=lat0, n_analysis=int(ana.sum()), grad_max=gmax,
+               normalisation='error / max |grad f| on mask_analysis')
+    # the cell size of the wave: degrees per cell along the axis that runs east-west / north-south
+    dlon = (np.abs(np.diff(X, axis=1)), np.abs(np.diff(X, axis=0)))     # along i, along j
+    dlat = (np.abs(np.diff(Y, axis=1)), np.abs(np.diff(Y, axis=0)))
+    ew = 0 if np.nanmedian(dlon[0]) > np.nanmedian(dlon[1]) else 1        # which axis runs east-west
+    res['east_west_axis'] = 'i' if ew == 0 else 'j'
+    res['L_lon_cells'] = float(L_lon_deg / np.nanmedian(dlon[ew]))
+    res['L_lat_cells'] = float(L_lat_deg / np.nanmedian(dlat[1 - ew]))
+    # local truncation prediction: -(theta^2/6) f' with theta the phase advance per cell
+    # (the dbof stencil is the 2 dx centred difference: sin(theta)/theta - 1)
+    kx, ky = 2 * np.pi / L_lon_deg, 2 * np.pi / L_lat_deg
+    th_x = kx * np.abs(np.gradient(X, axis=1 - ew))       # rad of lon-phase per cell, east-west axis
+    th_y = ky * np.abs(np.gradient(Y, axis=ew))           # rad of lat-phase per cell, north-south axis
+    pred_x, pred_y = th_x ** 2 / 6 * np.abs(fe) / gmax, th_y ** 2 / 6 * np.abs(fn) / gmax
+    for comp, e, pr in (('x', err_x, pred_x), ('y', err_y, pred_y)):
+        k = int(np.nanargmax(np.abs(e[ana])))
+        res[f'err_{comp}_rms'] = _rms(e[ana])
+        res[f'err_{comp}_max'] = float(np.nanmax(np.abs(e[ana])))
+        res[f'err_{comp}_p99'] = float(np.nanpercentile(np.abs(e[ana]), 99))
+        res[f'worst_{comp}'] = dict(lat=float(Y[ana][k]), lon=float(X[ana][k]),
+                                    j=int(np.flatnonzero(ana)[k] // X.shape[1]),
+                                    i=int(np.flatnonzero(ana)[k] % X.shape[1]),
+                                    err=float(e[ana][k]), predicted=float(pr[ana][k]))
+        res[f'truncation_{comp}'] = float(np.nanmax(pr[ana]))
+        res[f'truncation_{comp}_rms'] = _rms(pr[ana])
+    strong = ana & (np.hypot(fe, fn) > 0.5 * gmax)
+    res['err_pointwise_rel_max_strong'] = float(np.nanmax(
+        np.hypot(bx - fe, by - fn)[strong] / np.hypot(fe, fn)[strong]))
+    res['err_if_components_swapped'] = _rms(np.hypot(by - fe, bx - fn)[ana] / gmax)
+    res['finite_on_analysis'] = bool(np.isfinite(bx[ana]).all() and np.isfinite(by[ana]).all())
+    # the metric alone: linear functions of lon and lat
+    deg = 180.0 / np.pi
+    lin = {}
+    for name, fl, fle, fln in (('lon', X - lon0, deg / (R * np.cos(np.deg2rad(Y))), 0 * X),
+                               ('lat', Y - lat0, 0 * X, deg / R + 0 * X)):
+        lbx, lby = _grad_arrays(fl, g, grid)
+        lm = float(np.nanmax(np.hypot(fle, fln)[ana]))
+        lin[name] = ((lbx - fle) / lm, (lby - fln) / lm)
+        res[f'lin_{name}_err_x_max'] = float(np.nanmax(np.abs(lin[name][0][ana])))
+        res[f'lin_{name}_err_y_max'] = float(np.nanmax(np.abs(lin[name][1][ana])))
+        res[f'lin_{name}_scale_median'] = float(np.nanmedian(
+            ((lbx / fle) if name == 'lon' else (lby / fln))[ana]))
+    res['lin_err_x_max'] = res['lin_lon_err_x_max']
+    res['lin_err_y_max'] = res['lin_lat_err_y_max']
+    res['R_from_dxC'], res['R_from_dyC'] = sy.sphere_radius(X, Y, g.dxC.values[0], g.dyC.values[0])
+    # the error against latitude (rms in bins) with the local prediction
+    lat = Y[ana]
+    lb = np.linspace(lat.min(), lat.max(), 25)
+    res['lat_bins'] = (0.5 * (lb[1:] + lb[:-1])).tolist()
+    for name, arr in (('rms_x_vs_lat', err_x), ('rms_y_vs_lat', err_y),
+                      ('truncation_x_vs_lat', pred_x), ('truncation_y_vs_lat', pred_y)):
+        a = arr[ana]
+        res[name] = [_rms(a[(lat >= lb[k]) & (lat < lb[k + 1])]) for k in range(len(lb) - 1)]
+    for end, sel in (('south', lat < lat.min() + 0.5), ('north', lat > lat.max() - 0.5)):
+        res[f'dxC_km_{end}'] = float(np.median(g.dxC.values[0][ana][sel]) / 1e3)
+        res[f'dyC_km_{end}'] = float(np.median(g.dyC.values[0][ana][sel]) / 1e3)
+    # second-order convergence of the sinusoid's error: halve and double the wavelength
+    sweep = dict(L_deg=[], err_x_max=[], err_y_max=[])
+    for L in (0.5 * L_lon_deg, L_lon_deg, 2.0 * L_lon_deg):
+        fs, fes, fns = sy.wave(X, Y, lon0, lat0, L, L * L_lat_deg / L_lon_deg, R)
+        sbx, sby = _grad_arrays(fs, g, grid)
+        sm = float(np.nanmax(np.hypot(fes, fns)[ana]))
+        sweep['L_deg'].append(float(L))
+        sweep['err_x_max'].append(float(np.nanmax(np.abs(sbx - fes)[ana]) / sm))
+        sweep['err_y_max'].append(float(np.nanmax(np.abs(sby - fns)[ana]) / sm))
+    res['sweep'] = sweep
+    res['sweep_order'] = float(-np.polyfit(np.log(sweep['L_deg']), np.log(sweep['err_x_max']), 1)[0])
+    res['gate'] = dict(threshold=0.01, max_err=max(res['err_x_max'], res['err_y_max']),
+                       passed=bool(max(res['err_x_max'], res['err_y_max']) < 0.01))
+    res['png'] = None
+    if png:
+        ctx = dict(X=X, Y=Y, f=f, err_x=err_x, err_y=err_y, ana=ana, oc=oc,
+                   err_lin_x=lin['lon'][0], err_lin_y=lin['lat'][1])
+        res['png'] = vf.fig_V2(res, ctx)
+    return res
+
+
+# ---------------------------------------------------------------------------
+# V4: interpolation bias
+# ---------------------------------------------------------------------------
+def _bias_stats(u):
+    """``(rms over front pixels, signed at the front maximum)`` of
+    ``rel = DGDt dt / G`` [fraction of G per hour]."""
+    r = u['rel'][u['front']]
+    k = int(np.nanargmax(np.where(u['front'], u['G'], -1.0)))
+    return float(np.sqrt(np.nanmean(r ** 2))), float(u['rel'].flat[k])
+
+
+def test_interpolation_bias(png=True, sigma_G_ref=1.5, orders=(1, 3, 5), n_frac=21,
+                            directions_deg=(0, 30, 45, 60, 90), widths=(1.0, 1.5, 2.0, 3.0, 4.0, 6.0),
+                            real_hour=REAL_HOUR_CELLS) -> dict:
+    """**V4**: ``semilag.measured_DGDt`` under a uniform, zero-strain flow
+    that moves an ``erf`` front (``G`` Gaussian of ``sigma_G`` cells) by a
+    prescribed displacement per hour; ``b_tp1`` is the exactly shifted
+    ``b_t``, so the true ``DG/Dt = 0`` and whatever comes out is the
+    interpolation bias.  Reported as ``rel = DGDt dt / G(t+dt)`` -- the
+    fabricated tendency per hour as a fraction of ``G`` (positive at the
+    front maximum = fabricated frontogenesis) -- as the rms over front
+    pixels (``G >= 0.2 max``) and signed at the maximum, against: the
+    sub-cell displacement fraction (``vs_fraction``); the direction of a
+    half-cell displacement for a front along ``j`` and one tilted 30 deg
+    (``vs_direction``); the front width (``vs_width``); and the interpolation
+    order 1 / 3 / 5 everywhere.
+
+    **Headline error bar** (``headline``): the rms over front pixels for the
+    ``sigma_G = 1.5``-cell front at order 3, averaged in quadrature over the
+    sub-cell cross-front displacement of the real-hour distribution
+    (``synthetic.real_hour_fractions``: median 0.36, p99 1.25, max 2.09 cells,
+    isotropic direction), with the all-cross-front value as the upper bound,
+    and expressed against the 7-20% per-hour signal ``2F dt/G``.  Offline.
+    """
+    fr = np.linspace(0.0, 1.0, n_frac)
+    key = {o: f'order{o}' for o in orders}
+    table = {}
+    for w in widths:
+        table[w] = {}
+        for o in orders:
+            st = [_bias_stats(sy.uniform_shift_bias(sigma_G=w, di=f, order=o)) for f in fr]
+            table[w][key[o]] = dict(rms=[s[0] for s in st], at_max=[s[1] for s in st])
+    res = dict(sigma_G_ref=float(sigma_G_ref), orders=list(orders), fractions=fr.tolist(),
+               widths_sigma_G=[float(w) for w in widths], directions_deg=list(directions_deg),
+               front_definition='G >= 0.2 max (within ~1.8 sigma_G of the centre)',
+               rel_definition='measured DGDt * dt / G(t+dt); truth is 0',
+               vs_fraction=table[sigma_G_ref], vs_width={}, vs_direction={},
+               real_hour_median_cells=real_hour['median'], real_hour_p99_cells=real_hour['p99'],
+               real_hour_max_cells=real_hour['max'])
+    f_iso, f_all = sy.real_hour_fractions(real_hour)
+
+    def over_distribution(tab):
+        rms2 = np.interp(f_iso, fr, np.array(tab['rms']) ** 2)
+        return dict(rms=float(np.sqrt(rms2.mean())),
+                    rms_all_cross_front=float(np.sqrt(np.interp(f_all, fr, np.array(tab['rms']) ** 2).mean())),
+                    at_max_mean=float(np.interp(f_iso, fr, tab['at_max']).mean()),
+                    rms_half_cell=float(np.interp(0.5, fr, tab['rms'])),
+                    at_max_half_cell=float(np.interp(0.5, fr, tab['at_max'])))
+    for o in orders:
+        k = key[o]
+        res['vs_width'][k] = dict(rms_half_cell=[float(np.interp(0.5, fr, table[w][k]['rms'])) for w in widths],
+                                  at_max_half_cell=[float(np.interp(0.5, fr, table[w][k]['at_max'])) for w in widths],
+                                  rms_real_hour=[over_distribution(table[w][k])['rms'] for w in widths])
+        h = over_distribution(table[sigma_G_ref][k])
+        h.update(order=o, sigma_G=float(sigma_G_ref), signal_fraction=[h['rms'] / 0.20, h['rms'] / 0.07],
+                 definition='rms over front pixels of DGDt dt/G, sigma_G = 1.5, averaged in quadrature over '
+                            'the sub-cell cross-front displacement of the real-hour distribution (lognormal '
+                            'median 0.364, p99 1.252, cap 2.09 cells; isotropic direction)')
+        res[f'headline_{k}'] = h
+    res['headline'] = res['headline_order3']
+    res['integer_shift_rms'] = max(table[sigma_G_ref][key[o]]['rms'][i] for o in orders for i in (0, -1))
+    for tilt in (0.0, 30.0):
+        res['vs_direction'][f'tilt{tilt:.0f}'] = {
+            key[o]: [_bias_stats(sy.uniform_shift_bias(sigma_G=sigma_G_ref, di=0.5 * np.cos(np.deg2rad(a)),
+                                                       dj=0.5 * np.sin(np.deg2rad(a)), order=o,
+                                                       tilt_deg=tilt))[0] for a in directions_deg]
+            for o in orders}
+    w = np.array(res['widths_sigma_G'])
+    sel = w >= 1.5
+    res['width_slope'] = {k: float(np.polyfit(np.log(w[sel]), np.log(np.array(res['vs_width'][k]['rms_half_cell'])[sel]), 1)[0])
+                          for k in res['vs_width']}
+    profile = {}
+    for o in orders:
+        u = sy.uniform_shift_bias(sigma_G=sigma_G_ref, di=0.5, order=o)
+        row = u['rel'].shape[0] // 2
+        profile['s_cells'] = u['s_cells'][row]
+        profile[key[o]] = u['rel'][row]
+    res['png'] = vf.fig_V4(res, profile) if png else None
+    return res
+
+
+# ---------------------------------------------------------------------------
+# V5: the interpolation choice, made visible
+# ---------------------------------------------------------------------------
+def _half_cell_curves(sigma_G, nj=16, ni=96, dx=1800.0, x0_frac=0.3, orders=(1, 3, 5)):
+    """The V5 experiment for one front width: ``G`` after a half-cell shift
+    along ``i`` by every route, on the middle row.  Truth is the same
+    discrete stencil applied to the exactly shifted ``b`` (so the stencil's
+    own truncation cancels and only the interpolation error remains)."""
+    g, grid, x, _ = sy.synthetic_uniform_grid(nj=nj, ni=ni, dx=dx)
+    x0 = (ni / 2 + x0_frac) * dx
+    b = xr.DataArray(sy.erf_front(x, x0, sigma_G, dx), dims=('face', 'j', 'i'))
+    b_shift = xr.DataArray(sy.erf_front(x - 0.5 * dx, x0, sigma_G, dx), dims=('face', 'j', 'i'))
+    row = nj // 2
+    out = dict(x_cells=(x[0, row] - x0) / dx - 0.5,          # distance from the shifted front centre x0 + dx/2
+               truth=op.gradb2(b_shift, g, grid).values[0, row],
+               analytic=(sy.erf_front(x[0, row] - 0.5 * dx + 1e-3 * dx, x0, sigma_G, dx)
+                         - sy.erf_front(x[0, row] - 0.5 * dx - 1e-3 * dx, x0, sigma_G, dx)) ** 2
+               / (2e-3 * dx) ** 2)
+    G = op.gradb2(b, g, grid)
+    # the trap: interpolate G itself, bilinearly
+    out['bilinear_G'] = sl.interp_to_departure(G, 0.5, 0.0, 1, allow_low_order=True).values[0, row]
+    # the rule: interpolate b onto the departure stencil, then the same stencil
+    for order in orders:
+        out[f'b_order{order}'] = sl.gradb2_at_departure(
+            b, 0.5, 0.0, g, order, allow_low_order=True).values[0, row]
+    # the tile-edge rim is finite and wrong (xgcm's 0 fill, M0 task 5) and
+    # the interpolation reach is up to 3 cells: blank 4 cells on each end
+    for name in list(out):
+        if name != 'x_cells':
+            out[name] = out[name].copy()
+            out[name][:4] = np.nan
+            out[name][-4:] = np.nan
+    return out
+
+
+def demo_interp_half_cell(png: bool = True) -> dict:
+    """**V5**: a synthetic front (``G`` Gaussian, ``sigma_G = 1.5`` cells,
+    i.e. ~1.5 cells wide) shifted by half a cell -- truth vs ``G`` from
+    bilinear-interpolated ``G`` vs ``G`` from cubic-interpolated ``b``
+    (``semilag.gradb2_at_departure``: ``b`` onto the departure stencil,
+    then the ``operators.grad_b`` stencil), with the negative bias at the
+    maximum annotated in % of ``G`` against the ``dx^2 G_xx / 8G`` prediction
+    and planning §5.3's ~5.5%.  Offline.  Returns the numbers."""
+    sigma_G = 1.5
+    c = _half_cell_curves(sigma_G)
+    k = int(np.argmax(np.nan_to_num(c['truth'])))
+    pred = -1.0 / (8 * sigma_G ** 2)
+
+    def bias(name):
+        return float((c[name][k] - c['truth'][k]) / c['truth'][k])
+
+    res = dict(sigma_G_cells=sigma_G, shift_cells=0.5,
+               bias_bilinear_G=bias('bilinear_G'), bias_b_order1=bias('b_order1'),
+               bias_b_order3=bias('b_order3'), bias_b_order5=bias('b_order5'),
+               bias_predicted=float(pred),
+               bias_analytic_1d=float(np.exp(-0.25 / (2 * sigma_G ** 2)) - 1.0),
+               peak_ratio_bilinear_G=float(np.nanmax(c['bilinear_G']) / np.nanmax(c['truth'])),
+               peak_ratio_b_order3=float(np.nanmax(c['b_order3']) / np.nanmax(c['truth'])))
+    # the bias at the maximum against the front width
+    widths = np.array([1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0])
+    sweep = {name: [] for name in ('bilinear_G', 'b_order1', 'b_order3', 'b_order5')}
+    for w in widths:
+        cw = _half_cell_curves(w)
+        kw = int(np.argmax(np.nan_to_num(cw['truth'])))
+        for name in sweep:
+            sweep[name].append(float((cw[name][kw] - cw['truth'][kw]) / cw['truth'][kw]))
+    res['sweep_sigma_G_cells'] = widths.tolist()
+    res['sweep_bias'] = {k_: v for k_, v in sweep.items()}
+    res['png'] = vf.fig_V5(c, res, widths, sweep, sigma_G, pred, k) if png else None
+    return res
+
+
+# ---------------------------------------------------------------------------
+# V6: land halo
+# ---------------------------------------------------------------------------
 def _snapshot_fields(grid_ds):
     """Grid + hour t0 merged on ``(face, j, i)`` in float64, the xgcm grid,
     ``b`` (JMD95) and ``G = b_x^2 + b_y^2`` from the component stencil M1
@@ -120,318 +487,27 @@ def qa_land_halo(grid_ds, png: bool = True) -> dict:
                                  for r in ('G_components', 'jacobian')},
                edge_rim_max_offset=int(rim_max), edge_margin_covers_rim=bool(rim_max < edge_cells),
                gulf=gulf, png=None)
-    if not png:
-        return res
-
-    cmap_cls = ListedColormap([c for _, _, c in V6_CLASSES])
-    norm_cls = BoundaryNorm(np.arange(-0.5, len(V6_CLASSES)), cmap_cls.N)
-    fig, axs = plt.subplots(2, 3, figsize=(19, 11.5))
-    (pa, pb, pc), (pd, pe, pf) = axs
-
-    # (a) whole tile: every stage of the mask
-    draw_map(pa, X, Y, cls.astype(float), cmap_cls, norm=norm_cls)
-    handles = [Rectangle((0, 0), 1, 1, color=col) for _, _, col in V6_CLASSES]
-    labels = [lab for _, lab, _ in V6_CLASSES]
-    labels[1] += f'  (n = {counts["n_analysis"]:,})'
-    labels[2] += f'  (n = {counts["n_removed_halo"]:,})'
-    labels[3] += f'  (n = {counts["n_removed_offshore_only"]:,})'
-    labels[4] += f'  (n = {counts["n_removed_edge_only"]:,})'
-    pa.legend(handles, labels, loc='lower left', fontsize=7.5, framealpha=0.95)
-    pa.set_title(f'(a) mask stages: ocean {counts["n_ocean"]:,} -> halo {counts["n_halo"]:,} -> '
-                 f'offshore {counts["n_offshore"]:,}\n-> & edge margin = analysis '
-                 f'{counts["n_analysis"]:,} ({100 * counts["n_analysis"] / counts["n_ocean"]:.1f}% '
-                 'of the ocean)', fontsize=10)
-
-    # (b) cell-level inset, Monterey Bay: the coastline before / after the halo
-    j0, i0, w = 287, 96, 24
-    sl = (slice(j0 - w, j0 + w), slice(i0 - w, i0 + w))
-    pb.pcolormesh(X[sl], Y[sl], cls[sl].astype(float), cmap=cmap_cls, norm=norm_cls,
-                  shading='nearest', edgecolors='#555555', linewidth=0.15)
-    # the coastline 'before' is the grey/red boundary (hFacC); 'after' is
-    # the halo_km contour of the distance field
-    pb.contour(X[sl], Y[sl], np.nan_to_num(dist[sl], nan=-1.0), levels=[halo_km],
-               colors='black', linewidths=1.2)
-    pb.set_aspect(1 / np.cos(np.deg2rad(np.nanmean(Y[sl]))))
-    pb.set_xlabel('longitude'); pb.set_ylabel('latitude')
-    pb.set_title(f'(b) Monterey Bay, cell edges drawn: coastline before the halo (grey/red, hFacC)\n'
-                 f'and after (black: coast distance = {halo_km:.2f} km = {halo_cells} x median dxC '
-                 f'{a["dxC_median_km"]:.3f} km)', fontsize=10)
-    pa.add_patch(Rectangle((X[sl].min(), Y[sl].min()), np.ptp(X[sl]), np.ptp(Y[sl]),
-                           fill=False, ec='black', lw=1.2))
-
-    # (c) the distance field with the two thresholds
-    m = draw_map(pc, X, Y, dist, 'viridis', land=~oc, vmin=0, vmax=300)
-    fig.colorbar(m, ax=pc, shrink=0.85, label='coast_distance_km  (clipped at 300)')
-    pc.contour(X, Y, np.nan_to_num(dist, nan=-1.0), levels=[a['offshore_km']], colors='white',
-               linewidths=1.2)
-    pc.contour(X, Y, np.nan_to_num(dist, nan=-1.0), levels=[halo_km], colors='#c8102e',
-               linewidths=0.6)
-    pc.set_title(f'(c) distance to land (skfmm, mean spacing {a["dyC_mean_km"]:.3f} x '
-                 f'{a["dxC_mean_km"]:.3f} km)\nwhite: {a["offshore_km"]:g} km offshore cut; red: the '
-                 f'{halo_km:.1f} km halo', fontsize=10)
-
-    # (d) Gulf of California
-    gsl = (slice(540, 720), slice(330, 620))
-    m = pd.pcolormesh(X[gsl], Y[gsl], np.ma.masked_invalid(dist[gsl]), cmap='viridis',
-                      vmin=0, vmax=100, shading='nearest')
-    pd.pcolormesh(X[gsl], Y[gsl], np.ma.masked_where(oc[gsl], np.ones_like(X[gsl])),
-                  cmap=ListedColormap(['#b0b0b0']), shading='nearest')
-    ana = masks['mask_analysis'].values
-    pd.pcolormesh(X[gsl], Y[gsl], np.ma.masked_where(~ana[gsl], np.ones_like(X[gsl])),
-                  cmap=ListedColormap(['#e6f0fa']), shading='nearest')
-    pd.contour(X[gsl], Y[gsl], np.nan_to_num(dist[gsl], nan=-1.0), levels=[halo_km],
-               colors='#c8102e', linewidths=0.8)
-    fig.colorbar(m, ax=pd, shrink=0.85, label='coast_distance_km')
-    pd.set_aspect(1 / np.cos(np.deg2rad(np.nanmean(Y[gsl]))))
-    pd.set_xlabel('longitude'); pd.set_ylabel('latitude')
-    pd.set_title(f'(d) Gulf of California: its own ocean component ({gulf["n_gulf"]:,} cells), '
-                 f'clipped by the\neast edge at {gulf["gulf_lon"][1]:.2f}E; max coast distance '
-                 f'{gulf["gulf_max_coast_km"]:.1f} km < {a["offshore_km"]:g}: cells >= '
-                 f'{a["offshore_km"]:g} km: {gulf["gulf_n_ge_offshore"]},\nin mask_analysis: '
-                 f'{gulf["gulf_n_analysis"]} (pale = retained Pacific)', fontsize=10)
-    pa.add_patch(Rectangle((X[gsl].min(), Y[gsl].min()), np.ptp(X[gsl]), np.ptp(Y[gsl]),
-                           fill=False, ec='black', lw=1.2, ls='--'))
-
-    # (e) the finite tile-edge rim and the margin that removes it
-    prof = edge_profile(G, oc, nmax=12)
-    cols = {'low j (j=0)': '#1f5fa8', 'high j (j=719)': '#c8102e',
-            'low i (i=2880)': '#2a9d8f', 'high i (i=3599)': '#f4a259'}
-    k = np.arange(12)
-    for name, col in cols.items():
-        pe.plot(k, prof[name], 'o-', color=col, lw=1.5, ms=4, label=f'G, {name} edge')
-    pe.axvspan(-0.5, edge_cells - 0.5, color='#5b2a86', alpha=0.15,
-               label=f'edge margin: edge_cells = {edge_cells} (mask_edge False)')
-    offs = {r: sorted({o for kk in ('low_j', 'high_j', 'low_i', 'high_i') for o in rim[r][kk]})
-            for r in ('G_components', 'jacobian')}
-    pe.axvline(rim_max + 0.5, color='black', lw=1.2, ls=':',
-               label=f'crop test: G changed at offsets {offs["G_components"]}, '
-                     f'Jacobian at {offs["jacobian"]}')
-    pe.set_yscale('log'); pe.set_xticks(k); pe.set_xlim(-0.5, 11.5)
-    pe.set_xlabel('offset from tile edge [cells]')
-    pe.set_ylabel('median |G| / median over offsets 1-3')
-    pe.set_title('(e) tile-edge rim: finite, not NaN (xgcm padding = 0). Low edges ~1e6x (diff '
-                 'against 0),\nhigh edges ~0.5x (interp with 0); Jacobian 1-2 cells deep; '
-                 f'edge_cells = {edge_cells} margin shaded', fontsize=10)
-    pe.legend(fontsize=7, loc='upper right'); pe.grid(alpha=0.3)
-
-    # (f) halo width in cells: index distance to land, excluded vs retained
-    bins = np.arange(0.5, 16.5)
-    pf.hist(taxi[oc & ~halo], bins=bins, color='#c8102e', alpha=0.8,
-            label=f'ocean removed by the halo (n = {counts["n_removed_halo"]:,})')
-    pf.hist(taxi[halo & (taxi <= 15)], bins=bins, color='#1f5fa8', alpha=0.8,
-            label='retained (taxicab distance <= 15 shown)')
-    pf.axvline(halo_cells, color='black', lw=1.5, ls='--', label=f'halo_cells = {halo_cells}')
-    pf.set_xlabel('taxicab index distance to the nearest land cell [cells]')
-    pf.set_ylabel('cells')
-    pf.set_title(f'(f) halo width: {halo_km:.2f} km = {halo_cells} cells of dxC (meridional, i) = '
-                 f'{halo_km / a["dyC_median_km"]:.2f} of dyC (zonal, j)\nretained: min taxicab '
-                 f'{res["halo_min_taxicab_retained"]}, min chessboard {res["halo_min_chessboard_retained"]}; '
-                 f'removed ocean: max taxicab {res["halo_max_taxicab_excluded"]}', fontsize=10)
-    pf.legend(fontsize=8); pf.grid(alpha=0.3, axis='y')
-
-    fig.suptitle(f'V6: land halo, offshore cut, Gulf of California and tile-edge margin; tile 330 '
-                 f'(face 10), rim measured at {SNAPSHOT}; maps north-up via (XC, YC)', fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    FIG_DIR.mkdir(exist_ok=True)
-    out = FIG_DIR / 'V6_land_halo_tile330.png'
-    fig.savefig(out, dpi=200)
-    plt.close(fig)
-    res['png'] = str(out)
+    if png:
+        ctx = dict(masks=masks, attrs=a, X=X, Y=Y, halo_km=halo_km, halo_cells=halo_cells,
+                   edge_cells=edge_cells, oc=oc, halo=halo, dist=dist, cls=cls, counts=counts,
+                   taxi=taxi, G=G, rim=rim, rim_max=rim_max, gulf=gulf, res=res, snapshot=SNAPSHOT)
+        res['png'] = vf.fig_V6(ctx)
     return res
 
 
-# ---------------------------------------------------------------------------
-# synthetic grids for the offline gates
-# ---------------------------------------------------------------------------
-def synthetic_uniform_grid(nj=32, ni=96, dx=1800.0, dy=1800.0):
-    """A uniform, unrotated (``CS = 1``) C-grid with comodo attrs and its
-    xgcm grid, for the offline V-functions.  Model x runs along ``i``
-    (``x = i dx`` at the centres, ``U`` at ``x - dx/2``), y along ``j``.
-    Returns ``(grid_ds, grid, x, y)`` with ``x``, ``y`` the ``(1, nj, ni)``
-    centre positions."""
-    one = np.ones((1, nj, ni))
-    g = xr.Dataset(
-        {'dxC': (('face', 'j', 'i_g'), one * dx), 'dyC': (('face', 'j_g', 'i'), one * dy),
-         'dxG': (('face', 'j_g', 'i'), one * dx), 'dyG': (('face', 'j', 'i_g'), one * dy),
-         'rA': (('face', 'j', 'i'), one * dx * dy), 'rAz': (('face', 'j_g', 'i_g'), one * dx * dy),
-         'CS': (('face', 'j', 'i'), one), 'SN': (('face', 'j', 'i'), 0.0 * one),
-         'hFacC': (('face', 'j', 'i'), one)},
-        coords={'j': np.arange(nj), 'i': np.arange(ni), 'j_g': np.arange(nj), 'i_g': np.arange(ni)})
-    g = ensure_comodo_attrs(g)
-    jj, ii = np.meshgrid(np.arange(nj), np.arange(ni), indexing='ij')
-    return g, ot.build_xgcm(g), (ii * dx)[None], (jj * dy)[None]
-
-
-# ---------------------------------------------------------------------------
-# V5: the interpolation choice, made visible
-# ---------------------------------------------------------------------------
-def _erf_front(x, x0, sigma_G_cells, dx, b0=1e-2):
-    """``b = b0 erf((x - x0)/(sqrt 2 sigma_b))`` with ``sigma_b = sqrt 2
-    sigma_G``: ``G = b_x^2`` is a Gaussian of standard deviation ``sigma_G``
-    cells, and bilinear interpolation at a half-cell offset errs by
-    ``dx^2 G_xx / 8 = -G / (8 sigma_G^2)`` at its maximum -- ``-5.56%`` for
-    the ``sigma_G = 1.5`` front of planning §5.3."""
-    sb = np.sqrt(2.0) * sigma_G_cells * dx
-    return b0 * special.erf((x - x0) / (np.sqrt(2.0) * sb))
-
-
-def _half_cell_curves(sigma_G, nj=16, ni=96, dx=1800.0, x0_frac=0.3, orders=(1, 3, 5)):
-    """The V5 experiment for one front width: ``G`` after a half-cell shift
-    along ``i`` by every route, on the middle row.  Truth is the same
-    discrete stencil applied to the exactly shifted ``b`` (so the stencil's
-    own truncation cancels and only the interpolation error remains)."""
-    g, grid, x, _ = synthetic_uniform_grid(nj=nj, ni=ni, dx=dx)
-    x0 = (ni / 2 + x0_frac) * dx
-    b = xr.DataArray(_erf_front(x, x0, sigma_G, dx), dims=('face', 'j', 'i'))
-    b_shift = xr.DataArray(_erf_front(x - 0.5 * dx, x0, sigma_G, dx), dims=('face', 'j', 'i'))
-    row = nj // 2
-    out = dict(x_cells=(x[0, row] - x0) / dx - 0.5,          # distance from the shifted front centre x0 + dx/2
-               truth=op.gradb2(b_shift, g, grid).values[0, row],
-               analytic=(_erf_front(x[0, row] - 0.5 * dx + 1e-3 * dx, x0, sigma_G, dx)
-                         - _erf_front(x[0, row] - 0.5 * dx - 1e-3 * dx, x0, sigma_G, dx)) ** 2
-               / (2e-3 * dx) ** 2)
-    G = op.gradb2(b, g, grid)
-    # the trap: interpolate G itself, bilinearly
-    out['bilinear_G'] = sl.interp_to_departure(G, 0.5, 0.0, 1, allow_low_order=True).values[0, row]
-    # the rule: interpolate b onto the departure stencil, then the same stencil
-    for order in orders:
-        out[f'b_order{order}'] = sl.gradb2_at_departure(
-            b, 0.5, 0.0, g, order, allow_low_order=True).values[0, row]
-    # the tile-edge rim is finite and wrong (xgcm's 0 fill, M0 task 5) and
-    # the interpolation reach is up to 3 cells: blank 4 cells on each end
-    for name in list(out):
-        if name != 'x_cells':
-            out[name] = out[name].copy()
-            out[name][:4] = np.nan
-            out[name][-4:] = np.nan
-    return out
-
-
-def demo_interp_half_cell(png: bool = True) -> dict:
-    """**V5**: a synthetic front (``G`` Gaussian, ``sigma_G = 1.5`` cells,
-    i.e. ~1.5 cells wide) shifted by half a cell -- truth vs ``G`` from
-    bilinear-interpolated ``G`` vs ``G`` from cubic-interpolated ``b``
-    (``semilag.gradb2_at_departure``: ``b`` onto the departure stencil,
-    then the ``operators.grad_b`` stencil), with the negative bias at the
-    maximum annotated in % of ``G`` against the ``dx^2 G_xx / 8G`` prediction
-    and planning §5.3's ~5.5%.  Offline.  Returns the numbers."""
-    sigma_G = 1.5
-    c = _half_cell_curves(sigma_G)
-    k = int(np.argmax(np.nan_to_num(c['truth'])))
-    pred = -1.0 / (8 * sigma_G ** 2)
-
-    def bias(name):
-        return float((c[name][k] - c['truth'][k]) / c['truth'][k])
-
-    res = dict(sigma_G_cells=sigma_G, shift_cells=0.5,
-               bias_bilinear_G=bias('bilinear_G'), bias_b_order1=bias('b_order1'),
-               bias_b_order3=bias('b_order3'), bias_b_order5=bias('b_order5'),
-               bias_predicted=float(pred),
-               bias_analytic_1d=float(np.exp(-0.25 / (2 * sigma_G ** 2)) - 1.0),
-               peak_ratio_bilinear_G=float(np.nanmax(c['bilinear_G']) / np.nanmax(c['truth'])),
-               peak_ratio_b_order3=float(np.nanmax(c['b_order3']) / np.nanmax(c['truth'])))
-    # the bias at the maximum against the front width
-    widths = np.array([1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0])
-    sweep = {name: [] for name in ('bilinear_G', 'b_order1', 'b_order3', 'b_order5')}
-    for w in widths:
-        cw = _half_cell_curves(w)
-        kw = int(np.argmax(np.nan_to_num(cw['truth'])))
-        for name in sweep:
-            sweep[name].append(float((cw[name][kw] - cw['truth'][kw]) / cw['truth'][kw]))
-    res['sweep_sigma_G_cells'] = widths.tolist()
-    res['sweep_bias'] = {k_: v for k_, v in sweep.items()}
-    res['png'] = None
-    if not png:
-        return res
-
-    col = {'truth': 'black', 'bilinear_G': '#c8102e', 'b_order1': '#f4a259',
-           'b_order3': '#1f5fa8', 'b_order5': '#2a9d8f'}
-    lab = {'bilinear_G': 'G interpolated bilinearly (the trap)',
-           'b_order1': 'b interpolated bilinearly, then the stencil',
-           'b_order3': 'b interpolated cubic (order 3), then the stencil  [the rule]',
-           'b_order5': 'b interpolated quintic (order 5), then the stencil'}
-    x = c['x_cells']
-    win = np.abs(x) <= 6
-    fig, (pa, pb, pc) = plt.subplots(1, 3, figsize=(19, 6.2))
-
-    # (a) the profiles
-    Gmax = np.nanmax(c['truth'])
-    pa.plot(x[win], c['analytic'][win] / Gmax, '-', color='#999999', lw=1.0,
-            label='analytic G of the shifted front (continuum; the stencil attenuates it)')
-    pa.plot(x[win], c['truth'][win] / Gmax, '-', color=col['truth'], lw=2.0,
-            label='truth: the stencil on the exactly shifted b')
-    for name, mk_ in (('bilinear_G', 's'), ('b_order1', 'v'), ('b_order3', 'o'), ('b_order5', 'D')):
-        pa.plot(x[win], c[name][win] / Gmax, mk_, color=col[name], ms=6, mfc='none', mew=1.6,
-                label=lab[name])
-    xk = x[k]
-    pa.annotate(f'bias at the maximum:\nbilinear G {100 * res["bias_bilinear_G"]:+.2f}%\n'
-                f'bilinear b {100 * res["bias_b_order1"]:+.2f}%\n'
-                f'cubic b {100 * res["bias_b_order3"]:+.2f}%\nquintic b {100 * res["bias_b_order5"]:+.2f}%'
-                f'\n\nprediction dx² G_xx/8G = {100 * pred:+.2f}%\n(planning §5.3: ~5.5%)',
-                xy=(xk, c['bilinear_G'][k] / Gmax), xytext=(2.6, 0.55), fontsize=9,
-                arrowprops=dict(arrowstyle='->', color=col['bilinear_G']),
-                bbox=dict(boxstyle='round', fc='white', ec='#888888'))
-    pa.set_xlabel('distance from the front centre [cells]')
-    pa.set_ylabel('G / max G (truth)')
-    pa.set_title(f'(a) G = |grad b|² after a half-cell shift; front sigma_G = {sigma_G} cells '
-                 '(~1.5 cells wide)', fontsize=10)
-    pa.set_xlim(-11.5, 6.3)                      # room for the legend over the flat left tail
-    pa.legend(fontsize=7.5, loc='upper left')
-    pa.grid(alpha=0.3)
-
-    # (b) the relative error across the front
-    for name in ('bilinear_G', 'b_order1', 'b_order3', 'b_order5'):
-        with np.errstate(invalid='ignore', divide='ignore'):
-            rel = 100 * (c[name] - c['truth']) / c['truth']
-        ok = win & (c['truth'] > 0.05 * Gmax)
-        pb.plot(x[ok], rel[ok], '-', color=col[name], lw=1.8, label=lab[name].split('  [')[0])
-    # the bilinear prediction across the front: the chord of a convex function
-    # lies above it, so interp - truth = +dx^2 G_xx / 8 -- negative at the
-    # maximum (G_xx < 0), positive on the flanks
-    Gt = c['truth']
-    with np.errstate(invalid='ignore', divide='ignore'):
-        pred_curve = 100 * (np.roll(Gt, -1) - 2 * Gt + np.roll(Gt, 1)) / (8 * Gt)
-    ok = win & (Gt > 0.05 * Gmax)
-    pb.plot(x[ok], pred_curve[ok], ':', color='black', lw=1.5, label='prediction dx² G_xx / 8G (bilinear)')
-    pb.axhline(0, color='#888888', lw=0.8)
-    pb.axvline(xk, color='#888888', lw=0.8, ls='--')
-    pb.set_xlabel('distance from the front centre [cells]')
-    pb.set_ylabel('(G_interp - G_truth) / G_truth  [%]')
-    pb.set_title('(b) relative error: negative at the maximum, positive on the flanks --\n'
-                 'bilinear G flattens the front and fabricates frontogenesis', fontsize=10)
-    pb.legend(fontsize=7.5, loc='upper center')
-    pb.grid(alpha=0.3)
-    pb.set_ylim(-9, 9)
-
-    # (c) the bias at the maximum vs the front width
-    for name in ('bilinear_G', 'b_order1', 'b_order3', 'b_order5'):
-        pc.plot(widths, -100 * np.array(sweep[name]), 'o-', color=col[name], lw=1.6, ms=5,
-                label=lab[name].split('  [')[0])
-    pc.plot(widths, 100 / (8 * widths ** 2), ':', color='black', lw=1.5,
-            label='prediction dx² G_xx / 8G = 1 / (8 sigma_G²)')
-    pc.axvline(sigma_G, color='#888888', lw=0.8, ls='--')
-    pc.axhline(5.5, color='#c8102e', lw=0.8, ls=':')
-    pc.text(4.1, 5.5, '~5.5% (planning §5.3)', fontsize=8, color='#c8102e', va='bottom')
-    pc.set_yscale('log')
-    pc.set_xlabel('front width sigma_G [cells]')
-    pc.set_ylabel('-bias at the maximum [%]  (all negative)')
-    pc.set_title('(c) bias at the maximum vs front width, half-cell shift\n'
-                 '(per-hour signal 2F dt / G is 7-20%: bilinear G is 25-80% of it)', fontsize=10)
-    pc.legend(fontsize=7.5, loc='lower left')
-    pc.grid(alpha=0.3, which='both')
-
-    fig.suptitle('V5: interpolate b (order >= 3), never G -- a synthetic front shifted by half a cell '
-                 '(semilag.gradb2_at_departure vs bilinear G)', fontsize=12)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    FIG_DIR.mkdir(exist_ok=True)
-    out = FIG_DIR / 'V5_interp_half_cell.png'
-    fig.savefig(out, dpi=200)
-    plt.close(fig)
-    res['png'] = str(out)
-    return res
+# the contract names start with test_; they are gates, not pytest tests
+for _f in (test_cartesian_deformation, test_native_metric, test_interpolation_bias):
+    _f.__test__ = False
 
 
 if __name__ == '__main__':
     import pprint
-    pprint.pprint(demo_interp_half_cell())
-    pprint.pprint(qa_land_halo(ot.open_grid(with_face=True)))
+    pprint.pprint({k: v for k, v in test_cartesian_deformation().items()
+                   if k in ('series_max_err_ref', 'semilag_err_max_all', 'convergence_order', 'gate', 'png')})
+    pprint.pprint({k: v for k, v in test_interpolation_bias().items()
+                   if k in ('headline', 'headline_order1', 'headline_order5', 'width_slope', 'png')})
+    pprint.pprint({k: v for k, v in demo_interp_half_cell().items() if k.startswith('bias') or k == 'png'})
+    grid_ds = ot.open_grid(with_face=True)
+    pprint.pprint({k: v for k, v in test_native_metric(grid_ds).items()
+                   if k.startswith(('err_', 'lin_err', 'R_from', 'gate', 'worst_x', 'png'))})
+    pprint.pprint({k: v for k, v in qa_land_halo(grid_ds).items() if k.startswith(('n_', 'edge_', 'png'))})
