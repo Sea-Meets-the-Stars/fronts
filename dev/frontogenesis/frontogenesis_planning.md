@@ -215,12 +215,18 @@ Writing divergence `delta = u_x + v_y`, normal strain `sigma_n = u_x - v_y`, she
 `sigma_s = v_x + u_y`, and `|sigma| = sqrt(sigma_n^2 + sigma_s^2)`:
 
 ```
-F = -(1/2) delta G  -  (1/2) |sigma| G cos(2 theta)
+F = -(1/2) delta G  +  (1/2) |sigma| G cos(2 theta)
 ```
 
 where `theta` is the angle between `grad_h b` and the strain compressional axis. This gives
 a strong independent physical check: frontogenesis should peak where `grad b` aligns with
 the compressional axis, and the PDF of `theta` is a classic signature (Figure 4).
+*(Corrected 2026-09-29, M1 task 2: the strain term carries a **plus** sign when `theta` is
+measured from the compressional axis — for the pure deformation `u = -a x, v = a y` and a front
+`b(x)`, `theta = 0` and `F = +a b_x^2`; an earlier version wrote a minus, which holds only for
+`theta` measured from the extensional axis. `operators.strain_alignment` uses the compressional
+axis, folded to `[0, pi/2]`, and the identity above closes to round-off on the grid with the
+Jacobian-derived strain.)*
 
 ---
 

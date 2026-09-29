@@ -63,7 +63,12 @@ The sign of `b` cancels in both `G` and `F`, but fix it anyway so plots are inte
 - **Masks:** boolean, **`True` = valid/retained** (matches `halo_mask`'s convention).
   Masked cells are `NaN` in float fields. Every reduction uses NaN-aware ops.
 - **Filter scale:** integer `L_cells` in `{0, 2, 4, 8}`; `L_cells = 0` is the identity.
-  The **same** filter is applied to `b`, `U` and `V` (planning §5.4).
+  The **same** filter is applied to `b`, `U` and `V` (planning §5.4). Kernel (added
+  2026-09-29, M1 task 2): a separable, normalised **top-hat of half-width `L_cells/2`**
+  (support `L_cells + 1` cells) in index space, applied along whichever of `j`/`j_g`,
+  `i`/`i_g` the field carries; **NaN propagates and is never renormalised** (a cell whose
+  footprint touches land, a stencil rim or the tile edge is NaN), so the filter stays
+  shift-invariant and commutes with the discrete gradient wherever it is finite.
 - **Time:** `dt = 3600.0` s. Fields needed at the trajectory **midpoint** are formed as
   `0.5*(f_t + f_tp1)` (planning §5.3, item 3).
 - **Array layout:** native face-local `(j, i)` per snapshot; stored with time first,
@@ -421,7 +426,14 @@ def frontogenesis(b, U, V, grid_ds, grid):        -> F             # inputs ALRE
 def strain_divergence(U, V, grid_ds, grid):       -> (delta, sigma_n, sigma_s, sigma_mag)
       # calculate_native_strain_vorticity returns a DICT with sigma_s and vorticity on
       # CORNERS (j_g, i_g) -- interpolate to centres before combining. See §2.3.
+      # Its strain pair is MODEL-basis: rotate (sigma_n, sigma_s) by 2*alpha (cos alpha = CS,
+      # sin alpha = SN; on face 10 a sign flip of both) so it shares grad_b's geographic
+      # basis -- confirmed on the real face, slopes +0.85 / +1.00 against the Jacobian
+      # (added 2026-09-29, M1 task 2).
 def strain_alignment(b_x, b_y, sigma_n, sigma_s): -> theta         # radians, for Figure 4
+      # theta from the COMPRESSIONAL axis, folded to [0, pi/2]:
+      # F = -(1/2) delta G + (1/2) |sigma| G cos 2theta (plus sign; planning §2.4,
+      # corrected 2026-09-29, M1 task 2)
 ```
 `frontogenesis` takes **pre-filtered** inputs — filtering happens once, at the call site, so
 it cannot silently differ between the two sides.

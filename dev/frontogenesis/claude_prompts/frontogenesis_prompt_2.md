@@ -13,6 +13,9 @@ methodological choice visible.
 
 ## Modules to write
 
+This section is the **contract** for each module. **Tasks** (below) gives the order to build
+them in and what each session must produce.
+
 All in `dev/frontogenesis/py/`. Signatures are the contract — see
 `frontogenesis_coding.md` §4.2-§4.5, §4.9. Style: **methods, not classes**; reuse existing code;
 inline comments that explain the *physics*.
@@ -114,6 +117,128 @@ them `@pytest.mark.needs_grid`. Everything else runs offline on synthetic fields
 
 ---
 
+## Tasks
+
+Run **one task per session**, in order, as in M0, with one log entry per task (see **Log**).
+Each task finishes with its own tests passing. Tests go in `dev/frontogenesis/py/tests/`
+(coding §5) and run offline, except those marked `needs_grid`. `validate.py` grows across
+tasks: each V-function is written in the task whose module it exercises. The dependency chain
+is masking → operators → semilag → validation; `coarsegrain` needs only `operators`.
+
+**Status 2026-09-29: tasks 1-2 done** (log entries "Execution prompt 2, task 1" and "task 2");
+tasks 3-7 not started. M0 is closed (prompt 1, task-5 log entry). Task 1 delivered `py/masking.py`,
+`data/tile330_masks.nc` (ocean 356,877 → halo 341,960 at 12.57 km = 7 x median `dxC` → offshore
+273,431 → analysis 262,925), `py/tests/test_masking.py` (17 pass), `validate.qa_land_halo` →
+`figs/V6_land_halo_tile330.png`. The Gulf of California is its own ocean component in the tile
+(9,891 cells), max coast distance 73.9 km: the ≥ 100 km cut removes all of it, no polygon.
+Task 2 delivered `py/operators.py` (the eight contract functions plus `strain_from_jacobian`
+and the dims guards) and `py/tests/test_operators.py` (21 pass; suite 38). Criterion 7:
+unfiltered `operators.frontogenesis` is **bit-for-bit** equal to `frontogenesis_tendency` on
+both M0 hours (max |dF| = 0 on all 352,673 finite cells); `gradb2`/`grad_b2` interior median
+**0.9106** (M0's cell set), 0.9098 on the analysis mask. `lowpass` is a top-hat of half-width
+`L/2` that **propagates NaN** (no renormalisation), so `halo_cells = 7` stands: `F` at `L = 8`
+is finite on every analysis-mask cell (NaN only in 249 coastal `mask_halo` cells at chessboard 5).
+
+### 1. `masking.py`, `tile330_masks.nc`, and V6
+
+- Write `ocean_mask`, `halo_mask`, `coast_distance_km`, `offshore_mask`, `edge_mask`,
+  `analysis_mask` per the `masking.py` contract above and coding §4.2. The requirements are
+  halo `halo_cells=7` converted with the **measured** `dxC`, `edge_cells=7`, `True` = retained,
+  `k` collapsed, and the output shape asserted.
+- Write **`tile330_masks.nc`** (coding §3.5: `mask_ocean`, `mask_halo`, `mask_offshore`,
+  `mask_edge`, `mask_analysis`, `coast_distance_km`) from `tile330_grid.zarr`. M2 depends on
+  this file, so it comes first.
+- **Verify** that the `>= 100 km` offshore cut removes the head of the Gulf of California.
+  Record the result in the log. Do not add a polygon.
+- `test_masking.py`: halo width; both `halo_mask` defects (the all-land-face early return and the
+  4-D `k` case); the `True` = retained convention; `ocean_mask == isfinite(Theta)` cell for cell;
+  the edge margin covers the rim found by `m0_qa_checks.check_edge_rim`.
+- `validate.qa_land_halo` → **V6** (coastline before/after the halo, plus the finite tile-edge
+  rim and the `edge_cells` margin that removes it). `@pytest.mark.needs_grid`.
+
+*Discharges:* criterion 5 (V6), criterion 6 (`test_masking.py`).
+
+### 2. `operators.py` and the regression oracle
+
+- Write `buoyancy`, `lowpass`, `grad_b`, `gradb2`, `jacobian`, `frontogenesis`,
+  `strain_divergence`, `strain_alignment` per the `operators.py` contract above and coding §4.3.
+  The traps are JMD95 with the sign left as is, `gradb2` from **the same** `grad_b` as `F`,
+  **dims asserted after every dbof call**, `U, V` staggered into `calculate_jacobian`, corner
+  quantities interpolated to centres, and `frontogenesis` taking pre-filtered inputs.
+- `test_operators.py`: the gradient of an analytic field; the factor-of-two convention
+  (`F = ½ DG/Dt`); a dims check that a mis-staggered call raises rather than broadcasting to 4-D.
+- **Regression check (criterion 7):** unfiltered `operators.frontogenesis` against
+  `calculate_fields.frontogenesis_tendency` on M0's first hour, to round-off. Use it as a test
+  oracle only. Also record the `gradb2` / `grad_b2` interior-median ratio and confirm it is still
+  **0.911x**.
+
+*Discharges:* criterion 6 (`test_operators.py`), criterion 7.
+
+### 3. `semilag.py` and V5
+
+- Write `centre_velocities`, `departure_index`, `interp_to_departure`, `measured_DGDt`,
+  `eulerian_DGDt` per the `semilag.py` contract above and coding §4.4. The rules are:
+  interpolate `b` and then differentiate, never `G`; `order >= 3`; departures in native index
+  space; `F` taken at the trajectory midpoint.
+- `test_semilag.py`: the zero-velocity identity; uniform-flow translation by a whole cell;
+  interpolation order (`order=1` should show the `dx^2 G_xx/8` bias, `order>=3` should not).
+- `validate.demo_interp_half_cell` → **V5**: truth vs bilinear-`G` vs cubic-`b` at a half-cell
+  shift, with the negative bias at the maximum annotated. This is the figure Lauren asked for,
+  and it belongs with the module whose design choice it justifies.
+
+*Discharges:* criterion 5 (V5), criterion 6 (`test_semilag.py`).
+
+### 4. `coarsegrain.py`
+
+- Write `subfilter_flux` and `subfilter_term` per the `coarsegrain.py` contract above and coding
+  §4.5, using `operators.lowpass`.
+- `test_coarsegrain.py`: `tau → 0` as `L → 0`; Germano consistency; and closure, meaning that
+  on a synthetic field the coarse-grained budget closes with the subfilter term included. Note
+  that it tends to the numerical-diffusion term as `L → dx`, not to zero (planning §5.4).
+- This task is independent of task 3 and may swap order with it.
+
+*Discharges:* criterion 6 (`test_coarsegrain.py`).
+
+### 5. Gates V1, V2, V4
+
+- `test_cartesian_deformation` → **V1**: `G ∝ exp(2 a t)` to **< 1%** (offline).
+- `test_native_metric` → **V2**: an analytic `f(XC, YC)` on the real tile grid, gradients to
+  **< 1%** (`needs_grid`).
+- `test_interpolation_bias` → **V4**: uniform zero-strain flow. **Record the measured bias.** It
+  becomes the permanent error bar on every later slope.
+- Each writes its PNG and returns a dict of the numbers.
+
+*Discharges:* criteria 1, 2, 4; criterion 5 (V1, V2, V4).
+
+### 6. Gate V3 — the discrete null (**HARD GATE**)
+
+- `test_discrete_null(velocities='strain')` first, then `velocities='llc'`, which takes the
+  midpoint velocity from M0's **two** hours. Both must give **slope = 1 ± 0.05 on front pixels**
+  and **return the fitted slope**, which Figure 2 draws. Write **V3**.
+- Expect the first attempt to fail by roughly the 0.80x Jacobian attenuation measured in M0 task
+  5. If it fails, **co-locate the operators or raise the scheme order** until it passes, then
+  **re-run tasks 2-5's tests**, since the fix changes `operators.py` and/or `semilag.py`.
+- Log the first-attempt slope, every change tried, and the final slope. The change that passes
+  is a **finding about the discretisation** and goes in the writeup.
+- **If this gate cannot be passed, stop and report.** Do not start M3.
+
+*Discharges:* criterion 3; criterion 5 (V3).
+
+### 7. `test_nan_finding.py`, `test_validate.py`, and M1 acceptance
+
+- `test_nan_finding.py`: `fronts_from_gradb2` on a field containing NaN land, both as a whole
+  and at the coast. Use **finding config D** (read `finding_config_D.yaml`; the function
+  defaults are not config D). If it breaks, record how. The fix belongs in `fronts`, not here.
+- `test_validate.py`: all six V-functions run and report, with `needs_grid` honoured.
+- **Audit:** run the full suite; check that `git status` shows all six PNGs (use
+  `git check-ignore -v` if one is missing); then go through criteria 1-7 one by one with
+  numbers, as the M0 task-5 audit did.
+- If every criterion passes, mark **M1 closed** here and in coding §6 M1.
+
+*Discharges:* criterion 6 (the remaining tests); the audit closes all seven criteria.
+
+---
+
 ## Acceptance criteria — all must pass
 
 1. **V1 — Cartesian deformation.** Pure deformation `u = -a x, v = a y`, where `G` grows exactly
@@ -160,6 +285,7 @@ them `@pytest.mark.needs_grid`. Everything else runs offline on synthetic fields
 
 ## Log
 
-The four gate results with numbers; the fitted discrete-null slope (Figure 2 needs it); the
+Append to `frontogenesis_prompts.md` under `## Logs`, one entry per task, titled
+`### <date> — Execution prompt 2, task N: <title>`. Across the milestone, record: the four gate results with numbers; the fitted discrete-null slope (Figure 2 needs it); the
 measured interpolation bias; the six PNG paths; and any operator change you had to make to pass
 gate 3 — **that change is a finding about the discretisation and belongs in the writeup.**

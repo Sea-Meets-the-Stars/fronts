@@ -2066,3 +2066,329 @@ approval.** Each spot edited in place and marked "(corrected 2026-09-28, M0 task
   max diff 0.0; `halo_mask` (1, 720, 720), 342,682 retained; 0 mismatches; rim 2,174 / 4,204;
   ribbon profile 75.8x .. 9.8x; `G_comp/G_sq` 0.9106; edge crop test unchanged); figure
   regenerated and inspected, unchanged.
+
+### 2026-09-28 — Execution prompt 2, task 1: masking, tile330_masks.nc, V6 (Fable)
+
+**Scope.** Task 1 of `frontogenesis_prompt_2.md` only: `py/masking.py`, `data/tile330_masks.nc`,
+`py/tests/test_masking.py`, `py/validate.py` with `qa_land_halo` (V6). Tasks 2-7 not started: no
+`operators.py`, `semilag.py`, `coarsegrain.py`, no other V-function, no data pulled. Offline, from
+the two M0 stores. Nothing outside `dev/frontogenesis/` touched; `dbof` read-only at `938bce1`.
+
+**Written.**
+- `py/masking.py` (~270 lines): `ocean_mask`, `halo_mask(grid_ds, halo_cells=7)`,
+  `coast_distance_km`, `offshore_mask(min_km=100)`, `edge_mask(edge_cells=7)`,
+  `analysis_mask(halo_cells=7, min_km=100, edge_cells=7)` exactly as coding §4.2, plus
+  `spacing_km`, `halo_width_km` (the cell→km rule), `build_masks` (the §3.5 dataset with attrs),
+  `write_masks`, `open_masks`, `MASK_VARS`. All outputs plain bool numpy on `(j, i)`, **True =
+  retained, land = False**; `coast_distance_km` float, NaN on land. A length-1 `face` is
+  squeezed and a `k` dim collapsed to `k=0` before anything else (`_positional`).
+- `py/m1_write_masks.py` (~180 lines, `m0_write.py` style): builds, writes, re-opens, verifies
+  (41 checks, all ok) and runs the Gulf of California check (`gulf_of_california_check`, reused
+  by the test and by V6).
+- `data/tile330_masks.nc` — 6.0 MB, netCDF4/zlib, dims `(j: 720, i: 720)`, coords `j, i, XC,
+  YC` (+ scalar `face = 10`), vars exactly the §3.5 six in order; bools round-trip as bool. Attrs:
+  `convention`, `halo_cells=7`, `halo_km=12.573`, `halo_km_rule`, `edge_cells=7`,
+  `offshore_km=100`, `distance_method`, `dxC_median_km=1.7962`, `dyC_median_km=1.9504`,
+  `dxC_mean_km=1.7948`, `dyC_mean_km=1.9483`, `dxC_min/max_km`, `n_ocean … n_analysis`, the tile
+  attrs and `orientation` from the grid, `source_grid_commit`, `git_commit`, `dbof_commit`,
+  `created`. Ignored by `data/.gitignore` like the zarrs (regenerate with `m1_write_masks.py`,
+  <1 s).
+- `py/validate.py` (~240 lines): `qa_land_halo(grid_ds, png=True) -> dict` only, plus the private
+  `_snapshot_fields` (grid + t0 merged, JMD95 `b`, `G = b_x^2 + b_y^2` via the component stencil,
+  dims asserted) and `_classify`. **V6 →
+  `figs/V6_land_halo_tile330.png`** (200 dpi, 3800 x 2300, 0.85 MB): (a) mask stages on the whole
+  tile, (b) Monterey Bay cell-level inset, coastline before/after the halo, (c) the distance field
+  with the 100 km and 12.6 km contours, (d) Gulf of California zoom with the survivors (none),
+  (e) the finite tile-edge rim (median |G| vs offset, all four edges, log scale) with the
+  `edge_cells` margin shaded and the crop-test offsets marked, (f) halo width histogram in
+  taxicab cells. `git check-ignore -v` → `figs/.gitignore:3:!*.png`; the PNG shows in `git status`.
+- `py/tests/test_masking.py` (17 tests), `py/tests/conftest.py` (sys.path, session fixtures
+  `grid_ds`/`raw_ds` that **skip** when the M0 stores are absent), `py/tests/pytest.ini`
+  (registers `needs_grid` and `network`, `--strict-markers`, `-m "not network"` by default).
+
+**Design choice: wrap the helper for the halo, own skfmm for the distance.** `halo_mask` wraps
+`llc_native_grid_halo_mask` (it is the mask the dbof cutout pipeline would produce, and §4.2 says
+"wraps"), with the guards: (1) a grid with no ocean returns all-False 2-D *without* calling it —
+the helper's L74-75 path returns its 2-D input, all True; (2) `k` is collapsed first — on a
+`(face, k, j, i)` mask the helper does not go silent, `skfmm` raises `ValueError: dx must be of
+length len(phi.shape)`; (3) after the call the shape is asserted `(1, nj, ni)` bool (an
+unconditional `raise AssertionError`, not the `assert` statement, so `-O` cannot strip it) and
+no land cell may be retained. `coast_distance_km` has to call `skfmm` directly because the
+helper thresholds and does not expose the distance; it uses the helper's exact recipe (`phi = +1`
+ocean / `-1` land, so the coastline sits half a cell from the last land centre; **uniform
+per-axis mean spacing** `dx=(mean dyC, mean dxC)` in km), and `test_masking.py` pins the two to
+each other: on the real grid `halo_mask == raw helper[0] == ocean & (coast_distance_km >=
+halo_km)`, cell for cell (`np.array_equal`). A variable-spacing distance would have been ~6%
+more accurate locally (`dxC` 1.68-1.90 km) but would break that identity; immaterial for a
+nominal 100 km cut.
+
+**Halo: `halo_km = 7 x median(dxC) = 7 x 1.7962 = 12.573 km`** (§4.2's "roughly 12-14 km"
+holds), measured from `tile330_grid.zarr`, never hard-coded; the fast-marching itself runs on
+the mean spacing 1.7948 x 1.9483 km (the helper's choice; the median/mean difference is 0.08%).
+Because `dxC` is the meridional (`i`) spacing and the smaller one, 12.573 km is 7.0 cells along
+`i` and 6.45 cells along `j`; with the half-cell interface offset the first retained cell is at
+index distance 8 (`i`) / 7 (`j`) — **min taxicab distance of a retained cell 7, min chessboard
+5** (diagonal reach of a Euclidean halo), max taxicab of a removed ocean cell 10 (chessboard 7);
+the split in km is exact (min retained 12.574, max removed 12.572); min centre-to-centre
+Euclidean distance of a retained cell 13.15 km = 7.33 cells. The helper's result at this
+`halo_km` is 341,960 retained (M0 task 5 reported 342,682 at the round 12.0 km).
+
+**Retained counts at each stage (518,400 cells).** ocean **356,877** (68.8%) → halo
+**341,960** (removes 14,917) → offshore ≥ 100 km **273,431** (removes a further 67,154; the
+halo is a strict subset of the offshore cut) → tile-edge margin, `edge_cells = 7`: geometry
+498,436 cells, 344,378 of them ocean; it removes 10,506 cells that the two other cuts keep (the
+open-ocean west and north edges, exactly the case §4.2 describes) → **`mask_analysis` 262,925**
+(73.7% of the ocean, 50.7% of the tile). The analysis mask is a **single connected component**.
+
+**Gulf of California — the ≥ 100 km cut removes it, no polygon needed.** Inside the tile
+(lat ≥ 26.66N) the Baja peninsula separates the Gulf from the Pacific, so the Gulf is its own
+connected component of `mask_ocean` (`scipy.ndimage.label`; the component holding the cell
+nearest 30.5N, 114.0W, disjoint from the one holding 35N, 125W): **9,891 cells**, lon
+−114.885 … −113.010 (it touches the east edge `j = 719` on 125 cells, lat 28.48-30.54), lat
+28.475-31.709. Land east of the edge is invisible to `skfmm`, so the distances inside the Gulf
+are *over*-estimates, which makes the check conservative — and still **max coast distance
+73.9 km** (at 30.41N, 113.82W; 63.5 km on the east edge itself), **0 cells ≥ 100 km, 0 in
+`mask_analysis`**. For the record the other stages alone would not do it: the halo removes
+2,988 Gulf cells, the edge margin 934, and 6,368 survive both. Also found: the model treats
+several inland basins as ocean — the tile has **16 ocean components**; besides the Pacific
+(345,368) and the Gulf, the Salton Sea (1,128 cells, 32.7-33.7N), Death Valley (252 cells,
+35.9-36.7N, 117.2-116.7W, below sea level), the Sacramento-San Joaquin Delta (161) and San
+Pablo Bay (33) plus ten specks; max coast distance ≤ 18 km, so **all 11,509 non-Pacific ocean
+cells are removed by the offshore cut**. Asserted in `m1_write_masks.py` and in
+`test_offshore_and_analysis_counts` (one component survives).
+
+**Tile-edge rim vs the margin** (crop test, `m0_qa_checks.check_edge_rim`, re-run here on t0
+with `G = b_x^2 + b_y^2`): G changed at offset `[0]` on all four edges, Jacobian at `[0]` on the
+low edges and `[0, 1]` on the high — max contaminated offset **1**, so `edge_cells = 2` is the
+minimum and 7 covers it with the filter half-width to spare. The rim is finite: median |G| at
+offset 0 relative to offsets 1-3 is 1.2e6x (`j = 0`) and 5.6e5x (`i = 2880`) on the low edges,
+0.49x / 0.44x on the high edges; offset 2 is within 0.7-1.4x on every edge (both asserted).
+
+**Tests — `pytest dev/frontogenesis/py/tests`: 17 passed in 1.2 s** (11 offline synthetic-grid
+tests, 6 `needs_grid`; `-m "not needs_grid"` → 11 passed, 6 deselected, 0.06 s). Offline: True =
+retained / land False for every mask and NaN in the distance; `analysis_mask` is the
+intersection; `edge_mask` geometry; `halo_width_km` uses the **median** `dxC` (a skewed tail
+in `dxC` leaves it unchanged); halo width in cells on a uniform grid, `halo_cells = 3` and `7`,
+both directions (first retained at index distance `halo_cells + 1`, last removed at
+`halo_cells`, and km split against `coast_distance_km`); anisotropic spacing (8 along `i`, 7
+along `j` for `dyC/dxC = 1.086`); **all-land face** (the raw helper's 2-D all-True on record,
+the wrapper all-False 2-D); **`k`-carrying `hFacC`** (raw helper `ValueError`; ours identical
+to the 2-D grid for all six functions); no-land / no-face-dim grid; a two-face grid is
+rejected. `needs_grid`: `ocean_mask == isfinite(Theta)` cell for cell at **both** hours
+(356,877, 0 mismatches); wrapper == raw helper == distance threshold; halo width on the real
+grid (min taxicab 7, ≤ 8, max removed ≤ 10); offshore/analysis nesting and the single
+component; the Gulf check; the edge margin covers the crop-test rim and the rim magnitudes.
+
+**Contradictions / things to flag (docs not edited except where noted).**
+1. **The 7-cell halo is Euclidean, and its chessboard width is 5.** §4.2/prompt 2 budget the 7
+   cells as "3 stencil + 4 filter half-width", i.e. in stencil (chessboard) terms, but the halo
+   is a fast-marching *distance*, so a cell 5 diagonal steps from land (7.07 cells away) is
+   retained. This is harmless as long as the filter propagates NaN (land is NaN, every dbof
+   stencil propagates it, and NaN-aware reductions drop the cell) — the halo's job is then only
+   the distance field and consistency, as task 3 concluded. **If task 2's `lowpass` renormalises
+   over valid cells instead** (finite values from partial stencils near land), a square kernel
+   of half-width 4 would touch land from chessboard 4, and the halo should be judged in
+   chessboard cells (≈ 9-10 Euclidean). Decide in task 2; nothing to change here.
+2. §2.4/§4.2 "a `k`-carrying `hFacC` makes the mask 4-D and breaks `skfmm`" — true, but it
+   is *loud*: `ValueError` from `skfmm.distance`, not a silent wrong answer. Only the all-land
+   path is silent. Wording only.
+3. The helper measures distance on the per-axis **mean** spacing while the contract converts
+   cells with the **median** `dxC`; both are recorded in the nc attrs. 0.08% apart here.
+4. `edge_mask` is pure geometry (True on land inside the interior rectangle), per the §4.2
+   signature "False within edge_cells of ANY tile edge"; every other mask has land False.
+   `mask_analysis` carries the land. Noted in the var's `long_name`.
+5. `tile330_masks.nc` is `.gitignore`d (`data/.gitignore: *`), like the zarrs; §3.5 does not
+   say whether it should be tracked. It is 6 MB and regenerates in < 1 s from the grid store.
+6. Not a contradiction, for the record: the OSN gridfile's ocean includes the Salton Sea,
+   Death Valley and the Delta (item above); none survives the offshore cut, but anything that
+   ever uses `mask_halo` alone (e.g. M4 front finding on the full tile) will see them.
+
+**Status line updated** in `frontogenesis_prompt_2.md` (task 1 done). Coding §6 M1 untouched
+until the milestone closes (task 7).
+
+Files: created `py/masking.py`, `py/m1_write_masks.py`, `py/validate.py`, `py/tests/conftest.py`,
+`py/tests/pytest.ini`, `py/tests/test_masking.py`, `data/tile330_masks.nc` (ignored),
+`figs/V6_land_halo_tile330.png`; modified `claude_prompts/frontogenesis_prompt_2.md` (status
+line) and this log.
+
+### 2026-09-29 — Execution prompt 2, task 2: operators.py and the regression oracle (Fable)
+
+**Scope.** Task 2 of `frontogenesis_prompt_2.md` only: `py/operators.py`, `py/tests/test_operators.py`,
+the criterion-7 regression against `calculate_fields.frontogenesis_tendency`, the 0.911x ratio, and
+the `lowpass` NaN-policy decision left open by task 1 (flag 1). Tasks 3-7 not started: no
+`semilag.py`, `coarsegrain.py`, no V1-V5, no data pulled. Offline, from the two M0 stores and
+`tile330_masks.nc`. Nothing outside `dev/frontogenesis/` touched; `dbof` read-only at `938bce1`;
+`masking.py` and `tile330_masks.nc` unchanged.
+
+**Written.**
+- `py/operators.py` (389 lines, functions only): the eight contract functions of coding §4.3 —
+  `buoyancy(ds)`, `lowpass(field, L_cells)`, `grad_b`, `gradb2`, `jacobian`, `frontogenesis`,
+  `strain_divergence`, `strain_alignment` — plus `strain_from_jacobian(u_x, u_y, v_x, v_y)` (the
+  Jacobian-consistent `(delta, sigma_n, sigma_s, sigma_mag)`, which decomposes `F` exactly) and
+  the dims guards `require_centred` / `require_u_point` / `require_v_point` / `assert_dims`
+  (unconditional `raise`, not `assert`). Every dbof call is preceded by a staggering check on its
+  inputs and followed by a dims assertion on its output; everything is computed eagerly in
+  float64 with names/units attrs. No function filters or masks internally.
+  - `buoyancy`: `calculate_fields.buoyancy_of_field` on `Theta, Salt` cast to float64; JMD95 at
+    `p = 0`; sign left as is (`+g sigma0/rho0`; on t0 all 356,877 ocean values are positive,
+    median 0.25 m s^-2). Bit-identical to the repo call.
+  - `grad_b` / `gradb2`: `calculate_native_gradient_tracer`, and `G = b_x^2 + b_y^2` from that
+    same pair (never `calculate_grad_squared_tracer`).
+  - `jacobian`: raw staggered `U (j, i_g)`, `V (j_g, i)` into `calculate_jacobian`; the
+    pre-check is what prevents the 4-D broadcast (below).
+  - `frontogenesis`: `-(u_x b_x^2 + (u_y + v_x) b_x b_y + v_y b_y^2)` from the two above; attrs
+    carry the convention `F = (1/2) DG/Dt`, compare `2F`.
+  - `strain_divergence`: `calculate_native_strain_vorticity` (dict, as §2.3 says);
+    `strain_shear_corner` is averaged to centres with two `grid.interp(..., padding='fill')`;
+    then — **not in the contract, but required** — the strain pair is rotated from the model
+    basis to geographic by `2 alpha` (`cos 2a = CS^2 - SN^2`, `sin 2a = 2 CS SN`; on face 10 a
+    sign flip of both), so it shares `grad_b`'s basis. `delta` and `|sigma|` are invariant.
+  - `strain_alignment`: `theta` from the **compressional** axis, folded to `[0, pi/2]`:
+    `cos 2theta = -(sigma_n (b_x^2 - b_y^2) + 2 sigma_s b_x b_y) / (|sigma| G)`, so that
+    `F = -(1/2) delta G + (1/2) |sigma| G cos 2theta` (see contradiction 1).
+- `py/tests/test_operators.py` (21 tests; 16 offline on a synthetic C-grid in both the `CS = 1`
+  and the face-10 `CS = 0, SN = -1` orientation, with `dx != dy` so a swapped metric shows; 5
+  `needs_grid`). `py/tests/conftest.py`: a `masks_ds` fixture (skips when the nc is absent).
+
+**`lowpass`: the kernel and the NaN policy (decision).** The docs fix the scale set
+`{0, 2, 4, 8}`, "the same filter on `b`, `U`, `V`", and "half-width 4 for the widest filter",
+but neither the kernel shape nor the NaN handling. Chosen: a separable **top-hat of half-width
+`L/2`** (support `L + 1` cells, weights `1/(L+1)`; `L` must be even; `L = 0` returns the input),
+applied in index space along whichever of `j`/`j_g`, `i`/`i_g` the field carries, so `U` on
+`i_g` and `V` on `j_g` get the identical kernel; numpy in, numpy out (last two axes); float64.
+**NaN propagates and is never renormalised**: the convolution is direct (`ndimage.convolve1d`,
+not a running sum), the tile edge is padded with NaN, and a cell whose `(L+1)^2` footprint
+touches a NaN is NaN. Reasons: (i) renormalising over the valid part of the footprint is a
+different, cell-dependent kernel at every coastal cell, which breaks the shift-invariance that
+makes the filter commute with the diff/interp stencils — the property the coarse-grained budget
+and the Germano identity (planning §5.4, task 4) rest on; (ii) it would make `lowpass` the only
+operator in the pipeline that turns a land neighbour into a finite number, whereas every dbof
+stencil propagates NaN; (iii) it keeps the halo reasoning honest — nothing finite is ever
+contaminated, so validity is `isfinite(field)` and the halo only has to size the filter
+support. Verified: constants pass unchanged, the mean is preserved, a wave of wavelength `L + 1`
+cells is annihilated exactly, a 48-cell wave passes at the analytic box response (0.996 / 0.983 /
+0.944 for `L = 2 / 4 / 8`), `grad_b(lowpass b) == lowpass(grad_b b)` to 1e-12 wherever finite,
+and on the real tile `isfinite(lowpass(b, L))` equals *exactly* `chessboard distance to a NaN >
+L/2` inside the `L/2` edge band, for `L = 2, 4, 8`.
+
+**Consequence for `halo_cells` — keep 7; no change to `masking.py` or the nc.** Reach of `F`
+from filtered inputs, measured on t0 as the minimum chessboard distance from land of a finite
+`F`: **2 / 3 / 4 / 6** at `L = 0 / 2 / 4 / 8` (`= L/2 + 2`: filter half-width plus the
+Jacobian's reach; `G` one less). The Euclidean halo retains cells at chessboard 5 (task 1), so
+at `L = 8` those are NaN in `F`: **249 of 341,960 `mask_halo` cells** (0.07%; the count inside
+`mask_halo & mask_edge`, i.e. coast-related), all inside the 100 km cut. **`F` is finite on all
+262,925 `mask_analysis` cells at every `L`**, and `G` likewise (0 NaN). So the flag-1 concern
+("judge the halo in chessboard cells, ~9-10 Euclidean") applies only to the renormalising
+policy that was not adopted; under propagation a wider halo would only relabel cells that are
+NaN anyway. Recommendation: leave `halo_cells = 7`; treat `mask_halo` as a *selection* mask for
+statistics (`& isfinite`), never as a multiplier on `b, U, V` before differencing — multiplying
+it in would push the NaN reach of `F` at `L = 8` to ~13 cells from land for no gain (the values
+on the cells where both are finite are identical either way). The same holds for the tile edge:
+at `L >= 2` the NaN padding replaces the finite-but-wrong rim (the 0-fill is never reached
+because NaN is hit first), `F` is NaN 6 cells deep at `L = 8`, and `edge_cells = 7` covers it.
+Synthetic check (`test_lowpass_halo_consequence_diagonal_coast`): chessboard-5 halo cells exist
+only with the tile's anisotropic spacing (`dxC = 1796`, `dyC = 1950` m; the halo is 7.0 cells
+along `i` but 6.45 along `j`); on a square grid the minimum is 6.
+
+**Regression check (criterion 7) — bit-for-bit.** Hour 0 merged with the grid on
+`(face, j, i)` in float64, `b = operators.buoyancy(ds)`, `F = operators.frontogenesis(b, U, V,
+ds, grid)` vs `calculate_fields.frontogenesis_tendency(ds, grid)`: NaN patterns identical
+(352,673 finite cells); over the 262,925 `mask_analysis` cells (all finite in both) **max |dF| =
+0.0, max relative difference 0.0, 262,925 / 262,925 exactly equal**; `max |F| = 2.50e-17 s^-5`
+on that set. Same on hour 1 (max |dF| 0.0 on all 352,673 finite cells; max |F| 3.19e-17). This
+is expected — both sides call the same `calculate_native_gradient_tracer` / `calculate_jacobian`
+and the same three-term formula — so the oracle checks the *wiring* (arguments, staggering,
+basis, order of operations), not the numerics; the independent numerical checks are the analytic
+synthetic tests below and M0 task 5's numpy replica. Oracle only, as the prompt says.
+
+**0.911x confirmed.** `operators.gradb2` / `calculate_fields.grad_b2` interior median on M0 task
+5's cell set (`ocean & taxicab >= 3`): **0.9106** on t0 (M0 reported 0.9106), 0.9108 on t1;
+0.9115 / 0.9119 with the 3-cell tile-edge band also excluded; **0.9098 / 0.9099 on
+`mask_analysis`**. Asserted in `test_gradb2_ratio_to_repo_grad_b2_is_0911` (`|ratio - 0.911| <
+0.002`).
+
+**Strain: rotation sign and the 0.80x, re-measured on the analysis mask.** Regressing the
+Jacobian-derived quantities on the flux-form ones over `mask_analysis` (n 262,925): `delta`
+slope **0.853**, corr 0.986; `sigma_n` **0.854**, corr 0.983; `sigma_s` **1.000**, corr 1.000;
+`|sigma|` 0.925, corr 0.980. Slopes positive, so the `2 alpha` rotation of the model-basis pair
+is the right sign (unrotated, `sigma_n` and `sigma_s` would regress at -0.85 / -1.00 on this
+face); `sigma_s` from the averaged corners equals the Jacobian's `u_y + v_x` to three figures
+(interp-then-diff and diff-then-interp commute on the near-uniform metric). M0 task 5's 0.80
+(corr 0.97) was measured on the whole ocean interior including the coastal band; **on the
+analysis mask the interpolated Jacobian's attenuation is ~0.85** — the number V3 should expect
+there. With `strain_from_jacobian`, `F = -(1/2) delta G + (1/2) |sigma| G cos 2theta` closes to
+3e-33 (max |F| 2.5e-17) on the real hour and to 1e-12 relative on synthetic fields; on
+`mask_analysis`, median `theta` is 0.72 rad and 54% of cells have `theta < pi/4`.
+
+**Tests — `pytest dev/frontogenesis/py/tests`: 38 passed in 2.1 s** (`test_masking.py` 17 +
+`test_operators.py` 21; `-m "not needs_grid"` → 27 passed, 11 deselected, 0.25 s). Offline
+(each in both orientations where marked ×2): gradient of `sin(kx x) cos(ky y)` to < 1% and
+within the `(k dx)^2/6` truncation (×2); `gradb2` equals `b_x^2 + b_y^2` and is the smaller of
+the two stencils at a front (×2); the Jacobian of `u = -a x, v = a y` is `(-a, 0, 0, a)` to
+1e-12 (×2); **the factor of two** (×2): on the exact solution `b = b0 tanh(x e^{at}/ell)`,
+`G ~ exp(2at)` along a parcel so `DG/Dt = 2aG`, and on the grid `F = aG` to 1e-10, hence
+`2F = DG/Dt` and `F` alone is off by 2x; flux-form strain of the deformation
+(`sigma_n = -2a`) and of a pure shear (`sigma_s = c`) in geographic components on both
+orientations, with the raw helper's model-basis pair shown to be the negative on face 10 (×2);
+the alignment angle (0 across the compressional axis, `pi/2` along it) and the exact
+decomposition with the plus sign (the minus-sign form misses by > 10%); **the dims guard** on an
+8 x 8 grid: `b * U` is 4-D and `assert_dims` catches it, and `jacobian(V, U)`, `jacobian(U, U)`,
+`grad_b(U)`, `gradb2(V)`, `frontogenesis(U, U, V)`, `frontogenesis(b, V, U)`,
+`strain_divergence(V, U)`, `buoyancy` with `Theta` on `i_g`, all raise `ValueError('expected
+dims ...')` before any dbof call, and a numpy array raises `TypeError`; `lowpass` identity /
+odd-`L` rejection / constants / mean / annihilated wavelength / analytic long-wave response /
+numpy and staggered inputs; NaN propagation (an `(L+1)^2` box around one NaN, chessboard `L/2`
+from a diagonal coast, every other value identical to the NaN-free result); the halo consequence
+above; commutation with `grad_b`. `needs_grid`: `buoyancy` bit-identical to the repo call, sign
+and count; the regression oracle (prints the numbers); the 0.911 ratio; the strain rotation sign
+and the decomposition on the real face; `lowpass` NaN footprint at the real coast, `F` finite on
+all of `mask_analysis` at `L = 2, 4, 8`, the 249 halo cells, and the `L/2 + 2` reach.
+
+**dbof behaviour vs coding §2.3.**
+1. `calculate_jacobian` with swapped arguments on **numpy-backed** inputs *does* raise —
+   `KeyError: "DataArray cannot have more than 1 axis dimension, but found {'i_g', 'i'}"` from
+   xgcm — but only *after* the `CS`/`SN` multiply has built a 5-D `(face, j_g, i_g, j, i)`
+   intermediate (8^5 on the test grid). On the tile that intermediate is 720^5 doubles, which is
+   the OOM kill M0 task 5 saw, so "raises only on dask" is the practical truth but not the
+   mechanism: the raise comes too late. Hence the pre-call staggering check.
+2. `calculate_native_strain_vorticity`'s strain pair is model-basis (§2.3 says "magnitude
+   calculations only"); the contract's `strain_alignment(b_x, b_y, sigma_n, sigma_s)` needs it
+   rotated, which §4.3 did not say. Added (coding §4.3, "added 2026-09-29, M1 task 2").
+3. `frontogenesis_tendency` is bit-identical to ours (same helpers, same formula); nothing
+   else in §2.3 differed. Line numbers unchanged at `938bce1`.
+
+**Contradictions / things to flag.**
+1. **Planning §2.4's decomposition had the wrong sign on the strain term.** It wrote
+   `F = -(1/2) delta G - (1/2) |sigma| G cos 2theta` with `theta` "the angle between `grad b`
+   and the compressional axis" — but for `u = -a x, v = a y` and a front `b(x)`, `theta = 0` and
+   `F = +a b_x^2 > 0`, so the sign must be **plus** for the compressional-axis angle (minus is
+   the extensional-axis convention). Corrected in planning §2.4 with a marked note; coding §4.3
+   comment added. `strain_alignment` implements the compressional-axis definition, which is the
+   one the physics statement ("F peaks where `grad b` aligns with the compressional axis")
+   needs.
+2. The filter kernel and its NaN policy were unspecified in coding §1.2 / §4.3 and planning
+   §5.4. Fixed by decision, recorded in coding §1.2 ("added 2026-09-29, M1 task 2"). If a
+   Gaussian is preferred later, `lowpass` is the single place to change it and every test that
+   pins the box response (`test_lowpass_identity_constants_and_scale`) will say so.
+3. Task 1's flag 1 resolved: the chessboard-5 halo reach is harmless under NaN propagation
+   (above). Its origin is the anisotropy (`7 x dxC = 6.45 dyC`), not the diagonal alone.
+4. §8 "Land halo applied **before** any differencing, not after": with land NaN and NaN
+   propagation the order changes no finite value, only how many cells are NaN; recommended usage
+   is the halo as a selection mask after the operators (wording, no edit made).
+5. M0 task 5's 0.80x Jacobian attenuation is **0.85x on `mask_analysis`** (0.80 included the
+   coastal band). Not a contradiction; the V3 expectation on the analysis mask should be quoted
+   as ~0.85 (coding §4.9 / §6 M1 say "~0.8"; left as is, this entry is the record).
+6. `frontogenesis` returns `F`, per the contract; `two_F = 2 * F` is formed at the call site
+   (M3), and `F.attrs['convention']` says so. Coding §1.1's "name the predicted variable
+   `two_F`" applies to the budget dataset, not to this operator.
+7. The oracle being bit-for-bit means criterion 7 cannot fail independently of the wiring; the
+   `< 1%` gates V1/V2 (task 5) and the discrete null V3 (task 6) are where the numerics are
+   judged. Worth keeping in mind when reading "regression to round-off" in the acceptance list.
+
+**Status line updated** in `frontogenesis_prompt_2.md` (tasks 1-2 done). Coding §6 M1 untouched
+until the milestone closes (task 7).
+
+Files: created `py/operators.py`, `py/tests/test_operators.py`; modified `py/tests/conftest.py`
+(`masks_ds` fixture), `frontogenesis_planning.md` (§2.4 sign, marked), `frontogenesis_coding.md`
+(§1.2 kernel/NaN policy; §4.3 strain rotation and alignment comments, marked),
+`claude_prompts/frontogenesis_prompt_2.md` (status line) and this log.
