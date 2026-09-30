@@ -221,7 +221,7 @@ F = -(1/2) delta G  +  (1/2) |sigma| G cos(2 theta)
 where `theta` is the angle between `grad_h b` and the strain compressional axis. This gives
 a strong independent physical check: frontogenesis should peak where `grad b` aligns with
 the compressional axis, and the PDF of `theta` is a classic signature (Figure 4).
-*(Corrected 2026-09-29, M1 task 2: the strain term carries a **plus** sign when `theta` is
+*(Corrected 2026-09-29, M1 task 2; **final**, decided 2026-09-30, M1-Q3: the strain term carries a **plus** sign when `theta` is
 measured from the compressional axis — for the pure deformation `u = -a x, v = a y` and a front
 `b(x)`, `theta = 0` and `F = +a b_x^2`; an earlier version wrote a minus, which holds only for
 `theta` measured from the extensional axis. `operators.strain_alignment` uses the compressional
@@ -602,6 +602,10 @@ continuum checks; the last two are the ones that actually protect the headline n
 
 1. **Cartesian scheme test.** Pure deformation `u = -a x, v = a y`, where `G` grows exactly
    as `exp(2 a t)`. Validates the semi-Lagrangian scheme in isolation.
+   *(Passed 2026-09-29, M1 task 5, at the reference width 8 dx: 0.78% over 8 h; the < 1%
+   criterion means that width — decided 2026-09-30, M1-Q5. At 6 / 4 / 3 / 2 dx the error is
+   1.57 / 3.09 / 4.43 / 7.86%, the centred stencil's truncation, shared by `G` and `F`; the
+   scheme alone is < 0.36% at every width.)*
 2. **Native-grid metric test.** An analytic function of `XC`/`YC` with known gradients.
    Validates `dxC`/`dyC`/`CS`/`SN` handling. Test 1 cannot do this and vice versa.
 3. **Discrete end-to-end null test (required before any real data).** The identity
@@ -620,6 +624,24 @@ continuum checks; the last two are the ones that actually protect the headline n
    LLC velocities) using our exact discrete operators and semi-Lagrangian step, and
    **require slope = 1 +/- 0.05 on front pixels** before touching real data. If it fails,
    the operators are co-located or the scheme order raised until it passes.
+   *(Done 2026-09-29, M1 task 6. The null cannot see the 0.80-0.85 Jacobian attenuation: the
+   interpolated Jacobian's trace is exactly the wide centred difference of the centred velocity,
+   i.e. the (1,2,1)/4 mean of the flux-form divergence, and the semi-Lagrangian departure map is
+   built from that same centred velocity, so both sides see the same attenuated strain. What it
+   measured is the chain-rule violation: the product `-(grad b)^T (grad u)(grad b)` overstates the
+   discrete `DG/Dt` by `(2/3)(dx/ell)^2` at a front of width `ell` -- 0.950 [0.943, 0.962] on the
+   synthetic fronts of 2-8 dx and 0.758 [0.733, 0.784] on the real hour-0 field, both with the
+   bilinear departure velocity. Fixed by the discretely consistent `F = -sum_k (L_k b)[L_k, u.grad] b`
+   (`operators.frontogenesis`, the default) and a cubic velocity in the departure iteration:
+   1.004 [0.995, 1.017] and 0.981 [0.970, 0.994]. The flux-form-vs-centred question is therefore
+   untested by this null and stays an open systematic for M3; a finite-volume advection step as
+   truth would be needed to test it.)*
+   *(Done 2026-09-29, M1 task 6b — V3b; corrected 2026-09-30, M1 task 7: with that finite-volume
+   truth (flux-form, OS7MP-like, MITgcm conventions) the slope is 0.975 [0.954, 1.003] on the real
+   hour, **−0.006 ± 0.025** from V3's 0.981 — the 0.80-0.85 attenuation does **not** bias the
+   slope; it is the resolved `G`'s consistent view of the strain. V3b is M3's recorded
+   model-advection systematic band, 0.954-1.003; no upward correction. The scheme's own
+   truncation is width-dependent: −2% at 2 dx, −4% at 1.5 dx, −11% at 1 dx.)*
 4. **Interpolation-bias null test.** Advect `G` with a *uniform, zero-strain* flow, where
    the true `DG/Dt` is identically zero. Whatever comes out is the interpolation bias of
    §5.3, measured rather than estimated. Report it as an error bar on every later slope.
@@ -698,7 +720,9 @@ Ordered by what would actually change our minds.
 2. **Joint PDF, measured vs `2F`**, on front pixels, 1:1 line, and the estimators of §11.
    The Phase-0 discrete-null slope is **drawn on the figure as an explicit baseline line**,
    not merely quoted in the caption (Lauren's request, and the better choice — a reader
-   should see what "slope relative to baseline" means). *The money plot* — but it is only
+   should see what "slope relative to baseline" means). The baseline is drawn at **0.981 with
+   its band [0.970, 0.994]** (the V3 real-velocity slope; decided 2026-09-30, M1-Q4), with V3b's
+   model-advection systematic band 0.954-1.003 beside it. *The money plot* — but it is only
    interpretable together with 2b.
 2b. **Residual against high-order derivatives of `b`** (a `grad^4`-like diagnostic) and
    against `KPPhbl`. This is the test that separates implicit numerical diffusion from
@@ -736,7 +760,8 @@ afterthought but a milestone deliverable. Four of them are the gates; two are su
 - **V1** *(gate)* Cartesian deformation: measured vs exact `exp(2 alpha t)`.
 - **V2** *(gate)* Native-grid metric test against analytic gradients.
 - **V3** *(gate)* Discrete null test: the slope scatter, whose fitted slope is the baseline
-  drawn on Figure 2.
+  drawn on Figure 2 (0.981 [0.970, 0.994]; decided 2026-09-30, M1-Q4). **V3b** *(recorded
+  bias, task 6b)* the same null with a flux-form finite-volume truth: 0.975 [0.954, 1.003].
 - **V4** *(gate)* Interpolation bias under uniform zero-strain flow, where the truth is zero.
 - **V5** Half-cell interpolation demonstration — truth vs bilinear-`G` vs cubic-`b`, negative
   bias at the maximum annotated.

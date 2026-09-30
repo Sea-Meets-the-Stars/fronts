@@ -23,6 +23,15 @@ Conventions (coding §1)
   discrete identity ``F = (1/2) DG/Dt`` needs one set of ``b_x, b_y``.
 * ``F = -(u_x b_x^2 + (u_y + v_x) b_x b_y + v_y b_y^2)`` and
   ``F = (1/2) DG/Dt``: compare ``2F`` with the measured ``DG/Dt``, always.
+* **The discretely consistent ``F`` is the default** (``form='discrete'``,
+  M1 task 6, gate V3).  The chain-rule product above is a continuum
+  identity; on the grid the measured ``[G(x, t+dt) - G(x_d, t)]/dt`` tends
+  to ``-2 (L b) . [L, u . grad] b`` (``L`` the gradient stencil), which
+  differs from ``-2 (L b)^T (L u)(L b)`` by ``-(2/3)(dx/ell)^2`` at the centre
+  of a front of width ``ell`` -- 0.85x at 2 dx, 0.96x at 4 dx.  The null
+  slope with the chain form was 0.95 (synthetic) / 0.76 (real hour); with
+  the consistent form 1.00 / 0.98.  ``form='chain'`` stays as the
+  repo-equivalent oracle path (criterion 7).
 * ``grad b`` and the Jacobian are both in the **geographic** basis (the
   dbof helpers rotate with ``CS``/``SN``); ``G``, ``F``, ``delta`` and
   ``|sigma|`` are rotational invariants.  The flux-form strain pair from
@@ -260,17 +269,169 @@ def jacobian(U, V, grid_ds, grid):
 # ---------------------------------------------------------------------------
 # frontogenesis
 # ---------------------------------------------------------------------------
-def frontogenesis(b, U, V, grid_ds, grid):
-    """Kinematic frontogenesis function
-    ``F = -(u_x b_x^2 + (u_y + v_x) b_x b_y + v_y b_y^2)`` [s^-5] at cell
-    centres, from :func:`grad_b` and :func:`jacobian`.
+def centred_model_velocity(U, V, grid):
+    """Raw ``U (j, i_g)``, ``V (j_g, i)`` averaged to the cell centres
+    (``interp_pair_to_center``, the Jacobian's first step), **model
+    basis**, as float64 DataArrays on the centred dims.  The last centre
+    along each interpolated axis is NaN: the tile holds the low staggered
+    point of every cell but not the high one, and xgcm's ``padding='fill'``
+    would average the last velocity with 0 (M0 task 5).  Shared by
+    ``semilag.centre_velocities`` (the departure) and
+    :func:`frontogenesis` ``form='discrete'`` (the consistent tensor), so
+    the two sides of the null see one and the same centred velocity."""
+    udims = require_u_point(U, 'U')
+    require_v_point(V, 'V')
+    cdims = _centred_dims_like(udims)
+    u_c, v_c = ng.interp_pair_to_center(U, V, grid)
+    u_c = assert_dims(u_c.compute().astype('float64'), cdims, 'interp_pair_to_center[0]').copy()
+    v_c = assert_dims(v_c.compute().astype('float64'), cdims, 'interp_pair_to_center[1]').copy()
+    u_c[{'i': -1}] = np.nan                 # the missing i_g = ni face
+    v_c[{'j': -1}] = np.nan                 # the missing j_g = nj face
+    return u_c, v_c
+
+
+def model_basis_gradient(b_x, b_y, grid_ds):
+    """Invert the ``CS``/``SN`` rotation: the geographic pair from
+    :func:`grad_b` back to the model-axis components ``(g_i, g_j)`` --
+    ``g_i = b_x CS + b_y SN``, ``g_j = -b_x SN + b_y CS`` (orthogonal, so
+    exact to round-off).  ``F`` is an invariant and the consistent form
+    is naturally written along the stencil axes."""
+    cs, sn = grid_ds['CS'], grid_ds['SN']
+    return b_x * cs + b_y * sn, -b_x * sn + b_y * cs
+
+
+def _shift(a, axis, k):
+    """``a`` shifted so that ``out[x] = a[x + k e_axis]``; NaN where
+    ``x + k`` leaves the array (nothing is filled)."""
+    out = np.full_like(a, np.nan)
+    n = a.shape[axis]
+    src = [slice(None)] * a.ndim
+    dst = [slice(None)] * a.ndim
+    if k >= 0:
+        src[axis], dst[axis] = slice(k, n), slice(0, n - k)
+    else:
+        src[axis], dst[axis] = slice(0, n + k), slice(-k, n)
+    out[tuple(dst)] = a[tuple(src)]
+    return out
+
+
+def _frontogenesis_discrete(b, U, V, grid_ds, grid, neighbour_order=4):
+    """The discretely consistent ``F`` (M1 task 6, the finding of gate V3).
+
+    The measured side is ``[G(b_tp1)(x) - G(x_d, t)] / dt`` with
+    ``G = |L b|^2``, ``L`` the centred (2 dx) gradient stencil.  Under exact
+    advection ``b_tp1 = b_t(x - d)``, and because ``L`` is linear,
+    ``d/dt (L b_tp1) = -L(u . grad b)``; the semi-Lagrangian difference then
+    tends (``dt -> 0``) to ``-2 (L b) . [L, u . grad] b``: the *commutator* of
+    the stencil with advection.  In the continuum ``[grad, u . grad] b =
+    (grad u) grad b`` and ``F = -(grad b)^T (grad u) (grad b)`` follows -- the
+    chain rule.  On the grid the product rule fails at ``O((dx/ell)^2)``
+    and the commutator is, exactly,
+
+        [L_k, u . grad] b = [ (u(x + e_k) - u(x)) . grad b(x + e_k)
+                              + (u(x) - u(x - e_k)) . grad b(x - e_k) ] / (2 h_k)
+
+    -- the one-sided velocity differences from the centred ``u_c`` (the
+    same ``u_c`` the departure map is built from; for a linear velocity
+    this is the Jacobian's ``D_k u_c``) times the *true* gradient at the
+    two stencil neighbours.  So
+
+        F = -sum_k (L_k b) [L_k, u . grad] b
+
+    with the neighbour gradient taken at 4th order (``(4 D_h - D_2h)/3``,
+    which is also the node derivative of the cubic Lagrange interpolant the
+    semi-Lagrangian step uses, averaged over its two one-sided limits).
+    At the centre of a tanh front of width ``ell`` the chain-rule form is
+    ``1 + (2/3)(dx/ell)^2`` too large (0.85 at 2 dx, 0.96 at 4 dx); this
+    form is right to ``O((dx/ell)^4)`` and reduces to it as ``dx/ell -> 0``.
+    ``neighbour_order=2`` (the same ``L b`` at the neighbours, i.e. the
+    wide difference ``D_2h``) over-corrects by half the deficit and is
+    kept only as the logged alternative.  Everything in the model basis
+    (``F`` is invariant).  NaN reach: one cell more than the chain form
+    *along the axes* (taxicab ``L/2 + 4`` vs ``L/2 + 3`` from land; the
+    chessboard minimum ``L/2 + 2`` is unchanged), so 1,627 halo cells at
+    ``L = 8`` against 249, none in ``mask_analysis``; the tile-edge rim
+    at ``L = 8`` is exactly the 7 cells of ``edge_cells``.
+    """
+    bdims = require_centred(b, 'b')
+    bx, by = grad_b(b, grid_ds, grid)
+    g_i, g_j = model_basis_gradient(bx, by, grid_ds)
+    u_c, v_c = centred_model_velocity(U, V, grid)
+    if u_c.dims != bdims:
+        raise AssertionError(f'frontogenesis: velocity dims {u_c.dims} != b dims {bdims}')
+    nd = b.ndim - 2
+    ex = (np.newaxis,) * nd + (slice(None), slice(None))
+    ax_j, ax_i = b.ndim - 2, b.ndim - 1
+    gi, gj = g_i.values, g_j.values
+    uc, vc = u_c.values, v_c.values
+    # the neighbour gradient: 4th order from the stencil's own g and its
+    # neighbour average (D_2h), or (order 2) the stencil's g itself
+    if neighbour_order == 4:
+        g4i = (4 * gi - 0.5 * (_shift(gi, ax_i, 1) + _shift(gi, ax_i, -1))) / 3
+        g4j = (4 * gj - 0.5 * (_shift(gj, ax_j, 1) + _shift(gj, ax_j, -1))) / 3
+    elif neighbour_order == 2:
+        g4i, g4j = gi, gj
+    else:
+        raise ValueError(f'neighbour_order must be 2 or 4, got {neighbour_order}')
+    # spacings at the two faces of each cell along i and j (dxC on i_g, dyC on j_g)
+    dxc, dyc = _positional_metric(grid_ds, 'dxC'), _positional_metric(grid_ds, 'dyC')
+    dx_lo, dx_hi = dxc, _shift(dxc, 1, 1)
+    dy_lo, dy_hi = dyc, _shift(dyc, 0, 1)
+    F = np.zeros_like(gi)
+    for g_k, axis, h_lo, h_hi in ((gi, ax_i, dx_lo[ex], dx_hi[ex]), (gj, ax_j, dy_lo[ex], dy_hi[ex])):
+        # (u(x + e_k) - u(x)) . grad b(x + e_k)  and  (u(x) - u(x - e_k)) . grad b(x - e_k)
+        plus = ((_shift(uc, axis, 1) - uc) * _shift(g4i, axis, 1)
+                + (_shift(vc, axis, 1) - vc) * _shift(g4j, axis, 1))
+        minus = ((uc - _shift(uc, axis, -1)) * _shift(g4i, axis, -1)
+                 + (vc - _shift(vc, axis, -1)) * _shift(g4j, axis, -1))
+        F = F - g_k * 0.5 * (plus / h_hi + minus / h_lo)
+    F = b.copy(data=F)
+    F = assert_dims(F, bdims, 'frontogenesis')
+    F.name = 'F'
+    F.attrs.clear()
+    F.attrs.update(units='s-5', form='discrete' if neighbour_order == 4 else 'discrete_o2',
+                   long_name='kinematic frontogenesis, discretely consistent: '
+                             'F = -sum_k (L_k b) [L_k, u.grad] b (neighbour gradient order %d)' % neighbour_order,
+                   convention='F = (1/2) DG/Dt: compare 2F with the measured DG/Dt')
+    return F
+
+
+def _positional_metric(grid_ds, name):
+    """``dxC``/``dyC`` as a positional ``(nj, ni)`` float64 array."""
+    da = grid_ds[name]
+    if 'face' in da.dims:
+        da = da.squeeze('face')
+    return np.asarray(da.values, dtype='float64')
+
+
+def frontogenesis(b, U, V, grid_ds, grid, form='discrete'):
+    """Kinematic frontogenesis function ``F`` [s^-5] at cell centres.
+
+    ``form='chain'``: the continuum chain-rule form
+    ``F = -(u_x b_x^2 + (u_y + v_x) b_x b_y + v_y b_y^2)`` from
+    :func:`grad_b` and :func:`jacobian` -- bit-for-bit the repo's
+    ``calculate_fields.frontogenesis_tendency`` (criterion 7's oracle path).
+    ``form='discrete'`` (the default since M1 task 6): the discretely
+    consistent form :func:`_frontogenesis_discrete`, which is what the
+    measured ``[G(x, t+dt) - G(x_d, t)]/dt`` tends to under exact advection
+    on this grid; it equals the chain form for a linear ``b`` and differs
+    from it by ``-(2/3)(dx/ell)^2`` at the centre of a front of width
+    ``ell`` -- the chain-rule violation gate V3 measures.
+    ``form='discrete_o2'`` is the logged alternative (2nd-order neighbour
+    gradient).
 
     ``F = (1/2) DG/Dt`` in the adiabatic limit: the comparison is always
     ``2F`` against the measured ``DG/Dt`` (name it ``two_F``, coding §1.1).
     Inputs are **already filtered** (or not) -- this function never filters.
-    ``b`` on centres, ``U``/``V`` raw staggered.  NaN within 2 cells of land
-    (the Jacobian's reach).
+    ``b`` on centres, ``U``/``V`` raw staggered.  NaN within taxicab 2
+    (chain) or 3 (discrete) cells of land.
     """
+    if form == 'discrete':
+        return _frontogenesis_discrete(b, U, V, grid_ds, grid, neighbour_order=4)
+    if form == 'discrete_o2':
+        return _frontogenesis_discrete(b, U, V, grid_ds, grid, neighbour_order=2)
+    if form != 'chain':
+        raise ValueError(f"frontogenesis: form must be 'chain', 'discrete' or 'discrete_o2', got {form!r}")
     bdims = require_centred(b, 'b')
     bx, by = grad_b(b, grid_ds, grid)
     ux, uy, vx, vy = jacobian(U, V, grid_ds, grid)
@@ -282,7 +443,7 @@ def frontogenesis(b, U, V, grid_ds, grid):
     F = -(ux * bx ** 2 + (uy + vx) * bx * by + vy * by ** 2)
     assert_dims(F, bdims, 'frontogenesis')
     F.name = 'F'
-    F.attrs.update(units='s-5',
+    F.attrs.update(units='s-5', form='chain',
                    long_name='kinematic frontogenesis '
                              'F = -(u_x b_x^2 + (u_y+v_x) b_x b_y + v_y b_y^2)',
                    convention='F = (1/2) DG/Dt: compare 2F with the measured DG/Dt')

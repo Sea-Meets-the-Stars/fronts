@@ -260,6 +260,11 @@ def group_fronts(fronts_binary, lat, lon, fronts_file, output_dir,
 #   config keys: build.tile_find{name, lon/lat | i_rect/j_rect, property, pipeline}
 #   finding config "D" = fronts/finding/configs/finding_config_D.yaml -- READ IT rather than
 #   assuming its window/percentile; the defaults in fronts_from_gradb2 are NOT config D.
+#   (noted 2026-09-30, M1 task 7 audit, from task 7a) neither `build.tile_find` nor
+#   `generate_tile_gradb2` exists at this checkout (grep over fronts/); build_v5.py step 1 calls
+#   generate_for_channels / export_channels and gradb2.py has only generate_gradb2. M4's entry
+#   point is fronts_from_gradb2 directly (as finding/run.py does), with config D's values and an
+#   explicit n_workers, then `fronts &= isfinite(gradb2)` (task 7a's safe recipe).
 
 # fronts/viz/curtains.py
 def extract_main_axis(front_mask) -> (L,2) int32 (j,i)                        # L103
@@ -422,7 +427,20 @@ def gradb2(b, grid_ds, grid):                     -> G             # = b_x^2 + b
       # calculate_grad_squared_tracer (a different stencil, 0.911x; V3 would start biased
       # by ~0.9). Both sides of the comparison share b_x, b_y (§1.1; M0 task 5).
 def jacobian(U, V, grid_ds, grid):                -> (u_x, u_y, v_x, v_y)
-def frontogenesis(b, U, V, grid_ds, grid):        -> F             # inputs ALREADY filtered
+def frontogenesis(b, U, V, grid_ds, grid,
+                  form='discrete'):               -> F             # inputs ALREADY filtered
+      # (corrected 2026-09-29, M1 task 6) form='discrete' (the default) is the discretely
+      # consistent F = -sum_k (L_k b) [L_k, u.grad] b -- the commutator of the gradient stencil L
+      # with advection, which is what the semi-Lagrangian [G(x,t+dt) - G(x_d,t)]/dt tends to under
+      # exact advection; the neighbour gradient is 4th order. The continuum chain-rule product
+      # -(grad b)^T (grad u)(grad b) fails on the grid by (2/3)(dx/ell)^2 at a front of width ell
+      # (V3 null slope 0.95 synthetic / 0.76 real hour); the consistent form gives 1.00 / 0.98.
+      # form='chain' is the repo-equivalent path (bit-for-bit frontogenesis_tendency), kept as
+      # criterion 7's oracle. Also added: centred_model_velocity (shared with semilag) and
+      # model_basis_gradient. NaN reach of the default: taxicab L/2 + 4 from land (chain L/2 + 3;
+      # chessboard L/2 + 2 for both); finite on all of mask_analysis at every L.
+      # (decided 2026-09-30, M1-Q1) M3 runs BOTH forms: 'discrete' is the primary slope, 'chain'
+      # runs alongside, and the discrete-vs-chain difference is a stated systematic.
 def strain_divergence(U, V, grid_ds, grid):       -> (delta, sigma_n, sigma_s, sigma_mag)
       # calculate_native_strain_vorticity returns a DICT with sigma_s and vorticity on
       # CORNERS (j_g, i_g) -- interpolate to centres before combining. See §2.3.
@@ -433,7 +451,7 @@ def strain_divergence(U, V, grid_ds, grid):       -> (delta, sigma_n, sigma_s, s
 def strain_alignment(b_x, b_y, sigma_n, sigma_s): -> theta         # radians, for Figure 4
       # theta from the COMPRESSIONAL axis, folded to [0, pi/2]:
       # F = -(1/2) delta G + (1/2) |sigma| G cos 2theta (plus sign; planning §2.4,
-      # corrected 2026-09-29, M1 task 2)
+      # corrected 2026-09-29, M1 task 2; sign FINAL, decided 2026-09-30, M1-Q3)
 ```
 `frontogenesis` takes **pre-filtered** inputs — filtering happens once, at the call site, so
 it cannot silently differ between the two sides.
@@ -443,7 +461,12 @@ it cannot silently differ between the two sides.
 ```python
 def centre_velocities(U, V, grid_ds, grid):       -> (u_c, v_c)   # interp to cell centres
 def departure_index(u_c, v_c, grid_ds, dt=3600.0,
-                    n_iter=3):                    -> (di, dj)     # index-space displacement
+                    n_iter=3, vel_order=3):       -> (di, dj)     # index-space displacement
+      # (corrected 2026-09-29, M1 task 6) the velocity at the trajectory midpoint is interpolated
+      # at order 3, not bilinearly: the displacement is insensitive (< 0.03 cell) but the strain
+      # of the departure map is not -- bilinear smoothing of grid-scale velocity structure made
+      # it 0.965 of the Jacobian's on real front pixels (0.992 cubic), V3 'llc' 0.94 -> 0.98.
+      # measured_DGDt takes the same vel_order.
 def interp_to_departure(field, di, dj, order=3):  -> same shape   # cubic+ REQUIRED
 def measured_DGDt(b_t, b_tp1, u_mid, v_mid, grid_ds, grid,
                   dt=3600.0, order=3):            -> DGDt
@@ -464,6 +487,9 @@ kinematic term and `[G_{t+dt} - G(b_t(x_d(x)))]/dt` measures the *residual* (~0 
 not a prefiltered B-spline (`map_coordinates`), whose recursive prefilter leaks a filled NaN
 46% / 12% / 3.3% / 0.9% into the coefficients 1 / 2 / 3 / 4 nodes away. Departures: `di = U dt/dxC` along `i`,
 `dj = V dt/dyC` along `j`, verified against the haversine centre distances on the tile grid.
+*(Decided 2026-09-30, M1-Q6.)* `order = 3` stays the default; M3 reports its slope at `order = 5`
+as a sensitivity (order 5 costs a 6-node NaN rim per axis against 4). V4's bar is 0.28-1.0% of `G`
+per hour at order 3 (1.5-cell / 1-cell front).
 
 ### 4.5 `py/coarsegrain.py`
 
@@ -546,7 +572,22 @@ def test_native_metric(grid_ds, png=True)              -> dict   # V2; analytic 
 def test_discrete_null(velocities='strain', png=True)  -> dict   # V3; MUST give slope = 1 +/- 0.05
       # expect a ~0.8 attenuation of the interpolated Jacobian before co-location (M0 task 5:
       # trace vs flux-form divergence slope 0.80, corr 0.97); G from the same b_x, b_y as F
+      # (corrected 2026-09-29, M1 task 6) the semi-Lagrangian null is BLIND to that attenuation:
+      # the Jacobian trace is exactly D_h u_c (the (1,2,1)/4 mean of the flux-form divergence)
+      # and the departure map is built from the same u_c, so both sides see 0.85x of the flux
+      # form. What the null measured was the chain-rule violation, (2/3)(dx/ell)^2: first attempt
+      # 0.950 (strain) / 0.758 (llc); with the consistent F and the cubic departure velocity
+      # 1.004 [0.995, 1.017] / 0.981 [0.970, 0.994] -- the slope Figure 2 draws is `slope`.
+      # (corrected 2026-09-30, M1 task 7) the attenuation does NOT bias the slope: V3b below
+      # measured its effect at -0.006 +/- 0.025 with a flux-form truth.
+def test_fv_null(velocities='strain', png=True)        -> dict   # V3b (task 6b): RECORDED BIAS, not a gate
+      # the same pipeline with a flux-form finite-volume truth (fvadvect; OS7MP-like, MITgcm
+      # conventions): 0.975 [0.954, 1.003] on the real hour, 0.985 [0.977, 0.996] strain --
+      # M3's systematic band 0.954-1.003 (0.975 +/- 0.025) around the 0.981 baseline; no upward
+      # correction; per-width shortfall -2% / -4% / -11% at 2 / 1.5 / 1 dx. `res['bias']`.
 def test_interpolation_bias(png=True)                  -> dict   # V4; uniform flow, true DGDt = 0
+      # (decided 2026-09-30, M1-Q6) the bar: 0.28-1.0% of G per hour at order 3 (1.5-cell / 1-cell
+      # front, real-hour displacements); order 3 the default, order 5 an M3 sensitivity (0.06%).
 # two supporting figures
 def demo_interp_half_cell(png=True)                    -> dict   # V5; the figure Lauren asked for
 def qa_land_halo(grid_ds, png=True)                    -> dict   # V6; coastline before/after halo,
@@ -559,7 +600,8 @@ M0 task 5 — verify with `git check-ignore -v` if a figure fails to show up) �
 acceptance, not an extra. `demo_interp_half_cell` (V5) renders a synthetic front shifted half a
 cell and plots truth vs `G` from bilinear-`G` vs `G` from cubic-`b`, annotating the negative bias
 at the maximum. `test_discrete_null` must also **return the fitted slope**, because Figure 2
-draws it as a baseline line.
+draws it as a baseline line — at **0.981 with its band [0.970, 0.994]** (decided 2026-09-30,
+M1-Q4). V3b (`test_fv_null`, task 6b) is a seventh PNG, `figs/V3b_fv_null.png`, a recorded bias.
 
 `test_native_metric` (V2) and `qa_land_halo` (V6) need the real tile grid, so they are **not**
 pure-offline: mark them `@pytest.mark.needs_grid` and point them at `tile330_grid.zarr`, which
@@ -590,7 +632,9 @@ def front_strength_series(track, G_by_time, two_F_by_time,
       # "front at t+dt" -- front-mean G over a changing pixel set is not material (Q14).
 ```
 `figures.py`: one function per figure, `fig01_maps(...)` ... `fig10_term_budget(...)`, plus
-`figV1..figV6`, each writing a PNG to `dev/frontogenesis/figs/`.
+`figV1..figV6`, each writing a PNG to `dev/frontogenesis/figs/`. `fig02` draws the M1 baseline at
+**0.981 with its band [0.970, 0.994]** (the V3 real-velocity slope, `form='discrete'`), with V3b's
+systematic band 0.954-1.003 beside it (decided 2026-09-30, M1-Q4).
 
 ---
 
@@ -669,7 +713,10 @@ grid from M0 — not in M2. `analysis_mask` includes the **tile-edge margin** (`
 validating the operators, not part of the budget run.
 
 **Acceptance — all four must pass:**
-1. Cartesian deformation reproduces `exp(2 alpha t)` to < 1%.
+1. Cartesian deformation reproduces `exp(2 alpha t)` to < 1% **at the reference front width
+   8 dx** (decided 2026-09-30, M1-Q5: 0.78% over 8 h there; 1.57 / 3.09 / 4.43 / 7.86% at 6 / 4 /
+   3 / 2 dx, the centred-stencil truncation `G` and `F` share; the semi-Lagrangian step alone is
+   < 0.36% at every width).
 2. Native-metric test reproduces analytic gradients to < 1%.
 3. **`test_discrete_null` gives slope = 1 +/- 0.05 on front pixels.** If it fails, co-locate
    the operators or raise the scheme order until it passes. *Do not proceed on a failure* —
@@ -677,11 +724,28 @@ validating the operators, not part of the budget run.
    measured the interpolated Jacobian trace at **0.80x** the flux-form divergence (corr 0.97),
    so a correction of that size is expected, and `G` must be `b_x^2 + b_y^2` from the same
    `grad_b` as `F` (§1.1) or the slope starts a further 0.91x off (corrected 2026-09-28, M0
-   task 5).
+   task 5). *(Corrected 2026-09-30, M1 task 7: PASS at 1.004 [0.995, 1.017] strain / 0.981
+   [0.970, 0.994] llc with `form='discrete'` and the cubic departure velocity (task 6). The
+   attenuation is invisible to this null by construction, and V3b (task 6b, a flux-form truth)
+   measured its effect on the slope at **−0.006 ± 0.025** — it does not bias the slope.)*
 4. `test_interpolation_bias` quantifies the uniform-flow bias; it becomes a permanent error
-   bar on every later slope.
-5. **All six PNGs (V1-V6: four gates plus two supporting) written to `figs/`.** Lauren asked for these
+   bar on every later slope. *(Decided 2026-09-30, M1-Q6: **0.28-1.0% of `G` per hour at order
+   3**; order 5 as an M3 sensitivity. V3b's recorded bias 0.975 [0.954, 1.003] is the
+   model-advection systematic band around the 0.981 baseline.)*
+5. **All six PNGs (V1-V6: four gates plus two supporting) written to `figs/`** (seven with V3b,
+   task 6b). Lauren asked for these
    decisions to be visible rather than asserted; they are acceptance criteria, not extras.
+6. Tests pass: `test_operators.py`, `test_masking.py`, `test_semilag.py`, `test_coarsegrain.py`,
+   `test_validate.py`, `test_nan_finding.py` (prompt 2 criterion 6).
+7. Regression: `operators.frontogenesis(form='chain')` is bit-for-bit `frontogenesis_tendency`
+   (reworded 2026-09-30, M1-Q7; the default `form='discrete'` is the science product).
+
+**M1 closed 2026-09-30** (prompt 2 task-7 log entry: all seven criteria PASS — V1 0.78% at 8 dx,
+V2 0.077%, V3 1.004 / 0.981 with `form='discrete'` and the cubic departure velocity, V4 0.28-1.0%
+of `G`/h recorded, V3b 0.975 [0.954, 1.003] recorded as the model-advection systematic, seven PNGs
+in `git status`, suite 84 passed + 3 strict xfails that document `fronts` bugs, the chain-form
+oracle bit-for-bit). The operator change that passed gate 3 — the discretely consistent `F` and
+the cubic departure velocity — is the discretisation finding for the writeup.
 
 ### M2 — Data pull  *(planning Phase 1)*
 
@@ -713,6 +777,14 @@ Front pixels here are selected as `G` above a stated percentile at the **midpoin
 `mask_analysis` — **no labelling, no `tile_find`**. That stays in M4, and keeping it out means the
 budget is not entangled with thresholding/thinning choices. Bootstrap over **contiguous spatial
 blocks and hours** at this milestone (front *features* only exist from M4).
+
+**Carried from M1 (decided 2026-09-30, M1-Q1 / Q2 / Q4 / Q6):** run `operators.frontogenesis`
+with **both** `form='discrete'` (primary) and `form='chain'`, the difference a stated systematic;
+the baseline is **0.981 [0.970, 0.994]** (V3 llc) and the model-advection systematic band from V3b
+is **0.954-1.003 (0.975 ± 0.025)** — **no upward correction** for the Jacobian attenuation;
+report the slope per front width and subtract the advection-numerics shortfall (−2% at 2 dx, −4%
+at 1.5 dx, −11% at 1 dx) before any diffusion is inferred on the sharpest fronts; `order = 3`
+default with **order 5 as a sensitivity**; V4's bar 0.28-1.0% of `G`/h (order 3).
 
 Figures produced here: **1, 2, 2b, 3, 3b, 4, 5, 6, 7, 10.** They are built as the data lands;
 M5 consolidates, captions and wires up one-command regeneration.

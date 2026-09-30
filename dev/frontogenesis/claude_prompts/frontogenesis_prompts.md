@@ -2973,3 +2973,688 @@ Files: created `py/synthetic.py`, `py/validate_figs.py`, `py/tests/test_validate
 `figs/V1_cartesian_deformation.png`, `figs/V2_native_metric.png`, `figs/V4_interpolation_bias.png`;
 modified `py/validate.py` (split + V1/V2/V4), `py/tests/test_operators.py` (grid helpers imported
 from `synthetic.py`), `claude_prompts/frontogenesis_prompt_2.md` (status paragraph) and this log.
+
+### 2026-09-29 — Execution prompt 2, task 6: gate V3, the discrete null (Fable)
+
+**Scope.** Task 6 of `frontogenesis_prompt_2.md` only: `validate.test_discrete_null` (V3, the hard
+gate), the operator change it forced, the re-run of the whole suite, `figs/V3_discrete_null.png`,
+the V3 slots in `test_validate.py`. Task 7 not started; no data pulled; nothing committed; nothing
+outside `dev/frontogenesis/` touched (`deck/`, prompt 1 untouched); `dbof` read-only at `938bce1`.
+Every python/pytest command ran under `timeout 300`; the longest was 33 s.
+
+**Construction.** A tracer `b_t` is advected one hour by **our own** semi-Lagrangian step:
+`u_c, v_c = semilag.centre_velocities`, `(di, dj) = semilag.departure_index` (midpoint iteration,
+`n_iter = 3`), `b_tp1 = interp_to_departure(b_t, di, dj, order 3)` — so the truth satisfies our
+discrete advection exactly. Measured side: `semilag.measured_DGDt(b_t, b_tp1, U, V)` (the same
+departure). Predicted side: `2F` from `operators.frontogenesis` at the trajectory midpoint
+`b_mid = midpoint_time(b_t, b_tp1)` with the (steady / time-midpoint) `U, V`.
+*`'strain'`*: `synthetic.null_strain_case` — `b = b0 tanh(s/ell)` with the front normal at
+0 / 30 / 60 deg from the compressional axis (`F = +aG / +aG/2 / −aG/2` for the deformation alone)
+and `ell = 2, 3, 4, 6, 8 dx` (`sigma_G = 1-4` cells; equal jump `b0`), 15 cases on 128² grids of
+1.8 km; velocity = deformation `a = 1e-5` plus sinusoidal shear (`0.25 m/s`, 40 dx: vorticity +
+shear strain), along-x divergence (`0.15 m/s`, 36 dx) and along-y divergence (`0.20 m/s`, 48 dx),
+so the strain varies along every front; front pixels pooled under one threshold. `ell = 1, 1.5`
+run out of the pool as diagnostics. *`'llc'`*: the real tile grid, hour-0 JMD95 `b` as the tracer
+(the real front-width distribution), `0.5 (U_t + U_tp1)` of M0's two hours, `mask_analysis`.
+Displacement on front pixels: median 0.41, p99 1.61, max 2.07 cells.
+
+**Declared before any number was seen** (module constants in `validate.py`): front pixels =
+`G_mid = gradb2(b_mid) >= p90` over the valid set (`mask_analysis` & finite; the interior with an
+8-cell margin, pooled, for strain) — planning §11's rule for M3, independent of both endpoints,
+and what tasks 3-4 already used (`G_mid > p90`, n 26,293); *not* config D (85th percentile in
+64-px windows with `sharpen`/`despur`), which is M4's front *finding*. Gate estimator = **OLS of
+measured on `2F` with intercept** (`2F` is the smooth side in a null whose only error is
+discretisation); also reported: through-origin OLS, inverse OLS, geometric mean (RMA), orthogonal
+(TLS; both axes share units), ratio `sum y/sum x`, corr. Bootstrap over **32 x 32-cell spatial
+blocks** (1000 draws, 2.5-97.5%), never pixels. The strain pool widths and the out-of-pool
+diagnostics were fixed at the same time. Nothing was changed after the first numbers.
+
+**First attempt — FAIL, both variants** (the operators as they were: chain-rule `F`, bilinear
+velocity in the departure iteration):
+- *strain*: OLS **0.9496 [0.9432, 0.9616]** (n 18,816, 120 blocks; orthogonal 0.967, inverse OLS
+  0.986, GM 0.968, origin 0.949, ratio 0.827, corr 0.981). Per width: **0.937 / 0.969 / 0.981 /
+  0.990 / 0.993** at 2 / 3 / 4 / 6 / 8 dx (width share of the front pixels 14 / 17 / 20 / 24 / 25%);
+  out of the pool 1 dx **0.817**, 1.5 dx 0.897. Per case the 0-deg fronts are lowest (0.814 at 2 dx).
+- *llc*: OLS **0.7579 [0.7333, 0.7839]** (n 26,293, 249 blocks; orthogonal 0.790, inverse 0.844,
+  GM 0.800, ratio 0.693, corr 0.947). Median `2F dt/G` on front pixels 0.010; median `|DGDt| dt/G`
+  0.045 (the null's measured side is dominated by the ~4%/h of strain-driven change).
+
+**Diagnosis (the finding about the discretisation).**
+1. **The Jacobian attenuation is invisible to a semi-Lagrangian null — by construction.** The
+   Jacobian's `u_x` is `interp(diff(interp(U)))`, which on the C-grid is *exactly* the wide centred
+   difference `[u_c(i+1) − u_c(i−1)]/(2dx)` of the centred velocity `u_c = (U_i + U_{i+1})/2`, i.e.
+   the `(1,2,1)/4` mean of the flux-form divergence (measured: Jacobian trace vs numpy `D_h u_c`
+   slope 1.0000, corr 1.0000). The departure map is built from the same `u_c`, and the stencil
+   applied to `b_t(x − d(x))` sees `D_h d`. So both sides see the same 0.85x: on front pixels the
+   departure strain regresses on the Jacobian trace at 0.965 (bilinear velocity) / **0.992** (cubic),
+   the Jacobian on the flux-form `delta` at 0.856, the departure strain on `delta` at 0.847. The
+   0.80 / 0.85 the docs told V3 to expect cannot appear here; see contradictions.
+2. **What the null measures is the chain-rule violation.** With `L` the (linear) gradient stencil
+   and `b_tp1 = b_t(x − d)`, `d/dt (L b_tp1) = −L(u·grad b)` exactly, so the semi-Lagrangian
+   difference tends to `−2 (L b)·[L, u·grad] b` — the commutator of the stencil with advection.
+   In the continuum `[grad, u·grad] b = (grad u) grad b` and the textbook `F` follows; on the grid
+   `[L_k, u·grad] b = [(u(x+e_k) − u(x))·grad b(x+e_k) + (u(x) − u(x−e_k))·grad b(x−e_k)]/(2h_k)`:
+   the one-sided velocity differences times the *true* gradient at the two stencil neighbours,
+   whose average is `b' + h² b'''/2` where `L b = b' + h² b'''/6`. At the centre of `tanh(x/ell)`
+   the product form is therefore `1 + (2/3)(dx/ell)²` too large: **0.83x at 2 dx, 0.93 at 3, 0.96 at
+   4, 0.99 at 8** — the per-width slopes above, softened by the flanks (where `b'''` changes sign).
+   Task 3's 0.966 at 4 dx and V1's width dependence were the same effect.
+3. **A third, separate defect: the bilinear velocity in the departure iteration.** Low-passing the
+   *velocity* (`L = 8`, `b` raw) took the consistent form from 0.938 to 1.001 on the real hour;
+   low-passing `b` (`L = 8`, velocity raw) left it at 0.951 / 0.981 (bilinear / cubic). Bilinear
+   interpolation of `u_c` at the sub-cell midpoint `x − d/2` smooths its grid-scale structure by
+   `f(1−f) dx² grad² u / 2`; the displacement barely notices (≤ 0.03 cell, task 3) but its
+   *gradient* — the strain the front responds to — does (0.965 of the Jacobian's, above).
+
+**Every change tried (OLS on the pre-declared front pixels).**
+
+| change | strain | llc |
+|---|---|---|
+| chain-rule `F`, bilinear departure velocity (**first attempt**) | 0.9496 | 0.7579 |
+| chain-rule `F`, cubic departure velocity | 0.9512 | 0.7914 |
+| consistent `F`, 2nd-order neighbour gradient (`D_2h`), bilinear velocity | — | 0.9824 |
+| consistent `F`, 2nd-order neighbour gradient, cubic velocity | 1.0223 (per width 1.029 → 1.002) | 1.0267 |
+| consistent `F`, **4th-order neighbour gradient**, bilinear velocity | — | 0.9382 |
+| consistent `F`, 4th-order neighbour gradient, **cubic velocity** (**adopted**) | **1.0044** | **0.9806** |
+| … with `vel_order = 5` / `order = 5` for `b` / `n_iter = 0` | — | 0.987 / 0.986 / 0.962 |
+| … with `2F` interpolated to the spatial trajectory midpoint `x − d/2` | — | 1.024 (over-corrects; kept at the arrival cell per coding §1.2) |
+| … velocity low-passed `L = 2 / 4 / 8` (`b` raw; bilinear vel.) | — | 0.966 / 0.987 / 1.001 (cubic, `L = 8`: 1.006) |
+| … `b` low-passed `L = 8` (velocity raw) | — | 0.981 (bilinear 0.951) |
+| 4th-order gradient stencil on **both** sides, chain rule (the prompt's other option; angle 0) | 0.942 / 0.977 / 0.985 / 0.984 / 0.979 at 2 / 3 / 4 / 6 / 8 dx | — |
+| face-10 orientation of the strain case (2 / 4 dx, angle 0) | 1.0003 / 0.9959, bit-identical to CS = 1 | — |
+
+The 2nd-order neighbour gradient (`Ā_h L b = D_2h b`, error `h² b'''/2` vs the needed `h² b'''/3`)
+over-corrects by half the deficit, +2.9% at 2 dx, and "passes" the real hour with the bilinear
+velocity only because the two errors cancel — rejected. Raising the gradient order everywhere
+halves the deficit but the product rule still fails (0.94 at 2 dx, and it changes `G`, the
+measured side, the rims and the oracle) — rejected. The 4th-order neighbour gradient
+`(4 D_h − D_2h)/3` is also the node derivative of the cubic Lagrange interpolant the step uses,
+averaged over its two one-sided limits, which is the natural closure of the argument.
+
+**Final — PASS, both variants** (`form='discrete'`, `vel_order = 3`):
+- *strain*: OLS **1.0044 [0.9950, 1.0171]** (se 0.006; n 18,816); origin 1.004, inverse 1.039, GM
+  1.021, orthogonal 1.022, corr 0.983; ratio 0.851 — ill-conditioned for a pool with both signs of
+  `2F` (the 60-deg fronts are frontolytic), reported and not used. **Per width 1.006 / 1.003 /
+  1.001 / 1.000 / 1.000**; out of the pool 1 dx 1.004, 1.5 dx 1.007 — the consistent form is right to
+  `O((dx/ell)^4)` all the way to the resolution limit on the synthetic fronts.
+- *llc*: OLS **0.9806 [0.9698, 0.9942]** (se 0.006; n 26,293; 249 blocks); origin 0.980, inverse
+  1.017, GM 0.999, orthogonal 0.999, ratio 0.950, corr 0.982. Inside the ±0.05 gate, but the CI
+  excludes 1: the remaining −2% is the real velocity's grid-scale structure (it vanishes when the
+  velocity is low-passed and does not move when `b` is), part of it the cubic interpolation of
+  the velocity at the midpoint (`vel_order = 5`: 0.987) and part the evaluation of `F` at the
+  arrival cell rather than along the trajectory (the spatial-midpoint variant over-corrects to
+  1.024). **This 0.981 is the baseline Figure 2 draws** (`res['slope']`), with its CI.
+
+**Operator changes (`operators.py`, `semilag.py`).**
+- `operators.frontogenesis(b, U, V, grid_ds, grid, form='discrete')`: the discretely consistent
+  `F = −sum_k (L_k b)[L_k, u·grad] b` is the **default**; `form='chain'` is the unchanged
+  repo-equivalent path (**still bit-for-bit `frontogenesis_tendency`**; the criterion-7 oracle test
+  now calls `form='chain'` explicitly — that is the "keep the oracle against the old path" option);
+  `form='discrete_o2'` is the rejected 2nd-order variant, kept for the record. New helpers
+  `centred_model_velocity(U, V, grid)` (one implementation of the centred velocity, now shared by
+  `semilag.centre_velocities` and the consistent `F`, so the departure map and `F` cannot see
+  different velocities) and `model_basis_gradient(b_x, b_y, grid_ds)` (the exact inverse rotation;
+  `F` is an invariant and is formed along the stencil axes). `F.attrs['form']` records which.
+  On the real hour the consistent form regresses on the chain form at **0.790** over the top-decile
+  cells (logged by the oracle test) — the size of the correction M3 would otherwise have carried
+  as a baseline.
+- `semilag.departure_index(..., vel_order=3)` (was 1); `measured_DGDt(..., vel_order=3)` passes it
+  through. Displacement statistics unchanged (median 0.364, p99 1.248, max 2.10 on the ocean;
+  bilinear vs cubic max 0.032 cell).
+- NaN reach of the default `F` (measured on the diagonal-coast geometry and the real tile, both
+  forms, `L = 0/2/4/8`): the **chessboard** minimum of a finite `F` is unchanged (`L/2 + 2`), the
+  **taxicab** minimum is one more (`L/2 + 4` vs `L/2 + 3`), and `F` is finite only beyond
+  chessboard `L/2 + 3` (chain `L/2 + 2`). Consequences: NaN in `mask_halo & mask_edge` at `L = 8`
+  **1,627** cells (0.48%; chain 249), 0 at `L ≤ 4` on the tile; **finite on all 262,925
+  `mask_analysis` cells at every `L`, both forms**; the tile-edge reach at `L = 8` is **exactly 7
+  cells = `edge_cells`** (no slack left; `edge_cells` must not shrink).
+- Coarse-grained closure (task 4's test, unchanged tolerances) **improved** with the consistent
+  `F`: `Gbar` residual/measured with the term, shear `dx = 3600/1800/900`: 0.117 / 0.052 / 0.037
+  (was 0.20 / 0.085 / 0.041; `dt = 900`: 0.012, was 0.022); divergent 0.194 / 0.089 / 0.088 (was
+  0.33 / 0.12 / 0.090; `dt = 900`: 0.023, was 0.032) — the chain-rule mismatch task 4 said the
+  closure "measures together with the discretisation" is now gone from it at the coarse levels.
+
+**Tests — `pytest dev/frontogenesis/py/tests`: 70 passed, 0 skipped in 33 s** (was 68 + 1 skip):
+`test_masking` 17, `test_operators` 21, `test_semilag` 15, `test_coarsegrain` 10, `test_validate` 7
+(V1, V2, **V3 strain**, **V3 llc** `needs_grid`, V4, V5, V6). Updated with a stated reason, no
+tolerance loosened: `test_factor_of_two_pure_deformation` (×2: `F = aG` is the chain form's
+identity → `form='chain'`, plus new assertions that the discrete form is 0.945-0.970 of it at the
+4-dx centre and within 0.4% at 16 dx); `test_strain_alignment_definition_and_decomposition` and
+`test_strain_rotation_sign_on_the_real_face` (the Jacobian decomposition is of the chain form →
+`form='chain'`); `test_regression_vs_repo_frontogenesis_tendency` (oracle on `form='chain'`, still
+max |dF| = 0 on 262,925 cells; plus the default form finite on the mask and its 0.79 ratio);
+`test_lowpass_halo_consequence_diagonal_coast` and `test_lowpass_nan_at_the_coast_real_tile`
+(both forms, the reach numbers above, taxicab added); `test_nan_propagates_at_a_synthetic_coast`
+(the velocity support is cubic now); `test_two_hours_smoke` (compares `vel_order = 1` to the new
+default). `test_validate.py` V3: strain asserts the gate, the CI inside ±0.05, every pooled width
+within 2% and the out-of-pool widths within 3% for the discrete form, the chain form monotone in
+width and < 0.95 at 2 dx / < 0.85 at 1 dx, the 2nd-order variant > 1.02 at 2 dx, estimators within
+3% of each other; llc asserts the gate and CI, n 26,293 / 262,925, the first attempt < 0.85, cubic >
+bilinear, the low-passed-velocity run within 2% of 1, departure-vs-Jacobian > 0.98 and
+Jacobian-vs-flux-form in 0.8-0.9 (the blindness, pinned).
+
+**V3 → `figs/V3_discrete_null.png`** (200 dpi, 4000 x 2500, 0.99 MB; `git status` shows it,
+`git check-ignore -v` → `figs/.gitignore:3:!*.png`): (a, b) strain variant, first attempt and the
+gate, 2-D histograms of measured vs `2F` on front pixels with the 1:1 line, the OLS fit and CI, the
+orthogonal / inverse / GM slopes; (c, d) the same for the LLC variant; (e) the slope vs front width
+per form with the `1 − (2/3)(dx/ell)²` prediction, the out-of-pool widths, the 4th-order-everywhere
+alternative and the LLC slopes; (f) every change tried as bars against the gate band, with the
+departure / Jacobian / flux-form strain ratios in the title. `test_discrete_null(png=True)` computes
+the other variant too so the figure always carries both (the LLC half is skipped without the M0
+stores).
+
+**Contradictions / things to flag (explicitly).**
+1. **The expected 0.80-0.85x Jacobian attenuation does not and cannot appear in this null**
+   (prompt 2 task 6 and criterion 3, coding §4.9 / §6 M1, planning §6 test 3 all say to expect it).
+   The Jacobian trace *is* `D_h u_c`, the `(1,2,1)/4` mean of the flux-form divergence, and the
+   semi-Lagrangian departure is built from `u_c` — a semi-Lagrangian truth can only ever confirm
+   the centred description against itself. Whether the model's flux-form advection sharpens fronts
+   with the h-scale strain the `2h` tracer stencil cannot see is **untested and open for M3**; the
+   test that would settle it is a finite-volume (flux-form) advection step as the truth. Noted in
+   planning §6 (marked) and coding §4.9 (marked). If that strain does act, M3's slope would be biased
+   *high*, not low.
+2. **Criterion 3's "order unity at a 4 dx feature"**: the chain-rule violation is `(2/3)(dx/ell)²` —
+   4% at 4 dx, 17% at 2 dx, order unity only at 1 dx (0.82). Task 3 flagged the same; wording only.
+3. **Criterion 7 as worded ("unfiltered `operators.frontogenesis` agrees with `frontogenesis_tendency`
+   to round-off") is now true of `form='chain'`, not of the default.** The oracle test says so; the
+   science product is the consistent form. Coding §4.3 corrected and marked.
+4. **Coding §4.4 / task 3's "bilinear velocity is fine"** was true of the displacement, false of its
+   gradient. `vel_order = 3` is now the default (coding §4.4 marked).
+5. **Planning §11's ratio estimator** `sum y/sum x` is ill-conditioned whenever the front pool has
+   both signs of `2F` (0.85 on the synthetic pool against 1.004 for every other estimator); M3
+   should quote it separately for `X > 0` and `X < 0` as §11 already asks for the binned means.
+6. **The llc CI excludes 1** (0.970-0.994): the gate (±0.05) passes but the baseline is
+   significantly 2% below 1, and that 2% is the real velocity's grid-scale structure, not the fronts.
+   Figure 2 should draw 0.981 with its band, not "1".
+7. **V4's error bar does not enter this null**: with our own step as truth the interpolation
+   bias cancels identically (integer and fractional shifts alike), so V3 cannot confirm V4's 0.28-1.0%
+   of `G`/h; it applies to the real comparison only. Not a contradiction; a limit of the design.
+8. Coding §4.9's signature `test_discrete_null(velocities='strain', png=True)` grew keyword
+   arguments (`order, forms, widths, angles, n, a, margin, n_boot, diag_widths, grid_ds, changes`),
+   all defaulted; the contract call works as written. The docs' "`G_mid` top decile" front rule was
+   only implicit (planning §11 "a stated percentile"); p90 is now stated in `validate.py`.
+9. `validate.py` is 863 lines (§1.3's ~400 exceeded further; V3 alone is ~350 with the
+   estimators and the changes-tried bookkeeping); `validate_figs.py` 600, `operators.py` 552.
+   Flagged, not split.
+10. M2 (prompt 3) and M3 (prompt 4) must call `operators.frontogenesis` with the default and
+    `semilag` with the defaults; anything pinned to "`F` = `frontogenesis_tendency`" in those
+    prompts now means `form='chain'`. Not edited here.
+
+Files: created `figs/V3_discrete_null.png`; modified `py/operators.py` (`frontogenesis(form=)`,
+`_frontogenesis_discrete`, `centred_model_velocity`, `model_basis_gradient`, `_shift`, docstrings),
+`py/semilag.py` (`centre_velocities` delegates; `departure_index(vel_order=3)`;
+`measured_DGDt(vel_order=)`; `ng` import dropped), `py/synthetic.py` (`null_strain_case`,
+`NULL_MODES`), `py/validate.py` (V3: constants, `slope_estimators`, `block_bootstrap_ols`, `two_F`,
+`null_step`, `front_pixels`, `_null_strain`, `_fourth_order_everywhere`, `_discrete_null`,
+`test_discrete_null`), `py/validate_figs.py` (`fig_V3`), `py/tests/test_operators.py`,
+`py/tests/test_semilag.py`, `py/tests/test_validate.py`, `frontogenesis_coding.md` (§4.3, §4.4, §4.9
+marked), `frontogenesis_planning.md` (§6 test 3 marked), `claude_prompts/frontogenesis_prompt_2.md`
+(status paragraph) and this log.
+
+### 2026-09-29 — Execution prompt 2, task 7a: test_nan_finding.py (Fable)
+
+**Scope.** The `test_nan_finding.py` piece of task 7 of `frontogenesis_prompt_2.md` only:
+`fronts_from_gradb2` under finding config D on NaN land, synthetic and real. The M1 audit, the
+Status paragraph, criteria and coding §6 are the audit agent's; `test_validate.py` untouched; V3b is
+a concurrent agent. Nothing outside `dev/frontogenesis/` touched — in particular **the `fronts`
+package is unmodified**; the three failures below are recorded as `xfail(strict=True)` with the
+exact mode, and the fixes are described here, not applied. No data pulled; nothing committed.
+Every python/pytest command ran under `timeout 300`; the full suite takes 64 s, the new file 34 s.
+Env: `~/miniforge3/envs/frontogenesis/bin/python` (3.13), `fronts` editable from this checkout
+(`pip show`: editable project location `~/Oceanography/python/fronts`, branch `frontogenesis`),
+skimage 0.26.0, scipy 1.18.1, skan 0.13.1, numpy 2.5.3.
+
+**Config D, read from the YAML** (`fronts/finding/configs/finding_config_D.yaml`, `binary:`):
+`window 64, threshold 85, thresh_mode 'pool', thin false, sharpen true, despur true, Lspur 10,
+dilate false, min_size 7, connectivity 2`. Five of these differ from `fronts_from_gradb2`'s defaults
+(40, 90, 'generic', False, False) — the docs were right to say "read it". Callers in `fronts`
+(`finding/run.py:52`, `runs/prototypes/finding/explore_hyper.py:131`) pass `**bparam` with
+`bparam['n_workers'] = 10` hard-coded; the config alone is not runnable (below).
+
+**How NaN flows through config D** (traced in the code, then measured on 160x200 fields with a
+2-px Gaussian ridge and a 40-column NaN land block):
+
+1. `pyboa.front_thresh` — `scipy.ndimage.vectorized_filter` (or `generic_filter`, or the pool's
+   row chunks) with `np.nanpercentile` over the 64x64 window and `cval=nan` outside the array. The
+   local threshold is the percentile of the window's *finite* cells; a NaN cell compares
+   `nan > q = False`, so no NaN cell is ever flagged; a window entirely on land gives `q = nan`
+   (numpy `RuntimeWarning: All-NaN slice` in 'vectorized' mode — 1,440 of them on the 160x200
+   field; none from 'generic', which filters NaN explicitly; none visible from 'pool', whose
+   children swallow them) and flags nothing. **NaN-safe.** The three modes agree bit for bit on the
+   NaN field (`generic == vectorized == pool`). No coastal bias: on a flat noise field with a NaN
+   coast the 85th-percentile window flags 0.150 of the 32 coastal columns vs 0.149 of the interior.
+2. `sharpen.global_sharpen_pq` — a priority-queue thinning keyed on `gradb2`, padded with 0; it
+   only reads `gradb2` on foreground pixels (never NaN) and ends with `morphology.thin`.
+   **NaN-safe.** Note it thins, so config D's fronts are 1 px wide even with `thin: false`.
+3. `pyboa.cropping` — `spur` (LUT, `padding=1`), `remove_small_objects(min_size=7)` (skimage
+   0.26 deprecates `min_size` for `max_size`, FutureWarning every call), then
+   **`remove_small_holes()` with its default `area_threshold=64`**: a background region < 64 px
+   enclosed by front pixels is filled *without looking at `gradb2`*. A NaN island < 64 px that a
+   front wraps around is filled, and the final thin draws the skeleton across it. **Not NaN-safe.**
+4. the final `morphology.thin` — binary, NaN-blind.
+5. `despur.prune_short_spurs` — `skeletonize`, then `skan.Skeleton(skeleton)`; on an **empty**
+   skeleton skan raises `ValueError: index pointer size 0 should be 1`. **Breaks** whenever nothing
+   survives cropping (an all-NaN field; an all-land or featureless tile). `despur=False` returns
+   the all-False mask correctly, so steps 1-4 are fine.
+
+**What works.** A NaN land block: config D runs (given `n_workers`), returns `(nj, ni)` `bool`,
+puts **0 front pixels on NaN**, and the fronts on every column >= 10 cells from the coast are
+**pixel-for-pixel equal** to the land-free field's (0 differing pixels; 0 in the 10 coastal columns
+too; the tolerance in the test is <= 2). A front running into the coast: 0 on NaN, no spurious
+front along the coast, the skeleton stops at the *second* ocean column (`i = 41` for a coast at
+40 — a 1-px endpoint retraction, the same as at an open array edge), away from the coast equal to
+the land-free mask (0 pixels differ; 1 in `40 <= i < 50`). A NaN island beside (not enclosed by) a
+front: 0 on NaN.
+
+**What breaks** (each an `xfail(strict=True)` in the file, so a `fronts` fix shows up as XPASS):
+- **`fronts_from_gradb2(G, **config_D)` raises `TypeError`** before touching NaN: `thresh_mode
+  'pool'` with the default `n_workers=None` reaches `np.array_split(np.arange(nrows), None)`
+  (`pyboa.py:797`). And 'pool' is a `ProcessPoolExecutor` (spawn on macOS): a caller script
+  without an `if __name__ == '__main__'` guard dies with `BrokenProcessPool` (my first probe did;
+  pytest is fine). The tests pass `n_workers=2`.
+- **Front pixels on NaN via `remove_small_holes`**: a 6x5 NaN island on the ridge → **6 front
+  pixels on NaN** (the skeleton runs straight through the island).
+- **All-NaN field → `ValueError` in despur** (skan on an empty skeleton).
+
+**Workarounds** (caller side, tested): filling NaN before finding is **not safe** — 0-fill and
+ocean-median-fill both change the fronts away from land (15 pixels differ at >= 10 cells from the
+coast, 16 in the coastal columns; the filled cells enter the percentile window and move the local
+threshold). The safe recipe is: pass NaN as-is, pass `n_workers` explicitly, keep `despur` off on a
+possibly-empty field, and **`fronts &= isfinite(gradb2)` afterwards** — that removes exactly the
+island fill and changes nothing else (the mask is already False on every other NaN cell).
+
+**Real tile** (`needs_grid`; hour 0 of `tile330_raw_20120702T00_2h.zarr`, the repo's `grad_b2` =
+`calculate_grad_squared_tracer`, the finding field per the operators contract; NaN on all 161,523
+land cells plus 2,174 ocean cells at taxicab 1 from land, finite 354,703): config D with
+`n_workers=4` → **11,836 front pixels in 7.1-7.3 s** (the 'vectorized' threshold alone is 13 s
+single-process; the whole M2 series at 72 h is ~9 min), **0 on NaN**, **878 (7.4%) inside the
+7-cell halo** (`mask_ocean & ~mask_halo`), 7,885 on the analysis mask. Coastal artefact: the front
+density is 0.167 at the first finite cell from NaN, 0.093 / 0.058 / 0.046 / 0.034 at 2 / 3 / 4 / 5,
+0.034 at 7, 0.032 at >= 8 — i.e. a coastal excess that decays by ~5 cells, entirely inside the
+halo. It comes from the *input*: `grad_b2`'s median at the first finite cell is 1.4e-13 vs 2.1e-15
+in the interior (~70x); the finder itself shows no coastal bias on a flat field (above). Whether
+that 70x is the coastal-upwelling front or the stencil next to the NaN rim is not interpreted here
+(M1 produces no science); the halo removes it either way.
+
+**Recommended fixes for `fronts` (described, not applied).**
+1. `pyboa.front_thresh` 'pool': default `n_workers` to `os.cpu_count()` (or fall back to
+   'vectorized') when `None`; document the `__main__` guard.
+2. `pyboa.cropping`: after `remove_small_holes`, re-apply the caller's finite mask — simplest is
+   `fronts_from_gradb2` doing `res_frnt_crop &= np.isfinite(gradb2)` after cropping (and after
+   dilation), or passing `remove_small_holes` a hole mask that excludes NaN cells.
+3. `despur.prune_short_spurs`: `if not skeleton.any(): return skeleton` before `Skeleton()`.
+4. `pyboa.cropping`: `remove_small_objects(max_size=min_size - 1)` (skimage 0.26 deprecation; note
+   the off-by-one in the new semantics) — cosmetic.
+5. 'vectorized' mode: wrap `nanpercentile` in `warnings.catch_warnings` (or use 'generic'), so an
+   all-land window does not emit 1,000s of RuntimeWarnings.
+
+**Tests.** `py/tests/test_nan_finding.py`: 14 tests — 11 pass, 3 xfail (strict). Offline: config D
+values vs defaults; the `n_workers` TypeError (xfail); land block (shape/dtype/no-NaN; equality away
+from land); threshold modes agree + NaN-safe (+ the All-NaN warning); no coastal bias in the
+percentile window; front into the coast; enclosed island (xfail); island beside a front; all-NaN
+(xfail) and all-NaN with `despur=False`; fill workarounds unsafe; output-masking workaround safe.
+`needs_grid`: hour-0 `grad_b2` under config D with the numbers above asserted as ranges. Full
+suite: **81 passed, 3 xfailed** in 64 s (was 70 passed).
+
+**Contradictions / notes on the docs.**
+1. Coding §2.5 says `build_v5.py` step 1 → `build.tile_find` → `fronts.preproc.gradb2.
+   generate_tile_gradb2`. **Neither `generate_tile_gradb2` nor `tile_find` exists in this
+   checkout** (`grep` over `fronts/`, all `*.py`); `build_v5.py` step 1 calls
+   `generate_for_channels` / `export_channels`, and `fronts/preproc/gradb2.py` has only
+   `generate_gradb2`. Planning-prompt survey notes cite `gradb2.py:89-98` for it — stale against
+   the current `frontogenesis` branch. The finding entry point for M4 is `fronts_from_gradb2`
+   directly (as `finding/run.py` does); the §2.5 line should be corrected by the audit.
+2. Planning §10 / the prompt-1 survey call the finding chain "already NaN-safe (`nanpercentile`,
+   `cval=np.nan`)". True for the threshold step only; `remove_small_holes` and the empty-skeleton
+   despur are not, and config D as written does not run without `n_workers`.
+3. Prompt 2 criterion 6 / coding §5 name the test; both satisfied. Coding §5's "all offline
+   except one `network` test" holds — the real-tile test is `needs_grid`, on disk.
+4. `fronts_from_gradb2`'s docstring: `threshold` is documented as "used in the cropping function
+   to determine size threshold"; it is the percentile passed to `front_thresh`. `thin: false` in
+   config D does not mean unthinned output — `sharpen` thins.
+5. `pyboa.front_thresh`'s `ValueError` message lists 'generic', 'vectorized', 'dask' — 'pool' is
+   accepted but unlisted.
+
+Files: created `py/tests/test_nan_finding.py`; this log. Nothing else.
+
+### 2026-09-29 — Execution prompt 2, task 6b: V3b, the finite-volume null (Fable)
+
+**Scope.** Task 6b of `frontogenesis_prompt_2.md` (M1-Q2, option (a): V3b in M1, before any science,
+as a **recorded bias, not a gate**): `py/fvadvect.py` (new), `validate.test_fv_null` (V3b),
+`validate_figs.fig_V3b`, `figs/V3b_fv_null.png`, the V3b tests in `tests/test_validate.py`, the task
+entry `### 6b` in prompt 2. No operator module touched (`operators.py`, `semilag.py`, `masking.py`,
+`coarsegrain.py` unchanged); `validate.py` gained an injectable truth (`null_step(advect=)`), the llc
+input loader `_llc_inputs` / `_fit_llc` factored out of `_discrete_null` (V3 re-run: 1.0044 / 0.9806,
+bit-identical), and `null_step` now also returns `G_tp1`. Nothing pulled, nothing committed, nothing
+outside `dev/frontogenesis/`; every command under `timeout 300` (longest 49 s). Grids ≤ 128² synthetic;
+the final llc numbers use the full `mask_analysis` (262,925 cells, n front 26,293).
+
+**Why V3b.** V3's truth is our own semi-Lagrangian step, so both sides see the same centred velocity
+`u_c` and the null is blind to the 0.80-0.85x attenuation of the interpolated Jacobian relative to the
+flux-form strain (M0 task 5; 0.853 on `mask_analysis`, M1 task 2; 0.856 on the V3b front pixels).
+LLC4320 advects `b` in flux form with OS7MP. V3b replaces the truth by a flux-form finite-volume step on
+the C-grid with V3's midpoint velocity; everything else (measured `semilag.measured_DGDt`, predicted
+`2 * operators.frontogenesis` at the midpoint, `form='discrete'` and `'chain'`, the pre-declared
+`G_mid >= p90` front pixels, OLS-with-intercept estimator, 32-cell block bootstrap with 1000 draws) is V3's
+code path, unchanged.
+
+**The truth (`fvadvect.fv_advect`), MITgcm conventions.** Face transports `uTrans = U dyG hFacW`,
+`vTrans = V dxG hFacS` (`drF` cancels in one layer; the OSN NaN velocity faces are `hFacW = 0` cell for
+cell, set to zero transport); per directional sweep `db/dt = -[Delta(uTrans b_f) - b Delta(uTrans)] /
+(rA hFacC)`; sweeps X then Y on even sub-steps, Y then X on odd (as the model alternates them), forward
+in time, the second sweep on the field the first updated; `dt_sub = 100 s` (36 sub-steps, `c <= 0.06` on
+the tile; the model's 25 s is an option). Land filled with its nearest ocean value for the reconstruction
+only (its faces carry zero transport; NaN again on output); the tile edge padded zero-gradient. Schemes:
+- `centred`: `b_f = (b_{i-1} + b_i)/2`, integrated unsplit with SSP-RK3 (forward-in-time centred is
+  anti-diffusive at `O(c^2)`). No dissipation: **the pure C-grid stencil effect**, the reference.
+- `dst3`: MITgcm's third-order direct-space-time scheme (`tempAdvScheme = 30`, no limiter):
+  `b_f = b_{i-1} + d0 (b_i - b_{i-1}) + d1 (b_{i-1} - b_{i-2})`, `d0 = (2-c)(1-c)/6`, `d1 = (1-c^2)/6`.
+  The cross-check with a *larger* implicit diffusion.
+- `os7`: the unlimited seventh-order one-step scheme of Daru & Tenaud (2004): the exact sub-step time
+  average of the degree-6 reconstruction through `b_{i-4..i+2}` (four upwind, three downwind), a
+  degree-6 polynomial in `c` derived from the primitive function (`os7_weight_matrix`; checked: `c -> 0`
+  gives `(-3, 25, -101, 319, 214, -38, 4)/420`, `c = 1` the exact shift, weights sum to 1).
+- `os7mp`: `os7` + the Suresh & Huynh (1997) monotonicity-preserving limiter (`alpha = 4`, the `d^M4`
+  curvature bounds, `UL/LC/MD`), the construction OS7MP and `gad_os7mp_adv_x.F` follow. **How it differs
+  from MITgcm's OS7MP:** the model's limiter bounds carry the Courant number (a second-order-in-`c`
+  difference in where the limiter engages, at the model's `c <= 0.02` / our `<= 0.06`), and the model
+  reduces the stencil order with `maskW` next to land where we fill. The unlimited scheme is the same.
+  So: an honest OS7MP-like scheme, exact in the smooth limit, approximate in the limiter's bounds.
+Checks: a uniform tracer stays uniform under the divergent strain-case flow for every scheme (max
+`|b - 3| = 0`); translation of a Gaussian by one cell per hour converges as `sigma^-2.8` (centred),
+`^-3.6` (dst3), `^-7` (os7/os7mp); the one-step schemes are exact at `c = 1` (1e-16).
+
+**Divergence treatment (decision).** The truth is `d_t b + div(u b) = b div u`, the advective form
+built from flux differences — `D b/Dt = 0` for the tracer. Justification: (i) the null is about the
+kinematic identity `F = (1/2) DG/Dt`, which is what a surface tracer obeys when only its horizontal
+kinematics are modelled; (ii) it is exactly MITgcm's default multi-dimensional branch
+(`GAD_MULTIDIM_COMPRESSIBLE` undefined): each 1-D sweep subtracts `tracer * (uTrans(i+1) - uTrans(i))`;
+(iii) the model's top-cell budget under the linear free surface (M0 task 3, from the source): the surface
+transport is zero and the vertical sweep contributes `-w_base (b_base - b)/drF` with `w_base = W(0) +
+drF delta` (`W(0) = dEta/dt`), so the *horizontal* part of the model's top-cell tendency is precisely this
+advective form and the vertical part is M3's separately measured top-cell term (`vertical.py`), not part
+of this null. The conservative alternative `-div(u b)` alone (`form='conservative'`, kept to show its
+size) adds `-b delta` — 4% of `b` per hour at `delta ~ 1e-5` — and gives a nonsensical slope of **13.3**
+(discrete) / 9.0 (chain) on the real hour: a spurious `-2 delta G`-type signal far larger than the strain's.
+
+**Slopes (OLS of measured `DG/Dt` on `2F`, front pixels, 32-cell block bootstrap 2.5-97.5%).**
+
+| truth | strain, chain | strain, discrete | llc, chain | llc, discrete |
+|---|---|---|---|---|
+| semi-Lagrangian (= V3) | 0.951 [0.944, 0.964] | 1.004 [0.995, 1.017] | 0.791 [0.753, 0.815] | 0.981 [0.970, 0.994] |
+| FV centred (stencil only) | 0.932 [0.895, 0.996] | 0.983 [0.951, 1.037] | 0.811 [0.768, 0.849] | 0.974 [0.930, 1.026] |
+| FV OS7 (unlimited) | 0.931 [0.920, 0.948] | 0.985 [0.977, 0.996] | 0.803 [0.778, 0.823] | 0.983 [0.958, 1.018] |
+| **FV OS7MP-like** | 0.931 [0.920, 0.948] | **0.985 [0.977, 0.996]** | 0.790 [0.753, 0.814] | **0.975 [0.954, 1.003]** |
+| FV DST3 (3rd order) | 0.909 [0.889, 0.932] | 0.962 [0.947, 0.975] | 0.666 [0.622, 0.725] | 0.845 [0.784, 0.918] |
+
+Correlations (discrete): strain 0.983 / 0.833 / 0.980 / 0.980 / 0.960; llc 0.982 / 0.717 / 0.932 / 0.918 /
+0.856 — the centred truth is dispersive on the real field (grid-scale wiggles in `b_tp1`), which widens
+its CI without moving its slope; os7 and os7mp coincide on the smooth synthetic fronts (the limiter never
+engages on a monotone tanh). n front 18,816 (strain, 15 pooled cases) / 26,293 (llc).
+
+**Slope vs front width (strain, per width 2 / 3 / 4 / 6 / 8 dx; out of the pool 1 / 1.5 dx).**
+- discrete: V3 1.006 / 1.003 / 1.001 / 1.000 / 1.000 (1.004 / 1.007); centred 0.982 / 0.983 / 0.986 /
+  0.991 / 0.994 (0.998 / 0.988); **os7(mp) 0.979 / 0.992 / 0.995 / 0.997 / 0.998 (0.893 / 0.958)**; dst3
+  0.951 / 0.981 / 0.991 / 0.996 / 0.997 (0.807 / 0.906).
+- chain: V3 0.938 / 0.970 / 0.982 / 0.991 / 0.995; centred 0.917 / 0.950 / 0.967 / 0.982 / 0.989; os7(mp)
+  0.911 / 0.960 / 0.976 / 0.988 / 0.993; dst3 0.884 / 0.949 / 0.972 / 0.987 / 0.992.
+So a model-like advection sharpens a front *less* than the discrete `F` says by ~2% at 2 dx, 0.8% at 3,
+0.5% at 4, 0.2% at 8 dx, and by 4% at 1.5 dx and 11% at 1 dx: the scheme's own truncation on fronts it
+does not resolve (the seventh-order error is not small at `k dx ~ 1`). The chain form adds its
+`(2/3)(dx/ell)^2` violation on top. The rule for M3: the numerics-of-advection shortfall is width-dependent
+and is what a slope < 1 on the sharpest fronts *must* be corrected for before any diffusion is inferred.
+
+**Does the 0.85 attenuation appear? No.** On the real hour the FV truths give 0.974 (centred), 0.983
+(os7), 0.975 (os7mp) against V3's 0.981 — a shift of −0.006 [−0.027, +0.022] for the OS7MP-like truth,
+not the +0.17 (`1/0.85`) a fully acting attenuation would give (dotted red line in V3b (d, e)). The Jacobian
+trace regresses on the flux-form divergence at **0.856** on these very front pixels, so the strain the
+tracer is advected with *is* 15% larger at the h scale than the strain `F` sees — but the front strength
+we measure is `|L b|^2` with `L` the same `2 dx` stencil, and `d/dt (L b) = -L(u . grad b)` averages the
+h-scale strain over the same `(1, 2, 1)/4` footprint before it reaches `G`. The h-scale strain of the
+face velocities sharpens sub-stencil structure that the resolved `G` does not see; the interpolated
+Jacobian's attenuation is therefore *not* a bias of the pipeline but the consistent description of the
+resolved front strength. (An interpretation supported by the numbers, not a theorem: the chain form
+moves the same way, 0.791 → 0.790.)
+
+**Stencil vs implicit diffusion (discrete `F`; llc, then strain).**
+- **C-grid stencil** = centred slope − 1: **−0.026** (llc; CI half-width ±0.05), −0.017 (strain).
+- **Implicit diffusion** = scheme − centred, on the scheme's own front pixels (exact: one `b_t`, one
+  departure, so `measured(s) − measured(centred) = [G(b_tp1^s) − G(b_tp1^centred)]/dt`): os7 **+0.009**,
+  os7mp **+0.001**, dst3 **−0.129** (llc); os7(mp) +0.002, dst3 −0.021 (strain). As a `DG/Dt` term its OLS
+  slope on `2F` is +0.008 / −0.001 / −0.145 (llc) and its rms is 0.81 / 0.91 / 0.87 of rms `2F` — the large
+  rms against the centred reference is the centred scheme's dispersive noise, not diffusion.
+- **The MP limiter alone** = os7mp − os7 (same reconstruction): slope shift **−0.008** (discrete) /
+  −0.013 (chain) on llc; its `DG/Dt` term regresses on `2F` at −0.009, rms 0.22 of `2F`; `dt/G` median
+  **0.0%** of `G` per hour, mean −0.24%, **p10 −1.9%**, negative on 48% of front pixels — the limiter is a
+  tail effect on the sharpest fronts, as planning §2.3 says (first-order-upwind-like where it engages).
+- The seventh-order dissipation is below the noise of this one-hour null (`+0.009 ± 0.03`); the
+  third-order DST3 cross-check shows what a genuinely diffusive scheme would do: −0.13 in the slope,
+  `dt/G` median −1.5% per hour, p10 −11%, negative on 68% of front pixels, `2 kappa k^2 ~ 4e-6 s^-1` at
+  the front scale — the order of planning §2.3's estimate for `4 dx`.
+
+**Sensitivities (llc, os7mp × discrete unless stated).** `dt_sub` 25 / 100 / 300 s: 0.9753 / 0.9747 /
+0.9733 (centred RK3 25 / 300 s: 0.9741 / 0.9741). Land fill nearest vs ocean-mean: **identical** on every
+`mask_analysis` cell (max |Δmeasured| = 0). Tile-edge crop test (rerun on the tile cropped 16 cells,
+`max |Δb| / std(b)` vs cells from the crop edge): 0.42 / 0.076 / 0.043 / 0.011 / 0.0042 / 0.0018 / 6e-4 /
+**1.3e-4 at 7 cells** (= `edge_cells`) / 7e-5 / 8e-6 / 6e-6 / 1e-6 at 11 — the zero-gradient pad's reach
+decays 3-5x per cell and is below 1e-4 of `std(b)` at the edge margin.
+
+**Headline recorded bias for M3.** `bias = 0.975 [0.954, 1.003]` (llc, OS7MP-like truth, `form='discrete'`;
+strain 0.985 [0.977, 0.996]): the OLS slope our pipeline returns when the tracer is advected as the model
+advects it and nothing else happens. Relative to Figure 2's baseline of 0.981 (M1-Q4, the V3 slope) that is
+**−0.006 [−0.027, +0.022]**: no correction, and in particular *no upward correction* for the Jacobian
+attenuation. Recommended use in M3: (1) keep the baseline at 0.981 with its V3 band, and widen the
+*systematic* band to the V3b CI, 0.954-1.003 (report M3's slope against 0.981, quote the V3b interval as
+the pipeline's model-advection systematic); (2) report the slope per front width and subtract the
+width-dependent advection-numerics shortfall above (−2% at 2 dx, −4% at 1.5 dx, −11% at 1 dx, discrete
+form) before attributing anything on the sharpest fronts to diffusion; (3) for `form='chain'` the same
+truths give 0.79 [0.75, 0.81] — the chain form is a different baseline, as M1-Q1 already treats it; (4) the
+number to quote if one is needed: **0.975 ± 0.025**. Not a gate; `res['bias']` carries it.
+
+**Tests — `pytest dev/frontogenesis/py/tests`: 84 passed, 3 xfailed in 91 s** (was 81 + 3 xfailed with
+`test_nan_finding.py`; 70 before it): `test_validate.py` gains `test_V3b_fv_step_basics` (the OS7 weight
+limits, uniform-tracer invariance under a divergent flow for every scheme, the conservative form's
+`-b delta`, exactness of the one-step schemes at `c = 1`),
+`test_V3b_fv_null_strain` (offline: runs, finite, `scheme='semilag'` reproduces V3's 1.0044 to 1e-12,
+centred FV at 8 dx within 2% of 1, os7 = os7mp on smooth fronts to 1e-4 (4e-6 measured: the limiter
+touches a few flank cells of the sheared cases), os7(mp) per width monotone and within
+3% of 1 in the pool, dst3 below os7 at 2 dx, the OS7 weight limits, the uniform-tracer invariance and the
+conservative form's spurious `-b delta`) and `test_V3b_fv_null_llc` (`needs_grid`: runs, finite,
+`semilag` reproduces V3's 0.9806 / 0.7914, n front 26,293 on 262,925, the OS7MP-like slope finite with a
+CI that contains it, the limiter attribution present). **No assertion on the headline number** (a
+recorded bias).
+
+**V3b → `figs/V3b_fv_null.png`** (200 dpi, 4000 x 2500, 1.0 MB; `git status` shows it,
+`git check-ignore -v` → `figs/.gitignore:3:!*.png`): (a) strain variant with the OS7MP-like truth;
+(b, c) the LLC variant with the centred and the OS7MP-like truth (2-D histograms of measured vs `2F` on
+front pixels, OLS with CI, the other estimators); (d) slope vs front width per truth, discrete solid /
+chain dashed, out-of-pool widths open, the `1/0.85` line; (e) every truth × form × variant with its CI
+and the recorded-bias band; (f) the stencil vs implicit-diffusion attribution with the limiter's numbers.
+
+**Contradictions / things to flag.**
+1. **The 0.80-0.85x Jacobian attenuation is not a bias of the slope** (prompt 2 criterion 3, coding §4.9,
+   planning §6 test 3, task 6's contradiction 1 and M1-Q2 all expected it to bias M3 *high* if it acted).
+   V3b measures the shift of the OLS slope under a flux-form truth at −0.006 ± 0.025; the attenuation is
+   the resolved `G`'s consistent view of the strain. The "open systematic for M3" of task 6 is closed by
+   this entry as a recorded bias; the docs' wording is left for the audit.
+2. Planning §2.3's implicit-diffusion estimate for OS7MP (`kappa_num` 8-27 m² s⁻¹ at 4 dx, e-folding of
+   `G` in 7-23 h) is **not** seen in one hour on the resolved `G` of the real field with the seventh-order
+   scheme (+0.009 ± 0.03 in the slope; limiter tail p10 −1.9%/h); it *is* seen with the third-order DST3
+   (−0.13). §2.3's numbers are for the unlimited kernel's Fourier symbol at the grid scale and are not
+   contradicted — they act on scales the `2 dx` `G` stencil does not resolve — but as a caveat on the
+   *resolved* headline slope they are an over-estimate by an order of magnitude for OS7MP.
+3. The OS7MP here is OS7 + the Suresh-Huynh MP limiter, not a transcription of `gad_os7mp_adv_x.F`
+   (its cfl-dependent limiter bounds and land masking differ; stated in the module docstring). The
+   unlimited seventh-order kernel is the same; the limiter's whole effect is −0.008 in the slope, so the
+   approximation cannot move the headline by more than that order.
+4. `validate.py` is now ~1,020 lines (§1.3's ~400 exceeded further; V3b adds ~150), `validate_figs.py`
+   ~700, `fvadvect.py` 330. Flagged, not split.
+5. The centred FV truth's correlation on the real field (0.72) is low enough that its CI (±0.05) is the
+   widest of the table; the stencil-vs-diffusion split is quoted with that width.
+
+Files: created `py/fvadvect.py`, `figs/V3b_fv_null.png`; modified `py/validate.py` (`null_step(advect=)`,
+`G_tp1`, `_llc_inputs`, `_fit_llc`, `_null_strain(advect=)`, `FV_*` constants, `_fv_pool_strain`,
+`_fv_attribution`, `_fv_null`, `test_fv_null`), `py/validate_figs.py` (`_null_panel(verdict=)`,
+`fig_V3b`), `py/tests/test_validate.py` (V3b tests), `claude_prompts/frontogenesis_prompt_2.md` (task
+entry `### 6b` only) and this log. Not touched: `operators.py`, `semilag.py`, `masking.py`,
+`coarsegrain.py`, `tests/test_nan_finding.py`, the Status paragraph, the criteria, coding §6, planning.
+
+### 2026-09-30 — Execution prompt 2, task 7: Q&A decisions and M1 acceptance audit (Fable)
+
+**Scope.** Task 7 of `frontogenesis_prompt_2.md`, the audit half (task 7a delivered
+`test_nan_finding.py`; task 6b delivered V3b): apply JXP's answers to M1-Q1..Q8, fix the layout of
+`figs/V3b_fv_null.png`, run the M1 acceptance audit in the style of M0's task-5 audit, and close M1 if
+every criterion passes. Task 8 (slides) not started. No operator module touched (`operators.py`,
+`semilag.py`, `masking.py`, `coarsegrain.py`, `fvadvect.py`, `validate.py` unchanged); the only code
+edit is the layout of `validate_figs.fig_V3b`. No data pulled; nothing committed; nothing outside
+`dev/frontogenesis/`; `frontogenesis_prompt_1.md` and `deck/` untouched. Every python/pytest command
+under `timeout 300`; the full suite is the longest at 98 s.
+
+**Step 1 — the Q&A decisions applied** (each spot marked "(decided 2026-09-30, M1-Qn)" or
+"(corrected 2026-09-30, M1 task 7)"; nothing rewritten around them).
+- **M1-Q1 (both forms; discrete primary, chain alongside, the difference a stated systematic).**
+  `frontogenesis_prompt_4.md` (M3): new "Both forms of `F`" bullet under *Runs*; acceptance 4
+  extended. `frontogenesis_coding.md` §4.3 `frontogenesis` comment (two lines); §6 M3 new "Carried
+  from M1" paragraph.
+- **M1-Q2 (a) — V3b as the recorded bias, per the 6b log.** `frontogenesis_prompt_4.md`: new
+  paragraph "The baseline and its bands" after the stats paragraph (baseline 0.981 [0.970, 0.994];
+  systematic band 0.954-1.003 = 0.975 ± 0.025; no upward correction; slope per width with the −2% /
+  −4% / −11% shortfall at 2 / 1.5 / 1 dx subtracted first; the ratio estimator split by sign).
+  `frontogenesis_coding.md` §4.9 (`test_fv_null` added to the signature block with its numbers;
+  "seven PNGs"); §6 M3 "Carried from M1". The docs that predicted the 0.80-0.85 attenuation would
+  bias M3 high, each with the short marked note *V3b measured −0.006 ± 0.025, so the attenuation
+  does not bias the slope*: prompt 2 criterion 3; coding §4.9 V3 comment; coding §6 M1 acceptance
+  3; planning §6 test 3 (a second "Done" note after task 6's); the M1-Q2 text itself is left as the
+  record.
+- **M1-Q3 (sign final).** `frontogenesis_planning.md` §2.4 note now reads "Corrected 2026-09-29,
+  M1 task 2; **final**, decided 2026-09-30, M1-Q3"; `frontogenesis_coding.md` §4.3
+  `strain_alignment` comment "sign FINAL". "Provisionally" / "for now" occur only in the log
+  entries (the record), not in the docs — nothing to remove.
+- **M1-Q4 (Figure 2 baseline at 0.981 with its band).** `frontogenesis_planning.md` §7 Figure 2
+  and the V3 bullet; `frontogenesis_coding.md` §4.9 (the "return the fitted slope" sentence) and
+  §4.10 (`fig02`); `frontogenesis_prompt_4.md` Figure 2 bullet; `frontogenesis_prompt_6.md` (M5)
+  Figure 2 bullet. Each also names V3b's systematic band 0.954-1.003 as the thing drawn beside it.
+- **M1-Q5 (8 dx reference width, with the effect stated).** Prompt 2 criterion 1 restated (< 1% at
+  `ell = 8 dx`; 0.78 / 1.57 / 3.09 / 4.43 / 7.86% at 8 / 6 / 4 / 3 / 2 dx over 8 h from the
+  centred-stencil truncation `G` and `F` share; the semi-Lagrangian step alone < 0.36% at every
+  width); `frontogenesis_coding.md` §6 M1 acceptance 1 likewise; `frontogenesis_planning.md` §6
+  test 1 a "Passed" note with the same numbers.
+- **M1-Q6 (bar 0.28-1.0% of `G`/h at order 3; order 3 default; order 5 as an M3 sensitivity).**
+  Prompt 2 criterion 4 note; `frontogenesis_prompt_4.md` "Interpolation order" bullet under *Runs*
+  and acceptance 4; `frontogenesis_coding.md` §4.4 (after the departure paragraph), §4.9 V4
+  comment, §6 M1 acceptance 4, §6 M3.
+- **M1-Q7 (criterion 7 names `form='chain'`).** Prompt 2 criterion 7 reworded;
+  `frontogenesis_coding.md` §6 M1 gains criteria 6-7 (the test files; the chain-form oracle), so
+  the coding doc's M1 list now matches prompt 2's seven.
+- **M1-Q8 (leave all three).** No edit: `data/tile330_masks.nc` stays git-ignored (regenerates in
+  < 1 s from the grid store), `validate.py` is not split (1,020 lines against §1.3's ~400, flagged
+  in tasks 3-6b and left), the subfilter-term trend with `L` (0.30 / 0.50 / 0.70 of `Fbar` at
+  `L = 2 / 4 / 8`, anti-correlated −0.6) is left to M3's filter sweep.
+- Also, from task 7a's request to the audit: `frontogenesis_coding.md` §2.5 gains a marked note
+  that `build.tile_find` / `generate_tile_gradb2` do not exist at this checkout and that M4's entry
+  point is `fronts_from_gradb2` directly. Prompt 5 (M4) still names the old path; not edited (not an
+  M3/M5 prompt) — listed under open issues below. Prompt 2's Q&A header records that all eight were
+  answered and applied.
+
+**Step 2 — V3b figure layout (`validate_figs.fig_V3b`, layout only).** The 6b agent reported that
+panels (e) and (f) had long titles clipped at the right edge and that the legend in (e) covered the
+last row's label (`LLC: dst3, discrete`). Fixed: the (e) title and x-label are each wrapped onto two
+lines, the (f) title's limiter line onto three, and (e) gets `set_ylim(-0.7, n_rows + 1.3)` with the
+legend at `upper left`, so it sits in the empty band above the first row. No number, estimator, colour
+or panel changed. Regenerated with `validate.test_fv_null('llc', png=True, schemes=('semilag',
+'centred', 'os7', 'os7mp', 'dst3'))` (25 s; the `'semilag'` scheme is not in `FV_SCHEMES`, so it must be
+named explicitly to get the V3 reference rows the 6b figure carried — a first regeneration without it
+dropped those rows and was redone). Numbers in the regenerated figure vs the 6b log table (llc, chain /
+discrete): semilag 0.791 [0.753, 0.815] / 0.981 [0.970, 0.994]; centred 0.811 [0.768, 0.849] / 0.974
+[0.930, 1.026]; os7 0.803 [0.778, 0.823] / 0.983 [0.958, 1.018]; os7mp 0.790 [0.753, 0.814] / **0.975
+[0.954, 1.003]**; dst3 0.666 [0.622, 0.725] / 0.845 [0.784, 0.918]; stencil effect −0.026; implicit
+diffusion +0.009 / +0.001 / −0.129 (os7 / os7mp / dst3); limiter −0.0081, median +0.00% of `G`/h, p10
+−1.9%; `bias = 0.975 [0.954, 1.003]` — **all identical to the 6b table**. Inspected: nothing clipped,
+nothing overlapped. `figs/V3b_fv_null.png` 1.0 MB, in `git status` (`??`).
+
+**Step 3 — M1 acceptance audit (prompt 2).**
+
+*Tests* (`timeout 300 ~/miniforge3/envs/frontogenesis/bin/python -m pytest dev/frontogenesis/py/tests
+-q`): **84 passed, 3 xfailed in 98 s**; `-m "not needs_grid"`: **66 passed, 18 deselected, 3 xfailed in
+50 s**. Per file (collected): `test_masking.py` 17, `test_operators.py` 21, `test_semilag.py` 15,
+`test_coarsegrain.py` 10, `test_validate.py` 10 (V1, V2 `needs_grid`, V3 strain, V3 llc `needs_grid`,
+V3b basics, V3b strain, V3b llc `needs_grid`, V4, V5, V6 `needs_grid`), `test_nan_finding.py` 14 (11
+pass + **3 `xfail(strict=True)`**, each documenting a `fronts` bug, task 7a: config D with the default
+`n_workers=None` raises `TypeError` in `pyboa.front_thresh` 'pool'; `remove_small_holes` puts front
+pixels on an enclosed NaN island; an all-NaN field raises `ValueError` in `despur` via skan on an empty
+skeleton). Strict, so a `fronts` fix shows up as XPASS. No skips.
+
+*PNGs.* `git status`: `V1_cartesian_deformation.png`, `V2_native_metric.png`,
+`V4_interpolation_bias.png`, `V5_interp_half_cell.png`, `V6_land_halo_tile330.png` are **tracked and
+unmodified** (committed by the user in `9be37dc`, so they do not appear as changes — `git ls-files figs/`
+lists them); `V3_discrete_null.png` and `V3b_fv_null.png` are **untracked and shown** (`??`).
+`git check-ignore -v` on the two untracked ones → `figs/.gitignore:3:!*.png` (the negating rule); none of
+the seven is ignored.
+
+| Criterion | Threshold | Verdict | Evidence |
+|---|---|---|---|
+| 1. V1 Cartesian deformation | `G ∝ exp(2at)` to < 1% at the 8 dx reference width (M1-Q5) | **PASS** | task 5: 0.776% max over 8 chained hours, n 1568 parcels, both orientations bit-identical; the scheme alone < 0.36% at every width; `test_validate.py::test_V1_cartesian_deformation`; `figs/V1_cartesian_deformation.png`. Width effect recorded: 1.57 / 3.09 / 4.43 / 7.86% at 6 / 4 / 3 / 2 dx |
+| 2. V2 native-grid metric | analytic gradients to < 1% | **PASS** | task 5: `b_x` max 0.077%, `b_y` max 0.041% on `mask_analysis` (262,925 cells); metric alone 0.012%; swapped components 87%; R = 6370.0 km; `test_V2_native_metric` (`needs_grid`); `figs/V2_native_metric.png` |
+| 3. V3 discrete null | slope = 1 ± 0.05 on front pixels, both variants; return the slope | **PASS** | task 6: strain **1.0044 [0.9950, 1.0171]** (n 18,816), llc **0.9806 [0.9698, 0.9942]** (n 26,293), with `form='discrete'` + `vel_order=3` (first attempt 0.950 / 0.758 — the change is the discretisation finding); `test_V3_discrete_null_strain`, `test_V3_discrete_null_llc`; `figs/V3_discrete_null.png`. **Recorded bias V3b** (task 6b): flux-form OS7MP-like truth **0.975 [0.954, 1.003]** llc, 0.985 [0.977, 0.996] strain — −0.006 ± 0.025 from the baseline, so the 0.80-0.85 attenuation does not bias the slope; `figs/V3b_fv_null.png`; three V3b tests, no assertion on the headline |
+| 4. V4 interpolation bias | record it | **PASS (recorded)** | task 5: **0.28% of `G`/h** (1.5-cell front, order 3, real-hour displacements) to **1.0%** (1-cell); order 1 2.3%, order 5 0.06%; falls as `sigma_G^-3.8`; `test_V4_interpolation_bias`; `figs/V4_interpolation_bias.png`. Quoted per M1-Q6 as 0.28-1.0% (order 3), order 5 an M3 sensitivity |
+| 5. PNGs V1-V6 in `figs/`, in `git status`; V6 shows the edge rim + margin; V5 as Lauren asked | all six (seven with V3b) | **PASS** | listed above; V5 (task 3) annotates −4.94 / −4.99 / −0.54 / −0.10% at the maximum; V6 (task 1) panel (e) is the four-edge finite rim with the `edge_cells = 7` margin |
+| 6. Tests pass, incl. `test_nan_finding.py` | six files | **PASS** | 84 passed, 3 strict xfailed (counts per file above); `test_nan_finding.py` exercises `fronts_from_gradb2` under config D on a NaN land block, a front into the coast, an island, an all-NaN field and the real hour-0 tile (11,836 front pixels, 0 on NaN) |
+| 7. Regression oracle | `form='chain'` bit-for-bit `frontogenesis_tendency` (M1-Q7) | **PASS** | task 2 / task 6: max \|dF\| = 0.0 on all 352,673 finite cells, both hours; `test_operators.py::test_regression_vs_repo_frontogenesis_tendency` (also pins the default form's 0.79 ratio to the chain form) |
+
+*Discharges vs criteria.* Task 1 (5: V6; 6: `test_masking.py`) — V6 written, 17 tests; ok. Task 2
+(6: `test_operators.py`; 7) — 21 tests, oracle bit-for-bit; ok, with criterion 7 reworded to
+`form='chain'` after task 6 changed the default. Task 3 (5: V5; 6: `test_semilag.py`) — ok. Task 4 (6:
+`test_coarsegrain.py`) — ok. Task 5 (1, 2, 4; 5: V1, V2, V4) — ok, criterion 1 at the reference width
+now stated. Task 6 (3; 5: V3) — ok. Task 6b (nothing; recorded under 3) — ok. Task 7a / 7 (6: the
+remaining tests; the audit) — ok. Every "Discharges" line is honoured and nothing is claimed twice.
+
+*Open issues carried forward (to M2 / M3 / M4).*
+1. **`fronts` bugs (task 7a; for Lauren / JXP, not applied here):** (i) `pyboa.front_thresh` 'pool'
+   with `n_workers=None` → `TypeError` at `np.array_split(rows, None)` (`pyboa.py:797`); default it to
+   `os.cpu_count()` or fall back to 'vectorized', and document the `__main__` guard the
+   `ProcessPoolExecutor` needs; (ii) `pyboa.cropping`'s `remove_small_holes(area_threshold=64)` fills an
+   enclosed NaN island and the final thin draws the skeleton across it — re-apply
+   `&= np.isfinite(gradb2)` after cropping (and after dilation), or pass a hole mask that excludes NaN;
+   (iii) `despur.prune_short_spurs` → skan `ValueError` on an empty skeleton — `if not skeleton.any():
+   return skeleton`; (iv) `remove_small_objects(min_size=)` deprecated in skimage 0.26 (use `max_size =
+   min_size - 1`); (v) 'vectorized' mode emits thousands of All-NaN `RuntimeWarning`s on land windows.
+   The three strict xfails in `test_nan_finding.py` flip to XPASS when (i)-(iii) are fixed.
+2. **Coding §2.5 / prompt 5 (M4) `build.tile_find` → `generate_tile_gradb2` path does not exist** at
+   this checkout; the entry point is `fronts_from_gradb2` directly, as `finding/run.py` does. §2.5 now
+   carries a marked note; **prompt 5 task 1 still names the old path and must be corrected when M4
+   is prepared.**
+3. **Caller-side safe recipe for NaN finding (M4):** pass NaN as-is (0-fill or median-fill changes
+   fronts away from land — 15-16 pixels on the test field), pass `n_workers` explicitly, keep `despur`
+   off on a possibly-empty field, and **`fronts &= isfinite(gradb2)`** afterwards (removes exactly the
+   island fill, nothing else). Config D values: `window 64, threshold 85, thresh_mode 'pool', sharpen,
+   despur, Lspur 10, min_size 7, connectivity 2` — five differ from the function defaults.
+4. **M3 requirements from the decisions:** both `form='discrete'` (primary) and `form='chain'`, the
+   difference a stated systematic (M1-Q1); `order = 3` default with **order 5 as a sensitivity**
+   (M1-Q6); V4's bar 0.28-1.0% of `G`/h quoted with the front width; `tau_delta` passed to
+   `subfilter_term` (task 4); the ratio estimator split by the sign of `2F` (task 6).
+5. **The V3b systematic band (M1-Q2):** baseline 0.981 with its V3 band [0.970, 0.994]; model-advection
+   systematic **0.954-1.003 (0.975 ± 0.025)**; **no upward correction** for the Jacobian attenuation;
+   slope per front width with the advection-numerics shortfall (−2% at 2 dx, −4% at 1.5 dx, −11% at
+   1 dx) subtracted before any diffusion is inferred on the sharpest fronts. Also from 6b: planning
+   §2.3's OS7MP implicit-diffusion estimate is an order of magnitude too large as a caveat on the
+   *resolved* slope (+0.009 ± 0.03 in one hour); the third-order DST3 cross-check (−0.13) shows what a
+   diffusive scheme does. §2.3 itself is not edited (its numbers describe the grid scale).
+6. Smaller, for the record: `tile330_masks.nc` stays ignored, `validate.py` stays at ~1,020 lines,
+   the subfilter-term growth with `L` is M3's (M1-Q8, all three left as they are); the tile-edge reach
+   of the default `F` at `L = 8` is exactly 7 cells, so `edge_cells` must not shrink (task 6); M2
+   (prompt 3) and M3 (prompt 4) must call `operators.frontogenesis` and `semilag` with their defaults
+   — anything pinned to "`F = frontogenesis_tendency`" means `form='chain'` (task 6, flag 10); the M0
+   planning deck still asserts the two claims M0 overturned (task 6 of prompt 1).
+
+**Step 4 — closure. M1 closed 2026-09-30.** Every criterion passes. Marked in the Status paragraph of
+`frontogenesis_prompt_2.md` (with the per-task summary) and in `frontogenesis_coding.md` §6 M1 ("M1
+closed 2026-09-30", after the criteria list). "Do not" list respected: no data pulled, nothing
+physical interpreted, no budget on real data. Task 8 (slides) is the next session's.
+
+Files: modified `claude_prompts/frontogenesis_prompt_2.md` (criteria 1, 3, 4, 5, 7; Q&A header;
+Status paragraph), `claude_prompts/frontogenesis_prompt_4.md` (stats paragraph, Runs, Figure 2,
+acceptance 4), `claude_prompts/frontogenesis_prompt_6.md` (Figure 2 bullet), `frontogenesis_coding.md`
+(§2.5, §4.3, §4.4, §4.9, §4.10, §6 M1, §6 M3), `frontogenesis_planning.md` (§2.4, §6 tests 1 and 3,
+§7 Figure 2 and V3), `py/validate_figs.py` (`fig_V3b` layout only), `figs/V3b_fv_null.png`
+(regenerated, same numbers) and this log. Not touched: every other module, the tests, the data
+stores, `frontogenesis_prompt_1.md`, `_3.md`, `_5.md`, `deck/`.

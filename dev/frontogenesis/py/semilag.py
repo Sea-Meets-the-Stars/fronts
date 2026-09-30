@@ -82,7 +82,6 @@ import operators as op
 from operators import (require_centred, require_u_point, require_v_point,
                        assert_dims, X_STAG, Y_STAG)
 from masking import _positional
-from dbof.utils import native_gradient as ng
 
 DT = 3600.0          # s; hourly snapshots (coding §1.2)
 MIN_ORDER = 3        # coding §4.4: cubic+ REQUIRED for b
@@ -115,15 +114,9 @@ def centre_velocities(U, V, grid_ds, grid):
     faces are NaN in the OSN ``U``/``V`` (M0 task 3), so ``u_c`` is NaN in
     the ocean cell adjacent to land along each axis.
     """
-    udims = require_u_point(U, 'U')
-    require_v_point(V, 'V')
-    cdims = op._centred_dims_like(udims)
-    u_c, v_c = ng.interp_pair_to_center(U, V, grid)
-    u_c = assert_dims(u_c.compute().astype('float64'), cdims, 'interp_pair_to_center[0]')
-    v_c = assert_dims(v_c.compute().astype('float64'), cdims, 'interp_pair_to_center[1]')
-    u_c = u_c.copy(); v_c = v_c.copy()
-    u_c[{'i': -1}] = np.nan                 # the missing i_g = ni face
-    v_c[{'j': -1}] = np.nan                 # the missing j_g = nj face
+    # one implementation, shared with operators.frontogenesis(form='discrete'):
+    # the departure map and the consistent F must see the same u_c
+    u_c, v_c = op.centred_model_velocity(U, V, grid)
     u_c.name, v_c.name = 'u_c', 'v_c'
     for da, ln in ((u_c, 'model-x'), (v_c, 'model-y')):
         da.attrs.clear()
@@ -257,7 +250,7 @@ def interp_to_departure(field, di, dj, order=3, *, allow_low_order=False):
 # ---------------------------------------------------------------------------
 # departure points
 # ---------------------------------------------------------------------------
-def departure_index(u_c, v_c, grid_ds, dt=DT, n_iter=3, vel_order=1):
+def departure_index(u_c, v_c, grid_ds, dt=DT, n_iter=3, vel_order=3):
     """Displacement ``(di, dj)`` in cells of the parcel arriving at each
     centre over ``dt``, from the centred model-basis velocities: the
     departure point is ``(j - dj, i - di)``.
@@ -270,13 +263,19 @@ def departure_index(u_c, v_c, grid_ds, dt=DT, n_iter=3, vel_order=1):
     already the *time*-midpoint velocity when the caller passes
     ``0.5 (u_t + u_tp1)``.
 
-    The velocity is interpolated with ``vel_order = 1`` (bilinear) by
-    default: the order rule protects the sharp front in ``b``, whereas the
-    velocity is smooth at the grid scale and the displacement error from
-    bilinear interpolation, ``dx^2 (grad^2 u) dt / 8``, is far below 0.01
-    cell (on the real hour the change from ``vel_order = 3`` is logged, M1
-    task 3).  NaN where the velocity or its midpoint support is NaN.
-    Returns ``(di, dj)`` as DataArrays shaped like ``u_c``.
+    The velocity is interpolated at **``vel_order = 3``** (cubic; changed
+    from bilinear, M1 task 6).  The *displacement* is insensitive to the
+    order -- on the real hour cubic vs bilinear moves the departure by at
+    most 0.03 cell (median 0.001, M1 task 3) -- but the **strain of the
+    departure map** ``D_h d / dt`` is not: bilinear interpolation at a
+    sub-cell offset smooths ``u_c`` by ``f (1 - f) dx^2 grad^2 u / 2``,
+    which is 3-5% of the velocity's grid-scale structure, and the front
+    strength responds to the strain, not the displacement.  On the real
+    hour the departure strain regresses on the Jacobian's (the same
+    ``D_h u_c``) at 0.965 with bilinear and 0.99 with cubic on front
+    pixels; the discrete null (V3, 'llc') moves from 0.94 to 0.98.  NaN
+    where the velocity or its midpoint support (``(vel_order + 1)^2``
+    nodes) is NaN.  Returns ``(di, dj)`` as DataArrays shaped like ``u_c``.
     """
     dims = require_centred(u_c, 'u_c')
     require_centred(v_c, 'v_c')
@@ -366,7 +365,7 @@ def gradb2_at_departure(b, di, dj, grid_ds, order=3, *, allow_low_order=False):
 # the two estimates of DG/Dt
 # ---------------------------------------------------------------------------
 def measured_DGDt(b_t, b_tp1, u_mid, v_mid, grid_ds, grid, dt=DT, order=3, n_iter=3, *,
-                  allow_low_order=False):
+                  vel_order=3, allow_low_order=False):
     """Semi-Lagrangian ``D_h G / Dt`` [s^-5] at the cell centres over one
     interval: ``[G(x, t+dt) - G(x_d, t)] / dt`` with ``G(t+dt) =
     operators.gradb2(b_tp1)`` and ``G(x_d, t)`` from
@@ -378,12 +377,14 @@ def measured_DGDt(b_t, b_tp1, u_mid, v_mid, grid_ds, grid, dt=DT, order=3, n_ite
     Compare with ``2F`` at the midpoint time (``F = (1/2) DG/Dt``).  NaN
     where either side is (land within the stencil or interpolation reach,
     the coastal NaN faces of ``U``/``V``, or a stencil leaving the tile).
+    ``vel_order`` is :func:`departure_index`'s velocity interpolation order
+    (3; 1 is the pre-task-6 bilinear, kept for the V3 record).
     """
     dims = require_centred(b_t, 'b_t')
     if tuple(b_tp1.dims) != dims:
         raise ValueError(f'measured_DGDt: b_tp1 dims {b_tp1.dims} != b_t dims {dims}')
     u_c, v_c = _centred_pair(u_mid, v_mid, grid_ds, grid)
-    di, dj = departure_index(u_c, v_c, grid_ds, dt=dt, n_iter=n_iter)
+    di, dj = departure_index(u_c, v_c, grid_ds, dt=dt, n_iter=n_iter, vel_order=vel_order)
     G_d = gradb2_at_departure(b_t, di, dj, grid_ds, order, allow_low_order=allow_low_order)
     G_tp1 = op.gradb2(b_tp1, grid_ds, grid)
     DGDt = (G_tp1 - G_d) / dt

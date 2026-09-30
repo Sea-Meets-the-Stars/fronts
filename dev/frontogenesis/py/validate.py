@@ -7,7 +7,10 @@ come from ``synthetic.py``; nothing here is imported by the science path.
 Written: ``test_cartesian_deformation`` -> **V1**, ``test_native_metric`` ->
 **V2**, ``test_interpolation_bias`` -> **V4** (M1 task 5);
 ``demo_interp_half_cell`` -> **V5** (task 3); ``qa_land_halo`` -> **V6**
-(task 1).  ``test_discrete_null`` -> **V3** is task 6.
+(task 1); ``test_discrete_null`` -> **V3** (task 6, the hard gate: it
+returns the fitted slope Figure 2 draws as its baseline, and it is what
+made ``operators.frontogenesis`` default to the discretely consistent form
+and ``semilag.departure_index`` to the cubic velocity).
 
 The ``test_*`` names are the contract's; ``__test__ = False`` keeps pytest
 from collecting them here (``tests/test_validate.py`` runs them).
@@ -246,6 +249,562 @@ def test_native_metric(grid_ds, png=True, L_lon_deg=2.0, L_lat_deg=2.0, R=R_SPHE
         ctx = dict(X=X, Y=Y, f=f, err_x=err_x, err_y=err_y, ana=ana, oc=oc,
                    err_lin_x=lin['lon'][0], err_lin_y=lin['lat'][1])
         res['png'] = vf.fig_V2(res, ctx)
+    return res
+
+
+# ---------------------------------------------------------------------------
+# V3: the discrete null
+# ---------------------------------------------------------------------------
+# Declared before any number was seen (M1 task 6; planning §11):
+#  * front pixels: G at the trajectory midpoint time, G_mid = gradb2(0.5 (b_t +
+#    b_tp1)), at or above its 90th percentile over the valid set (mask_analysis
+#    & finite for 'llc'; the interior, pooled over cases, for 'strain') -- the
+#    rule M3 will use, independent of both endpoints;
+#  * the gate estimator: OLS slope of the measured DG/Dt on 2F (with
+#    intercept) on those pixels -- 2F is the smooth, low-noise side in a null
+#    whose only "error" is discretisation; the other estimators are reported;
+#  * bootstrap over 32 x 32-cell spatial blocks (never pixels), 1000 draws.
+FRONT_PERCENTILE = 90.0
+BLOCK_CELLS = 32
+N_BOOT = 1000
+NULL_WIDTHS = (2.0, 3.0, 4.0, 6.0, 8.0)          # tanh ell/dx; sigma_G = ell/2 = 1-4 cells
+NULL_ANGLES = (0.0, 30.0, 60.0)                  # front normal from the compressional axis
+NULL_DIAG_WIDTHS = (1.0, 1.5)                    # out of the pool: where the operators break
+
+
+def slope_estimators(x, y) -> dict:
+    """The slope of ``y`` on ``x`` by every estimator planning §11 asks for:
+    ``ols`` (y on x, with intercept: **the gate**), ``ols_origin``,
+    ``ols_inverse`` (1 / the slope of x on y), ``geometric_mean`` (reduced
+    major axis), ``orthogonal`` (total least squares, equal error
+    variances, meaningful here because both axes share units), ``ratio``
+    (``sum y / sum x``), with ``intercept``, ``corr`` and ``n``."""
+    x, y = np.asarray(x, dtype='float64'), np.asarray(y, dtype='float64')
+    n = x.size
+    xm, ym = x.mean(), y.mean()
+    sxx, syy, sxy = np.sum((x - xm) ** 2), np.sum((y - ym) ** 2), np.sum((x - xm) * (y - ym))
+    ols = sxy / sxx
+    b_xy = sxy / syy
+    return dict(n=int(n), ols=float(ols), intercept=float(ym - ols * xm),
+                ols_origin=float(np.sum(x * y) / np.sum(x * x)),
+                ols_inverse=float(1.0 / b_xy),
+                geometric_mean=float(np.sign(sxy) * np.sqrt(syy / sxx)),
+                orthogonal=float(((syy - sxx) + np.sqrt((syy - sxx) ** 2 + 4 * sxy ** 2)) / (2 * sxy)),
+                ratio=float(y.sum() / x.sum()), corr=float(sxy / np.sqrt(sxx * syy)))
+
+
+def block_bootstrap_ols(x, y, block, n_boot=N_BOOT, seed=0) -> dict:
+    """Bootstrap of the gate (OLS with intercept) over spatial blocks:
+    ``block`` labels each pixel; blocks are resampled with replacement
+    (multinomial counts) and the slope is rebuilt from per-block sums.
+    Returns the 2.5 / 97.5 percentiles, the standard error and the block
+    count."""
+    x, y, block = (np.asarray(a) for a in (x, y, block))
+    ids, inv = np.unique(block, return_inverse=True)
+    nb = ids.size
+    S = np.zeros((nb, 5))
+    for k, col in enumerate((np.ones_like(x), x, y, x * x, x * y)):
+        S[:, k] = np.bincount(inv, weights=col, minlength=nb)
+    rng = np.random.default_rng(seed)
+    M = rng.multinomial(nb, np.full(nb, 1.0 / nb), size=int(n_boot)).astype('float64')
+    T = M @ S                                            # (n_boot, 5): N, Sx, Sy, Sxx, Sxy
+    slopes = (T[:, 0] * T[:, 4] - T[:, 1] * T[:, 2]) / (T[:, 0] * T[:, 3] - T[:, 1] ** 2)
+    return dict(ci=[float(np.percentile(slopes, 2.5)), float(np.percentile(slopes, 97.5))],
+                se=float(slopes.std()), n_blocks=int(nb), n_boot=int(n_boot),
+                block_cells=BLOCK_CELLS)
+
+
+def _block_ids(shape, offset=0, B=BLOCK_CELLS):
+    nj, ni = shape
+    jj, ii = np.meshgrid(np.arange(nj) // B, np.arange(ni) // B, indexing='ij')
+    return offset + jj * (ni // B + 1) + ii
+
+
+def two_F(b_mid, U, V, grid_ds, grid, form='chain'):
+    """``2F`` at the midpoint from ``operators.frontogenesis`` -- the
+    predicted side, named as coding §1.1 asks."""
+    return 2.0 * op.frontogenesis(b_mid, U, V, grid_ds, grid, form=form).values[0]
+
+
+def null_step(b_t, U, V, grid_ds, grid, order=3, dt=DT, forms=('chain',), vel_order=3, advect=None) -> dict:
+    """The discrete null for one field and one steady (or time-midpoint)
+    velocity: advect ``b_t`` one hour with **our own** semi-Lagrangian step
+    (``b_tp1 = b_t`` interpolated at the departure points of
+    ``semilag.departure_index``, order ``order``, velocity order
+    ``vel_order``), so the truth satisfies our discrete advection exactly;
+    then the measured side ``semilag.measured_DGDt`` and ``2F`` from
+    ``operators.frontogenesis`` at the trajectory midpoint ``0.5 (b_t +
+    b_tp1)``, one ``two_F_<form>`` per requested form.  Everything
+    positional ``(nj, ni)`` numpy.
+
+    ``advect`` (V3b, task 6b): an optional ``(b_t, U, V, grid_ds, grid) ->
+    b_tp1`` callable that replaces the semi-Lagrangian truth -- the
+    flux-form finite-volume step of ``fvadvect.advector``.  The measured
+    and predicted sides are untouched; ``None`` is V3."""
+    u_c, v_c = sl.centre_velocities(U, V, grid_ds, grid)
+    di, dj = sl.departure_index(u_c, v_c, grid_ds, dt=dt, vel_order=vel_order)
+    if advect is None:
+        b_tp1 = sl.interp_to_departure(b_t, di, dj, order)
+    else:
+        b_tp1 = advect(b_t, U, V, grid_ds, grid)
+    meas = sl.measured_DGDt(b_t, b_tp1, U, V, grid_ds, grid, dt=dt, order=order, vel_order=vel_order)
+    b_mid = sl.midpoint_time(b_t, b_tp1)
+    out = dict(measured=meas.values[0], G_mid=op.gradb2(b_mid, grid_ds, grid).values[0],
+               G_tp1=op.gradb2(b_tp1, grid_ds, grid).values[0],
+               di=di.values[0], dj=dj.values[0], b_mid=b_mid, b_tp1=b_tp1)
+    for form in forms:
+        out[f'two_F_{form}'] = two_F(b_mid, U, V, grid_ds, grid, form)
+    return out
+
+
+def front_pixels(G_mid, valid, pct=FRONT_PERCENTILE):
+    """The pre-declared front-pixel rule: ``G_mid >= p_pct`` over ``valid``."""
+    thr = float(np.percentile(G_mid[valid], pct))
+    return valid & (G_mid >= thr), thr
+
+
+def _fit(x, y, block, n_boot=N_BOOT):
+    est = slope_estimators(x, y)
+    est['bootstrap'] = block_bootstrap_ols(x, y, block, n_boot=n_boot)
+    est['gate'] = dict(estimator='ols (measured on 2F, with intercept)', target=1.0, tol=0.05,
+                       passed=bool(abs(est['ols'] - 1.0) <= 0.05))
+    return est
+
+
+def _binned_means(x, y, nbins=12):
+    """Conditional means ``E[y|x]`` in x-quantile bins, for the figure."""
+    edges = np.quantile(x, np.linspace(0, 1, nbins + 1))
+    k = np.clip(np.searchsorted(edges, x, side='right') - 1, 0, nbins - 1)
+    xb = np.array([x[k == q].mean() for q in range(nbins)])
+    yb = np.array([y[k == q].mean() for q in range(nbins)])
+    return xb, yb
+
+
+def _null_strain(order, forms, widths, angles, n, a, margin, n_boot, vel_order=3, advect=None):
+    """The 'strain' variant: one ``synthetic.null_strain_case`` per (width,
+    angle), the front pixels pooled under one threshold.  ``advect`` as in
+    :func:`null_step` (V3b)."""
+    pool = {f: dict(x=[], y=[], block=[], width=[]) for f in forms}
+    per_case = []
+    G_all, valid_all = [], []
+    cases = [(w, th) for w in widths for th in angles]
+    steps = []
+    for c, (w, th) in enumerate(cases):
+        case = sy.null_strain_case(ell_cells=w, theta_deg=th, a=a, n=n)
+        st = null_step(case['b_t'], case['U'], case['V'], case['g'], case['grid'], order=order, forms=forms,
+                       vel_order=vel_order, advect=advect)
+        valid = sy.inner(st['G_mid'].shape, margin) & np.isfinite(st['measured']) & np.isfinite(st['G_mid'])
+        for f in forms:
+            valid &= np.isfinite(st[f'two_F_{f}'])
+        st['valid'], st['case'] = valid, (w, th)
+        st['block'] = _block_ids(valid.shape, offset=c * 10_000)
+        steps.append(st)
+        G_all.append(st['G_mid'][valid]); valid_all.append(valid)
+    thr = float(np.percentile(np.concatenate(G_all), FRONT_PERCENTILE))
+    for st in steps:
+        front = st['valid'] & (st['G_mid'] >= thr)
+        st['front'] = front
+        w, th = st['case']
+        row = dict(width=w, angle=th, n=int(front.sum()))
+        for f in forms:
+            x, y = st[f'two_F_{f}'][front], st['measured'][front]
+            if front.sum() > 10:
+                row[f] = slope_estimators(x, y)['ols']
+                row[f'{f}_ratio'] = float(y.sum() / x.sum())
+            pool[f]['x'].append(x); pool[f]['y'].append(y)
+            pool[f]['block'].append(st['block'][front]); pool[f]['width'].append(np.full(front.sum(), w))
+        per_case.append(row)
+    res = dict(threshold=thr, per_case=per_case, fits={}, per_width={})
+    for f in forms:
+        x, y = np.concatenate(pool[f]['x']), np.concatenate(pool[f]['y'])
+        blk, wd = np.concatenate(pool[f]['block']), np.concatenate(pool[f]['width'])
+        res['fits'][f] = _fit(x, y, blk, n_boot)
+        res['per_width'][f] = {str(w): dict(n=int((wd == w).sum()),
+                                            ols=(slope_estimators(x[wd == w], y[wd == w])['ols']
+                                                 if (wd == w).sum() > 10 else None))
+                               for w in widths}
+        res['fits'][f]['width_share'] = {str(w): float((wd == w).mean()) for w in widths}
+        pool[f]['x'], pool[f]['y'] = x, y
+    return res, pool, steps
+
+
+def _fourth_order_everywhere(case, order=3, margin=10):
+    """The prompt's other option, tried and logged: a 4th-order gradient
+    stencil on **both** sides (``G4 = |D4 b|^2`` at the arrival and at the
+    departure -- ``b`` interpolated onto the 9-point stencil -- and the
+    chain-rule ``F4 = -(D4 b)^T (D4 u_c)(D4 b)``), uniform synthetic grid,
+    numpy.  Returns the top-decile OLS slope.  It halves the deficit at
+    2-4 dx but does not remove it: the product rule still fails."""
+    g, grid, dx = case['g'], case['grid'], case['dx']
+    u_c, v_c = sl.centre_velocities(case['U'], case['V'], g, grid)
+    di, dj = sl.departure_index(u_c, v_c, g)
+    b = case['b_t']
+
+    def D4(arr, ax):
+        return (-np.roll(arr, -2, ax) + 8 * np.roll(arr, -1, ax) - 8 * np.roll(arr, 1, ax)
+                + np.roll(arr, 2, ax)) / (12 * dx)
+
+    def at(k_i, k_j):
+        return sl.interp_to_departure(b, di - k_i, dj - k_j, order).values[0]
+    b1 = sl.interp_to_departure(b, di, dj, order).values[0]
+    G1 = D4(b1, 1) ** 2 + D4(b1, 0) ** 2
+    gx = (-at(2, 0) + 8 * at(1, 0) - 8 * at(-1, 0) + at(-2, 0)) / (12 * dx)
+    gy = (-at(0, 2) + 8 * at(0, 1) - 8 * at(0, -1) + at(0, -2)) / (12 * dx)
+    meas = (G1 - (gx ** 2 + gy ** 2)) / DT
+    bm = 0.5 * (b.values[0] + b1)
+    bx4, by4 = D4(bm, 1), D4(bm, 0)
+    uc, vc = u_c.values[0], v_c.values[0]
+    F4 = -(D4(uc, 1) * bx4 ** 2 + (D4(uc, 0) + D4(vc, 1)) * bx4 * by4 + D4(vc, 0) * by4 ** 2)
+    Gm = bx4 ** 2 + by4 ** 2
+    valid = sy.inner(G1.shape, margin) & np.isfinite(meas) & np.isfinite(F4)
+    front = valid & (Gm >= np.percentile(Gm[valid], FRONT_PERCENTILE))
+    return slope_estimators(2 * F4[front], meas[front])['ols']
+
+
+def _llc_inputs(grid_ds=None) -> dict:
+    """The real-velocity variant's inputs (V3 and V3b share them): the tile
+    grid ``g`` and xgcm ``grid``, hour 0's JMD95 ``b_t``, the time-midpoint
+    ``U``, ``V`` of M0's two hours (raw staggered), ``mask_analysis`` as
+    ``ana`` and the 32-cell block labels."""
+    g = grid_ds if grid_ds is not None else ot.open_grid(with_face=True)
+    g = g if 'face' in g.dims else g.expand_dims('face')
+    grid = ot.build_xgcm(g)
+    raw = xr.open_zarr(ot.DATA_DIR / RAW).load()
+    ds = [xr.merge([raw.isel(time=k).expand_dims('face'), g], compat='override',
+                   combine_attrs='override').astype('float64') for k in (0, 1)]
+    b_t = op.buoyancy(ds[0])
+    U_mid, V_mid = sl.midpoint_time(ds[0].U, ds[1].U), sl.midpoint_time(ds[0].V, ds[1].V)
+    masks_path = ot.DATA_DIR / 'tile330_masks.nc'
+    masks = mk.open_masks(masks_path) if masks_path.exists() else mk.build_masks(g)
+    ana = masks['mask_analysis'].values
+    return dict(g=g, grid=grid, b_t=b_t, U=U_mid, V=V_mid, ana=ana, block=_block_ids(ana.shape))
+
+
+def _fit_llc(inp, b, U, V, fms, order, vel_order=3, boot=N_BOOT, advect=None):
+    """One null step on the tile and the pre-declared fit: valid =
+    ``mask_analysis`` & finite on every side, front pixels ``G_mid >= p90``
+    over valid, the estimators and block bootstrap per form."""
+    st = null_step(b, U, V, inp['g'], inp['grid'], order=order, forms=fms, vel_order=vel_order, advect=advect)
+    valid = inp['ana'] & np.isfinite(st['measured']) & np.isfinite(st['G_mid'])
+    for f in fms:
+        valid &= np.isfinite(st[f'two_F_{f}'])
+    front, thr = front_pixels(st['G_mid'], valid)
+    block = inp['block']
+    fits = {f: _fit(st[f'two_F_{f}'][front], st['measured'][front], block[front], boot) for f in fms}
+    st.update(front=front, valid=valid, threshold=thr)
+    return st, fits
+
+
+def _discrete_null(velocities, order, forms, widths, angles, n, a, margin, n_boot, diag_widths, grid_ds,
+                   changes):
+    """The numbers behind :func:`test_discrete_null` for one variant, plus
+    the figure context (the pooled front-pixel arrays)."""
+    forms = tuple(forms)
+    res = dict(velocities=velocities, interp_order=int(order), forms=list(forms), vel_order=3,
+               front_definition=f'G_mid = gradb2(0.5 (b_t + b_tp1)) >= p{FRONT_PERCENTILE:g} over the valid set '
+                                + ('(mask_analysis & finite)' if velocities == 'llc'
+                                   else f'(interior, {margin}-cell margin, pooled over cases)'),
+               gate_estimator='OLS of measured DG/Dt on 2F with intercept, on front pixels',
+               bootstrap=f'{BLOCK_CELLS}x{BLOCK_CELLS}-cell spatial blocks, {n_boot} draws, 2.5-97.5%',
+               changes_tried={})
+    ctx = dict(velocities=velocities, forms=forms)
+    if velocities == 'strain':
+        res.update(widths_cells=list(widths), angles_deg=list(angles), n=int(n), a=float(a),
+                   modes=dict(sy.NULL_MODES))
+        r, pool, steps = _null_strain(order, forms, widths, angles, n, a, margin, n_boot)
+        res.update(r)
+        if diag_widths:                          # out of the pool: where the operators break down
+            rd, _, _ = _null_strain(order, forms, diag_widths, angles, n, a, margin, 50)
+            res['diag_widths'] = dict(widths=list(diag_widths), per_width=rd['per_width'])
+        ctx.update(pool=pool, steps=steps)
+        if changes:
+            # the first attempt: the chain form with the bilinear departure velocity
+            r1, pool1, _ = _null_strain(order, ('chain',), widths, angles, n, a, margin, 200, vel_order=1)
+            res['changes_tried']['chain, bilinear departure velocity (first attempt)'] = r1['fits']['chain']['ols']
+            res['first_attempt'] = r1['fits']['chain']
+            ctx['pool_first'] = pool1['chain']
+            for f in forms:
+                res['changes_tried'][f'{f}, cubic departure velocity'] = res['fits'][f]['ols']
+            alt = {str(w): _fourth_order_everywhere(sy.null_strain_case(ell_cells=w, theta_deg=0.0, a=a, n=n))
+                   for w in widths}
+            res['changes_tried']['4th-order gradient on both sides, chain rule (per width, angle 0)'] = alt
+    elif velocities == 'llc':
+        inp = _llc_inputs(grid_ds)
+        g, grid, b_t, U_mid, V_mid, ana, block = (inp[k] for k in ('g', 'grid', 'b_t', 'U', 'V', 'ana', 'block'))
+
+        def fit_llc(b, U, V, fms, vel_order=3, boot=n_boot):
+            return _fit_llc(inp, b, U, V, fms, order, vel_order=vel_order, boot=boot)
+        st, fits = fit_llc(b_t, U_mid, V_mid, forms)
+        front = st['front']
+        res.update(threshold=st['threshold'], n_valid=int(st['valid'].sum()), n_analysis=int(ana.sum()),
+                   fits=fits, tracer='hour 0 JMD95 b', velocity='0.5 (U_t + U_tp1) of M0\'s two hours')
+        d = np.hypot(st['di'], st['dj'])
+        res['displacement_cells'] = dict(median=float(np.nanmedian(d[front])), p99=float(np.nanpercentile(d[front], 99)),
+                                         max=float(np.nanmax(d[front])))
+        res['signal'] = dict(median_2F_dt_over_G=float(np.median(st[f'two_F_{forms[-1]}'][front] * DT / st['G_mid'][front])),
+                             median_abs_meas_dt_over_G=float(np.median(np.abs(st['measured'][front]) * DT / st['G_mid'][front])))
+        pool = {f: dict(x=st[f'two_F_{f}'][front], y=st['measured'][front]) for f in forms}
+        ctx.update(pool=pool, step=st, ana=ana)
+        if changes:
+            st1, fits1 = fit_llc(b_t, U_mid, V_mid, forms, vel_order=1, boot=200)
+            ch = res['changes_tried']
+            if 'chain' in fits1:
+                ch['chain, bilinear departure velocity (first attempt)'] = fits1['chain']['ols']
+                res['first_attempt'] = fits1['chain']
+                ctx['pool_first'] = dict(x=st1['two_F_chain'][st1['front']], y=st1['measured'][st1['front']])
+            for f in forms:
+                ch[f'{f}, bilinear departure velocity'] = fits1[f]['ols']
+            for f in forms:
+                ch[f'{f}, cubic departure velocity'] = fits[f]['ols']
+            gate_form = forms[-1]
+            _, fv = fit_llc(b_t, op.lowpass(U_mid, 8), op.lowpass(V_mid, 8), (gate_form,), boot=200)
+            ch[f'{gate_form}, velocity low-passed L = 8 (b raw)'] = fv[gate_form]['ols']
+            _, fb = fit_llc(op.lowpass(b_t, 8), U_mid, V_mid, (gate_form,), boot=200)
+            ch[f'{gate_form}, b low-passed L = 8 (velocity raw)'] = fb[gate_form]['ols']
+            # is the Jacobian attenuation visible?  the departure map's strain vs the
+            # Jacobian's trace vs the flux-form divergence, on the front pixels
+            ux, uy, vx, vy = op.jacobian(U_mid, V_mid, g, grid)
+            trJ = (ux + vy).values[0]
+            delta = op.strain_divergence(U_mid, V_mid, g, grid)[0].values[0]
+
+            def D(arr, ax):
+                return (np.roll(arr, -1, ax) - np.roll(arr, 1, ax)) / 2.0
+            trd = (D(st['di'], 1) + D(st['dj'], 0)) / DT
+            ok = front & np.isfinite(trJ) & np.isfinite(delta) & np.isfinite(trd)
+            res['strain_seen'] = dict(
+                departure_vs_jacobian=float(np.sum(trJ[ok] * trd[ok]) / np.sum(trJ[ok] ** 2)),
+                jacobian_vs_fluxform=float(np.sum(delta[ok] * trJ[ok]) / np.sum(delta[ok] ** 2)),
+                departure_vs_fluxform=float(np.sum(delta[ok] * trd[ok]) / np.sum(delta[ok] ** 2)),
+                note='the null sees D_h u_c on both sides: the Jacobian trace IS the wide centred difference '
+                     'of the centred velocity, (1,2,1)/4 of the flux-form divergence')
+    else:
+        raise ValueError(f"velocities must be 'strain' or 'llc', got {velocities!r}")
+    gate = res['fits'][forms[-1]]
+    res.update(slope=gate['ols'], ci=gate['bootstrap']['ci'], n_front=gate['n'], gate=gate['gate'],
+               gate_form=forms[-1])
+    return res, ctx
+
+
+def test_discrete_null(velocities='strain', png=True, order=3, forms=('chain', 'discrete_o2', 'discrete'),
+                       widths=NULL_WIDTHS, angles=NULL_ANGLES, n=128, a=1e-5, margin=8, n_boot=N_BOOT,
+                       diag_widths=NULL_DIAG_WIDTHS, grid_ds=None, changes=True) -> dict:
+    """**V3**: the discrete end-to-end null (criterion 3).  A tracer is
+    advected one hour by our own semi-Lagrangian step, so the truth obeys
+    our discrete advection exactly; the measured ``DG/Dt``
+    (``semilag.measured_DGDt``) is regressed on ``2F``
+    (``operators.frontogenesis`` at the trajectory midpoint) over front
+    pixels.  ``velocities='strain'``: prescribed deformation plus shear /
+    divergence modes, tanh fronts of width ``widths`` (cells) and normals
+    at ``angles`` from the compressional axis, pooled (``synthetic.
+    null_strain_case``); ``'llc'``: the real midpoint velocity of M0's two
+    hours, on the tile grid, with hour 0's JMD95 ``b`` as the tracer, on
+    ``mask_analysis`` (``needs_grid``).  Front pixels, the gate estimator
+    and the bootstrap are the module constants above, declared in advance.
+
+    ``forms`` are the ``frontogenesis`` forms fitted; **the last is the
+    gate** (``'discrete'``, the consistent form that made the gate pass;
+    ``'chain'`` is the first attempt).  ``changes=True`` also records every
+    change tried (``changes_tried``: the bilinear departure velocity of the
+    first attempt, each form, the low-passed inputs, the 4th-order-everywhere
+    alternative).  Returns the gate slope (``slope``; Figure 2's baseline),
+    its block-bootstrap CI (``ci``), the other estimators (``fits``), ``n_front``
+    and the definitions.  ``png=True`` writes **V3** with *both* variants (the
+    other one is computed too; the 'llc' half needs the M0 stores).
+    """
+    res, ctx = _discrete_null(velocities, order, forms, widths, angles, n, a, margin, n_boot, diag_widths,
+                              grid_ds, changes)
+    res['png'] = None
+    if png:
+        other = 'llc' if velocities == 'strain' else 'strain'
+        try:
+            res_o, ctx_o = _discrete_null(other, order, forms, widths, angles, n, a, margin, n_boot,
+                                          diag_widths, grid_ds, changes)
+        except FileNotFoundError:                # no M0 stores: the figure gets the strain half only
+            res_o, ctx_o = None, None
+        pair = {velocities: (res, ctx), other: (res_o, ctx_o)}
+        res['png'] = vf.fig_V3(pair['strain'][0], pair['strain'][1], pair['llc'][0], pair['llc'][1])
+    return res
+
+
+# ---------------------------------------------------------------------------
+# V3b: the finite-volume null (task 6b; M1-Q2 -- a recorded bias, not a gate)
+# ---------------------------------------------------------------------------
+# Same pre-declared front-pixel rule (G_mid >= p90), gate estimator (OLS of
+# measured on 2F with intercept) and 32-cell block bootstrap as V3; only the
+# truth changes: b_tp1 from fvadvect.fv_advect instead of our semi-Lagrangian
+# step.  Reference scheme for the attribution: 'centred' (no dissipation --
+# the pure C-grid stencil effect); the departure from it per scheme is the
+# scheme's implicit diffusion, an exact DG/Dt term (one b_t, one departure).
+FV_SCHEMES = ('centred', 'os7', 'os7mp', 'dst3')
+FV_REFERENCE = 'centred'
+FV_HEADLINE = 'os7mp'
+
+
+def _fv_pool_strain(steps, forms):
+    """Front-pixel pools of a strain run: ``2F`` per form, ``measured``,
+    ``G_mid``, ``G_tp1``, block ids, front width."""
+    out = dict(measured=[], G_mid=[], G_tp1=[], block=[], width=[], **{f'two_F_{f}': [] for f in forms})
+    for st in steps:
+        fr = st['front']
+        for k in ('measured', 'G_mid', 'G_tp1', 'block'):
+            out[k].append(st[k][fr])
+        out['width'].append(np.full(fr.sum(), st['case'][0]))
+        for f in forms:
+            out[f'two_F_{f}'].append(st[f'two_F_{f}'][fr])
+    return {k: np.concatenate(v) for k, v in out.items()}
+
+
+def _fv_attribution(pool_s, pool_ref_G_tp1, forms, n_boot):
+    """The scheme's implicit diffusion as a ``DG/Dt`` term on the scheme's
+    own front pixels: ``diff = [G(b_tp1^scheme) - G(b_tp1^centred)]/dt``
+    (exact: the departure and ``b_t`` are shared, so it is the whole
+    difference of the measured sides).  Reported as its OLS slope on
+    ``2F`` per form (the part of the slope it accounts for), its rms
+    relative to ``2F``, and ``diff dt / G_mid`` (the fraction of ``G``
+    lost per hour; ``-2 kappa k^2 dt`` for a diffusivity ``kappa``)."""
+    diff = (pool_s['G_tp1'] - pool_ref_G_tp1) / DT
+    out = dict(n=int(diff.size), rms_over_rms_2F={}, slope_on_2F={},
+               median_dt_over_G=float(np.median(diff * DT / pool_s['G_mid'])),
+               mean_dt_over_G=float(np.mean(diff * DT / pool_s['G_mid'])),
+               p10_dt_over_G=float(np.percentile(diff * DT / pool_s['G_mid'], 10)),
+               fraction_negative=float(np.mean(diff < 0)))
+    for f in forms:
+        x = pool_s[f'two_F_{f}']
+        out['slope_on_2F'][f] = float(slope_estimators(x, diff)['ols'])
+        out['rms_over_rms_2F'][f] = _rms(diff) / _rms(x)
+    return out
+
+
+def _fv_null(velocities, schemes, forms, order, widths, angles, n, a, margin, n_boot, dt_sub,
+             diag_widths, grid_ds):
+    """The numbers behind :func:`test_fv_null` for one variant, plus the
+    figure context."""
+    import fvadvect as fv
+    forms, schemes = tuple(forms), tuple(schemes)
+    res = dict(velocities=velocities, schemes=list(schemes), forms=list(forms), interp_order=int(order),
+               vel_order=3, dt_sub=float(dt_sub), reference=FV_REFERENCE, headline_scheme=FV_HEADLINE,
+               truth='flux-form finite-volume step on the C-grid (fvadvect.fv_advect), advective form '
+                     '(-[div(u b) - b div u]), same midpoint velocity as V3',
+               front_definition=f'G_mid = gradb2(0.5 (b_t + b_tp1)) >= p{FRONT_PERCENTILE:g} over the valid set '
+                                + ('(mask_analysis & finite)' if velocities == 'llc'
+                                   else f'(interior, {margin}-cell margin, pooled over cases)'),
+               estimator='OLS of measured DG/Dt on 2F with intercept, on front pixels (V3\'s)',
+               bootstrap=f'{BLOCK_CELLS}x{BLOCK_CELLS}-cell spatial blocks, {n_boot} draws, 2.5-97.5%',
+               status='recorded bias, not a gate (M1-Q2)', per_scheme={}, table={})
+    ctx = dict(velocities=velocities, forms=forms, schemes=schemes, pools={}, steps={})
+    if velocities == 'strain':
+        res.update(widths_cells=list(widths), angles_deg=list(angles), n=int(n), a=float(a))
+    elif velocities == 'llc':
+        inp = _llc_inputs(grid_ds)
+        res.update(n_analysis=int(inp['ana'].sum()), tracer='hour 0 JMD95 b',
+                   velocity='0.5 (U_t + U_tp1) of M0\'s two hours')
+    else:
+        raise ValueError(f"velocities must be 'strain' or 'llc', got {velocities!r}")
+    for scheme in schemes:
+        adv = fv.advector(scheme, dt_sub=dt_sub)
+        if velocities == 'strain':
+            r, _, steps = _null_strain(order, forms, widths, angles, n, a, margin, n_boot, advect=adv)
+            entry = dict(fits=r['fits'], per_width=r['per_width'], per_case=r['per_case'], threshold=r['threshold'])
+            if diag_widths:
+                rd, _, _ = _null_strain(order, forms, diag_widths, angles, n, a, margin, 50, advect=adv)
+                entry['diag_widths'] = dict(widths=list(diag_widths), per_width=rd['per_width'])
+            pool = _fv_pool_strain(steps, forms)
+            ctx['steps'][scheme] = steps
+        else:
+            st, fits = _fit_llc(inp, inp['b_t'], inp['U'], inp['V'], forms, order, boot=n_boot, advect=adv)
+            fr = st['front']
+            entry = dict(fits=fits, threshold=st['threshold'], n_valid=int(st['valid'].sum()))
+            d = np.hypot(st['di'], st['dj'])
+            entry['displacement_cells'] = dict(median=float(np.nanmedian(d[fr])), p99=float(np.nanpercentile(d[fr], 99)))
+            pool = dict(measured=st['measured'][fr], G_mid=st['G_mid'][fr], G_tp1=st['G_tp1'][fr],
+                        **{f'two_F_{f}': st[f'two_F_{f}'][fr] for f in forms})
+            ctx['steps'][scheme] = st
+        entry['n_front'] = int(pool['measured'].size)
+        res['per_scheme'][scheme] = entry
+        ctx['pools'][scheme] = pool
+        res['table'][scheme] = {f: dict(slope=entry['fits'][f]['ols'], ci=entry['fits'][f]['bootstrap']['ci'],
+                                        se=entry['fits'][f]['bootstrap']['se'], n=entry['fits'][f]['n'],
+                                        corr=entry['fits'][f]['corr']) for f in forms}
+    # attribution: stencil = centred - 1 (no dissipation); diffusion = scheme - centred,
+    # with the reference's G_tp1 re-read on THIS scheme's front pixels (b_mid, hence
+    # the p90 set, moves slightly with the truth)
+    def ref_on(scheme, ref):
+        """``G_tp1`` of scheme ``ref`` on scheme ``scheme``'s front pixels."""
+        if velocities == 'strain':
+            return np.concatenate([st_r['G_tp1'][st_s['front']] for st_r, st_s
+                                   in zip(ctx['steps'][ref], ctx['steps'][scheme])])
+        return ctx['steps'][ref]['G_tp1'][ctx['steps'][scheme]['front']]
+
+    def attribution(scheme, ref):
+        att = _fv_attribution(ctx['pools'][scheme], ref_on(scheme, ref), forms, n_boot)
+        att['reference'] = ref
+        att['slope_shift'] = {f: res['per_scheme'][scheme]['fits'][f]['ols'] - res['per_scheme'][ref]['fits'][f]['ols']
+                              for f in forms}
+        return att
+    if FV_REFERENCE in schemes:
+        ref = res['per_scheme'][FV_REFERENCE]
+        res['stencil_effect'] = {f: ref['fits'][f]['ols'] - 1.0 for f in forms}
+        for scheme in schemes:
+            if scheme not in (FV_REFERENCE, 'semilag'):
+                res['per_scheme'][scheme]['diffusion'] = attribution(scheme, FV_REFERENCE)
+    # the limiter alone: os7mp against the unlimited os7 (the same reconstruction)
+    if 'os7' in schemes and 'os7mp' in schemes:
+        res['per_scheme']['os7mp']['limiter'] = attribution('os7mp', 'os7')
+    head = res['per_scheme'].get(FV_HEADLINE, res['per_scheme'][schemes[-1]])
+    hf = head['fits']['discrete'] if 'discrete' in forms else head['fits'][forms[-1]]
+    res.update(slope=hf['ols'], ci=hf['bootstrap']['ci'], n_front=hf['n'],
+               bias=dict(scheme=FV_HEADLINE if FV_HEADLINE in schemes else schemes[-1],
+                         form='discrete' if 'discrete' in forms else forms[-1],
+                         slope=hf['ols'], ci=hf['bootstrap']['ci'],
+                         meaning='OLS slope of the measured DG/Dt on 2F when the truth is a model-like flux-form '
+                                 'advection: the factor by which M3\'s slope is biased by our pipeline (1 = none)'))
+    return res, ctx
+
+
+def test_fv_null(velocities='strain', schemes=FV_SCHEMES, png=True, forms=('chain', 'discrete'), order=3,
+                 widths=NULL_WIDTHS, angles=NULL_ANGLES, n=128, a=1e-5, margin=8, n_boot=N_BOOT,
+                 dt_sub=None, diag_widths=NULL_DIAG_WIDTHS, grid_ds=None) -> dict:
+    """**V3b**: the finite-volume null (task 6b; M1-Q2, option (a): a
+    *recorded bias*, not a gate).  Exactly V3's pipeline -- the measured
+    ``semilag.measured_DGDt`` and ``2 * operators.frontogenesis`` at the
+    trajectory midpoint, ``form='discrete'`` and ``'chain'``, the
+    pre-declared ``G_mid >= p90`` front pixels, the OLS estimator and the
+    32-cell block bootstrap -- with the truth replaced by a **flux-form
+    finite-volume advection on the C-grid** (``fvadvect``: the same
+    midpoint velocity, face transports ``U dyG hFacW``, the advective form
+    ``-[div(u b) - b div u]`` as MITgcm's multi-dimensional sweep), so that
+    measured and predicted can disagree for the reason the model's fronts
+    might: the tracer feels the flux-form strain of the *face* velocities,
+    our ``F`` the ``(1,2,1)/4``-smoothed strain of the centred ones (the
+    0.85x of M0 task 5 / M1 task 2) -- and the scheme's implicit diffusion.
+
+    ``schemes``: ``'centred'`` (second order, no dissipation: the pure
+    stencil effect, the reference), ``'os7'`` (unlimited seventh-order
+    one-step), ``'os7mp'`` (with the MP limiter: the OS7MP-like headline),
+    ``'dst3'`` (third order, the cross-check); ``'semilag'`` reproduces V3.
+    ``dt_sub`` sub-step (s; default ``fvadvect.DT_SUB = 100``).  Returns
+    ``table[scheme][form]`` (slope, CI, se, n), ``per_scheme`` (the
+    estimators, per width for 'strain', the diffusion attribution vs the
+    centred reference: ``slope_shift``, ``slope_on_2F``, ``rms_over_rms_2F``,
+    ``median_dt_over_G``), ``stencil_effect`` (centred slope - 1), and the
+    headline ``bias`` (``os7mp`` x ``discrete``: ``slope``, ``ci``).
+    ``png=True`` writes **V3b** with both variants (the 'llc' half needs
+    the M0 stores).
+    """
+    import fvadvect as fv
+    dt_sub = fv.DT_SUB if dt_sub is None else dt_sub
+    res, ctx = _fv_null(velocities, schemes, forms, order, widths, angles, n, a, margin, n_boot, dt_sub,
+                        diag_widths, grid_ds)
+    res['png'] = None
+    if png:
+        other = 'llc' if velocities == 'strain' else 'strain'
+        try:
+            res_o, ctx_o = _fv_null(other, schemes, forms, order, widths, angles, n, a, margin, n_boot, dt_sub,
+                                    diag_widths, grid_ds)
+        except FileNotFoundError:
+            res_o, ctx_o = None, None
+        pair = {velocities: (res, ctx), other: (res_o, ctx_o)}
+        res['png'] = vf.fig_V3b(pair['strain'][0], pair['strain'][1], pair['llc'][0], pair['llc'][1])
     return res
 
 
@@ -496,7 +1055,7 @@ def qa_land_halo(grid_ds, png: bool = True) -> dict:
 
 
 # the contract names start with test_; they are gates, not pytest tests
-for _f in (test_cartesian_deformation, test_native_metric, test_interpolation_bias):
+for _f in (test_cartesian_deformation, test_native_metric, test_interpolation_bias, test_discrete_null):
     _f.__test__ = False
 
 

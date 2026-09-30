@@ -24,7 +24,9 @@ report. Every figure:
 Main figures 1, 2, 2b, 3, 3b, 4, 5, 6, 7, 8, 9, 10 and validation V1-V6 are specified in
 planning §7. The two that carry the argument:
 
-- **Figure 2** with the M1 discrete-null slope **drawn as a baseline line**.
+- **Figure 2** with the M1 discrete-null slope **drawn as a baseline line** — at **0.981 with its
+  band [0.970, 0.994]** (the V3 real-velocity slope, `form='discrete'`; decided 2026-09-30,
+  M1-Q4), with V3b's model-advection systematic band 0.954-1.003 beside it.
 - **Figure 2b**, the numerical-vs-diabatic discriminator, without which Figure 2 has no physical
   interpretation.
 

@@ -175,6 +175,255 @@ def fig_V2(res, ctx):
 
 
 # ---------------------------------------------------------------------------
+# V3: the discrete null
+# ---------------------------------------------------------------------------
+def _null_panel(ax, pool, fit, title, gate=False, verdict=None):
+    """A 2-D histogram of measured vs 2F on front pixels, the 1:1 line and
+    the gate OLS fit, in units of a power of ten of s^-5.  ``verdict``
+    replaces the PASS/FAIL text (V3b: a recorded bias, not a gate)."""
+    x, y = pool['x'], pool['y']
+    sc = 10.0 ** np.floor(np.log10(np.percentile(np.abs(x), 99)))
+    xs, ys = x / sc, y / sc
+    lim = 1.15 * np.percentile(np.abs(np.concatenate([xs, ys])), 99.5)
+    ax.hexbin(xs, ys, gridsize=70, bins='log', cmap='Blues', extent=(-lim, lim, -lim, lim), mincnt=1)
+    t = np.array([-lim, lim])
+    ax.plot(t, t, '-', color='black', lw=1.0, label='1:1')
+    ax.plot(t, fit['ols'] * t + fit['intercept'] / sc, '--', color=COL['red'], lw=1.6,
+            label=f'OLS (gate): {fit["ols"]:.3f} [{fit["bootstrap"]["ci"][0]:.3f}, {fit["bootstrap"]["ci"][1]:.3f}]')
+    ax.plot(t, fit['orthogonal'] * t, ':', color=COL['purple'], lw=1.2,
+            label=f'orthogonal {fit["orthogonal"]:.3f}, inverse OLS {fit["ols_inverse"]:.3f}, GM {fit["geometric_mean"]:.3f}')
+    ax.axhline(0, color='#888888', lw=0.5); ax.axvline(0, color='#888888', lw=0.5)
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_aspect('equal')
+    e = int(np.log10(sc))
+    ax.set_xlabel(f'2F at the midpoint  [1e{e} s$^{{-5}}$]')
+    ax.set_ylabel(f'measured DG/Dt (semi-Lagrangian)  [1e{e} s$^{{-5}}$]')
+    if verdict is None:
+        verdict = ('PASS' if fit['gate']['passed'] else 'FAIL') + ' (1 +/- 0.05)'
+    ax.set_title(f'{title}\nn = {fit["n"]:,}, corr {fit["corr"]:.3f}: {verdict}' + ('  [the gate]' if gate else ''),
+                 fontsize=10, color=(COL['order5'] if fit['gate']['passed'] else COL['red']) if gate else 'black')
+    ax.legend(fontsize=7.5, loc='upper left'); ax.grid(alpha=0.3)
+
+
+def fig_V3(res_s, ctx_s, res_l, ctx_l):
+    """V3: (a, b) the strain variant, first attempt (chain-rule F, bilinear
+    departure velocity) and the gate (consistent F); (c, d) the same for
+    the real-velocity variant; (e) the slope against the front width for
+    every form, with the ``1 - (2/3)(dx/ell)^2`` prediction; (f) every
+    change tried, both variants."""
+    fig, axs = plt.subplots(2, 3, figsize=(20, 12.5))
+    (pa, pc, pe), (pb, pd, pf) = axs
+    gate = res_s['gate_form']
+
+    def first(res, ctx):
+        """The first attempt (chain-rule F, bilinear departure velocity) when
+        it was recorded, else the chain form with the cubic velocity."""
+        if 'first_attempt' in res and ctx.get('pool_first') is not None:
+            return ctx['pool_first'], res['first_attempt'], 'bilinear departure velocity'
+        f0 = res['forms'][0]
+        return ctx['pool'][f0], res['fits'][f0], f'form = {f0}, cubic departure velocity'
+    pool0, fit0, lab0 = first(res_s, ctx_s)
+    _null_panel(pa, pool0, fit0, f'(a) strain variant, first attempt: chain-rule F ({lab0})\n'
+                f'with the cubic departure velocity: {res_s["fits"]["chain"]["ols"]:.3f}')
+    _null_panel(pb, ctx_s['pool'][gate], res_s['fits'][gate],
+                f'(b) strain variant, consistent F (form = {gate}, cubic departure velocity)', gate=True)
+    if res_l is not None:
+        pool0, fit0, lab0 = first(res_l, ctx_l)
+        _null_panel(pc, pool0, fit0, f'(c) LLC variant (hour-0 b, real midpoint velocity, mask_analysis), '
+                    f'first attempt:\nchain-rule F ({lab0}); with the cubic velocity: '
+                    f'{res_l["fits"]["chain"]["ols"]:.3f}')
+        _null_panel(pd, ctx_l['pool'][gate], res_l['fits'][gate],
+                    f'(d) LLC variant, consistent F (form = {gate}, cubic departure velocity)', gate=True)
+    else:
+        for ax in (pc, pd):
+            ax.text(0.5, 0.5, 'LLC variant: M0 stores not on disk', ha='center', va='center', transform=ax.transAxes)
+    # (e) slope vs front width
+    w = np.array(res_s['widths_cells'])
+    forms = res_s['forms']
+    cols = {'chain': COL['red'], 'discrete_o2': COL['order1'], 'discrete': COL['order5']}
+    labs = {'chain': 'chain-rule F (repo form)', 'discrete_o2': 'consistent F, 2nd-order neighbour gradient (tried)',
+            'discrete': 'consistent F, 4th-order neighbour gradient [the default]'}
+    for f in forms:
+        s = np.array([res_s['per_width'][f][str(x)]['ols'] for x in w], dtype=float)
+        pe.plot(w, s, 'o-', color=cols.get(f, 'black'), lw=1.6, ms=6, label=labs.get(f, f))
+        if 'diag_widths' in res_s:
+            wd = np.array(res_s['diag_widths']['widths'])
+            sd = np.array([res_s['diag_widths']['per_width'][f][str(x)]['ols'] for x in wd], dtype=float)
+            pe.plot(wd, sd, 'o', color=cols.get(f, 'black'), ms=6, mfc='none', mew=1.5)
+    ww = np.linspace(1.0, 8.5, 200)
+    pe.plot(ww, 1 - (2.0 / 3.0) / ww ** 2, ':', color='black', lw=1.4,
+            label='1 - (2/3)(dx/ell)$^2$: the chain-rule violation at a tanh centre')
+    alt = res_s['changes_tried'].get('4th-order gradient on both sides, chain rule (per width, angle 0)')
+    if alt:
+        pe.plot([float(k) for k in alt], list(alt.values()), 's--', color=COL['grey'], ms=5, lw=1.2,
+                label='4th-order gradient on both sides, chain rule (tried; angle 0)')
+    pe.axhspan(0.95, 1.05, color='#e6f0fa', label='gate: 1 +/- 0.05')
+    pe.axhline(1, color='black', lw=0.8)
+    if res_l is not None:
+        for f in forms:
+            pe.axhline(res_l['fits'][f]['ols'], color=cols.get(f, 'black'), lw=1.0, ls='-.', alpha=0.8,
+                       label=f'LLC variant, {f}: {res_l["fits"][f]["ols"]:.3f}')
+    pe.set_xscale('log'); pe.set_xticks([1, 1.5, 2, 3, 4, 6, 8]); pe.set_xticklabels(['1', '1.5', '2', '3', '4', '6', '8'])
+    pe.set_xlabel('front width ell / dx  (tanh; sigma_G = ell/2; open symbols: out of the pool)')
+    pe.set_ylabel('OLS slope, measured DG/Dt on 2F, front pixels')
+    pe.set_ylim(0.75, 1.08)
+    pe.set_title('(e) slope vs front width per form (strain; dash-dot: LLC)\n'
+                 'the chain rule fails by (2/3)(dx/ell)$^2$; the consistent F removes it', fontsize=10)
+    pe.legend(fontsize=7.5, loc='lower right'); pe.grid(alpha=0.3, which='both')
+    # (f) every change tried
+    rows = []
+    for name, r in (('strain', res_s), ('LLC', res_l)):
+        if r is None:
+            continue
+        for k, v in r['changes_tried'].items():
+            if isinstance(v, dict):
+                continue
+            rows.append((f'{name}: {k}', v))
+    yv = np.arange(len(rows))[::-1]
+    vals = np.array([v for _, v in rows])
+    cl = [COL['order5'] if abs(v - 1) <= 0.05 else COL['red'] for v in vals]
+    pf.barh(yv, vals - 1, left=1, color=cl, alpha=0.8)
+    pf.axvspan(0.95, 1.05, color='#e6f0fa'); pf.axvline(1, color='black', lw=0.8)
+    pf.set_yticks(yv); pf.set_yticklabels([k for k, _ in rows], fontsize=7.5)
+    for yy, v in zip(yv, vals):
+        pf.text(v + (0.004 if v >= 1 else -0.004), yy, f'{v:.3f}', va='center', ha='left' if v >= 1 else 'right', fontsize=7.5)
+    pf.set_xlim(0.7, 1.1)
+    pf.set_xlabel('OLS slope on front pixels (green: within the gate)')
+    seen = (f'{res_l["strain_seen"]["departure_vs_jacobian"]:.3f} / {res_l["strain_seen"]["jacobian_vs_fluxform"]:.3f} / '
+            f'{res_l["strain_seen"]["departure_vs_fluxform"]:.3f}' if res_l is not None and 'strain_seen' in res_l else 'n/a')
+    pf.set_title('(f) every change tried (first attempt: chain-rule F, bilinear velocity)\n'
+                 f'LLC front pixels, departure / Jacobian / flux-form strain: {seen}\n'
+                 '(both sides see D_h u_c: blind to the 0.85 Jacobian attenuation)', fontsize=9.5)
+    pf.grid(alpha=0.3, axis='x')
+    fig.suptitle('V3: the discrete null -- a tracer advected one hour by our own semi-Lagrangian step; '
+                 'measured DG/Dt vs 2F at the midpoint on front pixels (G_mid >= p90; OLS, 32-cell block bootstrap)',
+                 fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return _save(fig, 'V3_discrete_null.png')
+
+
+# ---------------------------------------------------------------------------
+# V3b: the finite-volume null (recorded bias)
+# ---------------------------------------------------------------------------
+SCHEME_COL = {'semilag': COL['grey'], 'centred': COL['order3'], 'os7': COL['order5'], 'os7mp': COL['black'],
+              'dst3': COL['order1']}
+SCHEME_LAB = {'semilag': 'semi-Lagrangian (V3)', 'centred': 'FV centred 2nd order (stencil only)',
+              'os7': 'FV OS7 (7th order, unlimited)', 'os7mp': 'FV OS7MP-like (7th order + MP limiter)',
+              'dst3': 'FV DST3 (3rd order)'}
+
+
+def fig_V3b(res_s, ctx_s, res_l, ctx_l):
+    """V3b: (a) strain variant, OS7MP-like truth, discrete F; (b, c) LLC
+    variant with the centred and the OS7MP-like truth; (d) slope vs front
+    width per scheme (strain); (e) every slope with its CI, scheme x form
+    x variant; (f) the attribution: stencil (centred - 1) vs implicit
+    diffusion (scheme - centred), and the limiter (OS7MP - OS7)."""
+    fig, axs = plt.subplots(2, 3, figsize=(20, 12.5))
+    (pa, pc, pe), (pb, pd, pf) = axs
+    schemes = [s for s in res_s['schemes']]
+    head = res_s['headline_scheme']
+    pool = ctx_s['pools'][head]
+    _null_panel(pa, dict(x=pool['two_F_discrete'], y=pool['measured']), res_s['per_scheme'][head]['fits']['discrete'],
+                f'(a) strain variant, truth = {SCHEME_LAB[head]}, discrete F', verdict='recorded bias (not a gate)')
+    if res_l is not None:
+        for ax, sch, lab in ((pb, 'centred', '(b)'), (pc, head, '(c)')):
+            if sch in ctx_l['pools']:
+                pool = ctx_l['pools'][sch]
+                _null_panel(ax, dict(x=pool['two_F_discrete'], y=pool['measured']), res_l['per_scheme'][sch]['fits']['discrete'],
+                            f'{lab} LLC variant (hour-0 b, real midpoint velocity, mask_analysis),\ntruth = {SCHEME_LAB[sch]}, discrete F',
+                            verdict='recorded bias (not a gate)')
+    else:
+        for ax in (pb, pc):
+            ax.text(0.5, 0.5, 'LLC variant: M0 stores not on disk', ha='center', va='center', transform=ax.transAxes)
+    # (d) slope vs width per scheme, discrete solid / chain dashed
+    w = np.array(res_s['widths_cells'])
+    for sch in schemes:
+        e = res_s['per_scheme'][sch]
+        for form, ls, mk in (('discrete', '-', 'o'), ('chain', '--', 's')):
+            if form not in e['per_width']:
+                continue
+            s = np.array([e['per_width'][form][str(x)]['ols'] for x in w], dtype=float)
+            pd.plot(w, s, ls, marker=mk, color=SCHEME_COL[sch], lw=1.5, ms=5,
+                    label=f'{SCHEME_LAB[sch]}, {form}' if form == 'discrete' else None)
+            if 'diag_widths' in e:
+                wd = np.array(e['diag_widths']['widths'])
+                sd = np.array([e['diag_widths']['per_width'][form][str(x)]['ols'] for x in wd], dtype=float)
+                pd.plot(wd, sd, marker=mk, ls='none', color=SCHEME_COL[sch], ms=5, mfc='none', mew=1.3)
+    pd.plot([], [], '--', color='black', label='dashed: chain-rule F (squares); open: out of the pool')
+    pd.axhline(1, color='black', lw=0.8)
+    pd.axhline(1 / 0.85, color=COL['red'], lw=1.0, ls=':', label='1/0.85: if the Jacobian attenuation biased the slope')
+    pd.set_xscale('log'); pd.set_xticks([1, 1.5, 2, 3, 4, 6, 8]); pd.set_xticklabels(['1', '1.5', '2', '3', '4', '6', '8'])
+    pd.set_xlabel('front width ell / dx (tanh; sigma_G = ell/2)')
+    pd.set_ylabel('OLS slope, measured DG/Dt on 2F, front pixels')
+    pd.set_ylim(0.75, 1.2)
+    pd.set_title('(d) slope vs front width per truth (strain variant)\nthe FV truth falls short of F on sharp fronts by '
+                 'the scheme\'s own truncation', fontsize=10)
+    pd.legend(fontsize=7.5, loc='lower right'); pd.grid(alpha=0.3, which='both')
+    # (e) every slope with its CI
+    rows = []
+    for name, r in (('strain', res_s), ('LLC', res_l)):
+        if r is None:
+            continue
+        for sch in r['schemes']:
+            for form in r['forms']:
+                t = r['table'][sch][form]
+                rows.append((f'{name}: {sch}, {form}', t['slope'], t['ci'], SCHEME_COL[sch], form))
+    yv = np.arange(len(rows))[::-1]
+    for y, (lab, s, ci, c, form) in zip(yv, rows):
+        pe.errorbar(s, y, xerr=[[s - ci[0]], [ci[1] - s]], fmt='o' if form == 'discrete' else 's', color=c,
+                    mfc=c if form == 'discrete' else 'none', capsize=3, ms=6)
+        pe.text(max(ci[1], s) + 0.006, y, f'{s:.3f} [{ci[0]:.3f}, {ci[1]:.3f}]', va='center', fontsize=7.5)
+    pe.set_yticks(yv); pe.set_yticklabels([r[0] for r in rows], fontsize=7.5)
+    pe.axvline(1, color='black', lw=0.8)
+    pe.axvline(1 / 0.85, color=COL['red'], lw=1.0, ls=':')
+    # layout (M1 task 7): room above the first row for the legend, so it never covers a row label;
+    # the long title and x-label wrapped so nothing is clipped at the right edge of the axes.
+    pe.set_ylim(-0.7, len(rows) + 1.3)
+    if res_l is not None:
+        b = res_l['bias']
+        pe.axvspan(b['ci'][0], b['ci'][1], color='#e6f0fa', label=f'recorded bias (LLC, {b["scheme"]}, {b["form"]}): '
+                   f'{b["slope"]:.3f} [{b["ci"][0]:.3f}, {b["ci"][1]:.3f}]')
+        pe.legend(fontsize=8, loc='upper left')
+    pe.set_xlim(0.6, 1.25)
+    pe.set_xlabel('OLS slope on front pixels, with the 32-cell block-bootstrap CI\n(filled: discrete F; open: chain F)')
+    pe.set_title('(e) every truth x form x variant\n(dotted red: 1/0.85, the attenuation that does not appear)', fontsize=10)
+    pe.grid(alpha=0.3, axis='x')
+    # (f) the attribution
+    labels, sten, diff, cols = [], [], [], []
+    for name, r in (('strain', res_s), ('LLC', res_l)):
+        if r is None or 'stencil_effect' not in r:
+            continue
+        for sch in r['schemes']:
+            if sch in ('semilag', 'centred'):
+                continue
+            d = r['per_scheme'][sch].get('diffusion')
+            if d is None:
+                continue
+            labels.append(f'{name}: {sch}')
+            sten.append(r['stencil_effect']['discrete']); diff.append(d['slope_shift']['discrete']); cols.append(SCHEME_COL[sch])
+    yv = np.arange(len(labels))[::-1]
+    pf.barh(yv, sten, color=COL['order3'], alpha=0.7, label='C-grid stencil: centred FV slope - 1')
+    pf.barh(yv, diff, left=sten, color=cols, alpha=0.9, label='implicit diffusion: scheme - centred (scheme colour)')
+    for y, s_, d_ in zip(yv, sten, diff):
+        pf.text(min(0, s_ + d_) - 0.004, y, f'{s_:+.3f} {d_:+.3f} = {s_ + d_:+.3f}', va='center', ha='right', fontsize=7.5)
+    pf.set_yticks(yv); pf.set_yticklabels(labels, fontsize=8)
+    pf.axvline(0, color='black', lw=0.8)
+    pf.set_xlim(-0.25, 0.1)
+    pf.set_xlabel('departure of the slope from 1 (discrete F)')
+    lim = res_l['per_scheme'].get('os7mp', {}).get('limiter') if res_l is not None else None
+    extra = ''
+    if lim is not None:
+        extra = (f'\nLLC, the MP limiter alone (OS7MP - OS7): slope shift {lim["slope_shift"]["discrete"]:+.4f};\n'
+                 f'its DG/Dt term: median {100 * lim["median_dt_over_G"]:+.2f}% of G/h, p10 {100 * lim["p10_dt_over_G"]:+.1f}%')
+    pf.set_title('(f) stencil vs implicit diffusion, discrete F' + extra, fontsize=9.5)
+    pf.legend(fontsize=8, loc='lower left'); pf.grid(alpha=0.3, axis='x')
+    fig.suptitle('V3b: the finite-volume null -- the truth is a flux-form C-grid advection (MITgcm conventions, advective '
+                 'form) with V3\'s velocity; V3\'s pipeline otherwise. A recorded bias for M3, not a gate (M1-Q2).',
+                 fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return _save(fig, 'V3b_fv_null.png')
+
+
+# ---------------------------------------------------------------------------
 # V4: interpolation bias
 # ---------------------------------------------------------------------------
 def fig_V4(res, profile):

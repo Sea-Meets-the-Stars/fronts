@@ -125,8 +125,29 @@ Each task finishes with its own tests passing. Tests go in `dev/frontogenesis/py
 tasks: each V-function is written in the task whose module it exercises. The dependency chain
 is masking → operators → semilag → validation; `coarsegrain` needs only `operators`.
 
-**Status 2026-09-29: tasks 1-5 done** (log entries "Execution prompt 2, task 1" to "task 5");
-tasks 6-7 not started. M0 is closed (prompt 1, task-5 log entry). Task 4 delivered
+**Status 2026-09-30: M1 CLOSED — tasks 1-7 done, plus 6b and 7a** (log entries "Execution prompt 2,
+task 1" to "task 7"); task 8 (slides) not started. **The task-7 acceptance audit passes all seven
+criteria**: V1 0.78% at the 8 dx reference width (M1-Q5); V2 0.077% / 0.041%; V3 1.004 [0.995, 1.017]
+(strain) / 0.981 [0.970, 0.994] (llc), the Figure 2 baseline (M1-Q4); V4 recorded as 0.28-1.0% of `G`/h
+at order 3 (M1-Q6); V3b (task 6b, `py/fvadvect.py`, `figs/V3b_fv_null.png`) recorded as the
+model-advection systematic 0.975 [0.954, 1.003] — the Jacobian attenuation does not bias the slope
+(M1-Q2); all seven PNGs in `git status`; suite **84 passed, 3 xfailed** (the xfails are strict and
+document three `fronts` bugs found by task 7a's `test_nan_finding.py`); the criterion-7 oracle is
+`form='chain'`, bit-for-bit (M1-Q7). Task 7 also applied M1-Q1..Q8 to the docs (each spot marked
+"decided 2026-09-30") and fixed the clipped titles / legend in V3b's figure without changing a number.
+Open issues carried to M2-M4 are listed in the task-7 log entry (the `fronts` bugs and their fixes,
+the non-existent `tile_find` path in coding §2.5 / prompt 5, the caller-side NaN-finding recipe, M3's
+both-forms and order-5 requirements, the V3b band). M0 is closed (prompt 1, task-5 log entry). **Task 6 delivered gate V3
+(`validate.test_discrete_null`, `figs/V3_discrete_null.png`, `test_validate.py` V3 strain + V3 llc;
+suite 70 passed, 0 skipped): PASS at 1.004 [0.995, 1.017] (strain, 15 pooled cases, 2-8 dx) and
+0.981 [0.970, 0.994] (llc, hour-0 `b`, real midpoint velocity, `mask_analysis`, n 26,293)** — after a
+first attempt of 0.950 / 0.758. The finding: the chain-rule product `-(grad b)^T (grad u)(grad b)`
+fails on the grid by `(2/3)(dx/ell)^2`; `operators.frontogenesis` now defaults to the discretely
+consistent `form='discrete'` (`-sum_k (L_k b)[L_k, u.grad] b`, 4th-order neighbour gradient), with
+`form='chain'` kept bit-for-bit as the criterion-7 oracle, and `semilag.departure_index` uses a cubic
+velocity (`vel_order=3`; bilinear made the departure strain 0.965 of the Jacobian's). The 0.85
+Jacobian attenuation is invisible to a semi-Lagrangian null by construction (both sides see
+`D_h u_c`) — an open systematic for M3. Task 4 delivered
 `py/coarsegrain.py` (`subfilter_flux`, `subfilter_term` per §4.5, plus `subfilter_bdelta` — the
 dilatation part the divergent surface flow needs — `subfilter_advection`, `flux_divergence`,
 `b_at_velocity_points`, `filt`) and `py/tests/test_coarsegrain.py` (10 pass; suite 63). The term
@@ -257,6 +278,24 @@ order 5 0.06%; half cell 0.36% rms / +0.54% at the maximum; falls as `sigma_G^-3
 
 *Discharges:* criterion 3; criterion 5 (V3).
 
+### 6b. V3b — the finite-volume null (recorded bias)
+
+- Added 2026-09-29 per **M1-Q2**, option (a): a second null whose truth is a **flux-form finite-volume
+  advection on the C-grid** (`py/fvadvect.py`: centred, DST3, OS7 and an OS7MP-like scheme, MITgcm
+  face transports and the advective-form sweep `-[div(u b) - b div u]`), with V3's midpoint velocity
+  and otherwise exactly V3's pipeline — `validate.test_fv_null(velocities='strain'|'llc',
+  scheme=...)`, **V3b** (`figs/V3b_fv_null.png`). It tests the one link V3 cannot: both of V3's sides
+  see the same centred velocity, so the 0.80-0.85x attenuation of the interpolated Jacobian relative to
+  the model's flux-form strain (M0 task 5, M1 task 2) is invisible there.
+- **A recorded bias, not a gate.** The number it returns (`res['bias']`) is the slope our pipeline gives
+  when the tracer is advected as the model advects it; M3 carries it as a systematic. No pass/fail.
+- Report: the slope with CI per scheme × form × variant, the slope vs front width, whether the 0.85
+  appears and where, and the split between the C-grid stencil (centred FV) and the scheme's implicit
+  diffusion (as a `DG/Dt` term). Tests in `test_validate.py` (`llc` is `needs_grid`); none gates the
+  headline.
+
+*Discharges:* nothing on its own; the audit records V3b under criterion 3 or 4 as a recorded bias.
+
 ### 7. `test_nan_finding.py`, `test_validate.py`, and M1 acceptance
 
 - `test_nan_finding.py`: `fronts_from_gradb2` on a field containing NaN land, both as a whole
@@ -282,7 +321,12 @@ For the text, try never to use anything smaller than 20pt font
 ## Acceptance criteria — all must pass
 
 1. **V1 — Cartesian deformation.** Pure deformation `u = -a x, v = a y`, where `G` grows exactly
-   as `exp(2 a t)`. Reproduced to **< 1%**.
+   as `exp(2 a t)`. Reproduced to **< 1% at the reference front width `ell = 8 dx`** (decided
+   2026-09-30, M1-Q5: the criterion means an 8 dx reference width). The effect of width, for the
+   record: V1's 8-hour error is **0.78 / 1.57 / 3.09 / 4.43 / 7.86%** at 8 / 6 / 4 / 3 / 2 dx, from
+   the centred-stencil truncation that `G` and `F` share (second order in `dx/ell`); the
+   semi-Lagrangian step alone is **< 0.36%** at every width. So the literal 1% fails at <= 6 dx,
+   and any V1-type number on a sharper front must be quoted with its width.
 2. **V2 — Native-grid metric test.** An analytic function of `XC`/`YC` with known gradients,
    reproduced to **< 1%**. V1 cannot test this and vice versa: one validates the scheme, the
    other validates `dxC`/`dyC`/`CS`/`SN` handling.
@@ -298,10 +342,26 @@ For the text, try never to use anything smaller than 20pt font
    scheme order until it passes. Do not proceed.** Return the fitted slope — Figure 2 draws it.
    The real-velocity variant uses M0's **two consecutive hours** (a midpoint velocity needs two);
    do not pull more data here.
+   *(Corrected 2026-09-30, M1 task 7, per the task-6b log: V3b, the finite-volume null, measured
+   the shift of the slope under a flux-form OS7MP-like truth at **−0.006 ± 0.025** (0.975
+   [0.954, 1.003] against V3's 0.981), so **the 0.80-0.85x attenuation does not bias the slope**
+   — it is the resolved `G`'s consistent view of the strain, and the semi-Lagrangian null cannot
+   see it by construction (task 6). V3b is carried as a recorded bias, not a correction; see
+   criterion 4.)*
 4. **V4 — Interpolation bias.** Uniform zero-strain flow, where the true `DG/Dt` is identically
    zero. Whatever comes out is our bias, measured rather than estimated; it becomes a permanent
    error bar on every later slope.
-5. **All six PNGs (V1-V6) written to `dev/frontogenesis/figs/`** (`figs/.gitignore` un-ignores
+   *(Decided 2026-09-30, M1-Q6: the bar is quoted as **0.28-1.0% of `G` per hour (order 3)** —
+   0.28% for a 1.5-cell front, 1.0% for a 1-cell front, at the real-hour displacement
+   distribution; order 3 stays the default, and M3 reports its slope at **order 5 as a
+   sensitivity** (0.06% at 1.5 cells; task 3 saw ~5% between the orders on real front pixels).
+   Recorded bias V3b (task 6b, M1-Q2): the pipeline's slope under a model-like flux-form advection
+   is **0.975 [0.954, 1.003]** on the real hour — a systematic band of **0.954-1.003, or 0.975 ±
+   0.025**, around the 0.981 baseline; **no upward correction** for the Jacobian attenuation; the
+   per-width advection-numerics shortfall (**−2% at 2 dx, −4% at 1.5 dx, −11% at 1 dx**) is to be
+   subtracted before attributing anything on the sharpest fronts to diffusion.)*
+5. **All six PNGs (V1-V6) written to `dev/frontogenesis/figs/`** (plus V3b, `figs/V3b_fv_null.png`,
+   task 6b — seven in all; added 2026-09-30, M1 task 7) (`figs/.gitignore` un-ignores
    `*.png` — the fronts `.gitignore` would otherwise hide them; check `git status` shows them.
    V6 must also show the finite tile-edge rim and the `edge_cells` margin; added 2026-09-28,
    M0 task 5). Including **V5**, the figure
@@ -313,15 +373,117 @@ For the text, try never to use anything smaller than 20pt font
    `test_coarsegrain.py`, `test_validate.py`, and **`test_nan_finding.py`** — exercising
    `fronts_from_gradb2` on a field containing NaN. No such test exists today, and the halo fix
    makes NaN land the normal case.
-7. **Regression check:** unfiltered `operators.frontogenesis` agrees with the repo's
-   `calculate_fields.frontogenesis_tendency` to round-off. Use the repo version as a test
-   oracle, never as the science product.
+7. **Regression check:** unfiltered **`operators.frontogenesis(..., form='chain')`** agrees with
+   the repo's `calculate_fields.frontogenesis_tendency` to round-off (reworded 2026-09-30, M1-Q7:
+   the science product is the default `form='discrete'`, task 6; the chain form is the oracle
+   path). Use the repo version as a test oracle, never as the science product.
 
 ## Do not
 
 - Do not pull the 72-hour series (M2) or compute any budget on real data (M3). M1 uses only
   M0's two hours and its static grid.
 - Do not interpret anything physical. This milestone produces no science.
+
+## Q&A
+
+### Claude, 2026-09-29 (after tasks 1-6)
+
+Numbered M1-Qn so they don't collide with the planning Q-numbers in `frontogenesis_prompts.md`.
+The numbers come from the task 1-6 log entries. **M1-Q1 and M1-Q2 block M3**; the rest can be
+answered at any time. **All eight answered by JXP; the decisions were applied to the docs on
+2026-09-30 (task 7 log entry lists every edit).**
+
+##### Questions
+
+**M1-Q1 — Which form of `F` is the science product?** To pass V3, task 6 made
+`operators.frontogenesis(form='discrete')` the default. This `F` is consistent with the
+discrete `G` stencil: `-sum_k (L_k b)[L_k, u.grad] b`, with a 4th-order neighbour gradient.
+The chain-rule form (`form='chain'`, bit-for-bit the repo's `frontogenesis_tendency`) is kept.
+Three facts pull against each other:
+- **Discrete form.** V3 gives 1.004 (strain) and 0.981 (real velocity). With the chain rule the
+  slopes are 0.951 and 0.791. The chain rule overstates discrete frontogenesis by
+  `(2/3)(dx/ell)^2` at a front of width `ell`.
+- **Size of the change.** On real front pixels the discrete `F` is **~0.79x** the chain-rule
+  `F`. The predicted side of the headline comparison moves by about as much as the effect we
+  are measuring.
+- **What V3 can and can't say.** Its truth is advected by *our* semi-Lagrangian step, and the
+  discrete `F` is by construction the one that matches that stencil. V3 shows that our two sides
+  agree with each other. It does **not** show which form LLC4320's own fronts follow: the model
+  advects `b` in flux form with OS7MP, not with our scheme.
+
+My recommendation: run M3 with **both** forms, report `form='discrete'` as the primary slope,
+and carry the discrete-vs-chain difference as a stated systematic until M1-Q2 is settled.
+Alternatives are (a) discrete only, (b) chain only, with the V3 shortfall as a known
+correction.
+
+> **JXP:** Follow your recommendation.
+
+**M1-Q2 — Add a finite-volume null before M3?** The expected 0.80-0.85x attenuation of the
+interpolated Jacobian relative to flux-form strain (M0 task 5; 0.853 on `mask_analysis`, M1
+task 2) **cannot appear in V3**. Both sides of V3 see the same centred velocities. It is
+untested. If it acts on real data, M3's slope is biased **high**. Testing it needs a second
+null whose truth is a flux-form finite-volume advection, ideally mimicking OS7MP. Measured and
+predicted would then disagree for the reason the model's fronts do. Options:
+- (a) Add it as **V3b in M1**, before any science. It would be a gate or a recorded bias, your
+  call.
+- (b) Fold it into M3 as a diagnostic.
+- (c) Skip it and state it as a caveat.
+
+I lean (a) as a *recorded bias*, not a gate. It would be the one remaining untested link
+between our operators and the model.
+
+> **JXP:** Ok, use (a)
+
+**M1-Q3 — The planning §2.4 sign.** The strain term is `F = -½δG + ½|σ|G cos 2θ`, with `θ`
+measured from the compressional axis. It was corrected in task 2, and you approved it "for
+now". Can it be marked final, or is there something you want checked first (e.g. against a
+textbook convention, or Lauren)?
+
+> **JXP:** . Yes, consider it final
+
+**M1-Q4 — Figure 2's baseline.** The real-velocity V3 slope is **0.981 [0.970, 0.994]**. It
+is inside the ±0.05 gate, but its CI excludes 1. Should Figure 2 draw the baseline at 0.981
+with its band (my recommendation), or at 1 with the gate width as the error?
+
+> **JXP:** Draw the baseline at 0.981 with its band.
+
+**M1-Q5 — Criterion 1 (V1, < 1%) depends on front width.** V1 passes at an 8-cell front
+(0.78% over 8 hours). The literal 1% fails at ≤ 6 cells: 1.57 / 3.09 / 4.43 / 7.86% at
+6 / 4 / 3 / 2 dx. The cause is the centred-stencil truncation that `G` and `F` share. The
+semi-Lagrangian step alone is < 0.36% at every width. Accept "8 dx reference width" as the
+criterion's meaning, or restate criterion 1?
+
+> **JXP:** Yes, accept "8 dx reference width" as the criterion's meaning.  But also be sure to comment on this effect.
+
+**M1-Q6 — The V4 error bar and the interpolation order.** V4's headline is **0.28% of G per
+hour** at order 3: the rms on front pixels for a 1.5-cell front, at the real-hour displacement
+distribution. For a 1-cell front it is **1.0%**; at order 5 it is 0.06%. Task 3 also saw a ~5%
+difference between order 3 and order 5 on real front pixels. Proposal:
+- quote the bar as **0.28-1.0% (order 3)**;
+- keep order 3 as the default;
+- report M3's slope at **order 5 as a sensitivity**.
+
+Or switch the default to order 5? It costs a wider NaN rim (6 nodes per axis vs 4).
+
+> **JXP:** . Let's use your proposal
+
+**M1-Q7 — Criterion 7 wording.** "Unfiltered `operators.frontogenesis` agrees with
+`frontogenesis_tendency` to round-off" now holds for `form='chain'`, not for the default. OK to
+reword it to name `form='chain'`?
+
+> **JXP:** Yes, that is fine
+
+**M1-Q8 — Housekeeping (answer any or none).**
+- (a) `data/tile330_masks.nc` (6 MB, rebuilds in < 1 s) is git-ignored like the zarrs. Track
+  it, or leave it ignored?
+- (b) `validate.py` is 863 lines, against §1.3's ~400. Split it further in task 7 (e.g. one
+  module per gate), or leave it?
+- (c) The subfilter term relative to `F̄` grows with filter scale (0.31 / 0.50 / 0.70 at
+  L = 2 / 4 / 8), rather than being "O(1) at every L" as planning §5.4 said. It is also
+  anti-correlated with `F̄` (about −0.6). Anything you want characterised further before M3,
+  or leave it to M3's filter sweep?
+
+> **JXP:** (a) leave it ignored, (b) leave it; (c) leave it
 
 ## Log
 

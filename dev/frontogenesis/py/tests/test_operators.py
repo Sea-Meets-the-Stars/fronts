@@ -113,11 +113,25 @@ def test_factor_of_two_pure_deformation(rotated):
     a, b0, ell = 1e-5, 1e-2, 4 * 1800.0
     g, grid, pos = synthetic_cgrid(rotated=rotated)
     b, U, V = deformation_fields(g, pos, rotated, a=a, b0=b0, ell=ell)
-    F = op.frontogenesis(b, U, V, g, grid)
+    F = op.frontogenesis(b, U, V, g, grid, form='chain')       # the chain-rule form: F = a G exactly
     G = op.gradb2(b, g, grid)
     assert F.dims == C_DIMS and F.name == 'F'
     Fi, Gi = interior(F.values), interior(G.values)
     assert np.allclose(Fi, a * Gi, rtol=1e-10, atol=0)         # discrete: F = a G exactly
+    # the consistent form (M1 task 6, the default) is what the semi-Lagrangian
+    # DG/Dt tends to: at the centre of a tanh front it is 1 - (2/3)(dx/ell)^2
+    # of the chain form (0.958 at ell = 4 dx), and -> 1 as the front widens
+    Fd = interior(op.frontogenesis(b, U, V, g, grid, form='discrete').values)
+    assert F.attrs['form'] == 'chain'
+    row = Gi.shape[0] // 2
+    k = int(np.argmax(Gi[row]))
+    ratio = Fd[row, k] / Fi[row, k]
+    assert 0.945 < ratio < 0.970, ratio
+    bw, Uw, Vw = deformation_fields(g, pos, rotated, a=a, b0=b0, ell=16 * 1800.0)
+    Fw = interior(op.frontogenesis(bw, Uw, Vw, g, grid, form='chain').values)
+    Fdw = interior(op.frontogenesis(bw, Uw, Vw, g, grid, form='discrete').values)
+    kw = int(np.argmax(Fw[row]))
+    assert abs(Fdw[row, kw] / Fw[row, kw] - 1.0) < 0.004      # (2/3)(1/16)^2 = 0.26%
     # the analytic material derivative along a parcel, from the exact solution
     x0 = np.linspace(-2 * ell, 2 * ell, 41)
     def G_exact(x, t):
@@ -186,7 +200,7 @@ def test_strain_alignment_definition_and_decomposition():
     xv, yv = pos('v')
     U2 = da(0.3 * np.sin(ky * yu) + 0.1 * np.cos(kx * xu), U_DIMS)
     V2 = da(0.2 * np.cos(kx * xv) * np.sin(ky * yv), V_DIMS)
-    F = op.frontogenesis(b2, U2, V2, g, grid)
+    F = op.frontogenesis(b2, U2, V2, g, grid, form='chain')     # the decomposition is of the chain form
     G = op.gradb2(b2, g, grid)
     bx2, by2 = op.grad_b(b2, g, grid)
     delta, sn, ss, mag = op.strain_from_jacobian(*op.jacobian(U2, V2, g, grid))
@@ -339,21 +353,31 @@ def test_lowpass_halo_consequence_diagonal_coast():
     # U[i_g = k] sits between cells k-1 and k, V[j_g = k] between rows k-1 and k
     U.values[0][land | np.roll(land, 1, axis=1)] = np.nan
     V.values[0][land | np.roll(land, 1, axis=0)] = np.nan
-    for L, reach in ((0, 2), (2, 3), (4, 4), (8, 6)):
-        F = op.frontogenesis(op.lowpass(b, L), op.lowpass(U, L), op.lowpass(V, L),
-                             g, grid).values[0]
-        fin = np.isfinite(F)
-        inner = np.zeros((nj, ni), bool)
-        m = L // 2 + 2
-        inner[m:nj - m, m:ni - m] = True
-        assert chess[fin & inner].min() == reach       # filter half-width + Jacobian reach
-        assert fin[inner & (chess > reach + 1)].all()  # and finite beyond it
-        n_halo_nan = int((halo & inner & ~fin).sum())
-        if L == 8:
-            assert n_halo_nan > 0                      # the chessboard-5 (and 6) halo cells
-            assert not (halo & inner & ~fin & (chess >= 7)).any()
-        else:
-            assert n_halo_nan == 0
+    # the chain form reaches chessboard L/2 + 2 (filter half-width + Jacobian),
+    # taxicab L/2 + 3, and is finite beyond chessboard L/2 + 2; the consistent
+    # form (M1 task 6) extends the stencil one cell along each axis: the
+    # chessboard minimum is unchanged, the taxicab minimum is L/2 + 4 and it is
+    # finite only beyond chessboard L/2 + 3, so at L = 4 it is NaN on some
+    # chessboard-5 halo cells too -- still only NaN, never contaminated
+    taxi = ndimage.distance_transform_cdt(~land, metric='taxicab')
+    for form, taxi_extra, beyond in (('chain', 3, 2), ('discrete', 4, 3)):
+        for L in (0, 2, 4, 8):
+            reach = L // 2 + 2
+            F = op.frontogenesis(op.lowpass(b, L), op.lowpass(U, L), op.lowpass(V, L),
+                                 g, grid, form=form).values[0]
+            fin = np.isfinite(F)
+            inner = np.zeros((nj, ni), bool)
+            m = L // 2 + 4
+            inner[m:nj - m, m:ni - m] = True
+            assert chess[fin & inner].min() == reach       # filter half-width + stencil reach
+            assert taxi[fin & inner].min() == L // 2 + taxi_extra
+            assert fin[inner & (chess > L // 2 + beyond)].all()    # finite beyond it
+            n_halo_nan = int((halo & inner & ~fin).sum())
+            assert not (halo & inner & ~fin & (chess > L // 2 + beyond)).any()
+            if L == 8:
+                assert n_halo_nan > 0                      # the chessboard-5 (and 6) halo cells
+            elif form == 'chain' or L < 4:
+                assert n_halo_nan == 0                     # (discrete, L = 4 may touch chess 5: 0 here)
 
 
 def test_lowpass_commutes_with_grad_b():
@@ -406,7 +430,9 @@ def test_regression_vs_repo_frontogenesis_tendency(t0, masks_ds):
     ``frontogenesis_tendency`` on M0's first hour, to round-off, over the
     valid analysis-mask cells.  (Measured: bit-for-bit, max |dF| = 0.)"""
     ds, grid, b = t0
-    F = op.frontogenesis(b, ds.U, ds.V, ds, grid)
+    # the oracle is the repo-equivalent path, form='chain' (M1 task 6 made the
+    # consistent form the default; the chain form is kept for exactly this test)
+    F = op.frontogenesis(b, ds.U, ds.V, ds, grid, form='chain')
     F_repo = cf.frontogenesis_tendency(ds, grid).compute()
     assert F.dims == F_repo.dims == ('face', 'j', 'i')
     a, r = F.values[0], F_repo.values[0]
@@ -414,6 +440,15 @@ def test_regression_vs_repo_frontogenesis_tendency(t0, masks_ds):
     assert np.array_equal(np.isfinite(a), np.isfinite(r))
     ok = ana & np.isfinite(a) & np.isfinite(r)
     assert ok.sum() == ana.sum() == 262_925               # F finite on the whole analysis mask
+    # the default (discrete) form: finite on the whole analysis mask, and below
+    # the chain form where the fronts are sharp (the ratio is logged)
+    Fd = op.frontogenesis(b, ds.U, ds.V, ds, grid).values[0]
+    assert Fd.shape == a.shape and np.isfinite(Fd[ana]).all()
+    G = op.gradb2(b, ds, grid).values[0]
+    front = ana & (G >= np.percentile(G[ana], 90))
+    ratio = np.sum(Fd[front] * a[front]) / np.sum(a[front] ** 2)
+    print(f'\ndiscrete / chain F on the top-decile-G analysis cells (regression): {ratio:.3f}')
+    assert 0.6 < ratio < 1.0
     d = np.abs(a[ok] - r[ok])
     scale = np.abs(r[ok]).max()
     with np.errstate(invalid='ignore', divide='ignore'):
@@ -469,7 +504,7 @@ def test_strain_rotation_sign_on_the_real_face(t0, masks_ds):
     # the decomposition with the Jacobian strain closes to round-off
     bx, by = op.grad_b(b, ds, grid)
     G = op.gradb2(b, ds, grid)
-    F = op.frontogenesis(b, ds.U, ds.V, ds, grid)
+    F = op.frontogenesis(b, ds.U, ds.V, ds, grid, form='chain')   # the decomposition is of the chain form
     th = op.strain_alignment(bx, by, jac[1], jac[2])
     F_dec = (-0.5 * jac[0] * G + 0.5 * jac[3] * G * np.cos(2 * th)).values[0]
     m = ana & np.isfinite(F_dec)
@@ -486,16 +521,25 @@ def test_lowpass_nan_at_the_coast_real_tile(t0, masks_ds):
     ds, grid, b = t0
     ana, halo, edge = (masks_ds[k].values for k in ('mask_analysis', 'mask_halo', 'mask_edge'))
     chess = ndimage.distance_transform_cdt(np.isfinite(b.values[0]), metric='chessboard')
+    taxi = ndimage.distance_transform_cdt(np.isfinite(b.values[0]), metric='taxicab')
     for L in (2, 4, 8):
         hw = L // 2
         bL = op.lowpass(b, L)
         inner = np.zeros(chess.shape, bool)
         inner[hw:-hw, hw:-hw] = True
         assert np.array_equal(np.isfinite(bL.values[0]), (chess > hw) & inner)
-        F = op.frontogenesis(bL, op.lowpass(ds.U, L), op.lowpass(ds.V, L), ds, grid).values[0]
-        assert np.isfinite(F[ana]).all()
-        n_halo_nan = int((halo & edge & ~np.isfinite(F)).sum())
-        print(f'\nL={L}: NaN F inside mask_halo & mask_edge: {n_halo_nan}; '
-              f'min chessboard distance of a finite F: {chess[np.isfinite(F)].min()}')
-        assert chess[np.isfinite(F)].min() == hw + 2                 # filter reach + Jacobian reach
-        assert n_halo_nan < 0.001 * halo.sum()
+        # both forms reach chessboard hw + 2 (filter + stencil); the consistent
+        # default (M1 task 6) is one cell longer along the axes (taxicab hw + 4
+        # vs hw + 3), so at L = 8 it is NaN on 1,627 halo cells (0.48%) against
+        # the chain form's 249; both are finite on all of mask_analysis, and the
+        # discrete form's tile-edge reach at L = 8 is exactly edge_cells = 7
+        for form, taxi_extra, frac in (('chain', 3, 0.001), ('discrete', 4, 0.006)):
+            F = op.frontogenesis(bL, op.lowpass(ds.U, L), op.lowpass(ds.V, L), ds, grid, form=form).values[0]
+            assert np.isfinite(F[ana]).all()
+            n_halo_nan = int((halo & edge & ~np.isfinite(F)).sum())
+            print(f'\nL={L} [{form}]: NaN F inside mask_halo & mask_edge: {n_halo_nan}; '
+                  f'min chessboard / taxicab distance of a finite F: {chess[np.isfinite(F)].min()} / '
+                  f'{taxi[np.isfinite(F)].min()}')
+            assert chess[np.isfinite(F)].min() == hw + 2             # filter reach + stencil reach
+            assert taxi[np.isfinite(F)].min() == hw + taxi_extra
+            assert n_halo_nan < frac * halo.sum()

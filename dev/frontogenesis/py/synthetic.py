@@ -208,6 +208,56 @@ def deformation_series(case, n_steps=8, dt=DT, order=3):
 
 
 # ---------------------------------------------------------------------------
+# V3 (strain variant): a front of prescribed width in a prescribed strain
+# ---------------------------------------------------------------------------
+# the "realistic mix": deformation plus sinusoidal shear (vorticity + shear
+# strain) and divergence modes at 36-48 dx, amplitudes 0.15-0.25 m/s, so the
+# strain varies along each front (|sigma| ~ 1-3e-5 s^-1, the tile's median
+# 1.9e-5) and the hourly displacement adds ~1 cell to the deformation's
+NULL_MODES = dict(U1=0.25, L1_cells=40.0, U3=0.15, L3_cells=36.0, V2=0.20, L2_cells=48.0)
+
+
+def null_strain_case(ell_cells=4.0, theta_deg=0.0, a=1e-5, n=128, dx=1800.0, b0=1e-2,
+                     rotated=False, modes=NULL_MODES):
+    """One V3 'strain' case: the tanh front ``b = b0 tanh(s/ell)`` with
+    ``s = (x - x0) cos theta + (y - y0) sin theta`` (its normal at
+    ``theta_deg`` from geographic east, the compressional axis of the
+    deformation ``u = -a x, v = a y``: ``F = a G cos 2 theta`` for the
+    deformation alone, so 0 / 30 / 60 deg give ``+aG / +aG/2 / -aG/2``),
+    on an ``n x n`` grid of spacing ``dx``, with the sinusoidal modes of
+    ``modes`` added to the velocity (``u += U1 sin(2 pi y/L1) + U3 sin(2 pi
+    x/L3)``, ``v += V2 sin(2 pi y/L2)``: shear, vorticity and divergence
+    that vary in space).  Returns a dict with the grid, the staggered
+    ``U, V`` (model components), ``b_t`` and the exact velocity-gradient
+    tensor at the centres (``u_x, u_y, v_x, v_y``, geographic)."""
+    g, grid, pos = synthetic_cgrid(nj=n, ni=n, dx=dx, dy=dx, rotated=rotated)
+    xc, yc = pos('c')
+    x0, y0 = xc.mean(), yc.mean()
+    ell = ell_cells * dx
+    th = np.deg2rad(theta_deg)
+    s = (xc - x0) * np.cos(th) + (yc - y0) * np.sin(th)
+    b_t = da(b0 * np.tanh(s / ell), C_DIMS)
+    m = dict(NULL_MODES, **({} if modes is None else modes))
+    k1, k2, k3 = (2 * np.pi / (m[f'L{k}_cells'] * dx) for k in (1, 2, 3))
+
+    def u_e(x, y):
+        return -a * (x - x0) + m['U1'] * np.sin(k1 * (y - y0)) + m['U3'] * np.sin(k3 * (x - x0))
+
+    def v_n(x, y):
+        return a * (y - y0) + m['V2'] * np.sin(k2 * (y - y0))
+    xu, yu = pos('u')
+    xv, yv = pos('v')
+    U, _ = model_components(u_e(xu, yu), v_n(xu, yu), rotated)
+    _, V = model_components(u_e(xv, yv), v_n(xv, yv), rotated)
+    exact = dict(u_x=-a + m['U3'] * k3 * np.cos(k3 * (xc - x0)),
+                 u_y=m['U1'] * k1 * np.cos(k1 * (yc - y0)),
+                 v_x=np.zeros_like(xc), v_y=a + m['V2'] * k2 * np.cos(k2 * (yc - y0)))
+    return dict(g=g, grid=grid, pos=pos, xc=xc, yc=yc, b_t=b_t, U=da(U, U_DIMS), V=da(V, V_DIMS),
+                ell=ell, ell_cells=float(ell_cells), theta_deg=float(theta_deg), a=a, b0=b0,
+                dx=dx, n=n, rotated=rotated, exact=exact)
+
+
+# ---------------------------------------------------------------------------
 # V2: an analytic function of (lon, lat) on the sphere, and the metric's radius
 # ---------------------------------------------------------------------------
 def wave(X, Y, lon0, lat0, L_lon, L_lat, R):

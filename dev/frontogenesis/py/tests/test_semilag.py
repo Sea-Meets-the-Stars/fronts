@@ -335,11 +335,12 @@ def test_nan_propagates_at_a_synthetic_coast():
     dx_c, dy_c = sl._spacing_at_centres(g)
     ui, vj = uc * DT / dx_c, vc * DT / dy_c
     di, dj = ui.copy(), vj.copy()
+    vel_order = 3                       # departure_index's default since M1 task 6 (was bilinear)
     for _ in range(3):
-        bad_i = _support_touches_nan(np.isfinite(ui), 0.5 * di, 0.5 * dj, 1)
-        bad_j = _support_touches_nan(np.isfinite(vj), 0.5 * di, 0.5 * dj, 1)
-        di_n = sl.interp_to_departure(ui, 0.5 * di, 0.5 * dj, 1, allow_low_order=True)
-        dj_n = sl.interp_to_departure(vj, 0.5 * di, 0.5 * dj, 1, allow_low_order=True)
+        bad_i = _support_touches_nan(np.isfinite(ui), 0.5 * di, 0.5 * dj, vel_order)
+        bad_j = _support_touches_nan(np.isfinite(vj), 0.5 * di, 0.5 * dj, vel_order)
+        di_n = sl.interp_to_departure(ui, 0.5 * di, 0.5 * dj, vel_order)
+        dj_n = sl.interp_to_departure(vj, 0.5 * di, 0.5 * dj, vel_order)
         assert np.array_equal(np.isnan(di_n), bad_i) and np.array_equal(np.isnan(dj_n), bad_j)
         di, dj = di_n, dj_n
     di_da, dj_da = sl.departure_index(u_c, v_c, g, dt=DT)
@@ -428,7 +429,7 @@ def test_two_hours_smoke(grid_ds, raw_ds, masks_ds):
     di, dj = sl.departure_index(u_c, v_c, grid_ds)
     d = np.hypot(di.values[0], dj.values[0])
     med, p99, dmax = np.nanmedian(d[oc]), np.nanpercentile(d[oc], 99), np.nanmax(d[oc])
-    di3, dj3 = sl.departure_index(u_c, v_c, grid_ds, vel_order=3)
+    di3, dj3 = sl.departure_index(u_c, v_c, grid_ds, vel_order=1)      # the default is 3 since M1 task 6
     dd = np.hypot(di3.values[0] - di.values[0], dj3.values[0] - dj.values[0])
     di0, dj0 = sl.departure_index(u_c, v_c, grid_ds, n_iter=0)
     dd0 = np.hypot(di0.values[0] - di.values[0], dj0.values[0] - dj.values[0])

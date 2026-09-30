@@ -63,9 +63,68 @@ def test_V2_native_metric(grid_ds):
     assert abs(r['R_from_dxC'] - 6370e3) < 5e3 and abs(r['R_from_dyC'] - 6370e3) < 5e3
 
 
-@pytest.mark.skip(reason='V3 test_discrete_null is prompt 2 task 6 (not written yet)')
-def test_V3_discrete_null():
-    pass
+def _v3_report(r):
+    f = r['fits']
+    ch = r['changes_tried']
+    print(f"\nV3 {r['velocities']}: gate ({r['gate_form']}) OLS {r['slope']:.4f} CI [{r['ci'][0]:.4f}, {r['ci'][1]:.4f}] "
+          f"n {r['n_front']} | chain {f['chain']['ols']:.4f} | first attempt "
+          f"{ch.get('chain, bilinear departure velocity (first attempt)', float('nan')):.4f} | "
+          f"orth {f[r['gate_form']]['orthogonal']:.4f} inv {f[r['gate_form']]['ols_inverse']:.4f} "
+          f"gm {f[r['gate_form']]['geometric_mean']:.4f} ratio {f[r['gate_form']]['ratio']:.4f}")
+
+
+def test_V3_discrete_null_strain():
+    """The hard gate, strain variant: slope = 1 +/- 0.05 on front pixels
+    with the consistent F (the default form); the chain-rule form is
+    recorded below 1 and degrades with front sharpness (the finding)."""
+    r = va.test_discrete_null(velocities='strain', png=False, n_boot=300)
+    _v3_report(r)
+    assert r['gate_form'] == 'discrete' and r['gate']['passed']
+    assert abs(r['slope'] - 1.0) <= 0.05
+    assert r['ci'][0] > 0.95 and r['ci'][1] < 1.05
+    assert r['n_front'] > 10_000
+    # every width in the pool within the gate on its own, and the out-of-pool
+    # 1 and 1.5 dx fronts too (the consistent form is right to O((dx/ell)^4))
+    for w, v in r['per_width']['discrete'].items():
+        assert abs(v['ols'] - 1.0) < 0.02, (w, v)
+    for w, v in r['diag_widths']['per_width']['discrete'].items():
+        assert abs(v['ols'] - 1.0) < 0.03, (w, v)
+    # the chain-rule form: below 1, monotone in the width, ~1 - (2/3)(dx/ell)^2 softened by the flanks
+    c = [r['per_width']['chain'][str(w)]['ols'] for w in r['widths_cells']]
+    assert all(np.diff(c) > 0) and c[0] < 0.95 and c[-1] > 0.985
+    assert r['diag_widths']['per_width']['chain']['1.0']['ols'] < 0.85
+    # the 2nd-order neighbour gradient over-corrects
+    assert r['per_width']['discrete_o2']['2.0']['ols'] > 1.02
+    # the other estimators agree with the gate to a few %
+    g = r['fits']['discrete']
+    assert abs(g['orthogonal'] - g['ols']) < 0.03 and abs(g['ols_origin'] - g['ols']) < 0.01
+    assert g['corr'] > 0.97
+
+
+@pytest.mark.needs_grid
+def test_V3_discrete_null_llc(grid_ds):
+    """The hard gate, real-velocity variant (M0's two hours, hour 0 b,
+    mask_analysis): slope = 1 +/- 0.05 with the consistent F and the cubic
+    departure velocity; the first attempt (chain F, bilinear velocity) is
+    recorded near 0.76; the null is blind to the Jacobian attenuation."""
+    r = va.test_discrete_null(velocities='llc', png=False, grid_ds=grid_ds, n_boot=300)
+    _v3_report(r)
+    print('strain seen (departure / Jacobian / flux form):', r['strain_seen'])
+    assert r['gate_form'] == 'discrete' and r['gate']['passed']
+    assert abs(r['slope'] - 1.0) <= 0.05
+    assert r['ci'][0] > 0.95 and r['ci'][1] < 1.05
+    assert r['n_front'] == 26_293 and r['n_valid'] == 262_925
+    assert r['fits']['discrete']['corr'] > 0.97
+    ch = r['changes_tried']
+    assert ch['chain, bilinear departure velocity (first attempt)'] < 0.85       # the first attempt
+    assert ch['chain, cubic departure velocity'] < 0.85
+    assert ch['discrete, bilinear departure velocity'] < ch['discrete, cubic departure velocity']
+    assert abs(ch['discrete, velocity low-passed L = 8 (b raw)'] - 1.0) < 0.02   # a smooth velocity: exact
+    # the departure map's strain is the Jacobian's (both are D_h u_c), and both
+    # see the flux-form divergence attenuated ~0.85: the null cannot detect it
+    s = r['strain_seen']
+    assert s['departure_vs_jacobian'] > 0.98 and 0.8 < s['jacobian_vs_fluxform'] < 0.9
+    assert 0.3 < r['displacement_cells']['median'] < 0.5
 
 
 def test_V4_interpolation_bias():
@@ -110,3 +169,95 @@ def test_V6_qa_land_halo(grid_ds):
     assert r['n_ocean'] == 356877 and r['n_halo'] == 341960 and r['n_analysis'] == 262925
     assert r['halo_cells'] == 7 and r['edge_cells'] == 7 and r['edge_margin_covers_rim']
     assert r['gulf']['gulf_n_analysis'] == 0
+
+
+# ---------------------------------------------------------------------------
+# V3b: the finite-volume null (task 6b; M1-Q2 -- a recorded bias, NOT a gate)
+# ---------------------------------------------------------------------------
+def _v3b_report(r):
+    for s, t in r['table'].items():
+        print(f"\nV3b {r['velocities']} {s:8s}", {f: (round(v['slope'], 4), [round(c, 4) for c in v['ci']])
+                                                  for f, v in t.items()})
+    print('V3b bias:', r['bias']['scheme'], r['bias']['form'], round(r['bias']['slope'], 4),
+          [round(c, 4) for c in r['bias']['ci']])
+
+
+def test_V3b_fv_step_basics():
+    """The flux-form step itself: the OS7 weights' limits, a uniform tracer
+    under a divergent flow (advective form) and the conservative form's
+    spurious -b delta, exactness at c = 1."""
+    import fvadvect as fv
+    import synthetic as sy
+    A = fv._OS7_A
+    assert np.allclose(A[:, 0] * 420, [-3, 25, -101, 319, 214, -38, 4])      # c -> 0: 7th-order upwind
+    assert np.allclose(A.sum(axis=1), [0, 0, 0, 1, 0, 0, 0], atol=1e-12)    # c = 1: the exact shift
+    case = sy.null_strain_case(ell_cells=4, n=48)
+    one = case['b_t'] * 0 + 3.0
+    for sch in fv.SCHEMES:
+        o = fv.fv_advect(one, case['U'], case['V'], case['g'], scheme=sch, dt_sub=600.0)
+        assert o.dims == one.dims and np.isfinite(o.values).all()
+        assert np.abs(o.values - 3.0).max() < 1e-12, sch
+    o = fv.fv_advect(one, case['U'], case['V'], case['g'], scheme='os7', dt_sub=600.0, form='conservative')
+    assert np.abs(o.values - 3.0).max() > 0.01           # -b delta over an hour: percent level
+    # a whole-cell shift in one sub-step is exact for the one-step schemes
+    g, grid, pos = sy.synthetic_cgrid(nj=8, ni=64, dx=1800.0, dy=1800.0)
+    x, y = pos('c')
+    b = sy.da(np.exp(-((x - 32 * 1800.0) / (3 * 1800.0)) ** 2), sy.C_DIMS)
+    U = sy.da(np.full((1, 8, 64), 0.5), sy.U_DIMS)
+    V = sy.da(np.zeros((1, 8, 64)), sy.V_DIMS)
+    ex = np.exp(-((x - 33 * 1800.0) / (3 * 1800.0)) ** 2)
+    for sch in ('dst3', 'os7', 'os7mp'):
+        o = fv.fv_advect(b, U, V, g, scheme=sch, dt_sub=3600.0)
+        assert np.abs(o.values - ex)[0, :, 8:-8].max() < 1e-12, sch
+
+
+def test_V3b_fv_null_strain():
+    """V3b, strain variant: runs, finite, reproduces V3 when the truth is the
+    semi-Lagrangian step, and the physical expectations that hold; no
+    assertion on the headline number (a recorded bias)."""
+    r = va.test_fv_null('strain', schemes=('semilag', 'centred', 'os7', 'os7mp', 'dst3'), png=False, n_boot=300)
+    _v3b_report(r)
+    for s, t in r['table'].items():
+        for f, v in t.items():
+            assert np.isfinite(v['slope']) and np.isfinite(v['ci']).all() and v['n'] > 10_000, (s, f)
+    # the semi-Lagrangian truth IS V3 (same code path): the logged 1.0044 / 0.9512
+    v3 = va.test_discrete_null('strain', png=False, forms=('chain', 'discrete'), n_boot=50, diag_widths=None,
+                               changes=False)
+    assert abs(r['table']['semilag']['discrete']['slope'] - v3['slope']) < 1e-12
+    assert abs(r['table']['semilag']['chain']['slope'] - v3['fits']['chain']['ols']) < 1e-12
+    assert abs(r['table']['semilag']['discrete']['slope'] - 1.0044) < 0.001
+    # centred FV on the 8 dx front: within 2% of 1 (the stencil effect vanishes for a resolved front)
+    assert abs(r['per_scheme']['centred']['per_width']['discrete']['8.0']['ols'] - 1.0) < 0.02
+    # the limiter (all but) never engages on a smooth monotone front: os7 == os7mp to 1e-4
+    # (it touches a few flank cells of the sheared 60-degree cases: 4e-6 in the slope)
+    assert abs(r['table']['os7']['discrete']['slope'] - r['table']['os7mp']['discrete']['slope']) < 1e-4
+    # the seventh-order truth: per width monotone towards 1 and within 3% in the pool; the
+    # third-order truth below it at 2 dx (its larger implicit diffusion)
+    w7 = [r['per_scheme']['os7mp']['per_width']['discrete'][str(w)]['ols'] for w in r['widths_cells']]
+    assert all(np.diff(w7) > 0) and all(abs(v - 1) < 0.03 for v in w7)
+    assert r['per_scheme']['dst3']['per_width']['discrete']['2.0']['ols'] < w7[0]
+    assert r['per_scheme']['dst3']['diffusion']['slope_shift']['discrete'] < r['per_scheme']['os7']['diffusion']['slope_shift']['discrete']
+    # the chain form sits below the discrete form for every truth (the chain-rule violation)
+    for s in r['schemes']:
+        assert r['table'][s]['chain']['slope'] < r['table'][s]['discrete']['slope']
+    assert r['bias']['scheme'] == 'os7mp' and r['bias']['form'] == 'discrete' and np.isfinite(r['bias']['slope'])
+
+
+@pytest.mark.needs_grid
+def test_V3b_fv_null_llc(grid_ds):
+    """V3b, real-velocity variant (hour-0 b, midpoint velocity, mask_analysis):
+    runs, finite, reproduces V3 with the semi-Lagrangian truth; the headline
+    is recorded, not gated."""
+    r = va.test_fv_null('llc', schemes=('semilag', 'os7', 'os7mp'), png=False, grid_ds=grid_ds, n_boot=300)
+    _v3b_report(r)
+    for s, t in r['table'].items():
+        for f, v in t.items():
+            assert np.isfinite(v['slope']) and np.isfinite(v['ci']).all() and v['n'] == 26_293, (s, f)
+    assert r['n_analysis'] == 262_925
+    assert abs(r['table']['semilag']['discrete']['slope'] - 0.9806) < 0.001      # V3's logged llc slope
+    assert abs(r['table']['semilag']['chain']['slope'] - 0.7914) < 0.001
+    b = r['bias']
+    assert b['scheme'] == 'os7mp' and b['form'] == 'discrete'
+    assert b['ci'][0] < b['slope'] < b['ci'][1]
+    assert r['per_scheme']['os7mp']['limiter']['reference'] == 'os7'
+    assert np.isfinite(r['per_scheme']['os7mp']['limiter']['median_dt_over_G'])

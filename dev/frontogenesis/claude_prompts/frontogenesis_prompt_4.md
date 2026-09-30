@@ -90,19 +90,38 @@ single slope averages over the asymmetry that carries the physics); quote ratio 
 `sum(Y)/sum(X)` alongside; and quote every slope **relative to the M1 discrete-null baseline**,
 never against 1.
 
+**The baseline and its bands (decided 2026-09-30, M1-Q2 / M1-Q4).** The baseline is V3's
+real-velocity slope **0.981 [0.970, 0.994]** (`form='discrete'`, hour-0 `b`, `mask_analysis`).
+The systematic band comes from V3b (task 6b) — the slope the pipeline returns when the tracer is
+advected as the model advects it (flux-form, OS7MP-like truth): **0.954-1.003, i.e. 0.975 ±
+0.025**. Report M3's slope against 0.981 and quote the V3b interval as the model-advection
+systematic. **No upward correction** for the 0.80-0.85x Jacobian attenuation — V3b measured its
+effect on the slope at −0.006 ± 0.025. Report the slope **per front width** and subtract the
+advection-numerics shortfall (**−2% at 2 dx, −4% at 1.5 dx, −11% at 1 dx**, discrete form) before
+attributing anything on the sharpest fronts to diffusion. The ratio estimator is ill-conditioned
+when the front pool has both signs of `2F` (M1 task 6): quote it separately for `X > 0` and `X < 0`.
+
 ## Runs
 
 - The filter sweep, `L_cells` in `{0, 2, 4, 8}`, with `tau` computed explicitly at each.
 - Semi-Lagrangian vs Eulerian, as independent estimates.
 - Statistics restricted to `>= 100 km` offshore, **and** stratified by distance offshore.
 - Residual composited by hour of day, with `KPPhbl`.
+- **Both forms of `F`** (decided 2026-09-30, M1-Q1): `operators.frontogenesis(form='discrete')`
+  (the default) gives the **primary** slope; `form='chain'` is run alongside, and the
+  discrete-vs-chain difference is carried as a **stated systematic** (on the real hour the
+  discrete `F` is ~0.79x the chain `F` on front pixels; the V3 baselines are 0.981 and 0.791).
+- **Interpolation order** (decided 2026-09-30, M1-Q6): `order = 3` is the default; report the
+  slope at **order 5 as a sensitivity** (task 3 saw ~5% between them on real front pixels).
+  Quote V4's bar as **0.28-1.0% of `G` per hour (order 3)**, with the front width.
 
 ## Figures (see planning §7)
 
 1, 2, **2b**, 3, **3b**, 4, 5, 6, 7, 10. In particular:
 
 - **Figure 2** draws the M1 discrete-null slope as an **explicit baseline line**, not a caption
-  note.
+  note — at **0.981 with its band [0.970, 0.994]** (decided 2026-09-30, M1-Q4), with V3b's
+  systematic band 0.954-1.003 beside it.
 - **Figure 2b** — residual against high-order derivatives of `b` (a `grad^4`-like diagnostic) and
   against `KPPhbl`. This is what separates implicit numerical diffusion from genuine air-sea
   forcing. Without it, Figure 2's slope has no physical interpretation.
@@ -116,7 +135,9 @@ never against 1.
    chunk store rather than assumed.
 2. Semi-Lagrangian and Eulerian estimates agree within a stated tolerance.
 3. The filter sweep is interpretable — `tau` explicit, and the budget closing at each `L`.
-4. Every slope quoted against the M1 baseline, with feature-level bootstrap intervals.
+4. Every slope quoted against the M1 baseline (0.981 [0.970, 0.994], with the V3b systematic band
+   0.954-1.003; both forms of `F`, M1-Q1; order 5 as a sensitivity, M1-Q6 — decided 2026-09-30),
+   with feature-level bootstrap intervals.
 5. Figures **1, 2, 2b, 3, 3b, 4, 5, 6, 7, 10** written. They need not yet be wired into the
    one-command regeneration harness — that consolidation is M5 — but the plots themselves are
    produced here, where their data lives.
