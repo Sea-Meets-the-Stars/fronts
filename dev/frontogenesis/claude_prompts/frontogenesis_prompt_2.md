@@ -378,6 +378,8 @@ For the text, try never to use anything smaller than 20pt font
    the science product is the default `form='discrete'`, task 6; the chain form is the oracle
    path). Use the repo version as a test oracle, never as the science product.
 
+8. **Finishing touches:**  Read my answers to M1-Q9-Q15 and apply them.  Then generate a small slide deck for M1 acceptance: a title, a table of contents, and one slide per task. Write to `dev/frontogenesis/deck/`.  Make sure the smallest font is 20pt.  Log your work.
+
 ## Do not
 
 - Do not pull the 72-hour series (M2) or compute any budget on real data (M3). M1 uses only
@@ -484,6 +486,101 @@ reword it to name `form='chain'`?
   or leave it to M3's filter sweep?
 
 > **JXP:** (a) leave it ignored, (b) leave it; (c) leave it
+
+### Claude, 2026-09-30 (after task 7: the `fronts` fixes)
+
+Task 7a (`test_nan_finding.py`) found five defects in the `fronts` front-finding chain under
+config D (`fronts/finding/configs/finding_config_D.yaml`). None was patched: the prompt says
+"the fix belongs in `fronts`, not here", and `fronts @ viz_tools` is Lauren's branch. The three
+real bugs are pinned as `xfail(strict=True)` tests, so a fix shows up as XPASS and the suite
+flags it. Until they are fixed, M4 must use the caller-side recipe:
+- pass NaN as-is (**do not** fill it: 0- or median-fill moves fronts ≥ 10 cells from land);
+- pass an explicit `n_workers`;
+- turn `despur` off on any field that could be empty;
+- apply `fronts &= isfinite(gradb2)` afterwards.
+
+Details are in the task-7a log entry. M1-Q9 decides how the fixes happen; M1-Q10 to Q14 are
+one per fix.
+
+##### Questions
+
+**M1-Q9 — Who fixes `fronts`, and when?** Options:
+- (a) I write the fixes on a branch off `viz_tools` and open a PR for Lauren to review.
+- (b) I write them up as an issue or a note for Lauren to apply herself.
+- (c) Defer them. M4 uses the recipe above, and the fixes wait.
+
+In every case they should land **before M4**, because M4 is the first milestone that finds
+fronts on NaN-bearing fields across 72 hours. I lean (a), limited to fixes 1-3 (M1-Q10 to Q12),
+with 4-5 in the same PR only if Lauren wants them. Each fix is a few lines, and the xfail tests
+already give a before/after check.
+
+> **JXP:** Let's fix them on this "frontogenesis" branch.  I will let Lauren know we are doing so.
+
+**M1-Q10 — Fix 1: `thresh_mode='pool'` crashes with the default `n_workers=None`.** Config D
+sets `thresh_mode: 'pool'`, but the default reaches `np.array_split(rows, None)` at
+`pyboa.py:797` and raises a `TypeError`. So **config D is not runnable as written**. The
+existing callers (`finding/run.py:52`, `explore_hyper.py:131`) survive only because they
+hard-code `n_workers = 10`. Also, 'pool' uses a spawn `ProcessPoolExecutor` (on macOS), so a
+script without an `if __name__ == '__main__'` guard dies with `BrokenProcessPool`. Options:
+- (a) default `n_workers` to `os.cpu_count()` when `None`;
+- (b) fall back to `'vectorized'` when `None` (single process, ~2x slower on the tile:
+  13 s vs 7 s);
+- (c) add `n_workers` to config D's YAML.
+
+In all cases, document the `__main__` guard. I lean (a) + the docstring note.
+
+> **JXP:** (a)
+
+**M1-Q11 — Fix 2: small NaN islands get flagged as front.** `pyboa.cropping` calls
+`remove_small_holes` (default `area_threshold=64`). That fills any hole a front encloses,
+including NaN land smaller than 64 px. A 6x5 NaN island on a ridge produced **6 front pixels on
+land**. On tile 330 this matters for small islands and river mouths, and the halo removes most
+of them. But a front mask that can sit on NaN is wrong in principle. Options:
+- (a) have `fronts_from_gradb2` re-mask after cropping and dilation:
+  `res_frnt_crop &= np.isfinite(gradb2)`. This is one line and tested: it removes exactly the
+  island fill and nothing else.
+- (b) pass `remove_small_holes` a hole mask that excludes NaN cells. This is more surgical but
+  touches `pyboa.cropping`'s signature.
+
+I lean (a).
+
+> **JXP:** (a)
+
+**M1-Q12 — Fix 3: despur crashes on an empty field.** With `despur: true` (config D),
+`prune_short_spurs` builds `skan.Skeleton` on an empty skeleton. That raises `ValueError: index
+pointer size 0 should be 1`, for an all-NaN field **or a featureless one**. Over 72 hours × a
+filter sweep, an empty sub-field is plausible, e.g. a heavily masked tile or a small cutout. The
+proposed fix is an early return, `if not skeleton.any(): return skeleton`, before `Skeleton()`.
+Any objection, or should an empty result be treated differently, e.g. a warning?
+
+> **JXP:** No objection
+
+**M1-Q13 — Fix 4 (cosmetic): skimage 0.26 deprecation.** `remove_small_objects(min_size=7)`
+in `pyboa.cropping` is deprecated in favour of `max_size=`. **Note the off-by-one**: the new
+argument keeps objects *larger than* `max_size`, so the equivalent is `max_size=min_size - 1`.
+It only produces warnings today, but it will break on a future skimage. Include it in the PR,
+or leave it to Lauren?
+
+> **JXP:** Include it in the PR.
+
+**M1-Q14 — Fix 5 (cosmetic): thousands of All-NaN warnings.** In `'vectorized'` mode, every
+all-land 64x64 window emits a `RuntimeWarning: All-NaN slice`: 1,440 on a 160x200 test field,
+far more on the tile. The result is correct; this is only noise. The fix is to wrap
+`nanpercentile` in `warnings.catch_warnings()`. 'pool' and 'generic' were not measured for
+this. Include it in the PR, or leave it?
+
+> **JXP:** Include it in the PR.
+
+**M1-Q15 — Two doc items that go with the fixes.**
+- (a) `frontogenesis_prompt_5.md` (M4) still names `build.tile_find` →
+  `fronts.preproc.gradb2.generate_tile_gradb2`, which does not exist in this checkout; M4's
+  entry point is `fronts_from_gradb2` directly. Coding §2.5 is already corrected. OK to correct
+  prompt 5 now, and to add the caller-side recipe above to it?
+- (b) Two small docstring errors in `fronts`: `fronts_from_gradb2` describes `threshold` as a
+  cropping size (it is the percentile), and `front_thresh`'s `ValueError` message omits
+  `'pool'`. Fold them into the M1-Q9 PR?
+
+> **JXP:** Include it in the PR.
 
 ## Log
 

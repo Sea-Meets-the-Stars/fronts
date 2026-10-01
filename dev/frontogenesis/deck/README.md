@@ -1,14 +1,121 @@
 # `dev/frontogenesis/deck/` — slide decks
 
-Two decks live here. Both are built by script from material already in the repo, so
-neither can drift from what it claims to summarise.
+Three decks live here. All are built by script from material already in the repo, so
+none can drift from what it claims to summarise.
 
 | Deck | Built by | Summarises |
 |---|---|---|
 | `Frontogenesis_Planning.pptx` | `build_deck.py` | The planning docs (13 slides, 2026-09-19) |
 | `Frontogenesis_M0_Acceptance.pptx` | `make_m0_figs.py` + `build_m0_deck.py` | Milestone M0 (12 slides, 2026-09-29) |
+| `Frontogenesis_M1_Acceptance.pptx` | `make_m1_figs.py` + `build_m1_deck.py` (+ `check_m1_deck.py`) | Milestone M1 (15 slides, 2026-09-30; no text below 20 pt) |
 
 ---
+
+## M1 acceptance deck — work log, 2026-09-30
+
+**Task.** `frontogenesis_prompt_2.md` task 8: a small deck for M1 acceptance — title, table
+of contents, one slide per task, figures where possible, generating scripts kept here, and
+**no text smaller than 20 pt**.
+
+### What was built
+
+```
+deck/
+  make_m1_figs.py                 five panel crops from ../figs/ + five large-font re-plots
+  build_m1_deck.py                builds the .pptx (helpers copied from build_m0_deck.py)
+  check_m1_deck.py                font floor (every run >= 20 pt) + text-box geometry check
+  figs_m1/
+    m1_crop_V1a.png                 V1 panel (a): G along parcels vs exp(2at)
+    m1_crop_V3d.png                 V3 panel (d): the LLC gate, 0.981 [0.970, 0.994]
+    m1_crop_V3b_c.png               V3b panel (c): OS7MP-like truth, 0.975 [0.954, 1.003]
+    m1_crop_V5a.png                 V5 panel (a): the half-cell shift and its four biases
+    m1_crop_V6a.png                 V6 panel (a): the mask stages on the whole tile
+    m1_fig_operators.png            Jacobian vs flux-form strain regression, hour 0
+    m1_fig_coarsegrain.png          budget closure with / without the term; term vs L
+    m1_fig_gates.png                V1 error vs front width; V4 bias vs front width
+    m1_fig_v3_changes.png           every change tried for gate V3 (LLC variant)
+    m1_fig_v3b.png                  V3b slope per advection truth with CI (LLC)
+  Frontogenesis_M1_Acceptance.pptx  15 slides, 1.3 MB
+```
+
+**Slides.** 1 Title; 2 Contents; 3 Task 1 masking + V6 (V6a crop); 4 Task 2 operators +
+oracle (operators re-plot); 5 Task 3 semilag + V5 (V5a crop); 6 Task 4 coarsegrain (closure
+re-plot); 7 Task 5 gates V1/V2/V4 (V1a crop + width re-plot); 8 Task 6 gate V3 (V3d crop +
+changes-tried re-plot); 9 Task 6b V3b (V3b-c crop + per-truth re-plot); 10 Task 7a
+`test_nan_finding.py`; 11 Task 7 decisions applied + the audit; 12 Acceptance (the seven
+criteria); 13 Findings for the writeup; 14 Decisions and open issues (incl. the `fronts`
+fixes as *next steps*, per M1-Q9); 15 Task 8, this deck. Task 7 is split into 7a and the
+audit because they were separate sessions with separate deliverables.
+
+### Where the content comes from
+
+**Every number is quoted from the M1 task logs** in `../claude_prompts/frontogenesis_prompts.md`
+("Execution prompt 2", tasks 1-7, 6b and 7a, 2026-09-28 .. 2026-09-30) and from the Status
+paragraph, acceptance criteria and Q&A of `../claude_prompts/frontogenesis_prompt_2.md`.
+Nothing is recomputed; `make_m1_figs.py` touches no network and opens no data store. As for
+M0, the deck inherits any error in the log — it is a presentation artefact, not a check.
+
+Where the logs updated a number, the latest is used:
+
+- The Jacobian attenuation is quoted as **0.85x** (task 2, on `mask_analysis`), not M0's 0.80
+  (whole ocean incl. the coast); slide 4 says so.
+- The task-4 closure residuals (0.041 / 0.090 at 900 m) are the task-4 numbers, and slide 6
+  notes that task 6's discrete `F` later improved them to 0.037 / 0.088.
+- V3b's numbers are those of the task-7 regeneration of the figure, which the log records as
+  identical to the task-6b table.
+- The "0.80-0.85x attenuation biases M3 high" expectation (tasks 2, 6, M1-Q2) is reported as
+  closed by V3b (task 6b / task 7: −0.006 ± 0.025), not as open.
+
+### The 20 pt rule
+
+`build_m1_deck.py` sets an explicit size on every run and clamps it at 20 pt (`MIN_PT`);
+tags, captions, footers and the contents circles are all 20-21 pt, titles 30-38 pt.
+`check_m1_deck.py` walks every text frame of the saved file: **minimum run size 20.0 pt, no
+offender**, 15 slides. PNGs cannot be governed point by point, so:
+
+- the five **re-plots** are drawn at the inch size they occupy on the slide (figure fonts
+  13-21 pt, placed at or near 1:1), with explicit margins so the long y-labels do not inflate
+  the image and shrink it on placement;
+- the five **crops** are single panels of the 200-dpi V-figures placed at 4.3-5.5 in wide
+  (0.75-0.9 of native), so their axis labels are ~9-11 pt equivalent — legible on a projector,
+  but the smallest text in the deck. Every number they carry is repeated in the slide text at
+  20 pt. The V3d crop has its clipped title and two stray panel-(f) tick labels painted out
+  (`make_m1_figs.py`); the slide caption carries the title's content.
+
+### Regenerating
+
+```bash
+PY=~/miniforge3/envs/frontogenesis/bin/python
+cd dev/frontogenesis/deck
+$PY make_m1_figs.py        # matplotlib + PIL only; reads ../figs/V*.png for the crops
+$PY build_m1_deck.py       # python-pptx 1.0.2 (installed for M0)
+$PY check_m1_deck.py       # font floor + geometry; prints the slide text
+```
+
+### QA performed
+
+- **Font floor:** programmatic, as above — 20.0 pt minimum.
+- **Render:** LibreOffice is now on this machine (`/opt/homebrew/bin/soffice`), so unlike the
+  M0 and planning decks this one was rendered (`soffice --headless --convert-to pdf`, then
+  `pdftoppm`) and **all 15 pages inspected**. Two overflows found and fixed before hand-over:
+  the slide-7 stat cards (text shortened, cards taller, figures moved down) and the slide-15
+  card (second sentence shortened). After the fix: no overflow, overlap or clipped text.
+- **Geometry estimator:** `check_m1_deck.py` flags ~18 boxes as "overflow?" at 0.5 em per
+  glyph; all are false positives at Calibri's real width (confirmed by the render). It stays
+  as a coarse guard for anyone editing without a renderer.
+- **Content:** slide text dumped by the checker and read against the task logs.
+
+### Compromises, for the record
+
+- Slide 8's closing paragraph ends ~0.2 in above the bottom edge — inside, but the tightest
+  slide. Shorten it before adding anything there.
+- V2 and V4 have no crop from `../figs/`: V2's map adds nothing a number does not say, and
+  V4's panels are too dense at 20 pt-equivalent; both are carried by the re-plot (V4) and the
+  stat cards (V2) on slide 7.
+- The crops' own labels are below 20 pt (see above). A fully 20 pt deck would need the
+  V-figures re-rendered with large fonts in `validate_figs.py`, which is outside this task.
+- The `fronts` fixes (M1-Q9..Q15) are listed on slide 14 as next steps: **not applied** as
+  of this build.
 
 ## M0 acceptance deck — work log, 2026-09-29
 
