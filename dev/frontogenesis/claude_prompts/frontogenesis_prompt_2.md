@@ -383,7 +383,8 @@ For the text, try never to use anything smaller than 20pt font
 9. **Simplify.** The slides are great.  Can you add a few more to the deck:
    - A glossary of the main terms used in the slides.
    - A one-slide summary of M0
-   - A one-slide summary of M0
+
+10. **Prompts for M2**. Please generate the prompts for M2. Add them to the `frontogenesis_prompts_3.md` file.
 
 ## Do not
 
