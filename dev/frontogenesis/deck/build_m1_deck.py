@@ -2,8 +2,9 @@
 
 Content is quoted from the M1 task logs in ``claude_prompts/frontogenesis_prompts.md``
 ("Execution prompt 2", tasks 1-7, 6b, 7a; 2026-09-28 .. 2026-09-30) and from the Status,
-criteria and Q&A of ``claude_prompts/frontogenesis_prompt_2.md``.  Figures come from
-``make_m1_figs.py`` (run it first).  Nothing is recomputed.
+criteria and Q&A of ``claude_prompts/frontogenesis_prompt_2.md``.  The M0 summary (slide 3,
+task 9) quotes the M0 task-3/4/5 logs, ``build_m0_deck.py`` and ``frontogenesis_coding.md``
+§6 M0.  Figures come from ``make_m1_figs.py`` (run it first).  Nothing is recomputed.
 
 House rule for this deck: **no text smaller than 20 pt** -- every run, including tags,
 captions and footers.  ``check_m1_deck.py`` verifies that after the build.
@@ -90,6 +91,7 @@ def circle(s, x, y, d, label, fill=DEEP, fg=WHITE, size=20):
     tf = sh.text_frame
     tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
     tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    tf.word_wrap = False          # "M0" / "M1" must not break into two lines
     p = tf.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
     _run(p, label, size, True, BODY, False, fg)
     return sh
@@ -146,31 +148,111 @@ txt(s, 0.95, 6.5, 8.2, 0.5,
 
 # ------------------------------------------------------------------ 2 CONTENTS
 s = slide()
-title(s, "Contents", "Nine task sessions, then the audit and what it leaves behind")
+title(s, "Contents", "Two one-slide summaries, nine task sessions, the audit, and a glossary")
 left = [
+    ("M0", "Where we started: M0 in one slide", TEAL),
+    ("M1", "The answer: M1 in one slide", TEAL),
     ("1", "Masking, tile330_masks.nc and V6", DEEP),
     ("2", "operators.py and the regression oracle", DEEP),
     ("3", "semilag.py and V5", DEEP),
     ("4", "coarsegrain.py", DEEP),
     ("5", "Gates V1, V2 and V4", DEEP),
     ("6", "Gate V3 — the discrete null", AMBER),
-    ("6b", "V3b — the finite-volume null", AMBER),
 ]
 right = [
+    ("6b", "V3b — the finite-volume null", AMBER),
     ("7a", "test_nan_finding.py", DEEP),
     ("7", "Decisions applied and the audit", DEEP),
     ("✓", "M1 acceptance", GREEN),
     ("⚑", "Findings for the writeup", TEAL),
     ("⚑", "Decisions and open issues", TEAL),
+    ("§", "Glossary (two slides)", TEAL),
     ("8", "This deck", DEEP),
 ]
 for col, x in ((left, 0.9), (right, 7.0)):
     for i, (n, h, c) in enumerate(col):
-        y = 1.85 + i * 0.68
-        circle(s, x, y, 0.46, n, c, size=20)
-        txt(s, x + 0.65, y + 0.06, 5.3, 0.4, h, size=20, bold=True, color=MIDNIGHT, space=0)
+        y = 1.8 + i * 0.64
+        circle(s, x, y, 0.5, n, c, size=20)
+        txt(s, x + 0.7, y + 0.08, 5.3, 0.4, h, size=20, bold=True, color=MIDNIGHT, space=0)
 
-# ------------------------------------------------------------------ 3 TASK 1
+# ------------------------------------------------------------------ 3 M0 IN ONE SLIDE
+# Numbers quoted from the M0 task-3/4/5 logs (2026-09-28), the M0 deck (build_m0_deck.py)
+# and frontogenesis_coding.md §6 M0.  Nothing recomputed.
+s = slide()
+title(s, "Where we started: M0 in one slide",
+      "Goal: prove we can read the data and settle every open empirical question "
+      "before any physics is written",
+      tag="MILESTONE M0  ·  ACCESS AND RECONNAISSANCE  ·  CLOSED 2026-09-28")
+txt(s, 0.85, 1.95, 6.3, 0.4, "FIVE QUESTIONS, FIVE NUMBERS", size=20, bold=True,
+    color=DEEP, space=0)
+bullets(s, 0.85, 2.4, 6.3, 3.9, [
+    "Land is NaN, not 0: equal to hFacC / hFacW / hFacS cell for cell, 0 mismatches "
+    "in 518,400.",
+    "W(k_l=0) = dEta/dt, not ~0: corr 0.9936, slope 1.037 against the centred Eta rate.",
+    "Spacing 1.71 × 1.85 km at 37N (planning said 1.8-2.3); face 10 is rotated 90°.",
+    "Rotation terms identically zero (SN = −1, CS = 0); metric term 0.1% median.",
+    "Advection OS7MP (tempAdvScheme = 7), diffKhT = 0, linear free surface.",
+], space=5)
+card(s, 7.45, 1.9, 5.05, 2.85)
+txt(s, 7.7, 2.05, 4.6, 0.4, "DELIVERED", size=20, bold=True, color=DEEP, space=0)
+txt(s, 7.7, 2.5, 4.6, 2.2,
+    [([("tile330_grid.zarr", {"font": MONO, "bold": True}),
+       (" — 1.8 MB; hFacW/hFacS, drF/Z/Zl, orientation attrs.", {})], {"space": 4}),
+     ("Two hours, 00:00 and 01:00, from both OSN stores: a 21 MB raw store.",
+      {"space": 4}),
+     ("QA plot: NaN rim 1 cell (G) / 2 (Jacobian); no gradient ribbon.", {})],
+    size=20, line=1.0, space=0)
+card(s, 7.45, 4.9, 5.05, 1.4, AMBERBG)
+txt(s, 7.7, 5.0, 4.6, 1.25,
+    [([("OVERTURNED  ", {"bold": True, "color": AMBER}),
+       ("planning §5.5 \"land stored as 0\" and §2.2 \"w vanishes at z = 0\". "
+        "Neither breaks the study.", {})], {})],
+    size=20, line=1.0, space=0)
+card(s, 0.85, 6.45, 11.65, 0.7, MIDNIGHT)
+txt(s, 1.2, 6.62, 11.0, 0.45,
+    "Five criteria PASS; four §2 traps confirmed. Flag for M1: the Jacobian is 0.80x "
+    "the flux form.",
+    size=20, bold=True, color=WHITE, space=0)
+
+# ------------------------------------------------------------------ 4 M1 IN ONE SLIDE
+# The executive view: numbers quoted from the task-6, 6b and 7 logs and coding §6 M3
+# ("Carried from M1").  Slides 5-16 carry the detail.
+s = slide()
+title(s, "The answer: M1 in one slide",
+      "Goal: operators that are known correct before any science — a hard gate, not a checklist",
+      tag="MILESTONE M1  ·  OPERATORS AND VALIDATION  ·  CLOSED 2026-09-30")
+stats = [
+    ("1.004  /  0.981", "V3 gate: slope of DG/Dt on 2F, strain / real LLC velocity "
+                        "(needed 1 ± 0.05)"),
+    ("~0.79x", "discrete F vs chain-rule F on real front pixels — the change "
+               "that passed the gate"),
+    ("0.975 [0.954, 1.003]", "V3b, a flux-form OS7MP-like truth: −0.006 ± 0.025 from V3; "
+                             "attenuation closed"),
+]
+for i, (big, lab) in enumerate(stats):
+    x = 0.85 + i * 3.95
+    card(s, x, 1.9, 3.75, 2.0)
+    txt(s, x + 0.2, 2.0, 3.35, 0.5, big, size=24, bold=True, font=HEAD, color=DEEP, space=0)
+    txt(s, x + 0.2, 2.55, 3.35, 1.3, lab, size=20, color=INK, line=1.0, space=0)
+txt(s, 0.85, 4.12, 5.6, 0.4, "WHAT CHANGED", size=20, bold=True, color=DEEP, space=0)
+bullets(s, 0.85, 4.55, 5.6, 1.85, [
+    "First attempt FAIL 0.950 / 0.758 with the chain-rule F; discrete F + a cubic "
+    "departure velocity → PASS.",
+    "b is interpolated onto the departure stencil (order 3), never G.",
+], space=4)
+txt(s, 6.9, 4.12, 5.6, 0.4, "HANDED TO M3", size=20, bold=True, color=DEEP, space=0)
+bullets(s, 6.9, 4.55, 5.6, 1.85, [
+    "Both forms of F, discrete primary; baseline 0.981 [0.970, 0.994], band "
+    "0.954-1.003, no upward correction.",
+    "Order 3 (5 a sensitivity); V4 bar 0.28-1.0% of G/h; τ_δ to subfilter_term.",
+], space=4)
+card(s, 0.85, 6.5, 11.65, 0.65, MIDNIGHT)
+txt(s, 1.2, 6.65, 11.0, 0.45,
+    "All seven criteria PASS — 84 tests passed, 3 strict xfailed; seven PNGs. "
+    "M1 closed 2026-09-30.",
+    size=20, bold=True, color=WHITE, space=0)
+
+# ------------------------------------------------------------------ 5 TASK 1
 s = slide()
 title(s, "Masking and tile330_masks.nc",
       "Halo = 7 × the measured dxC = 12.57 km; the 100 km cut removes the Gulf, no polygon",
@@ -189,7 +271,7 @@ bullets(s, 6.1, 1.95, 6.4, 4.8, [
 txt(s, 0.85, 6.85, 11.6, 0.4, "figs/V6_land_halo_tile330.png, panel (a)",
     size=20, font=MONO, color=MUTED, space=0)
 
-# ------------------------------------------------------------------ 4 TASK 2
+# ------------------------------------------------------------------ 6 TASK 2
 s = slide()
 title(s, "operators.py and the regression oracle",
       "One shared operator for both sides; the oracle checks the wiring bit for bit",
@@ -209,7 +291,7 @@ bullets(s, 6.8, 1.95, 5.7, 4.9, [
     "21 tests; the dims guard turns the 4-D broadcast into a ValueError before dbof.",
 ])
 
-# ------------------------------------------------------------------ 5 TASK 3
+# ------------------------------------------------------------------ 7 TASK 3
 s = slide()
 title(s, "semilag.py and V5",
       "Interpolate b (order ≥ 3) onto the departure stencil — never G",
@@ -227,7 +309,7 @@ bullets(s, 6.7, 1.95, 5.8, 4.9, [
 txt(s, 0.85, 6.5, 5.5, 0.4, "figs/V5_interp_half_cell.png, panel (a)",
     size=20, font=MONO, color=MUTED, space=0)
 
-# ------------------------------------------------------------------ 6 TASK 4
+# ------------------------------------------------------------------ 8 TASK 4
 s = slide()
 title(s, "coarsegrain.py",
       "The subfilter term closes the coarse-grained budget — with its divergent part τ_δ",
@@ -241,7 +323,7 @@ bullets(s, 0.85, 5.55, 11.6, 1.6, [
     "900 m residuals to 0.037 / 0.088.",
 ], space=6)
 
-# ------------------------------------------------------------------ 7 TASK 5
+# ------------------------------------------------------------------ 9 TASK 5
 s = slide()
 title(s, "Gates V1, V2 and V4",
       "Two gates pass by a wide margin; V4 is the permanent error bar on every slope",
@@ -259,7 +341,7 @@ for i, (h, b) in enumerate(cards):
 pic(s, "m1_crop_V1a.png", 0.85, 4.0, h=3.1)
 pic(s, "m1_fig_gates.png", 6.6, 3.95, h=3.15)
 
-# ------------------------------------------------------------------ 8 TASK 6
+# ------------------------------------------------------------------ 10 TASK 6
 s = slide()
 title(s, "Gate V3 — the discrete null",
       "First attempt FAIL 0.950 / 0.758 → PASS 1.004 [0.995, 1.017] / 0.981 [0.970, 0.994]",
@@ -276,7 +358,7 @@ txt(s, 5.7, 5.2, 6.8, 1.9,
       "attenuation cannot appear here. 70 tests, 0 skipped.", {"color": MUTED})],
     size=20, line=1.08, space=5)
 
-# ------------------------------------------------------------------ 9 TASK 6b
+# ------------------------------------------------------------------ 11 TASK 6b
 s = slide()
 title(s, "V3b — the finite-volume null",
       "A recorded bias, not a gate: 0.975 [0.954, 1.003] on the real hour, "
@@ -291,7 +373,7 @@ txt(s, 5.6, 6.5, 6.9, 0.8,
     "centred, DST3, OS7 and OS7MP-like.",
     size=20, color=MUTED, line=1.08, space=0)
 
-# ------------------------------------------------------------------ 10 TASK 7a
+# ------------------------------------------------------------------ 12 TASK 7a
 s = slide()
 title(s, "test_nan_finding.py",
       "fronts_from_gradb2 under config D on NaN land: 14 tests, 11 pass, 3 strict xfails",
@@ -316,7 +398,7 @@ bullets(s, 7.05, 2.6, 5.1, 4.2, [
     "fronts &= isfinite(gradb2).",
 ], space=7)
 
-# ------------------------------------------------------------------ 11 TASK 7
+# ------------------------------------------------------------------ 13 TASK 7
 s = slide()
 title(s, "Decisions applied and the M1 audit",
       "M1-Q1..Q8 written into the docs on 2026-09-30; every criterion audited; M1 closed",
@@ -341,7 +423,7 @@ bullets(s, 6.9, 2.45, 5.6, 4.5, [
     "NaN recipe, M3's requirements, the V3b band.",
 ], space=7)
 
-# ------------------------------------------------------------------ 12 ACCEPTANCE
+# ------------------------------------------------------------------ 14 ACCEPTANCE
 s = slide(MIDNIGHT)
 title(s, "M1 acceptance", "All seven criteria, as audited in the task-7 log entry", dark=True)
 crit = [
@@ -366,7 +448,7 @@ txt(s, 1.25, 6.55, 10.8, 0.45,
     "M1 closed 2026-09-30.  Next: M2 pulls the 72-hour series; M3 computes the budget.",
     size=20, bold=True, color=WHITE, space=0)
 
-# ------------------------------------------------------------------ 13 FINDINGS
+# ------------------------------------------------------------------ 15 FINDINGS
 s = slide()
 title(s, "Findings for the writeup", "Five things the discretisation taught us", tag="FINDINGS")
 finds = [
@@ -387,7 +469,7 @@ txt(s, 0.85, 1.9, 11.6, 5.3,
     [([(h + " ", {"bold": True, "color": DEEP}), (b, {})], {"space": 9}) for h, b in finds],
     size=20, line=1.05)
 
-# ------------------------------------------------------------------ 14 DECISIONS / OPEN
+# ------------------------------------------------------------------ 16 DECISIONS / OPEN
 s = slide()
 title(s, "Decisions and open issues",
       "What shapes M3 and M4, and the fronts fixes JXP chose to make on this branch",
@@ -413,10 +495,78 @@ bullets(s, 7.05, 2.95, 5.2, 4.1, [
     "Q15: prompt 5 → fronts_from_gradb2 + the NaN recipe; two docstrings.",
 ], space=5)
 
-# ------------------------------------------------------------------ 15 TASK 8
+# ------------------------------------------------------------------ 17-18 GLOSSARY
+# Terms chosen by scanning the deck text (scratch scan_terms.py): every candidate that
+# appears on two or more slides, plus the headline terms of the findings slide.  JMD95
+# appears on no slide and is left out.  Notation follows the slides.
+def glossary(s, entries):
+    # No subtitle on these slides (tag + title end at 1.4 in), so the list starts at 1.55.
+    txt(s, 0.85, 1.55, 11.65, 5.6,
+        [([(term + "  ", {"bold": True, "color": DEEP}), (defn, {})], {"space": 5})
+         for term, defn in entries],
+        size=20, line=1.0)
+
+
 s = slide()
-title(s, "This deck", "Reproducible from the logged numbers alone; nothing below 20 pt",
-      tag="TASK 8")
+title(s, "Glossary — the physics and the operators",
+      tag="GLOSSARY  ·  1 OF 2  ·  NOTATION AS ON THE SLIDES")
+glossary(s, [
+    ("b, G",
+     "buoyancy b = g σ₀/ρ₀ from Theta and Salt (JMD95 at p = 0); G = |∇b|² = b_x² + b_y² "
+     "is the front strength, from the same gradient that feeds F."),
+    ("F",
+     "the frontogenesis tendency predicted from the velocity field, F = ½ DG/Dt: "
+     "F = −½δG + ½|σ|G cos 2θ (δ divergence, |σ| strain, θ from the compressional axis)."),
+    ("DG/Dt",
+     "the measured side: G differenced along a parcel over one hour. The gates fit the "
+     "slope of DG/Dt on 2F."),
+    ("Discrete vs chain-rule F",
+     "chain: −(∇b)ᵀ(∇u)(∇b), the repo's frontogenesis_tendency (form='chain'). Discrete: "
+     "−Σ (L_k b)[L_k, u·∇] b, built on the same stencil as G (form='discrete', the default)."),
+    ("Semi-Lagrangian step, departure point",
+     "follow the parcel back one hour along u, interpolate b (order 3 = cubic) onto the "
+     "stencil there, then difference G."),
+    ("lowpass, L",
+     "a top-hat filter of half-width L/2 applied to b and u before the budget; NaN "
+     "propagates, never renormalised."),
+    ("Subfilter term τ, τ_δ, Germano",
+     "τ closes the filtered budget (M3's field = 2 × term); τ_δ is its divergent part; "
+     "Germano: composite-filter τ = filtered fine τ + the Leonard flux, for any linear filter."),
+])
+
+s = slide()
+title(s, "Glossary — the grid, the gates and the statistics", tag="GLOSSARY  ·  2 OF 2")
+glossary(s, [
+    ("LLC4320, face 10, tile 330",
+     "the 1/48° MITgcm run; face 10 is rotated (i meridional, j zonal); tile 330 is the "
+     "720 × 720 California Current window."),
+    ("C-grid, Jacobian",
+     "U on west faces, V on south faces, Theta at centres; the Jacobian ∇u interpolated to "
+     "centres is 0.85x the flux-form strain."),
+    ("OS7MP",
+     "LLC4320's tracer advection (tempAdvScheme = 7): flux-limited, seventh-order, "
+     "monotonicity-preserving (Daru & Tenaud 2004); its implicit diffusion is the rival."),
+    ("Halo, tile-edge margin, analysis mask",
+     "7 cells (12.57 km) from land; edge_cells = 7 removes the finite tile-edge rim; with "
+     "the 100 km offshore cut, 262,925 analysis cells."),
+    ("Front pixels (p90)",
+     "cells with G at or above its 90th percentile — where every slope is fitted."),
+    ("V3 discrete null, V3b finite-volume null",
+     "V3: truth advected by our own step; slope must be 1 ± 0.05 (the gate). V3b: truth "
+     "from flux-form OS7MP-like advection (recorded, not gated)."),
+    ("Slope [lo, hi]",
+     "OLS slope of DG/Dt on 2F over front pixels; the brackets are the 32-cell "
+     "block-bootstrap 2.5-97.5% interval."),
+    ("Oracle, xfail",
+     "the repo's frontogenesis_tendency, matched bit for bit by form='chain'; a strict "
+     "xfail documents a known bug and flips to XPASS when fixed."),
+])
+
+# ------------------------------------------------------------------ 19 TASK 8 (+9)
+s = slide()
+title(s, "This deck",
+      "Reproducible from the logged numbers alone; nothing below 20 pt; 19 slides",
+      tag="TASK 8  ·  EXTENDED BY TASK 9 (M0 / M1 SUMMARIES, GLOSSARY), 2026-10-01")
 card(s, 0.85, 1.9, 11.6, 1.5, CARD)
 txt(s, 1.25, 2.1, 10.8, 1.2,
     [("Every number here is quoted from the M1 task logs in frontogenesis_prompts.md "

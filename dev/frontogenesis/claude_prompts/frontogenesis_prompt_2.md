@@ -380,6 +380,11 @@ For the text, try never to use anything smaller than 20pt font
 
 8. **Finishing touches:**  Read my answers to M1-Q9-Q15 and apply them.  Then generate a small slide deck for M1 acceptance: a title, a table of contents, and one slide per task. Write to `dev/frontogenesis/deck/`.  Make sure the smallest font is 20pt.  Log your work.
 
+9. **Simplify.** The slides are great.  Can you add a few more to the deck:
+   - A glossary of the main terms used in the slides.
+   - A one-slide summary of M0
+   - A one-slide summary of M0
+
 ## Do not
 
 - Do not pull the 72-hour series (M2) or compute any budget on real data (M3). M1 uses only
