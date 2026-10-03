@@ -3720,3 +3720,190 @@ the native Google Slides version `Frontogenesis_Planning`
 17 slides, confirmed through the connector's metadata). The Slides version was converted with
 `rclone copy --drive-import-formats pptx`, and the .pptx was uploaded with
 `--drive-skip-gdocs`. This closes the upload left open since Planning prompt 6.
+
+### 2026-10-03 — Execution prompt 3, task 1: pull_series and verify_series (Fable)
+
+**Scope.** Task 1 of `frontogenesis_prompt_3.md` only: `osn_tiles.pull_series` (resumable,
+atomic per hour), `verify_series`, and `tests/test_pull_series.py` offline plus one network
+smoke test. Task 2 (the 72-hour pull) not run; tasks 4-5 (chunk store) not touched. *(entry
+started early; extended below as the work proceeds)*
+
+Nothing outside `dev/frontogenesis/` touched; `deck/`, the M1 modules and M1 tests untouched;
+nothing committed; `tile330_raw_20120702T00_2h.zarr` kept (M2-Q4). Every python/pytest call under
+`timeout 300`, no background jobs; the full suite is the longest at 139 s.
+
+**Written.**
+- `py/zarr_series.py` (new, 247 lines) — the generic resumable, per-hour-atomic append
+  machinery, written as its own module so task 5's `vertical.load_chunk_levels` reuses it rather
+  than copies it: `append_hour(path, ds_hour, encoding, attrs)`, `repair_trailing(path, log)
+  -> int`, `present_times(path)`, `with_retries(fn, attempts, backoff, sleep, log, what)`,
+  `consolidate(path)`, `RETRY_BACKOFF_S = (5, 20, 60)`. Knows nothing about OSN or §3.2.
+- `py/osn_tiles.py` (370 -> 556 lines): `pull_series(timestamps, out_zarr, tile=None,
+  endpoint=OSN_ENDPOINT, include_wind=True, clobber=False, *, grid_ds=None, attempts=3,
+  backoff=RETRY_BACKOFF_S, sleep=time.sleep, log=None, report=None) -> str` — the §4.1
+  signature positionally, keyword-only extras after it (see contradictions). `load_hours` was
+  refactored onto three shared helpers (`_load_merged_hour`, `_series_attrs`,
+  `_finish_series`) with identical behaviour, so M0's `m0_write.py` path is unchanged; `_sync_attrs`
+  re-syncs the root attrs on resume.
+- `py/series_verify.py` (new, 208 lines): `verify_series(out_zarr, timestamps, grid_ds=None)
+  -> dict` and `summarize(res) -> str`.
+- `py/tests/test_pull_series.py` (new, 461 lines): 20 offline tests + 1 `network` smoke test.
+  `pytest.ini` needed no change: M1 had already registered `network` and `addopts` deselects it
+  (`-m "not network"`); a CLI `-m network` overrides that (verified: "1 passed, 20 deselected").
+
+**The product.** The store is M0's `write_raw` layout written incrementally: 9 vars float32,
+one `(1, 720, 720)` chunk per hour per variable (Zstd level 0, little-endian bytes codec, NaN
+fill, `_FillValue` attr `AAAAAAAA+H8=`), `time` int64 `seconds since 2011-09-10`
+(`proleptic_gregorian`), `niter(time)` int64, scalar `face=10`, `k`, `k_l`, `XC`/`YC(j, i)` coords,
+`U` on `i_g`, `V` on `j_g`, comodo attrs on all four horizontal dims, index coords int64, root
+attrs `iterations, timestamps, endpoint, stores, face_index, j_face_start, i_face_start, rect_i,
+rect_j, land_fill, git_commit, dbof_commit, created`. **Encoding parity with
+`tile330_raw_20120702T00_2h.zarr`** is tested (`test_encoding_parity_with_m0_store`,
+`needs_grid`): for every data var and for `time, niter, face, XC`, the zarr v3 `data_type`,
+`codecs`, `fill_value`, `chunk_key_encoding`, `dimension_names`, `_FillValue` and the set of
+`coordinates` are equal to M0's, and the `time` attributes (`units`, `calendar`) are identical. The
+one deliberate difference: the series store chunks `time` and `niter` **one hour per chunk**
+`(1,)` (the append unit), whereas M0's two-hour store, written in one call, has a single `(2,)`
+chunk; `XC`/`YC` are auto-chunked by zarr at the first write in both. Both stores open with the same
+`xr.open_zarr` and the same decoded coords, which is what "readable identically" needs; task 2's
+spot check of hours 0-1 is on values and will not see this.
+
+**Atomicity design — measured first, then built** (scratch experiments on xarray 2026.7.0 /
+zarr 3.4.0, recorded in the `zarr_series` module docstring):
+1. `to_zarr(append_dim='time')` is not atomic. Killing it after the third array write
+   (`zarr.Array.__setitem__` patched to raise) left ``time`` at length 2 with `Theta`/`W` resized
+   (one of them with its chunk written) and `Salt`/`Eta`/`niter` at length 1 — in that experiment
+   `time` was written **first**, exactly the half-hour the prompt warns about. In the test's
+   crash (`test_resume_after_crash_inside_append`) the order differs (xarray writes in dataset
+   variable order); the repair does not rely on it.
+2. `zarr.Array.resize` to a smaller shape does **not** delete the chunks beyond it (`c/2` stayed
+   after resizing 3 -> 2).
+3. xarray **drops the consolidated metadata** from the root `zarr.json` while an append is in flight
+   and rewrites it at the end, so an interrupted store may have no consolidated view, or a stale one.
+4. On every append xarray **rewrites every non-time variable's chunks** (`XC`, `face`, `i`, `j`,
+   `i_g` — measured by mtime) and **replaces the root attrs** with the appended dataset's.
+
+So: (a) *stage in memory, write once* — core and wind are loaded (with retries) into one merged
+in-memory hour before any write, so a network failure never touches the store; (b) *append only the
+time-dimensioned variables* — `XC`/`YC`, index coords and scalars are written at creation and
+dropped from later appends (measured: only the new hour's chunk files, the resized arrays'
+`zarr.json` and the root `zarr.json` change); (c) *repair on resume, before trusting `time`* —
+`repair_trailing` opens the array metadata directly (`use_consolidated=False`), truncates every
+time-dimensioned array to the shortest, then walks back from the trailing hour while any array's
+trailing slab is **unwritten** (chunk key missing), **unreadable** (chunk fails to decode — a chunk
+truncated by the kill) or **all fill value** (never true of a real hour: land is 31% of the tile;
+`time`/`niter` are never the int fill 0), deleting the orphan chunks `resize` leaves and
+re-consolidating; (d) *"present" is the store's own `time` coord* after the repair, never a side
+file; (e) the root attrs carry the full `iterations`/`timestamps` list on every append and
+`_sync_attrs` rewrites them from the store's `time` if a crash left them one hour ahead. The
+common case costs nothing: lengths agree, the trailing slabs read (9 x 2 MB), the loop exits at
+once. `repair_trailing` is idempotent and returns the number of hours removed (`report['repaired']`).
+
+**Gap policy — stop at the first hour that still fails, and justify it against criterion 1.**
+Retries: `attempts=3`, backoff `(5, 20, 60)` s, any `Exception` treated as transient
+(`BaseException` — Ctrl-C — is not caught), `sleep` injectable. If the hour still fails,
+`pull_series` records it (`report['failed']`, `report['not_attempted']` = every later hour, a
+`FAILED` line through `logging` and the `log` callback) and **returns**. Why not "allow gaps and
+fill later": acceptance criterion 1 is "72 steps, **no gaps**", so a store with a hole is never the
+product; an append-along-`time` store cannot have a middle hour inserted later without a rewrite
+(filling would need a preallocated 72-hour axis written by region, which breaks "present = the
+store's own `time`"); and the invariant *store == contiguous prefix of the requested series* is
+what makes "present" a one-line `isin` and the resume trivially correct. The prompt's "record it and
+move on, so one bad hour cannot stall 72" is honoured in the sense that matters — the run does not
+stall, it finishes immediately with a report, and the next run (task 2's script re-launched; "an
+interrupted pull is restarted, not debugged") retries the failed hour first. A *persistently* bad
+hour therefore blocks the hours after it, deliberately: that is a finding about the source to
+report, not a gap to paper over. Tested in `test_persistent_failure_stops_at_gap`: hours 0-1 on
+disk, hour 2 failed, 3-5 not attempted, `verify_series` reports the three missing, the re-run with the
+source back completes the series byte-compatibly.
+
+**Other rules.** Duplicated or non-increasing `timestamps` raise `ValueError` before any pull; a
+requested hour earlier than the store's last hour and not already in it raises too (the store can
+only grow forwards; clobber or use a new store); a requested sub-window already present is a plain
+no-op. `clobber=True` `rmtree`s the store first. `grid_ds` (keyword-only) is the `XC`/`YC` source,
+needed only when the store is created; default M0's `tile330_grid.zarr` if on disk, else one
+`load_grid`. Progress: logger `frontogenesis.osn_tiles` / `frontogenesis.zarr_series` plus the
+`log` callback (one line per event: hours present, each hour's wall time and count, retries,
+failures, repairs), which is what task 2's detached script writes to `data/m2_pull.log`.
+
+**`verify_series(out_zarr, timestamps, grid_ds=None) -> dict`** (`series_verify.py`), lazy, one
+hour at a time (`ds[vars].isel(time=k).load()` = 9 chunk reads per hour): `time` (missing, extra,
+duplicates, order vs `timestamps`), `schema` (vars exactly the §3.2 nine; dims per var; float32;
+chunks `(1, nj, ni)`; coords `time, XC, YC, niter, face, k, k_l`; `face == 10` scalar; `time`
+encoding `seconds since 2011-09-10` int64; comodo attrs and int64 on `j, i, j_g, i_g`; attrs
+`iterations, endpoint, stores, git_commit`; `stores == [llc_surf, llc_wind]`), `land_nan` (every
+hour, every var: `isnan == (hFac == 0)` with `U`->`hFacW`, `V`->`hFacS`, everything else including
+`oceTAUX`/`oceTAUY` -> `hFacC`, per M0 task 3; reports the worst mismatch count per var and the
+first bad hour), `niter` (steps all 144; equal to `osn_date_to_iteration(ts)` for each stored hour;
+equal to the `iterations` attr), `KPPhbl` (present; finite on every `hFacC > 0` cell in every
+hour). Top-level `ok`; `summarize()` prints one line per check. On the real hour below it ran in
+< 1 s; 72 hours is ~650 chunk reads, seconds.
+
+**Tests.** `test_pull_series.py`, 20 offline + 1 network, 37 s offline. Synthetic 12 x 12 hours
+with the loaders' real shape (`(time, face, j, i)`, `U`/`oceTAUX` on `i_g`, `V`/`oceTAUY` on `j_g`,
+scalar `k`/`k_l`, `niter(time)` from `osn_date_to_iteration`, comodo attrs, land NaN from a
+synthetic `hFacC`/`hFacW`/`hFacS` that differ by a row/column), values a deterministic function of
+(hour, variable) so the store is compared with the truth; only `load_hour`/`load_wind_hour` are
+monkeypatched (plus `zarr.Array.__setitem__` for the mid-append crash). Covered: the fresh pull
+(schema, dtype, chunking, time encoding, values, one chunk file per hour); encoding parity with the
+M0 store (`needs_grid`); the no-op re-run (**sha256 of every file identical**, zero loader calls);
+resume after a crash between hours (hours 0-2 not rewritten); resume after a crash **inside**
+`to_zarr` (store genuinely half-written: arrays at lengths 3 and 4; `repaired == 1`, the hour is
+re-pulled, values and attrs right); five directly built trailing defects (`time` extended but vars
+not; vars extended but `time` not; chunk missing; chunk truncated to 7 bytes; slab all-NaN) each
+repaired to the 3 good hours with the good chunk files untouched and the repair idempotent;
+clobber; duplicate / out-of-order / earlier-than-store errors; retry then success (sleeps exactly
+`backoff[0], backoff[1]`); persistent failure -> stop at gap -> next run completes; `verify_series`
+on a good store, and failing on a gap, an extra hour, a duplicate/out-of-order `time`, float64 +
+wrong chunks + missing `KPPhbl` + wrong time units, finite-on-land and NaN-on-ocean cells, a
+`niter` step of 145, and a missing store.
+
+**Full suite** (`timeout 300 ~/miniforge3/envs/frontogenesis/bin/python -m pytest
+dev/frontogenesis/py/tests -q`): **104 passed, 3 xfailed, 1 deselected (network) in 139 s** =
+M1's 84 + 3 strict xfails plus the 20 new.
+
+**Network smoke** (`pytest py/tests/test_pull_series.py -m network -s`, run once): pulled
+`2012-07-02 02:00:00` from both stores into a `tmp_path` store, `verify_series` **ok on real data**
+(schema, land-NaN vs the M0 grid for all nine vars, `niter = 1023264`, `KPPhbl` finite on ocean),
+dims `(time 1, j 720, i 720, i_g 720, j_g 720)`; **22 s wall** for the hour (load + append; OSN
+was fast today — M0 saw 21-90 s per hour). At 22-90 s/hour the 72 hours are **~30-110 min**;
+task 2 must run detached and will finish in one or two restarts.
+
+**Contradictions / deviations from the docs — flagged.**
+1. **Coding §4.1 signature vs the prompt's extra requirements.** `pull_series`'s return type is
+   `str` by contract, but task 1 wants failures "recorded (returned and logged)", an injectable
+   backoff and a progress log. Resolved with **keyword-only** extras after the contract's positional
+   signature (`grid_ds, attempts, backoff, sleep, log, report`); `report` is a dict filled in place
+   (`pulled, skipped, failed, not_attempted, repaired, wall_s`). Every call written to §4.1 is
+   valid; §4.1 was not rewritten (a marked one-line note added, see files).
+2. **Coding §1.3's ~400-line cap: `osn_tiles.py` is now 556 lines** (370 before). The split that
+   respects the cap — moving the grid functions (`load_grid`, `write_grid`, `open_grid`,
+   `build_xgcm`) to their own module — would ripple into `m0_write.py`, `conftest.py` and the M1
+   tests' imports, which this task may not touch. Left over the cap and flagged, like
+   `validate.py` (M1-Q8); the new machinery itself went into separate modules (`zarr_series`,
+   `series_verify`) precisely to keep the overflow small.
+3. **`verify_series` has no module in either doc** (prompt 3 task 1 names it bare; §4.1 does not
+   list it). It lives in `py/series_verify.py`, with the execution prompt's `grid_ds=None`.
+4. **Prompt 3 task 1 "record it and move on" vs acceptance criterion 1 "no gaps"** — resolved as
+   stop-at-gap, above. If "move on" was meant literally (keep pulling later hours), the design would
+   have to change to a preallocated time axis with region writes, and "present from the store's own
+   `time` coord" would no longer hold.
+5. **`pytest.ini` already had `network`** registered and deselected by default (M1), so the prompt's
+   "register it if missing" was a no-op; the way to select it is `-m network` on the command line.
+6. For the record, the §3.2 attrs list (`iterations, endpoint, stores, git_commit`) is a subset of
+   what the store carries (as M0 task 4 noted), and `verify_series` checks the §3.2 four plus
+   `stores`' value.
+
+**For task 2 (`m2_pull.py`).** `pull_series(TS72, DATA_DIR / 'tile330_raw_20120702T00_72h.zarr',
+report=rep, log=progress_file.write)`; re-run in a loop until `rep['failed']` is empty (or the same
+hour fails twice, which is a source finding); then `series_verify.verify_series(path, TS72)` and
+`summarize`. The no-op proof is `rep['pulled'] == []` plus a sha256 snapshot of the chunk files
+(`test_rerun_is_noop_and_byte_identical` has the recipe). `osn_date_to_iteration` is a pure offline
+function, so `iterations`/`niter` can be checked without the network. `get_remote_llc_data` prints
+six progress lines per hour (M0 task 2) — 432 lines in the detached log; harmless.
+
+Files: modified `py/osn_tiles.py` (imports, module docstring, `load_hours` refactor,
+`pull_series`, `_sync_attrs`, helpers), `frontogenesis_coding.md` (§4.1, one marked note),
+`claude_prompts/frontogenesis_prompt_3.md` (Status paragraph), this log; created `py/zarr_series.py`,
+`py/series_verify.py`, `py/tests/test_pull_series.py`. Not touched: `pytest.ini`, `conftest.py`,
+every M1 module and test, `deck/`, the data stores (the smoke test wrote only under `tmp_path`).

@@ -9,16 +9,24 @@ Both stores are keyed by the *OSN* iteration number (``osn_date_to_iteration``,
 i.e. MIT iteration + 10368) and both decode ``time`` from
 ``seconds since 2011-09-10``; the loaders assert the decoded time matches the
 requested timestamp so a silent off-by-72-hours cannot creep in.
+
+``pull_series`` (M2 task 1) is the resumable per-hour concat into the §3.2
+store; the generic append/repair machinery it rests on is ``zarr_series``,
+and the §3.2 checker is ``series_verify.verify_series``.
 """
 
+import shutil
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import xarray as xr
+import zarr
 
 import dbof
+import zarr_series as zs
 from dbof.tiles.tile_mapping import rect_ij_to_tile, TileInfo
 from dbof.tiles.tile_utils import _tile_indexer
 from dbof.llc4320_ingestion.date_iterations import osn_date_to_iteration, DATE_FMT
@@ -310,13 +318,48 @@ def load_wind_hour(ts: str, tile: TileInfo = None, endpoint: str = OSN_ENDPOINT,
     return _finish_hour(ds, ts, it, tile, keep, 'llc_wind', compute)
 
 
+def _load_merged_hour(ts: str, tile: TileInfo, endpoint: str, include_wind: bool) -> xr.Dataset:
+    """One hour from both stores merged, still with the length-1 ``face``
+    dim.  Both loads complete before anything is returned, so a caller that
+    writes the result never sees a core-only hour (the atomicity of
+    ``pull_series`` starts here)."""
+    parts = [load_hour(ts, tile, endpoint)]
+    if include_wind:
+        parts.append(load_wind_hour(ts, tile, endpoint))
+    # the two stores share index coords and time; 'override' keeps the
+    # variable attrs (a 'drop' here would strip the comodo attrs too)
+    return xr.merge(parts, compat='override', combine_attrs='override')
+
+
+def _series_attrs(timestamps, tile: TileInfo, endpoint: str, include_wind: bool) -> dict:
+    """The §3.2 root attrs for a series of ``timestamps``."""
+    return dict(
+        iterations=[int(osn_date_to_iteration(ts)) for ts in timestamps],
+        timestamps=list(timestamps), endpoint=endpoint,
+        stores=['llc_surf', 'llc_wind'] if include_wind else ['llc_surf'],
+        face_index=int(tile.face_idx),
+        j_face_start=int(tile.j_face_slice.start),
+        i_face_start=int(tile.i_face_slice.start),
+        rect_i=int(TILE_RECT_I), rect_j=int(TILE_RECT_J), land_fill='NaN',
+        **_provenance())
+
+
+def _finish_series(ds: xr.Dataset, grid_ds: xr.Dataset) -> xr.Dataset:
+    """Stored layout: drop ``face`` to a scalar coord, attach ``XC``/``YC``
+    from the grid (§3.2 coords), comodo attrs on the horizontal dims."""
+    ds = _drop_face(ds)
+    if grid_ds is not None:
+        ds = ds.assign_coords(XC=_drop_face(grid_ds).XC, YC=_drop_face(grid_ds).YC)
+    return ensure_comodo_attrs(ds)
+
+
 def load_hours(timestamps, tile: TileInfo = None, endpoint: str = OSN_ENDPOINT,
                include_wind: bool = True, grid_ds: xr.Dataset = None) -> xr.Dataset:
     """Consecutive hours from both stores, concatenated along ``time``
     in the §3.2 layout ``(time, j, i)`` (+ ``i_g``/``j_g``), in memory.
 
-    This is the per-hour building block of ``pull_series`` (M2), which adds
-    resumability on top; here every hour is pulled fresh.
+    This is the per-hour building block of :func:`pull_series` (M2), which
+    adds resumability on top; here every hour is pulled fresh.
 
     Parameters
     ----------
@@ -337,29 +380,172 @@ def load_hours(timestamps, tile: TileInfo = None, endpoint: str = OSN_ENDPOINT,
         the tile / provenance attrs.
     """
     tile = tile_spec() if tile is None else tile
-    hours = []
-    for ts in timestamps:
-        parts = [load_hour(ts, tile, endpoint)]
-        if include_wind:
-            parts.append(load_wind_hour(ts, tile, endpoint))
-        # the two stores share index coords and time; 'override' keeps the
-        # variable attrs (a 'drop' here would strip the comodo attrs too)
-        hours.append(xr.merge(parts, compat='override', combine_attrs='override'))
-    ds = _drop_face(xr.concat(hours, dim='time', coords='minimal',
-                              compat='override', combine_attrs='override'))
-    if grid_ds is not None:
-        ds = ds.assign_coords(XC=_drop_face(grid_ds).XC, YC=_drop_face(grid_ds).YC)
-    ds = ensure_comodo_attrs(ds)
-    ds.attrs = dict(
-        iterations=[int(osn_date_to_iteration(ts)) for ts in timestamps],
-        timestamps=list(timestamps), endpoint=endpoint,
-        stores=['llc_surf', 'llc_wind'] if include_wind else ['llc_surf'],
-        face_index=int(tile.face_idx),
-        j_face_start=int(tile.j_face_slice.start),
-        i_face_start=int(tile.i_face_slice.start),
-        rect_i=int(TILE_RECT_I), rect_j=int(TILE_RECT_J), land_fill='NaN',
-        **_provenance())
+    hours = [_load_merged_hour(ts, tile, endpoint, include_wind) for ts in timestamps]
+    ds = _finish_series(xr.concat(hours, dim='time', coords='minimal',
+                                  compat='override', combine_attrs='override'), grid_ds)
+    ds.attrs = _series_attrs(timestamps, tile, endpoint, include_wind)
     return ds
+
+
+def _as_dt64(ts: str) -> np.datetime64:
+    return np.datetime64(datetime.strptime(ts, DATE_FMT), 's')
+
+
+def _default_grid(endpoint: str, tile: TileInfo) -> xr.Dataset:
+    """``XC``/``YC`` source for a new series store: M0's grid store if it is
+    on disk, else one network pull."""
+    p = DATA_DIR / 'tile330_grid.zarr'
+    return open_grid(p, with_face=False) if p.exists() else load_grid(endpoint, tile)
+
+
+def pull_series(timestamps, out_zarr, tile: TileInfo = None, endpoint: str = OSN_ENDPOINT,
+                include_wind: bool = True, clobber: bool = False, *, grid_ds: xr.Dataset = None,
+                attempts: int = 3, backoff=zs.RETRY_BACKOFF_S, sleep=time.sleep,
+                log=None, report: dict = None) -> str:
+    """Pull ``timestamps`` hour by hour into one §3.2 zarr store, resumably.
+
+    The missing concat step (coding §4.1): the repo's ``run_series`` writes
+    one NetCDF per hour with no time dim.  Each hour is one
+    ``(1, 720, 720)`` float32 chunk per variable, ``time`` is
+    ``seconds since 2011-09-10``, ``niter(time)``, scalar ``face``, ``XC``/
+    ``YC`` are coords, ``U`` stays on ``i_g`` and ``V`` on ``j_g``, no halo,
+    land NaN as it comes -- byte-for-byte the layout of M0's two-hour
+    product (``write_raw``), written incrementally.
+
+    Parameters
+    ----------
+    timestamps : sequence of str
+        ``dbof`` format, strictly increasing; duplicates or out-of-order
+        entries raise ``ValueError`` before anything is pulled.
+    out_zarr : path-like
+    tile, endpoint, include_wind
+        As in :func:`load_hours`.
+    clobber : bool
+        ``True`` removes an existing store and rewrites from scratch.
+    grid_ds : xarray.Dataset, optional
+        Source of ``XC``/``YC`` (keyword only).  Default: M0's
+        ``tile330_grid.zarr`` if on disk, else :func:`load_grid`.  Only
+        needed when the store is created.
+    attempts, backoff, sleep
+        Retry policy for one hour's two loads (``zarr_series.with_retries``);
+        ``sleep`` is injectable so tests do not wait.
+    log : callable, optional
+        Progress callback (one line per event) in addition to the module
+        logger ``frontogenesis.osn_tiles``.
+    report : dict, optional
+        Filled in place with ``pulled``, ``skipped``, ``failed``,
+        ``not_attempted`` (lists of timestamps), ``repaired`` (hours removed
+        on resume) and ``wall_s`` (per pulled hour), since the return value
+        is the path by contract.
+
+    Returns
+    -------
+    str
+        ``out_zarr``.
+
+    Notes
+    -----
+    **Resumability and atomicity** (``zarr_series``, whose docstring has the
+    measurements).  "Present" is read from the store's own ``time`` coord
+    after :func:`zarr_series.repair_trailing` has made the store a clean
+    prefix of complete hours: a crash inside ``to_zarr(append_dim='time')``
+    leaves ``time`` extended before the data variables are written (xarray
+    writes it first), so the trailing hour is checked array by array --
+    length agreement, chunk files present, chunks decodable, slab not all
+    fill -- and truncated if anything is missing.  Core and wind are loaded
+    into memory together before the append starts, so a network failure
+    never touches the store, and only time-dimensioned variables are
+    appended (``XC``/``YC``, index coords and scalars are written once).
+    The root attrs (``iterations``, ``timestamps``) are rewritten with every
+    append and re-synced on resume if a crash left them behind.
+
+    **Gap policy: stop at the first hour that still fails after the
+    retries.**  Acceptance criterion 1 is "72 steps, no gaps", so a store
+    with a hole is never the product; appends along ``time`` cannot be
+    filled in later without rewriting the store; and keeping the invariant
+    *store == contiguous prefix of the requested series* is what makes
+    "present" a one-line check and the resume trivially correct.  The
+    failed hour and every hour after it are reported (``failed`` /
+    ``not_attempted``) and the call returns -- it does not stall, it stops
+    -- and the next run retries the failed hour first (M2 rules: an
+    interrupted pull is restarted, not debugged).  One persistently bad
+    hour therefore blocks the hours after it, deliberately: that is a
+    finding about the source to report, not a gap to paper over.
+    """
+    tile = tile_spec() if tile is None else tile
+    out = Path(out_zarr)
+    timestamps = list(timestamps)
+    want = np.array([_as_dt64(ts) for ts in timestamps], dtype='datetime64[s]')
+    if len(set(timestamps)) != len(timestamps):
+        raise ValueError('duplicated timestamps')
+    if len(want) > 1 and not np.all(np.diff(want) > np.timedelta64(0, 's')):
+        raise ValueError('timestamps must be strictly increasing')
+    rep = {} if report is None else report
+    rep.update(pulled=[], skipped=[], failed=[], not_attempted=[], repaired=0, wall_s={})
+    say = lambda msg: zs._say(msg, log)
+
+    if clobber and out.exists():
+        say(f'clobber: removing {out}')
+        shutil.rmtree(out)
+    rep['repaired'] = zs.repair_trailing(out, log=log)
+    present = zs.present_times(out)
+    if len(present):
+        # the store can only grow forwards; anything requested that is
+        # earlier than its last hour and not already in it cannot be placed
+        new = want[~np.isin(want, present)]
+        if len(new) and new.min() <= present.max():
+            raise ValueError(f'{out} ends at {present.max()}; cannot append earlier hours '
+                             f'{new[new <= present.max()].astype(str).tolist()} -- clobber '
+                             'or pull them into a new store')
+        attrs = _series_attrs([str(t).replace('T', ' ') for t in present], tile, endpoint,
+                              include_wind)
+        _sync_attrs(out, present, attrs, say)
+    say(f'{out.name}: {len(present)} hours present, {len(timestamps)} requested')
+
+    grid = grid_ds
+    stored = [str(t).replace('T', ' ') for t in present]
+    for k, ts in enumerate(timestamps):
+        if want[k] in present:
+            rep['skipped'].append(ts)
+            continue
+        t0 = time.time()
+        try:
+            hour = zs.with_retries(lambda: _load_merged_hour(ts, tile, endpoint, include_wind),
+                                   attempts=attempts, backoff=backoff, sleep=sleep, log=log,
+                                   what=f'load {ts}')
+        except Exception as e:                       # noqa: BLE001 -- recorded, see gap policy
+            rep['failed'].append(ts)
+            rep['not_attempted'] = timestamps[k + 1:]
+            say(f'{ts}: FAILED after {attempts} attempts ({type(e).__name__}: {e}); '
+                f'stopping here so the store stays gap-free -- {len(rep["not_attempted"])} '
+                'hours not attempted, re-run to resume')
+            break
+        if grid is None and not out.exists():
+            grid = _default_grid(endpoint, tile)
+        hour = _finish_series(hour, grid)
+        stored.append(ts)
+        enc = _clean_encoding(hour, time_chunk=True)
+        zs.append_hour(out, hour, encoding=enc,
+                       attrs=_series_attrs(stored, tile, endpoint, include_wind))
+        rep['pulled'].append(ts)
+        rep['wall_s'][ts] = round(time.time() - t0, 1)
+        say(f'{ts}: pulled and appended in {rep["wall_s"][ts]:.1f} s '
+            f'({len(stored)}/{len(timestamps)} on disk)')
+    say(f'{out.name}: done -- {len(rep["pulled"])} pulled, {len(rep["skipped"])} skipped, '
+        f'{len(rep["failed"])} failed, {len(rep["not_attempted"])} not attempted')
+    return str(out)
+
+
+def _sync_attrs(out: Path, present, attrs: dict, say):
+    """After a repair the root attrs may describe one hour more than the
+    store holds (xarray writes them with the append that was cut short);
+    rewrite them from the store's own time coord when they disagree."""
+    g = zarr.open_group(out, mode='r+', use_consolidated=False)
+    if list(g.attrs.get('iterations', [])) != attrs['iterations']:
+        say(f'{out.name}: root attrs listed {len(g.attrs.get("iterations", []))} hours, '
+            f'store holds {len(present)}; re-synced')
+        g.attrs.update(attrs)
+        zs.consolidate(out)
 
 
 def write_raw(ds: xr.Dataset, out, clobber: bool = False) -> str:

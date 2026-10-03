@@ -379,6 +379,12 @@ def pull_series(timestamps, out_zarr, tile=None,
 ```
 `pull_series` is the piece that **exists nowhere in either repo** (planning §9). It must be
 resumable: skip timestamps already present in `out_zarr` unless `clobber`.
+*(corrected 2026-10-03, M2 task 1)* Written with keyword-only extras after the signature above
+(`grid_ds, attempts, backoff, sleep, log, report`; `report` is a dict filled in place because the
+return is the path). The per-hour atomic append / repair-on-resume machinery is
+`py/zarr_series.py` (`append_hour`, `repair_trailing`, `present_times`, `with_retries`) — §4.6
+`load_chunk_levels` reuses it — and the §3.2 checker is
+`py/series_verify.py: verify_series(out_zarr, timestamps, grid_ds=None) -> dict`.
 
 ### 4.2 `py/masking.py`
 

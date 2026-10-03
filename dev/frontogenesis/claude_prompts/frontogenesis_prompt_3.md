@@ -6,8 +6,11 @@ pulls raw fields and needs no physics, no operators and no masks. Masks are M1's
 is M0's. So M1 and M2 can run in parallel.
 **Goal:** the 72-hour window on disk, in one time-dimensioned store per source, resumably.
 
-**Status 2026-10-01: not started.** M0 closed 2026-09-28; M1 closed 2026-09-30 (prompt 2,
-task-7 log entry). M1 being closed does not change M2's scope; M2 still needs no physics. It does
+**Status 2026-10-03: task 1 done** (`osn_tiles.pull_series` on `zarr_series`'s per-hour atomic
+append with repair-on-resume, stop-at-gap policy; `series_verify.verify_series`;
+`tests/test_pull_series.py` 20 offline + 1 network smoke, 22 s for one real hour; suite 104 passed
++ 3 xfailed; log entry 2026-10-03). Tasks 2-7 not started. M0 closed 2026-09-28; M1 closed
+2026-09-30 (prompt 2, task-7 log entry). M1 being closed does not change M2's scope; M2 still needs no physics. It does
 fix the operator defaults M3 will use on this data (`form='discrete'`, cubic departure velocity),
 which is why task 3's QA reuses them.
 
@@ -273,7 +276,7 @@ running or complete? Does it include `oceQsw` and `oceFWflx` (Q13)? Where does i
 and path)? Task 4 will find out empirically either way, but if you already know, it saves a
 search, and it tells us whether task 5 can close in M2 or stays open into M3.
 
-> **JXP:**
+> **JXP:** . I believe all of the data is traferred.  Please check
 
 **M2-Q2 — Local disk for the 72-hour store.** The OSN product should be ~0.75 GB, from M0's
 ~10.5 MB per hour on disk; the chunk product for three levels is of the same order. Both go in
@@ -281,7 +284,7 @@ search, and it tells us whether task 5 can close in M2 or stays open into M3.
 they live elsewhere (an external disk, or the workstation; there is a "save for workstation"
 commit) and be symlinked?
 
-> **JXP:**
+> **JXP:** . That is fine
 
 **M2-Q3 — Stability of the M1 baseline across the window (optional).** Figure 2's baseline
 (0.981 [0.970, 0.994]) is V3's real-velocity slope from **one** hour pair, 07-02 T00-T01. With 71
@@ -291,13 +294,13 @@ operators or of that hour. It costs about a minute per pair and uses no new phys
 extra step in task 3, leave it to M3, or skip it? I lean towards task 3: M3's headline is quoted
 against this number.
 
-> **JXP:**
+> **JXP:** Do it as an extra step
 
 **M2-Q4 — The 2-hour M0 store.** M1's tests read `tile330_raw_20120702T00_2h.zarr`. Keep it
 (my default, and task 2 checks that it equals hours 0-1 of the 72-hour store), or repoint the
 tests at the 72-hour store and delete it?
 
-> **JXP:**
+> **JXP:** Keep it.
 
 ## Log
 
