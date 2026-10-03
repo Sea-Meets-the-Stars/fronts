@@ -4263,3 +4263,218 @@ Files: created `py/m2_qa.py`, `py/m2_baseline_stability.py`, `figs/m2_qa_series.
 keywords, flagged above), `claude_prompts/frontogenesis_prompt_3.md` (Status paragraph), this
 log. Not touched: every other M1 module and test, `pytest.ini`, `conftest.py`, `deck/`,
 `frontogenesis_coding.md`, `frontogenesis_planning.md`, the data stores and masks.
+
+### 2026-10-03 — Execution prompt 3, task 4: chunk-store reconnaissance (Opus; Fable limit reached)
+
+**Scope.** Task 4 of `frontogenesis_prompt_3.md` only: reconnaissance of source B. No bulk load,
+no loader (`load_chunk_levels` is task 5). Everything below comes from `py/m2_chunk_recon.py`
+(new, read-only), which merges its results into `data/m2_chunk_recon.json` (git-ignored). It
+runs in sections (`--sections inventory,grid | hour --hour-vars ... | eta,edges | fluxes`), because
+this machine reads Nautilus at only 0.55 MB/s and a single 3-D object takes ~2 min (see "Bytes"
+below). The compressed objects fetched for the checks (~430 MB) are cached in the session
+scratchpad, not in `data/`.
+
+**Answer to M2-Q1: the transfer is complete.** All 72 hours are there, with `oceQsw` and
+`oceFWflx`, all 51 levels, and they cover exactly tile 330.
+
+**1. Location and access.**
+- **Where:** `s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/` on NRP Nautilus, endpoint
+  `https://s3-west.nrp-nautilus.io`, with path-style addressing.
+- **Layout:** one **zarr v3** store per hour, `{YYYYMMDDTHH}.zarr` (no consolidated metadata),
+  plus a static `grid.zarr`. It is not kerchunk.
+- **Transfer config:** `configs/transfer/run_chunks_monterey_72h.yaml` on llc-repo branch
+  `origin/transfer-monterey-72h`, by Lauren, 2026-10-01: commits `ffbe400 monterey72`,
+  `e3fbcfd FWflux and Qsw` and `f779ed0 flx`. The last fixes a typo, `oceFWflux` →
+  `oceFWflx`. That branch's yaml lists exactly our 72 dates. The `tiles-surface-only` worktree
+  still carries the old 17-date `run_chunks_monterey_bay.yaml`, and its
+  `docs/Data_Organization.md` still says "17 stores" and lists no `oceQsw`. Both are stale; they
+  were not touched.
+- **Access:** the bucket needs credentials. This machine already has a default AWS profile
+  (`~/.aws/credentials`), which s3fs picks up, so the reads worked with no setup. No secret was
+  read or printed. **Anyone running task 5 elsewhere needs Nautilus `dbof` credentials.**
+- **How to open it:** `xr.open_zarr(fs.get_mapper(f'{PREFIX}/{hour}.zarr'), consolidated=False)`
+  works. The script reads the objects directly instead: it takes the bytes, decodes them with
+  zstd and reshapes them.
+- **Robustness:** dbof's own reader (`get_raw_data._llc_depth_storage_options`) warns that
+  Nautilus "intermittently serves corrupt bytes". No corrupt read occurred here, in 14 large
+  and ~100 small objects. Task 5 should still retry on a zstd decode error.
+
+**2. Hours: 72/72 present, 0 missing.**
+- Every store from `20120702T00` to `20120704T23` exists.
+- For every store, the stored `time` equals the name, and the group attrs agree:
+  `selected_iteration` equals the MIT iteration (OSN `niter` − 10368; for example 07-03 T00 is
+  MIT 1016064 against OSN 1026432), and `resolved_face=10, j_start=0, i_start=2880,
+  tile_size=720`.
+- The 11 stores that predated the 72-hour transfer were **rewritten** and now carry the new
+  variables too: the layout is uniform across all 72.
+- **Outside the window** there are 7 daily 12:00 stores: 06-29, 06-30, 07-01, 07-05, 07-06,
+  07-07 and **07-09**. There is no 07-08. These are the old variable set, with **no**
+  `oceQsw`/`oceFWflx`.
+- The prefix also holds other chunk regions, which we did not open: `amundsen`,
+  `bellingshausen`, `gulf_stream`, `ross`, `southern_ocean_scotia_sea` and `weddell`.
+
+**3. Variables (identical in all 72 stores).**
+- 3-D: `Theta, Salt` `(k, face, j, i)`; `U` `(k, face, j, i_g)`; `V` `(k, face, j_g, i)`;
+  `W` `(k_p1, face, j, i)`.
+- 2-D: `Eta, oceQnet, oceQsw, oceFWflx, SIarea` `(face, j, i)`; `oceTAUX` `(face, j, i_g)`;
+  `oceTAUY` `(face, j_g, i)`.
+- Coordinates: `time` and the index coords `face, j, i, j_g, i_g, k, k_p1`.
+- **`oceQsw` and `oceFWflx` are present (Q13 done).**
+- `SIarea` is all zero on the tile.
+
+**4. Levels.** `k` has 51 levels, as expected. **`W` sits on `k_p1`, with 52 interfaces
+(0..51), not on `k_l`.** Continuity says `k_p1 = k` is the *top* face of cell `k`, the same as
+`k_l = k`:
+- At 07-03 T00, `rA·(W[k] − W[k+1]) + Σ_out(U·dyG·drF·hFacW, V·dxG·drF·hFacS)` closes to an rms
+  of **7e-12 m s⁻¹** (max 1e-10) for cells k = 0, 1, 2, against rms `W` ≈ 1e-4. At k = 49 and
+  50 it closes to 1.2e-10, against rms `W` ≈ 3e-3.
+- So **`W(k_l = 0..2)` = `W.isel(k_p1 = slice(0, 3))`**, and `W(k_l = 1)`, the cell-base
+  velocity coding §4.6 needs, is `k_p1 = 1`.
+- `W[k_p1 = 51]`, at the base of level 50 (968.6 m), is finite and non-zero: the model has 90
+  levels, and the transfer keeps 51.
+- The grid store has `k, k_l, k_u` (51) and `k_p1` (52), plus a 3-D `hFacC/W/S` and
+  `mask_c/w/s` on `k`.
+
+**5. Layout, coverage and bytes.**
+- **Coverage — no blocker:** `grid.zarr` and every hourly store hold face 10, with `j` and
+  `j_g` running 0..719 and `i` and `i_g` running 2880..3599. That is
+  **exactly tile 330 (face 10, j 0:720, i 2880:3600)**. It is not a cutout of the tile: it is
+  the same 720×720 native block, because the transfer floors 36.8 N, −121.9 E to the enclosing
+  native chunk.
+- **Grid against `tile330_grid.zarr`:** `XC, YC, dxC, dyC, dxG, dyG, rA, rAz, CS, SN, Depth` and
+  `hFacC/hFacW/hFacS` at k = 0 are all **bit-identical**. So the tile indexing, orientation and
+  staggering are the same, with no flip or transpose.
+- **Chunking — this is the contradiction:** every variable is **a single zarr object per hour**.
+  3-D chunks are `(51, 1, 720, 720)`, `W`'s are `(52, 1, 720, 720)`, and 2-D chunks are
+  `(1, 720, 720)`. The codecs are bytes (little-endian) + zstd at level 0, no sharding. A zstd
+  stream cannot be partially decoded, so **a `k = 0..2` read must fetch the full 51-level
+  object.** Level-selective reads are not possible.
+- **Bytes per hour, compressed on the store:**
+
+  | Object | Size |
+  |---|---|
+  | `Theta` | 57.2 MB |
+  | `Salt` | 47.5 MB |
+  | `U` | 63.8 MB |
+  | `V` | 64.2 MB |
+  | `W` | 65.4 MB |
+  | each 2-D field | ~1.2 MB |
+  | **whole store** | **305.6 MB** (305.1-306.1) |
+  | **72 h** | **22.0 GB** |
+
+- **What a task-5 read of `Theta, Salt, W, oceQnet, oceQsw, oceFWflx` fetches:** **173.8 MB per
+  hour, 12.5 GB for the window**, to keep ~25 MB per hour (3 levels × 4 fields + 3 2-D,
+  float32).
+- **Throughput measured from this machine: 0.55 MB/s**, flat. It is the same with 16 parallel
+  byte-range GETs of one object (0.55 MB/s), so the limit is the link, not the request pattern.
+- **So task 5 costs ~316 s per hour and ~6.3 h for 72 hours**, against 22 s per hour for OSN.
+  It has to be detached and resumable, as designed. Running it on a machine near Nautilus would
+  be much faster.
+- Peak memory per hour: about 106 MB per decoded 3-D field. Decode one field at a time.
+
+**6. 3-D grid (`grid.zarr`; float32 values as stored).**
+
+| | k=0 | k=1 | k=2 | dim |
+|---|---|---|---|---|
+| `drF` | **1.0** | 1.14 | 1.30 | `k` (51) |
+| `Z` | **−0.5** | −1.57 | −2.79 | `k` |
+| `Zl` | 0.0 | −1.0 | −2.14 | `k_l` (51) |
+| `Zu` | −1.0 | −2.14 | −3.44 | `k_u` (51) |
+| `Zp1` | 0.0 | −1.0 | −2.14 | `k_p1` (52; last −968.62) |
+| `drC` | 0.5 | 1.07 | 1.22 | |
+
+- **Confirmed: `drF[0] = 1.0 m` and `Z[0] = −0.5 m`**, equal to OSN's 0-d scalars in
+  `tile330_grid.zarr`.
+- `Σ drF = 968.62 m`, and `Zp1[51] = −968.62 m`.
+- The bottom levels have `Z` = −900.1 and −945.6 m, and `drF` = 44.87 and 46.05 m.
+
+**7. Consistency with OSN — the two sources are the same model output, bit for bit.**
+- **Hour 07-03 T00:**
+  - chunk `k = 0` `Theta`, `Salt`, `U` and `V` against `data/tile330_raw_20120702T00_72h.zarr`:
+    all **bit-identical**, with max |d| = 0 and identical NaN patterns. The finite counts are
+    356 877, 356 877, 355 955 and 356 312.
+  - **chunk `W(k_p1 = 0)` against OSN `W`: bit-identical**, which includes the same 4 exact
+    zeros.
+  - `Eta`, `oceTAUX` and `oceTAUY`: bit-identical. `oceTAU*` carries the same 922 and 565 zeros
+    on `hFacW`/`hFacS` land.
+- **Whole window:** **`Eta` is bit-identical in all 72 hours**, so there is no time offset of
+  even one iteration anywhere. `Theta k = 0` is bit-identical at both ends of the window as
+  well, 07-02 T00 and 07-04 T23.
+- `corr(W[k_p1 = k], centred dEta/dt)` is **0.998, 0.903 and 0.690** for k = 0, 1 and 2. That
+  reproduces M0's `W(0) = dEta/dt` and shows the cell-base `W(k_l = 1)` adding a real
+  convergence part.
+- **Land is NaN in the chunk store**, as in OSN: `fill_value = NaN`, and the NaN pattern equals
+  `hFac == 0` exactly for `Theta`, `Salt` and `W` (`hFacC`), `U` (`hFacW`) and `V` (`hFacS`) at
+  k = 0, 1, 2. The 2-D fields follow `hFacC`.
+- The ocean fraction is 0.6884 at k = 0, 1, 2 alike. The first 3 levels have the same wet set.
+
+**8. The surface fluxes: a sign-convention trap, and a forcing-resolution caveat.** Tile means
+of the three flux fields were computed for all 24 hours of 07-03 (`--sections fluxes`, 2-D only).
+- **The `+=down` attrs are wrong for these values.** The stored attrs say `oceQsw`/`oceQnet` are
+  "+=down, >0 increases theta" and `oceFWflx` is "+=down, >0 decreases salinity". The data
+  instead follow MITgcm's **upward-positive** forcing convention:
+  - `oceQsw` is **≤ 0 everywhere at every hour**; no positive value exists. Its tile mean runs
+    from −0.1 W m⁻² at 09 UTC (01 local solar time; the tile is ~UTC−8) to **−589 W m⁻² at
+    21 UTC (13 LST)**.
+  - `oceQnet` is about +115 W m⁻² at night (cooling) and −454 W m⁻² at 21 UTC (heating).
+  - `oceFWflx` is about +2-3e-5 kg m⁻² s⁻¹, net evaporation in a summer subtropical ocean,
+    i.e. positive upward.
+  - **So `surface_flux_term` must flip the sign of all three**, or task 5 should store them
+    sign-flipped with an attr saying so. Do not trust the long_name.
+- **The shortwave is not a resolved diurnal cycle.** The hourly series is **piecewise linear,
+  with kinks every 6 h at 03, 09, 15 and 21 UTC**. It looks like linear interpolation, by the
+  model's forcing package, of 6-hourly atmospheric fields. Shortwave is non-zero until 09 UTC
+  (01 LST), and its night-time "zero" lasts one instant.
+  - Planning §4 and §2.3 argue that `oceQsw` resolves the noon-peaking term Figure 6 is about.
+    That is still true at the 6-hourly scale. The diurnal *shape*, however, is a triangle with
+    its peak at 13 LST and its minimum at 01 LST, not insolation. M3 and Figure 6 should say
+    so.
+
+**Blockers for task 5: none.** Everything task 5 needs exists, for all 72 hours, on exactly our
+tile. Practical constraints:
+- **(a) Cost:** ~6.3 h of download at 0.55 MB/s (12.5 GB fetched, ~1.8 GB kept). Run it detached
+  and resumable, as task 5 already plans.
+- **(b) Rename `W`'s dim:** take `k_p1` 0..2 and rename it to `k_l`, to match §3.3.
+- **(c) Flux sign:** handle the convention, and record in the store's attrs which one it uses.
+- **(d) Corrupt reads:** retry on a corrupt or failed decode.
+- **(e) Credentials:** Nautilus credentials are needed, and are present on this machine.
+- **(f) `drF`:** take `drF(k = 0..2)` from `grid.zarr`, not from the hourly stores. The hourly
+  stores carry no grid.
+
+**Contradictions with the planning, coding and prompt docs — flagged.** Nothing in those docs
+was edited.
+1. **Prompt 3 (task 4 and source B) and coding §3.3** assume the store is laid out "so a
+   `k = 0..2` read touches only those levels", and that "nothing obliges us to read" the other
+   levels. **False:** there is one 51-level object per variable per hour, so the other levels
+   *must* be downloaded, though not stored. That is 174 MB per hour, 12.5 GB in all.
+2. **Coding §3.3 and §4.6 and prompt 3 say `W` is on `k_l`;** the store has **`k_p1` (52)**.
+   They are equivalent for 0..2, by continuity to 1e-11; it is a rename.
+3. **"~539 MB/timestep" and "~33 GB"** (planning §4, Planning-7, prompt 3) are uncompressed
+   figures. On the store an hour is **306 MB**, and 72 hours are **22.0 GB**.
+4. **"11 of the 72 stores exist; 61 new"** (prompt 3 "The window", planning §4, coding §6 M2)
+   is now stale. All 72 exist, and the 11 old ones were rewritten with the new variables. The
+   dbof `Data_Organization.md` (17 stores) and the old `run_chunks_monterey_bay.yaml` are
+   stale too.
+5. **Flux sign:** coding §4.6 `surface_flux_term` and planning §2.3 implicitly take the
+   documented `+=down` convention. The data are **upward-positive** (item 8).
+6. **Planning §4 and §2.3 on `oceQsw` "the noon-peaking term":** the forcing is 6-hourly and
+   linearly interpolated (item 8), so the diurnal shape is not resolved. This does not
+   invalidate Q13. It limits what Figure 6 can claim.
+7. Planning §4 calls OSN and the chunk store "different readers of the same physics", a
+   genuine cross-check. They are **bit-identical** at k = 0, so the cross-check is trivially
+   satisfied. It confirms the iteration mapping, but it cannot catch a model-side issue.
+8. Minor: prompt 3 says `process_llc4320_3d_grid` provides `drF`. It is a column filter on a
+   grid Dataset. Opening `grid.zarr` directly gives `drF/Z/Zl/Zu/Zp1`, and `Zu`/`Zp1` live on
+   `k_u`/`k_p1`.
+
+**Suite:** `timeout 300 python -m pytest dev/frontogenesis/py/tests -q` → **104 passed, 3
+xfailed, 1 deselected (network) in 144 s**, unchanged.
+
+**Files:**
+- Created: `py/m2_chunk_recon.py`; `data/m2_chunk_recon.json` (git-ignored); the scratchpad
+  object cache (outside the repo).
+- Modified: this log, and `claude_prompts/frontogenesis_prompt_3.md` (Status, and a note under
+  M2-Q1).
+- Not touched: every M1 and M2 module and test, `deck/`, the planning and coding docs, the dbof
+  worktree, every remote store (read-only), and `data/`, except the JSON.
+- Nothing committed.
