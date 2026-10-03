@@ -5,7 +5,7 @@ none can drift from what it claims to summarise.
 
 | Deck | Built by | Summarises |
 |---|---|---|
-| `Frontogenesis_Planning.pptx` | `build_deck.py` | The planning docs (13 slides, 2026-09-19) |
+| `Frontogenesis_Planning.pptx` | `build_deck.py` (+ `check_m1_deck.py`) | The planning docs — **v2**, 17 slides, 2026-10-02; no text below 20 pt (v1: 13 slides, 2026-09-19) |
 | `Frontogenesis_M0_Acceptance.pptx` | `make_m0_figs.py` + `build_m0_deck.py` | Milestone M0 (12 slides, 2026-09-29) |
 | `Frontogenesis_M1_Acceptance.pptx` | `make_m1_figs.py` + `build_m1_deck.py` (+ `check_m1_deck.py`) | Milestone M1 (19 slides, 2026-09-30, extended 2026-10-01; no text below 20 pt) |
 
@@ -273,3 +273,44 @@ drag the `.pptx` into that folder and let Drive convert it (File > Save as Googl
 Note also that the planning deck predates M0 and therefore still states two claims that M0
 overturned — land stored as 0, and `w` vanishing at the surface. **Rebuild it before showing
 it to anyone**; `build_deck.py` would need those slides corrected first.
+
+## Planning deck v2 — 2026-10-02 (planning prompt 9)
+
+**Task.** Prompt Planning-9: no font below 20 pt; a glossary of the primary terms; a slide on
+how a front is tracked from one hour to the next; a version number, bumped to v2.
+
+`build_deck.py` was rewritten in place (v1 is in git history) and now writes v2 to the same
+file name, `Frontogenesis_Planning.pptx` — **17 slides**, 61 KB. Helpers follow
+`build_m1_deck.py`: every run goes through `_run`, which clamps at `MIN_PT = 20`.
+
+- **20 pt floor.** Every slide was reflowed rather than shrunk: wording shortened, three-column
+  card rows turned into full-width rows, footers and tags at 20 pt. `check_m1_deck.py
+  Frontogenesis_Planning.pptx` reports **minimum 20.0 pt, no offender**.
+- **Version.** `VERSION = "v2"` on the title slide (badge) and in every footer
+  ("Frontogenesis planning · v2", plus the slide number); slide 17 is a version history.
+- **Tracking (slide 11).** Planning §5.7 / Q14: a cartoon (front A at t, its mask advected by
+  u, v, the true continuation inside the dashed prediction, and a nearer stationary neighbour
+  B that position alone might pick) beside four steps — label both hours independently;
+  advect the boolean mask with `semilag` and threshold at 0.5; score candidates with
+  `follow()`'s existing terms (position, overlap, length, area, orientation) plus IoU with the
+  predicted mask; best score ≤ 2.5 (`MAX_SCORE`) links, otherwise a gap. Closing band: why it
+  is load-bearing (material derivative; advected pixel set; split/merge flag). Term names and
+  `MAX_SCORE` checked against `fronts/front_tracking.py` on `origin/viz_tools`.
+- **Glossary (slides 15-16).** 9 physics terms and 10 method/data terms.
+- **Content brought into line with the planning doc** (the stale claims flagged above, plus
+  the post-v1 decisions): surface `w = Dη/Dt`, not 0; the top-cell vertical term measured from
+  the hourly chunks (Q13), not bounded; OSN land NaN, not 0; surface fluxes from the chunk
+  store; numerical damping ~0.1-0.5 f at 4Δx (was 0.1-1 f); the branch decision resolved
+  (Q15); "OSN path never run" risk replaced by "tracking links to the wrong front". Slide 17
+  lists these.
+- **QA.** Rendered with LibreOffice (`soffice` → PDF → `pdftoppm`) and all 17 pages inspected;
+  three layout fixes made (version-history spacing, tracking "Why" band, slide-10 closing
+  line). The checker's "overflow?" estimates were all false positives against the render.
+
+**Uploaded 2026-10-02** to the AIOcean shared drive, `data/HIINet/Frontogenesis/`, via the
+local rclone remote `AIOcean:` (not the Drive connector — that is what stalled v1):
+`Frontogenesis_Planning.pptx` (the file, id `1JRbjZeLCYZAJz9R-KU24MBKUXSuvPHhM`) and a native
+Google Slides conversion `Frontogenesis_Planning` (id `1GG-CD82oxCbrmxAelGQ7mRha9IeEggHlBE4RSPi3UpA`,
+17 slides). Commands: `rclone copy --drive-import-formats pptx <pptx> AIOcean:data/HIINet/Frontogenesis/`
+for the Slides copy, then `rclone copy --drive-skip-gdocs <pptx> ...` for the .pptx.
+

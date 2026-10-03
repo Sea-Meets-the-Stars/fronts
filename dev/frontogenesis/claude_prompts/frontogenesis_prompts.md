@@ -46,6 +46,13 @@ Use Fable if you can.  Log your work
 8. I have answered your qeustions Q13-Q15.  Please read my answers, update the planning docs and then proceed to create a series of prompt docs for execution.
 Name them `frontogenesis_prompt_1.md`, `frontogenesis_prompt_2.md`, etc.  Log your work below. Use Fable if you can.
 
+9. Modify the `Frontogenesis_Planning.pptx` to:
+    - Have no fonts with size less than 20pt.
+    - Add a glossary that defines the primary terms used in the document.
+    - Include a slide describing how we will track a given front from one hour to the next.
+    - Add a version number and bump it to v2
+Use Opus 5.5 and log your work below.
+
 ## Q&A
 
 ### Planning
@@ -3658,3 +3665,58 @@ acceptance 4), `claude_prompts/frontogenesis_prompt_6.md` (Figure 2 bullet), `fr
 §7 Figure 2 and V3), `py/validate_figs.py` (`fig_V3b` layout only), `figs/V3b_fv_null.png`
 (regenerated, same numbers) and this log. Not touched: every other module, the tests, the data
 stores, `frontogenesis_prompt_1.md`, `_3.md`, `_5.md`, `deck/`.
+
+### 2026-10-02 — Planning prompt 9: planning deck v2 (Claude Opus 5.5)
+
+**Deliverable.** `deck/Frontogenesis_Planning.pptx`, now **v2** — 17 slides (was 13), rebuilt
+by `deck/build_deck.py`, which was rewritten in place (v1 stays in git history). Work log in
+`deck/README.md` ("Planning deck v2").
+
+**The four requests.**
+
+1. **No font below 20 pt.** Every run is clamped at `MIN_PT = 20` (the `build_m1_deck.py`
+   helpers). v1 ran 10-17 pt in bodies, so this was a reflow, not a resize: shorter wording,
+   three-column cards turned into full-width rows, footers and tags at 20 pt.
+   `check_m1_deck.py Frontogenesis_Planning.pptx`: **minimum 20.0 pt, no offender.**
+2. **Glossary** — slides 15-16: 9 physics terms (front/frontogenesis, b, G, F, DG/Dt,
+   residual, tilting term, diabatic B, strain/θ) and 10 method/data terms (semi-Lagrangian,
+   front pixels, filter scale L, subfilter flux τ, discrete null, OS7MP, KPP/KPPhbl,
+   follow()/IoU, advected pixel set, tile 330/OSN/chunks).
+3. **Tracking slide** — slide 11, from planning §5.7 / Q14. It has a cartoon: front A at t,
+   its mask advected by u, v (dashed), the real continuation inside that prediction, and a
+   nearer stationary neighbour B that position alone could pick. Beside it are four steps:
+   label both hours independently; advect the *boolean* mask with `semilag` and threshold at
+   0.5; score candidates with `follow()`'s position/overlap/length/area/orientation terms plus
+   IoU with the predicted mask; link if the best score ≤ 2.5, otherwise record a gap. A closing
+   band covers the advected pixel set and split/merge flags. I checked the score terms and
+   `MAX_SCORE` against `fronts/front_tracking.py` on `origin/viz_tools`.
+4. **Version number** — a v2 badge on the title slide, "Frontogenesis planning · v2" plus the
+   slide number in every footer, and a version-history slide (17).
+
+**Beyond the letter of the prompt (flag if unwanted).** v1 predated M0 and Q13-Q15, and
+`deck/README.md` already said it had to be corrected before anyone saw it. So v2 also brings
+six statements into line with the current `frontogenesis_planning.md`:
+- surface `w = Dη/Dt`, not 0;
+- the top-cell vertical term is measured from hourly chunks, not bounded;
+- OSN land is NaN, not 0;
+- surface fluxes come from the chunk store;
+- numerical damping is ~0.1-0.5 f at 4Δx, not 0.1-1 f;
+- the branch decision is resolved (Q15).
+
+The "OSN path never run" risk was retired by M0. "Tracking links to the wrong front" replaced
+it. Slide 17 lists all of this. No M1 results were added, so the deck stays a planning summary.
+
+**QA.** Rendered with LibreOffice and all 17 pages inspected. Three layout fixes were made and
+the render was repeated.
+
+**Not done:** the Drive upload (still pending from prompt 6, and not asked for here).
+
+**Upload (2026-10-02, follow-up to Planning prompt 9).** v2 pushed to the AIOcean shared drive,
+`data/HIINet/Frontogenesis/`, alongside the M0/M1 decks, using the local **rclone** remote
+`AIOcean:` rather than the Drive connector, which is what stalled the v1 upload. Two files:
+`Frontogenesis_Planning.pptx` (62,950 bytes, id `1JRbjZeLCYZAJz9R-KU24MBKUXSuvPHhM`) and
+the native Google Slides version `Frontogenesis_Planning`
+(https://docs.google.com/presentation/d/1GG-CD82oxCbrmxAelGQ7mRha9IeEggHlBE4RSPi3UpA/edit,
+17 slides, confirmed through the connector's metadata). The Slides version was converted with
+`rclone copy --drive-import-formats pptx`, and the .pptx was uploaded with
+`--drive-skip-gdocs`. This closes the upload left open since Planning prompt 6.
