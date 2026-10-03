@@ -3907,3 +3907,359 @@ Files: modified `py/osn_tiles.py` (imports, module docstring, `load_hours` refac
 `claude_prompts/frontogenesis_prompt_3.md` (Status paragraph), this log; created `py/zarr_series.py`,
 `py/series_verify.py`, `py/tests/test_pull_series.py`. Not touched: `pytest.ini`, `conftest.py`,
 every M1 module and test, `deck/`, the data stores (the smoke test wrote only under `tmp_path`).
+
+### 2026-10-03 — Execution prompt 3, task 2: the 72-hour OSN pull (Fable)
+
+**Complete** (phase 1 09:15 PDT, phase 2 09:44 PDT; results below).
+
+**Scope.** Task 2 of `frontogenesis_prompt_3.md`: the detached 72-hour pull into
+`data/tile330_raw_20120702T00_72h.zarr`. Run in two phases: phase 1 (this part) wrote the
+driver script, launched the pull detached and confirmed it is progressing; phase 2 (a later
+session, after the main session sees `data/m2_pull_done.json`) runs `verify_series`, the no-op
+re-run with checksums, the hours 0-1 spot check against the M0 two-hour store, and the
+wall-time / volume report. Nothing outside `dev/frontogenesis/` touched; nothing committed;
+`tile330_raw_20120702T00_2h.zarr` kept (M2-Q4). Every interactive command under `timeout`; the pull
+itself runs under `nohup`, never in the foreground (M2 rules).
+
+**Written: `py/m2_pull.py`** (new, ~170 lines; `m0_write.py` is the style precedent). A thin
+driver on task 1's `pull_series`:
+- builds the 72 timestamps `2012-07-02 00:00:00` … `2012-07-04 23:00:00` from `T_START` with
+  `timedelta(hours=h)` in `DATE_FMT`, and asserts the count and both endpoints;
+- opens M0's grid (`open_grid(GRID_PATH, with_face=False)`, the stored layout) and passes it as
+  `grid_ds` — the `XC`/`YC` source for the store's creation;
+- `pull_series(ts, OUT_ZARR, grid_ds=grid, log=say, report=rep)`; paths come from
+  `osn_tiles.DATA_DIR` (resolved from `__file__`), and the script puts its own directory on
+  `sys.path`, so it can be launched from anywhere;
+- `Progress`: the `log` callback writes one timestamped line per event (hours present, each hour's
+  wall time with a running mean and ETA computed from the live `report['wall_s']`, retries,
+  failures, repairs, totals, the final report) to **`data/m2_pull.log`** (append, flushed per
+  line) and to stdout (so `data/m2_pull.nohup` also has them, interleaved with dbof's six
+  kerchunk progress lines per hour);
+- **`data/m2_pull_done.json`**, written atomically (tmp + `replace`) when the run ends, with
+  `status` (`ok` / `failed` / `error` / `interrupted`), `started`, `finished`, `wall_s`,
+  `n_present` (from the store's own `time`), `n_requested`, `pid`, `host`, the full `report`
+  (`pulled, skipped, failed, not_attempted, repaired, wall_s`) and any traceback. Written on every
+  path — the stop-at-gap return (`status='failed'`), an exception (`except BaseException`, so a
+  `KeyboardInterrupt` writes it too), and the complete or no-op run (`status='ok'`, `pulled=[]`
+  on a no-op). A stale done-file is deleted at start. Exit code 0 iff `ok`;
+- `--dry-run` lists the 72 timestamps with present/missing from `zarr_series.present_times` (no
+  repair, no network, no writes) plus the store/log/done/grid paths, and exits;
+- `if __name__ == '__main__': sys.exit(main())`.
+
+**Dry run** (`timeout 120 python m2_pull.py --dry-run`, 09:15 PDT): store absent, 0 present, 72
+to pull, grid present.
+
+**Launch** (09:15:55 PDT, 2026-10-03):
+```
+cd dev/frontogenesis/py && nohup ~/miniforge3/envs/frontogenesis/bin/python m2_pull.py > ../data/m2_pull.nohup 2>&1 &
+```
+**PID 19049** (host MacBook-Pro-4.local). Log start line `09:15:56`; `0 hours present, 72
+requested` at `09:15:57` (store created on the first append).
+
+**First per-hour wall times** (load core + wind with retries, then one atomic append), no retries,
+no repairs, no failures so far:
+
+| hour | wall |
+|---|---|
+| 2012-07-02 00:00 | 21.7 s |
+| 2012-07-02 01:00 | 22.4 s |
+| 2012-07-02 02:00 | 22.9 s |
+| 2012-07-02 03:00 | 20.7 s |
+| 2012-07-02 04:00 | 22.1 s |
+
+~22 s/hour, the same rate as task 1's network smoke test (22 s) and the fast end of M0's 21-90 s;
+the store is 42 MB after 4 hours (~10.5 MB/hour, so ~0.75 GB for 72, as M2-Q2 estimated). ETA
+from the script's own running mean: **~25 min, i.e. ~09:42 PDT** if OSN stays this fast; up to
+~1.8 h if it slows to M0's worst 90 s/hour. The main session watches for
+`data/m2_pull_done.json`.
+
+**Phase 2 — results.** The pull **completed on the first launch, no restart needed**:
+`m2_pull_done.json` (run 1, preserved as `data/m2_pull_done_run1.json`) has `status=ok`,
+`n_present=72`, `pulled` = all 72, `skipped=[]`, `failed=[]`, `not_attempted=[]`, `repaired=0`,
+`error=None`; start `09:15:56`, end `09:43:13` PDT (16:15:56-16:43:13 UTC). The log has no
+retry, `FAILED`, repair or exception line (the only grep hits are the "0 failed / 0 repaired"
+totals), so nothing exercised the retry/repair paths on real data; they remain covered by the
+offline tests only.
+
+- **Wall time.** Total **1636.9 s = 27.3 min**; the 72 per-hour walls (load core + wind, one
+  atomic append) sum to 1636.2 s, so the script's own overhead (grid open, repair check, totals)
+  was 0.7 s. Per hour: **median 22.4 s, mean 22.7 s, range 20.7-33.1 s**, p10/p90 21.0/24.7 s;
+  the slowest hour was 2012-07-03 10:00 (33.1 s), then 07-04 11:00 (27.4), 07-03 14:00 (26.2).
+  OSN was uniformly fast: 72 hours in a 21-33 s band, with none of the 90-192 s stalls M0 saw
+  on 2026-09-28. Network-bound (writing an hour is ~0.2 s, M0 task 4).
+- **Volume.** `du -sh` **765 MiB** (783,048 KiB allocated = 802 MB; 799.7 MB of file bytes),
+  **11.1 MB/hour**, 834 files: 9 vars x 72 chunks (648) + 72 `time` + 72 `niter` chunks + the
+  static `XC`/`YC`/index-coord chunks and the `zarr.json` metadata. Per variable 71 MB (`Salt`)
+  to 91 MB (`V`); data chunks 1.03-1.33 MB each (Zstd on a 2.07 MB float32 `720 x 720` slab
+  with 31% NaN land).
+- **Extrapolation** at 22.7 s and 11.1 MB per hour: 1 week (168 h) ~64 min, 1.9 GB; the full
+  504-hour OSN series ~3.2 h, 5.6 GB; 30 days (720 h) ~4.5 h, 8.0 GB. At M0's worst 90 s/hour
+  those become 4.2 h / 12.6 h / 18 h, which is why the pull stays detached and resumable. Per
+  tile the cost is linear in hours; a second tile is a second series of the same size.
+- **`verify_series(out, TS72)` — OK in 0.9 s**, every check `ok`: `time` 72 in store / 72
+  expected, no missing, extra or duplicate hours, ordered; `schema` no problems (the nine §3.2
+  vars, dims, float32, `(1, 720, 720)` chunks, coords, `face=10`, time encoding `seconds since
+  2011-09-10` int64, comodo attrs, §3.2 attrs, `stores`); `niter` steps `{144}`, equal to
+  `osn_date_to_iteration` for every hour and to the `iterations` attr; `land_nan` **72 hours
+  checked, 0 mismatch cells for all nine variables** (`U` vs `hFacW`, `V` vs `hFacS`, the rest
+  incl. `oceTAUX`/`oceTAUY` vs `hFacC`), land fraction 0.3116, so M1's masks hold for every hour;
+  `KPPhbl` present and finite on every ocean cell in every hour (criterion 3).
+- **No-op re-run — proven byte-identical.** sha256 of all 834 files and `stat` (mtime, size)
+  of each taken before; `timeout 300 python m2_pull.py` re-run at 09:44:54 (pid 73461): `72 hours
+  present, 72 requested` -> `0 pulled, 72 skipped, 0 failed, 0 not attempted, 0 repaired`,
+  wall **0.9 s**, done-file `status=ok` with `pulled=[]`, `wall_s={}`; sha256 and stat taken
+  again: **0 differing lines in either**, newest mtime in the store still 09:43:13 (the end of
+  run 1). Criterion 2 holds on real data. Snapshots kept in the session scratchpad only.
+- **Hours 0-1 vs `tile330_raw_20120702T00_2h.zarr` — identical.** Same variable set (9 vars,
+  11 coords); for all 20 variables/coords the dims, shape, dtype, variable attrs and values are
+  equal (NaN-aware: 323,046 NaN in the centred fields = 2 x 161,523, 324,890 in `U`, 324,176 in
+  `V`); `time` values and encoding equal, `niter` `[1022976, 1023120]`. Root attr **keys** equal;
+  values differ only in `git_commit` (`e59b675+dirty` vs `49b1867+dirty`), `created`, and the
+  longer `iterations`/`timestamps` lists (72 vs 2 entries) — provenance, as expected. The
+  2-hour store is kept (M2-Q4); M1's tests are untouched.
+
+**Criteria discharged.** 1 (72 steps, no gaps, §3.2 schema), 2 (no-op re-run, byte-identical),
+3 (`KPPhbl`), the land-NaN replacement for the struck masks item (all 72 hours), and the OSN
+half of 7 (765 MB, 27.3 min, 22.4 s/hour median). The chunk half (criteria 5-6, tasks 4-5)
+is untouched.
+
+**Contradictions / deviations — none from the docs; three notes.**
+1. The done-file describes the *latest* run and is overwritten by every re-run, by design;
+   a watcher tells a no-op from a pull by `report.pulled`, not by `status` (both are `ok`).
+   Run 1's copy is `data/m2_pull_done_run1.json`.
+2. `--dry-run` reads `present_times` **without** `repair_trailing` (it must not write), so on a
+   store left half-written by a crash it could list the trailing hour as present; the real run
+   repairs first, so the pull itself is unaffected.
+3. The `status` paragraph in prompt 3 was updated to "tasks 1-2 done"; coding §6 M2 was not
+   touched (that is the task-6 audit's job).
+
+**For task 3 (`m2_qa.py`).** `xr.open_zarr(DATA_DIR / 'tile330_raw_20120702T00_72h.zarr')`
+is 72 lazy hours, one chunk per hour per variable, so per-hour statistics stream at 9 chunk
+reads per hour (the whole store loads in memory at ~1.3 GB float32 if wanted);
+`expand_dims('face')` before any dbof operator; `open_grid()` for the masks; 71 hour pairs for
+`semilag.departure_index`; the M2-Q3 extra (6 pairs through `validate.test_discrete_null`) is
+~1 min per pair.
+
+**Full suite** after the task (`timeout 300 python -m pytest dev/frontogenesis/py/tests -q`):
+**104 passed, 3 xfailed, 1 deselected (network) in 143 s**, identical to task 1's count; the M1
+baseline (84 + 3 strict xfails) still passes. `git status` shows only this log and the new
+script changed; the data products are git-ignored.
+
+Files: created `py/m2_pull.py`, `data/tile330_raw_20120702T00_72h.zarr` (765 MB),
+`data/m2_pull.log`, `data/m2_pull.nohup`, `data/m2_pull_done.json` (latest run) and
+`data/m2_pull_done_run1.json` (the 72-hour run); modified
+`claude_prompts/frontogenesis_prompt_3.md` (Status paragraph), this log. Not touched: every
+module and test, `pytest.ini`, `deck/`, `frontogenesis_coding.md`, `tile330_grid.zarr`,
+`tile330_masks.nc`, `tile330_raw_20120702T00_2h.zarr`. Nothing committed.
+
+
+### 2026-10-03 — Execution prompt 3, task 3: series QA and baseline stability (Fable)
+
+**Scope.** Task 3 of `frontogenesis_prompt_3.md` (the time-series QA of the 72-hour store, no
+`F`/`G` budgets or slopes) plus the extra step JXP approved in M2-Q3 (the V3 real-velocity null
+re-run on 6 hour pairs across the window). Tasks 4-5 (chunk store) not touched. Offline, from
+`data/tile330_raw_20120702T00_72h.zarr`, `tile330_grid.zarr`, `tile330_masks.nc`. Nothing
+outside `dev/frontogenesis/` touched; `deck/` untouched; nothing committed; every python command
+under `timeout 300`, no background jobs. *(entry started early; extended below as the work
+proceeds)*
+
+**Written.**
+- `py/m2_qa.py` (638 lines, functions only) → **`figs/m2_qa_series.png`** (200 dpi, 3600 x 3400,
+  1.2 MB, 8 panels in `validate_figs` style). Streams the store one hour at a time (72 hours in
+  6 s) and one pair at a time (71 pairs in 42 s); per-hour / per-pair numbers cached as JSON in
+  `data/m2_qa_hours.json`, `data/m2_qa_pairs.json`, summary `data/m2_qa_summary.json`
+  (git-ignored; resumable, `--pairs a:b`, `--figure-only`, `--measured k,...`).
+- `py/m2_baseline_stability.py` (422 lines) → **`figs/m2_v3_stability.png`** (3400 x 2300,
+  0.6 MB); cache `data/m2_v3_stability.json` (resumable; `--pairs`, `--all a:b`, `--changes`,
+  `--check-default`, `--roughness`, `--robust a:b`).
+- **M1 code touched (flagged):** `py/validate.py` only — two **backward-compatible keywords**
+  `store=None, t0=0` on `_llc_inputs`, `_discrete_null` and `test_discrete_null` (the real store
+  path and the pair's first hour; `_llc_inputs` now loads `isel(time=[t0, t0+1])` instead of the
+  whole store, and returns `hours`, `store`, `t0`; the `res` strings `tracer`/`velocity` are
+  rewritten only when a non-default is passed). Defaults reproduce M1 **bit for bit**: the
+  unchanged default call gives slope 0.980590 [0.969822, 0.994233], identical in every
+  estimator, CI and threshold to the 72-hour-store pair 0 (`--check-default`). `test_fv_null`
+  untouched (calls the defaults). No definition changed.
+
+**QA numbers (tile-mean / ocean percentiles, 72 hours).**
+- **Eta — the tide is there.** Tile-mean range **2.009 m** (−0.512 to +1.497 m; over
+  `mask_analysis` 2.027 m, so it is tile-wide, not the Gulf of California); the p5-p95 band is
+  ±0.2-0.3 m around the mean. FFT of the detrended tile mean: peak bin 12.0 h (72-h record,
+  1/72 h⁻¹ resolution), parabolic refinement **12.41 h**; a free-period sinusoid fit gives
+  **12.38 h, amplitude 0.612 m** (r² 0.61 alone, because of the diurnal inequality); M2 + K1 fit:
+  **M2 0.619 m, K1 0.494 m, r² 0.989**, rms residual 0.07 m; S2 is not separable from M2 in 72 h.
+  Highs at hours 1-2, 14-15, 26, 39, 51, 64; lows at 9, 20, 33-34, 44-45, 58, 69.
+- **KPPhbl — the diurnal cycle is there.** 24-h fit **amplitude 6.4 m**, mean 22.1 m, trend
+  −0.042 m/h, r² 0.85; **maximum at 8.85 UTC = 0.8 h local solar time (lon −120.5: UTC − 8.0 h;
+  01:51 PDT)**, minimum at ~21 UTC = 13 h solar. Daily tile-mean min / max: 13.1 / 25.1 m (07-02,
+  max at 09 UTC, min at 21), 11.8 / 26.8 (07-03, 09 / 21), **7.9 / 26.9** (07-04, 10 / 21) — the
+  afternoon minimum deepens day by day (7.9 m at hour 69, p50 4.2 m) as the tile-mean |tau|
+  falls from 0.10-0.12 to 0.06 N m⁻² (panel b, right axis). Figure 6 has its signal.
+- **Theta** tile mean 16.955-17.313 °C (p5 ~14.0, p95 ~19.3), a slow cooling with a weak
+  diurnal bump; **Salt** 33.640-33.648; **W** tile mean −1.2e-4 to +1.0e-4 m/s (= dEta/dt, M0).
+- **|u|** at centres (`semilag.centre_velocities`; speed is rotation-invariant): p50
+  **0.144-0.230 m/s**, p95 0.373-0.508, max 1.07-3.14 m/s, all three with a clear semidiurnal
+  modulation; tile-mean geographic components with the face-10 orientation `u_east = V`,
+  `v_north = −U`: u_east −0.08 to +0.02, **v_north −0.19 to −0.03 m/s** (southward, the
+  California Current), both tidally modulated.
+- **Land-NaN fraction — constant:** centred fields **0.31158** (161,523 cells), `U` 0.31336
+  (162,445, `hFacW`), `V` 0.31267 (162,088, `hFacS`) in all 72 hours; **0 mismatch cells** vs
+  `hFacC/W/S` for all nine variables in every hour (confirms task 2's `verify_series`).
+- **oceTAUX / oceTAUY re-masking:** finite on `hFacW`/`hFacS` land **922 / 565 per hour** before
+  (66,384 / 40,680 over the window — M0 task 3's numbers, constant), **0 / 0 after** re-masking,
+  every hour.
+- **Anomaly flags — none.** No frozen field (no identical consecutive hours for any variable;
+  the largest identical-cell fraction is 0.6 % for `KPPhbl`, 0.26 % for `oceTAUX`; min rms hourly
+  change of `Theta` 0.028 °C); no NaN-pattern change (pattern equal to hour 0's for every
+  variable and hour); no outlier jumps in the tile means (max |z| of the hourly difference vs
+  the MAD: Eta 1.6, KPPhbl 2.7, Theta 2.9, |u| 1.6, Salt 1.7, W 1.2; none > 5); the tide is not
+  missing. The only flag raised is the L = 8 edge-support one below.
+
+**Displacement envelope (71 pairs, `departure_index` defaults, midpoint velocity).**
+- Pair 0-1 reproduces M1 exactly: ocean median 0.364, p99 1.248, max 2.10 cells.
+- **Ocean:** median **0.268-0.441** (mean 0.351), p99 **1.05-1.38** (mean 1.22), per-pair max
+  1.80-4.05; **window max 4.05 cells at pair 59 (07-04 11:00-12:00)** — at lon −113.57, lat
+  29.25, 6.8 km from the coast in the **Gulf of California midriff** (the Ballenas Channel tidal
+  jet), where every pair's max > 2.5 sits; the max series peaks every ~12.4 h (3.3-4.05 at pairs
+  9, 22, 34, 47, 59, 70). None of those cells is in `mask_analysis`.
+- **`mask_analysis`:** median **0.252-0.439**, p99 **0.93-1.34**, per-pair max 1.69-2.27;
+  **window max 2.27 cells (pair 45, 07-03 21:00)**; 0 NaN departures on the analysis mask in any
+  pair. Fraction of ocean cells moving > 1 cell: up to ~3.5 %; > 1.5 cells: ~0.5 %. So M1's
+  assumptions (median 0.36, p99 1.25, max 2.1) hold over the window on the analysis domain to
+  within the tidal modulation; the only exceedance is the Gulf of California (excluded).
+- Front pixels of the V3 runs (next section): median 0.33-0.56, p99 1.30-1.79, max 1.66-2.27.
+
+**Edge support — verdict: `edge_cells = 7` holds at `L ≤ 4` exactly; at `L = 8` it is short by
+0-5 cells for ≤ 34 analysis cells per pair.** Geometric test per pair: the order-3 departure
+support of `measured_DGDt` (the five-point stencil at the departure point on the 4-node
+Lagrange kernel: nodes `floor(p) − 2 .. floor(p) + 3` per axis) against the finite part of a
+field low-passed at `L` (the tile at `L = 0`; `[L/2, n − 1 − L/2]` otherwise, because `lowpass`
+pads the edge with NaN):
+- **`L = 0, 2, 4`: 0 `mask_analysis` cells in all 71 pairs** (a parcel would need > 5 / 4 / 3
+  cells inward at the first analysis row; the window max there is 2.27).
+- **`L = 8`: 1,450 cells over 71 pairs, 7-34 per pair (mean 20; 0.003-0.013 % of 262,925), worst
+  pair 44 (07-03 20:00)**, all at edge distance exactly 7 (the first analysis row: a parcel
+  arriving there from > 1 cell towards the edge needs node 4 − 1 = 3, which is in the NaN rim).
+  **Cross-checked empirically**: `semilag.measured_DGDt` on JMD95 `b` (raw and `op.lowpass(b, 8)`)
+  gives **0 / 21, 0 / 34, 0 / 28, 0 / 21 NaN analysis cells (L = 0 / 8) on pairs 0, 44, 46, 59**
+  — identical to the geometric count, all within reach of the tile edge, min edge distance 7.
+  So M1 task 6's "edge reach at `L = 8` is exactly 7, no slack" becomes, with the real
+  displacement, a loss of ≤ 34 cells per pair at the analysis rim when `b` is low-passed at
+  `L = 8` *before* the semi-Lagrangian step. Recommendation for M3: **keep `edge_cells = 7`**
+  (making it exact at `L = 8` would need 9-10 cells for a 0.03 % gain), and reduce over
+  `isfinite(DGDt) & mask_analysis` at `L = 8` — the rule M1 tasks 2-3 already state. Note also
+  that `mask_edge`'s outermost analysis rows carry high leverage on day 3 (below), which is a
+  stronger reason to report an edge-band sensitivity in M3 than the NaN count.
+
+**Extra step (M2-Q3) — stability of the V3 baseline. The construction is M1 task 6's,
+unchanged**: hour `t0` JMD95 `b`, `0.5 (U_t + U_tp1)`, our semi-Lagrangian step (order 3,
+`vel_order` 3, `n_iter` 3), `measured_DGDt` vs `2F` at the midpoint, front pixels `G_mid ≥ p90`
+over `mask_analysis` & finite (n = **26,293 of 262,925 in every pair**), OLS with intercept as
+the gate, 32-cell block bootstrap with 1000 draws, forms `chain`, `discrete_o2`, `discrete` (the
+gate). Because `changes=False` costs only **~2 s per pair** (not the minute M2-Q3 assumed), the
+six planned pairs were run **and then all 71**; the planned pairs (chosen from the Eta / KPPhbl
+phases above, at least one per day, plus a 7th at the window's shallowest mixed layer) are the
+marked points in the figure. `data/m2_v3_stability.json` has every pair's estimators.
+
+| pair (UTC) | phase | discrete (gate) | 95 % CI | n | gate | chain | corr |
+|---|---|---|---|---|---|---|---|
+| 0-1, 07-02 00 | high tide, ML deepening, 16 h solar — M1's pair | **0.9806** | [0.9698, 0.9942] | 26,293 | PASS | 0.7914 | 0.982 |
+| 9-10, 07-02 09 | low tide, ML max, 01 h solar | 0.9872 | [0.9800, 0.9939] | 26,293 | PASS | 0.8053 | 0.982 |
+| 21-22, 07-02 21 | rising, ML min of day 1, 13 h solar | 0.9851 | [0.9762, 0.9941] | 26,293 | PASS | 0.8052 | 0.965 |
+| 33-34, 07-03 09 | low tide, ML max of the window | 0.9802 | [0.9745, 0.9908] | 26,293 | PASS | 0.7559 | 0.985 |
+| 45-46, 07-03 21 | low tide, ML min of day 2, largest analysis displacement | 0.9775 | [0.9563, 0.9913] | 26,293 | PASS | 0.7971 | 0.958 |
+| 62-63, 07-04 14 | high tide, smallest displacement, 06 h solar | **0.9462** | [0.9086, 0.9953] | 26,293 | **FAIL** | 0.6778 | 0.963 |
+| 69-70, 07-04 21 (extra) | ML min of the window, 13 h solar | 0.9544 | [0.9163, 0.9849] | 26,293 | PASS | 0.7086 | 0.951 |
+
+- **Reproduction:** pair 0-1 gives **0.98059** = M1's 0.9806, CI [0.9698, 0.9942] = M1's
+  [0.970, 0.994]; chain 0.7914; `changes=True` reproduces every M1 variant (first attempt 0.7579,
+  bilinear discrete 0.9382, velocity low-passed 1.0057, `b` low-passed 0.9806, strain seen
+  0.992 / 0.856 / 0.847).
+- **The 7 marked pairs:** slopes 0.946-0.987, mean 0.973 (std 0.016), weighted mean 0.984,
+  χ²/dof 1.4 against their bootstrap CIs; 5/7 inside the baseline band, all 7 CIs overlap it,
+  6/7 inside the V3b band; all 7 CIs exclude 1 from above (upper < 1).
+- **All 71 pairs:** slopes **0.902-0.997**, mean **0.972**, std **0.020**, weighted mean
+  **0.9828**; **64/71 pass the gate**, 66/71 CIs have upper < 1, **71/71 CIs overlap the
+  baseline band**, 46/71 slopes inside it, 62/71 inside the V3b band 0.954-1.003; χ²/dof **1.8**
+  (excess scatter beyond the bootstrap 0.013). Day means **0.984 / 0.978 / 0.953**. Failures:
+  pair 36-37 (0.947) and pairs 62-67 (0.946, **0.903, 0.902**, 0.924, 0.914, 0.923), all with
+  CIs 2-4x wider than hour 0's (0.82-0.99) and corr 0.92-0.95. Chain form 0.616-0.824 (std
+  0.048), moving with the gate form; `discrete_o2` 0.94-1.03.
+- **What the dips are (diagnosed, not tuned; nothing in the gate was changed):**
+  1. *Leverage, not a drift of the operators.* Dropping the top 1 % of |2F| front pixels (263 of
+     26,293) gives **0.971-1.002, mean 0.9869, std 0.0053** over all 71 pairs (pair 64: 0.902 →
+     0.986; pair 36: 0.947 → 0.978; hour 0: 0.981 → 0.987); dropping 5 %: 0.98-1.00. The
+     kurtosis of 2F on the front pixels rises from 112 (hour 0) to 200-340 (pairs 63-67). The
+     largest leave-one-block-out shift is ≤ 0.02 for 62 pairs and **+0.058 to +0.080 for pairs
+     63-67** (one 32-cell block carries 29-44 % of the 2F variance there).
+  2. *Where:* on day 3 that block is at lon −124.3, lat 38.0 — the **block containing the
+     northern tile edge** (`i = 0-30`). At hour 64 the median `G` in it is **~1e-13 on rows
+     3-11 from the edge (10-100x the interior; absent at hour 0)**: a very sharp front strip
+     entering the analysis domain at the tile boundary. The OLS on front pixels **7-9 rows from
+     the northern edge is 0.71, 10-12 rows 0.83, ≥ 13 rows 1.02 / 0.98**; at hour 0 the same
+     bands give 0.98 / 1.19 / 0.99 / 1.00. The strip's `G/threshold` median is 4.6 (interior
+     2.7); `b` low-passed at `L = 8` moves pair 64 to 0.978 and the velocity low-passed to 0.985
+     (hour 0: 0.981 / 1.006), so both a sub-resolved front (V3b's −4 to −11 % at 1-1.5 dx) and
+     grid-scale velocity structure contribute; whether the first analysis rows also see the
+     boundary itself (zero-gradient / `padding='fill'` leakage beyond `edge_cells`) cannot be
+     excluded from this data alone and is **an open item for M3**.
+  3. *Grid-scale velocity content* (`rms(u_c − lowpass(u_c, 2))/rms(u_c)` on the analysis
+     mask, 0.028-0.042 across the pairs) explains only part: corr −0.45 with the slope.
+- **Interpretation.** 0.981 is **a property of the operators on this tile, reproduced within the
+  bootstrap over most of the window** (weighted mean 0.983; day-1 and day-2 means 0.984 / 0.978;
+  every CI overlaps the baseline band; the systematic −2 % below 1 is present in 66/71 pairs),
+  **with a leverage-driven tail**: on 7 of 71 pairs a single extreme front region (day 3: a
+  sharp front at the northern boundary) pulls the OLS gate down by 0.03-0.08, and the OLS
+  estimator with a `p90` pool is sensitive to it (the orthogonal / GM estimators on pair 64 give
+  0.976 / 0.978 against OLS 0.902). The hour-to-hour spread (std 0.020 raw, **0.005 trimmed**)
+  is therefore larger than the one-hour CI (±0.012) but is not a drift of the kinematics.
+- **Recommendation (no doc or figure changed here):** keep Figure 2's baseline at **0.981
+  [0.970, 0.994]** (M1-Q4) and the V3b band 0.954-1.003; add to M3's reporting (planning §11)
+  (i) the window spread as the baseline's **temporal systematic — 0.972 ± 0.020 over 71 pairs,
+  0.987 ± 0.005 with the top 1 % |2F| trimmed** — quoted beside the bootstrap CI; (ii) the
+  trimmed and orthogonal estimators alongside the OLS gate for every pair (the gate's definition
+  stays OLS); (iii) an edge-band sensitivity (slope with `edge_cells` = 7 vs 13); (iv) for the
+  M3 headline, hours with a front strip at the tile boundary (07-04 14-20 UTC) should be shown
+  separately, not dropped.
+
+**Suite** (`timeout 300 python -m pytest dev/frontogenesis/py/tests -q`): **104 passed, 3
+xfailed, 1 deselected (network) in 151 s** — unchanged from tasks 1-2; all M1 tests pass with
+the `validate.py` keywords. `git status` shows `figs/m2_qa_series.png` and
+`figs/m2_v3_stability.png` as new (`figs/.gitignore` `!*.png`), `py/m2_qa.py`,
+`py/m2_baseline_stability.py` new, `py/validate.py` modified (+26/−11), plus task 2's uncommitted
+`py/m2_pull.py` and the two prompt files. Nothing committed.
+
+**Contradictions / deviations — flagged.**
+1. **M2-Q3's cost estimate ("about a minute per pair") is wrong by 30x**: a V3 llc run with
+   `changes=False` is ~2 s (the minute is `changes=True`'s variants plus the figure). That is
+   why all 71 pairs were run; the 6-pair design asked for would have shown 5/6 pass and one
+   failure without the context to interpret it.
+2. **The M1 gate does not pass on every hour of the window**: 7/71 pairs fail `1 ± 0.05`
+   (0.902-0.947), against M1 task 6 / coding §4.9's "PASS" recorded on hour 0-1. The gate as
+   defined (OLS on the `p90` pool) is leverage-sensitive; the pass is robust once the top 1 %
+   |2F| pixels are excluded (0.971-1.002). Not a change to any definition; a finding for the
+   M3 prompt and the audit.
+3. **M1 task 6's "edge reach at `L = 8` is exactly 7 = `edge_cells`, no slack"** was for the
+   stencils at zero displacement; with the real displacement the `L = 8` reach exceeds 7 for
+   7-34 analysis cells per pair (0.013 % max). `edge_cells = 7` is kept; `isfinite` on the mask
+   is required at `L = 8`, as already recommended.
+4. **Planning §5.3 / M1 task 3's displacement max (2.09-2.1 cells)** is an hour-0 and
+   analysis-domain number; over the window the ocean max is **4.05 cells** (Gulf of California
+   tidal jet, every ~12.4 h), 2.27 on `mask_analysis`. The median and p99 (0.36 / 1.25) hold to
+   within ±25 % / ±10 % tidally.
+5. `KPPhbl`'s diurnal cycle is 180° out of phase with the SST diurnal cycle as a "daytime"
+   quantity: its **maximum is at ~01 h local solar (night-time convective deepening) and its
+   minimum at ~13 h** — Figure 6's "diurnal residual" axis should be phased on the mixed-layer
+   *minimum* (afternoon), and its day-to-day deepening (13 → 12 → 8 m) is a wind trend
+   (|tau| 0.11 → 0.06 N m⁻²), not noise.
+6. `m2_qa.py` is 638 lines (coding §1.3's ~400 exceeded, as `validate.py` is); the per-pair
+   cache and figure code are the bulk. Flagged, not split.
+7. The prompt's "6 hour pairs" was exceeded (7 marked + all 71); the construction is unchanged
+   and the 6-pair result is a strict subset of what is reported.
+
+Files: created `py/m2_qa.py`, `py/m2_baseline_stability.py`, `figs/m2_qa_series.png`,
+`figs/m2_v3_stability.png`, and (git-ignored) `data/m2_qa_hours.json`, `data/m2_qa_pairs.json`,
+`data/m2_qa_summary.json`, `data/m2_v3_stability.json`; modified `py/validate.py` (the two
+keywords, flagged above), `claude_prompts/frontogenesis_prompt_3.md` (Status paragraph), this
+log. Not touched: every other M1 module and test, `pytest.ini`, `conftest.py`, `deck/`,
+`frontogenesis_coding.md`, `frontogenesis_planning.md`, the data stores and masks.

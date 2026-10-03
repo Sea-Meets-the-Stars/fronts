@@ -461,15 +461,20 @@ def _fourth_order_everywhere(case, order=3, margin=10):
     return slope_estimators(2 * F4[front], meas[front])['ols']
 
 
-def _llc_inputs(grid_ds=None) -> dict:
+def _llc_inputs(grid_ds=None, store=None, t0=0) -> dict:
     """The real-velocity variant's inputs (V3 and V3b share them): the tile
-    grid ``g`` and xgcm ``grid``, hour 0's JMD95 ``b_t``, the time-midpoint
-    ``U``, ``V`` of M0's two hours (raw staggered), ``mask_analysis`` as
-    ``ana`` and the 32-cell block labels."""
+    grid ``g`` and xgcm ``grid``, hour ``t0``'s JMD95 ``b_t``, the
+    time-midpoint ``U``, ``V`` of hours ``t0, t0 + 1`` (raw staggered),
+    ``mask_analysis`` as ``ana`` and the 32-cell block labels.
+
+    ``store`` (a path; default M0's two-hour store ``RAW``) and ``t0``
+    (default 0) were added for M2 task 3's baseline-stability check on the
+    72-hour store; the defaults are the M1 construction unchanged."""
     g = grid_ds if grid_ds is not None else ot.open_grid(with_face=True)
     g = g if 'face' in g.dims else g.expand_dims('face')
     grid = ot.build_xgcm(g)
-    raw = xr.open_zarr(ot.DATA_DIR / RAW).load()
+    t0 = int(t0)
+    raw = xr.open_zarr(ot.DATA_DIR / RAW if store is None else store).isel(time=[t0, t0 + 1]).load()
     ds = [xr.merge([raw.isel(time=k).expand_dims('face'), g], compat='override',
                    combine_attrs='override').astype('float64') for k in (0, 1)]
     b_t = op.buoyancy(ds[0])
@@ -477,7 +482,9 @@ def _llc_inputs(grid_ds=None) -> dict:
     masks_path = ot.DATA_DIR / 'tile330_masks.nc'
     masks = mk.open_masks(masks_path) if masks_path.exists() else mk.build_masks(g)
     ana = masks['mask_analysis'].values
-    return dict(g=g, grid=grid, b_t=b_t, U=U_mid, V=V_mid, ana=ana, block=_block_ids(ana.shape))
+    return dict(g=g, grid=grid, b_t=b_t, U=U_mid, V=V_mid, ana=ana, block=_block_ids(ana.shape),
+                hours=[str(raw.time.values[k])[:19] for k in (0, 1)],
+                store=str(ot.DATA_DIR / RAW if store is None else store), t0=t0)
 
 
 def _fit_llc(inp, b, U, V, fms, order, vel_order=3, boot=N_BOOT, advect=None):
@@ -496,7 +503,7 @@ def _fit_llc(inp, b, U, V, fms, order, vel_order=3, boot=N_BOOT, advect=None):
 
 
 def _discrete_null(velocities, order, forms, widths, angles, n, a, margin, n_boot, diag_widths, grid_ds,
-                   changes):
+                   changes, store=None, t0=0):
     """The numbers behind :func:`test_discrete_null` for one variant, plus
     the figure context (the pooled front-pixel arrays)."""
     forms = tuple(forms)
@@ -529,7 +536,7 @@ def _discrete_null(velocities, order, forms, widths, angles, n, a, margin, n_boo
                    for w in widths}
             res['changes_tried']['4th-order gradient on both sides, chain rule (per width, angle 0)'] = alt
     elif velocities == 'llc':
-        inp = _llc_inputs(grid_ds)
+        inp = _llc_inputs(grid_ds, store=store, t0=t0)
         g, grid, b_t, U_mid, V_mid, ana, block = (inp[k] for k in ('g', 'grid', 'b_t', 'U', 'V', 'ana', 'block'))
 
         def fit_llc(b, U, V, fms, vel_order=3, boot=n_boot):
@@ -538,6 +545,10 @@ def _discrete_null(velocities, order, forms, widths, angles, n, a, margin, n_boo
         front = st['front']
         res.update(threshold=st['threshold'], n_valid=int(st['valid'].sum()), n_analysis=int(ana.sum()),
                    fits=fits, tracer='hour 0 JMD95 b', velocity='0.5 (U_t + U_tp1) of M0\'s two hours')
+        if store is not None or t0 != 0:          # M2 task 3: another store / hour pair
+            res.update(tracer=f'hour {t0} ({inp["hours"][0]}) JMD95 b',
+                       velocity=f'0.5 (U_t + U_tp1) of hours {t0}, {t0 + 1} of {inp["store"]}',
+                       hours=inp['hours'], store=inp['store'], t0=int(t0))
         d = np.hypot(st['di'], st['dj'])
         res['displacement_cells'] = dict(median=float(np.nanmedian(d[front])), p99=float(np.nanpercentile(d[front], 99)),
                                          max=float(np.nanmax(d[front])))
@@ -587,7 +598,7 @@ def _discrete_null(velocities, order, forms, widths, angles, n, a, margin, n_boo
 
 def test_discrete_null(velocities='strain', png=True, order=3, forms=('chain', 'discrete_o2', 'discrete'),
                        widths=NULL_WIDTHS, angles=NULL_ANGLES, n=128, a=1e-5, margin=8, n_boot=N_BOOT,
-                       diag_widths=NULL_DIAG_WIDTHS, grid_ds=None, changes=True) -> dict:
+                       diag_widths=NULL_DIAG_WIDTHS, grid_ds=None, changes=True, store=None, t0=0) -> dict:
     """**V3**: the discrete end-to-end null (criterion 3).  A tracer is
     advected one hour by our own semi-Lagrangian step, so the truth obeys
     our discrete advection exactly; the measured ``DG/Dt``
@@ -610,15 +621,19 @@ def test_discrete_null(velocities='strain', png=True, order=3, forms=('chain', '
     its block-bootstrap CI (``ci``), the other estimators (``fits``), ``n_front``
     and the definitions.  ``png=True`` writes **V3** with *both* variants (the
     other one is computed too; the 'llc' half needs the M0 stores).
+
+    ``store`` / ``t0`` (M2 task 3, 'llc' only): the raw store and the first
+    hour of the pair; the defaults (M0's two-hour store, hour 0) are the M1
+    baseline unchanged.
     """
     res, ctx = _discrete_null(velocities, order, forms, widths, angles, n, a, margin, n_boot, diag_widths,
-                              grid_ds, changes)
+                              grid_ds, changes, store=store, t0=t0)
     res['png'] = None
     if png:
         other = 'llc' if velocities == 'strain' else 'strain'
         try:
             res_o, ctx_o = _discrete_null(other, order, forms, widths, angles, n, a, margin, n_boot,
-                                          diag_widths, grid_ds, changes)
+                                          diag_widths, grid_ds, changes, store=store, t0=t0)
         except FileNotFoundError:                # no M0 stores: the figure gets the strain half only
             res_o, ctx_o = None, None
         pair = {velocities: (res, ctx), other: (res_o, ctx_o)}

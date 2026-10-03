@@ -6,10 +6,16 @@ pulls raw fields and needs no physics, no operators and no masks. Masks are M1's
 is M0's. So M1 and M2 can run in parallel.
 **Goal:** the 72-hour window on disk, in one time-dimensioned store per source, resumably.
 
-**Status 2026-10-03: task 1 done** (`osn_tiles.pull_series` on `zarr_series`'s per-hour atomic
-append with repair-on-resume, stop-at-gap policy; `series_verify.verify_series`;
+**Status 2026-10-03: tasks 1-3 done.** Task 1: `osn_tiles.pull_series` on `zarr_series`'s
+per-hour atomic append with repair-on-resume, stop-at-gap policy; `series_verify.verify_series`;
 `tests/test_pull_series.py` 20 offline + 1 network smoke, 22 s for one real hour; suite 104 passed
-+ 3 xfailed; log entry 2026-10-03). Tasks 2-7 not started. M0 closed 2026-09-28; M1 closed
++ 3 xfailed (log entry 2026-10-03). Task 2: `py/m2_pull.py` pulled all **72 hours** into
+`data/tile330_raw_20120702T00_72h.zarr`, detached, in **27.3 min** (median 22.4 s/hour, range
+20.7-33.1 s; 0 retries, 0 failures, 0 repairs), **765 MB** on disk (11.1 MB/hour);
+`verify_series` OK (no gaps, §3.2 schema, land-NaN == `hFac` masks in all 72 hours, `niter` steps
+144, `KPPhbl` present); the re-run is a no-op (0 pulled, all 834 files sha256-identical); hours
+0-1 identical to M0's 2-hour store, which is kept (task-2 log entry). **Task 3 done** (log entry 2026-10-03): `py/m2_qa.py` → `figs/m2_qa_series.png` — tide 2.0 m range at 12.4 h (M2 0.62 m + K1 0.49 m), `KPPhbl` diurnal amplitude 6.4 m with its maximum at ~01 h local solar, land-NaN fraction constant, `oceTAU*` 922/565 finite-on-land → 0 after re-masking, no frozen field / NaN change / outlier; displacement over 71 pairs: ocean median 0.27-0.44, p99 1.05-1.38, window max 4.05 cells (Gulf of California tidal jet, outside `mask_analysis`; 2.27 on the analysis mask); edge support leaves the finite tile for 0 analysis cells at `L ≤ 4` and 7-34 per pair at `L = 8` (`edge_cells = 7` kept, `isfinite` required at `L = 8`). M2-Q3 extra step (`py/m2_baseline_stability.py` → `figs/m2_v3_stability.png`, two backward-compatible keywords `store=`/`t0=` in `validate.py`): the V3 null on all 71 pairs reproduces 0.9806 on hour 0-1, gives 0.902-0.997 (mean 0.972, weighted 0.983; 64/71 pass the gate; every CI overlaps the baseline band; 0.971-1.002 with the top 1 % |2F| pixels trimmed) — the baseline is a property of the operators with a leverage-driven tail from a sharp front at the northern tile edge on 07-04; Figure 2's baseline is unchanged. Suite 104 passed + 3 xfailed. Tasks 4-7 not started.
+M0 closed 2026-09-28; M1 closed
 2026-09-30 (prompt 2, task-7 log entry). M1 being closed does not change M2's scope; M2 still needs no physics. It does
 fix the operator defaults M3 will use on this data (`form='discrete'`, cubic departure velocity),
 which is why task 3's QA reuses them.
