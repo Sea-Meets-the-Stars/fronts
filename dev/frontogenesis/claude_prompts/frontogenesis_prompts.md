@@ -4620,11 +4620,12 @@ Files: created `py/m2_q7_edge_margin.py` and `figs/m2_q7_edge_margin.png`; modif
 
 ### 2026-10-03 — Execution prompt 3, task 5: load_chunk_levels and the chunk pull (Opus; Fable limit reached)
 
-**(in progress; phase 2 appends the results.)** Phase 1, this part: the loader, its tests and
-the pull script are written, and the 72-hour pull is launched detached and confirmed to be
-progressing. Phase 2, a later resume after the main session sees `data/m2_chunk_pull_done.json`,
-does the rest: `verify_chunk_series`, the no-op re-run with checksums, the k=0 bit-identity spot
-check against OSN for 3 hours, volume and wall time, the missing hours, and the Status update.
+**Complete** (phase 1 on 2026-10-03 16:44-17:03 PDT; the pull ran 16:57-23:59 PDT; phase 2 just
+after midnight on 2026-10-04; results under "Phase 2" at the end of this entry). **72/72 hours,
+0 missing.** Phase 1 wrote the loader, its tests and the pull script, launched the 72-hour pull
+detached and confirmed it was progressing. Phase 2 ran `verify_chunk_series`, the no-op re-run
+with checksums, the k=0 bit-identity check against OSN, and the volume and wall-time
+accounting, and updated the Status.
 
 **Scope and rules.** Nothing outside `dev/frontogenesis/` was touched, and nothing was
 committed. `masking.py`, `tile330_masks.nc`, `validate*.py` and `deck/` were left alone, since
@@ -4862,3 +4863,405 @@ git-ignored: `data/tile330_chunk_20120702T00_72h.zarr` (growing), `data/m2_chunk
 `data/m2_chunk_pull.nohup` and `data/m2_chunk_pull_done_run0_salt_bound.json`. Not touched:
 `osn_tiles.py`, `zarr_series.py`, `m2_pull.py`, every M1 module and test, `pytest.ini`, the
 coding and planning docs, and `deck/`. Prompt 3's Status is left for phase 2. Nothing committed.
+
+**Phase 2 — results (2026-10-04).**
+
+**The pull completed on its first full launch (PID 86425).**
+- Run 2's done-file reports `status=ok`, `n_present=72`, all 72 hours pulled, `failed=[]`,
+  `not_attempted=[]`, `repaired=0`, `error=None`. A copy is kept as
+  `data/m2_chunk_pull_done_run1.json`.
+- Start 16:57:12 PDT, end 23:58:57 PDT, so **25 305 s (7.03 h)** of wall time.
+- **Missing hours: none.** All of 2012-07-02 T00 → 2012-07-04 T23 are on disk.
+
+**Events in the run**, from the log and the main session's monitoring:
+- **Two `FSTimeoutError`s**, both on `W` objects and both recovered on attempt 2 after the 5 s
+  backoff:
+  - `20120702T09/W` at 17:57; that hour took 860 s;
+  - `20120703T02/W` at 19:45; that hour took 730 s.
+- **Two slow reads at 0.12 MB/s, with no error:**
+  - `20120702T17/Salt`, 390 s, so the hour took 621 s;
+  - `20120702T20/Theta`, 462 s, so the hour took 683 s.
+- **One 28-min stall:** `20120704T10/Salt` took 1669 s at 0.03 MB/s, from 22:24 to 22:52, so
+  the hour took 1887 s. The most likely cause is the Mac idle-sleeping. The main session then
+  ran `caffeinate -i -s -w 86425` for the rest of the run, and the rate was normal afterwards.
+  **Lesson for long pulls on this laptop: launch under `caffeinate -i -s` from the start.**
+- **Memory:** RSS was ~0.9 GB after hour 0 and plateaued at ~1.39 GB. There was no leak.
+- **No corrupt bytes were served:** there was no `CorruptRead` and no failed validation in the
+  whole run. The retry path was used only for the two timeouts.
+
+**Wall time per hour.**
+
+| | hours | median | range | mean |
+|---|---|---|---|---|
+| all | 72 | 299.2 s | 297.2–1886.9 s | 351.5 s |
+| excluding the stall hour | 71 | 299.2 s | 297.2–860.3 s | 329.8 s |
+| excluding all 5 slow hours | 67 | 299.0 s | 297.2–374.6 s | 306.3 s |
+
+- The 5 slow hours are the stall, the two timeouts and the two slow reads.
+- Without the stall, the run would have taken about 6.6 h; at an undisturbed 306 s/hour, about
+  6.1 h.
+- Throughput: **12 604 MB fetched** (175 MB per hour, range 174.8–175.3), so 0.50 MB/s
+  overall and 0.57 MB/s on the undisturbed hours. The link is the limit, as task 4 found.
+- **Scale-up at this link:** ~306 s and 175 MB fetched per tile-hour. A week (168 h) is
+  ~14 h and 29 GB fetched; the 504-hour OSN span is ~43 h. A machine close to Nautilus, or a
+  server-side level subset (M2-Q5 (c)), would be needed for anything bigger.
+- The first launch (PID 73437, stopped by the `Salt` bound, see above) added 410 s before the
+  fix.
+
+**Volume on disk.** `du -sh` gives **973 MiB** (995 868 KiB), in 692 files: 6 time-dimensioned vars ×
+72 hourly chunks, the one static `drF` chunk, `time`/`niter`/`mit_iteration` chunks, the
+static coords and metadata. That is **13.5 MiB per hour**. Per hour, 174 MB is fetched and
+~14 MB kept: the 12 float32 720×720 slabs (3 levels × Theta/Salt/W + 3 fluxes) are
+24.9 MB uncompressed, and NaN land compresses
+well, and the default Zstd is used.
+
+**`verify_chunk_series(CHUNK_ZARR, timestamps_72())` — OK in 5.7 s.** It read the reference
+land mask and `drF` from the remote `grid.zarr` and cross-checked them against
+`tile330_grid.zarr`. Every check passed:
+- `time`: 72 in the store, 72 expected; no missing, extra or duplicate hours; ordered.
+- `schema`: no problems, i.e. the §3.3 variables, dims, float32, one chunk per hour, coords,
+  `time` encoding, root attrs, the flux sign attrs and `W.source_dim`.
+- `niter`: steps `{144}`, equal to `osn_date_to_iteration` and to `iterations`;
+  `mit_iteration == niter − 10368`.
+- `drF`: [1.0, 1.14, 1.30], equal to the grid; `Z[0] = −0.5`.
+- `land_nan`: 72 hours × 3 levels, **0 mismatching cells** for all six variables.
+- `sign`: stored `oceQsw` minimum **+0.0084** and maximum 797 W m⁻²; tile-mean maximum
+  589 W m⁻²; **0 cells < 0**.
+
+**`drF[0] = 1.0 m` confirmed** (criterion 6), with `drF[0..2] = [1.0, 1.14, 1.30]` m and
+`Z[0..2] = [−0.5, −1.57, −2.79]` m.
+
+**Sign convention confirmed on the whole window.**
+- Stored `oceQsw` is ≥ 0 everywhere: there are no negative cells in 72 × 356 877 ocean cells.
+- `oceQnet` tile means run from −133 to +454 W m⁻², positive = ocean warming.
+- `oceFWflx` tile means run from −3.0e-5 to −1.9e-5 kg m⁻² s⁻¹, so net evaporation is now
+  negative, as a downward-positive flux should be.
+
+**No-op re-run — proven byte-identical.**
+- I took sha256 and `stat` (mtime, size) snapshots of all 692 files, then ran
+  `timeout 300 python m2_chunk_pull.py` (exit 0).
+- The run found `72 hours present, 72 requested` and reported `0 pulled, 72 skipped, 0 failed,
+  0 not attempted, 0 repaired`, with **0 MB fetched** and a wall time of **0.2 s**. The
+  done-file now reads `status=ok`, `pulled=[]`.
+- The before/after diffs are empty: **0 differing lines** in both sha256 and stat.
+- Criterion 2 holds for the chunk store. The snapshots are in the session scratchpad only.
+
+**k=0 bit-identity against the OSN 72-hour store — every hour, not just 3.**
+- `time`, `niter`, `XC` and `i` are equal across the two stores.
+- In the 3 spread hours (07-02 T00, 07-03 T11, 07-04 T23), chunk `Theta(k=0)`, `Salt(k=0)`
+  and `W(k_l=0)` are **bit-identical** to OSN `Theta`, `Salt` and `W`, including NaN. There
+  are 356 877 finite cells.
+- Since a local read is cheap, I ran the same comparison over **all 72 hours: 0 mismatches**.
+- Together with the per-hour `Eta` bit-identity enforced during the pull, the two sources are
+  the same model output, aligned in time, for the whole window.
+
+**Suite** (`timeout 300 python -m pytest dev/frontogenesis/py/tests -q`): **127 passed, 3 xfailed, 2 deselected (the two network tests) in 142 s**, the same as at the end of phase 1.
+
+**Criteria discharged:**
+- 5: chunk store with k=0..2, the three fluxes and `drF` for **72/72 hours, 0 missing**,
+  §3.3 schema.
+- 6: `drF[0] = 1.0` confirmed.
+- 2, for the chunk store: no-op re-run, byte-identical.
+- The chunk half of 7: 973 MiB on disk, 7.03 h wall time (6.6 h without the stall),
+  12.6 GB fetched.
+
+**For task 6 (audit) and M3.**
+- Open the chunk store with `xr.open_zarr(vt.CHUNK_ZARR)`; it has the same `time`, `niter`,
+  `j`, `i` and `XC`/`YC` as the OSN store, so `xr.merge` works.
+- `W.isel(k_l=1)` is the cell-base velocity that `vertical_term` takes.
+- The fluxes are already **downward-positive**: M3's `surface_flux_term` must **not** negate
+  them again.
+- The fluxes are 6-hourly interpolated forcing (`forcing_note`).
+- The note to Lauren (`claude_prompts/note_to_lauren_flux_signs.md`) is drafted, for JXP to
+  forward.
+
+Phase 2 files:
+- Created: `data/m2_chunk_pull_done_run1.json`, a copy of the 72-hour run's done-file. The
+  live `m2_chunk_pull_done.json` now describes the no-op re-run.
+- Modified: this entry, and prompt 3's Status paragraph.
+- No code changed in phase 2. Nothing committed.
+
+### 2026-10-04 — Execution prompt 3, task 6: M2 acceptance audit (Fable)
+
+**Scope.** Task 6 of `frontogenesis_prompt_3.md` only: the full offline suite and both network
+smoke tests, `verify_series` and `verify_chunk_series` re-run fresh on both stores, the criterion-by-
+criterion audit in the style of the M0 task-5 and M1 task-7 audits, the "Do not" checks, the
+discharges, the list carried forward to M3, minimal marked doc corrections for plain factual errors,
+and the closure decision. Task 7 (slides) not started. No code changed; the data stores read-only;
+`deck/` and the note to Lauren untouched; nothing outside `dev/frontogenesis/`; nothing committed.
+Every interactive command under `timeout 300`; the long network test detached under `nohup` +
+`caffeinate`. *(entry started early; extended below as the work proceeds)*
+
+**Step 1 — suite and network.**
+- **Full offline suite** (`timeout 300 ~/miniforge3/envs/frontogenesis/bin/python -m pytest
+  dev/frontogenesis/py/tests -q`, run detached with `/usr/bin/time`): **127 passed, 3 xfailed,
+  2 deselected (the two `network` tests) in 230 s** (the 142-178 s of tasks 4-5 stretched by the
+  verifies and the chunk smoke test running concurrently; still under 300 s). Collected per file:
+  `test_coarsegrain` 10, `test_load_chunk_levels` 24 (23 + 1 network), `test_masking` 17,
+  `test_nan_finding` 14 (11 + the **3 strict xfails** documenting `fronts` bugs, M1 task 7a),
+  `test_operators` 21, `test_pull_series` 21 (20 + 1 network), `test_semilag` 15, `test_validate`
+  10 = 132. The M1 baseline (84 + 3 strict xfails) is intact. No test-marker fix was needed;
+  `pytest.ini` untouched.
+- **OSN network smoke** (`pytest py/tests/test_pull_series.py -m network -s`): **1 passed in
+  9.3 s** (11.5 s wall); pulled `2012-07-02 02:00:00` from both OSN stores into `tmp_path`,
+  `verify_series` ok, `niter = 1023264`. **9 s for the hour**, against 22 s in task 1 and
+  task 2's 20.7-33.1 s band — OSN is fast today.
+- **Chunk network smoke** (`pytest py/tests/test_load_chunk_levels.py -m network -s`, detached
+  under `nohup caffeinate -i -s`, polled): **1 passed in 37.5 s** (40.8 s wall), **175 MB**
+  fetched for `2012-07-03 00:00:00`, with the `Eta` check against the OSN store and the
+  `local_grid` cross-check; `verify_chunk_series` time/schema/land_nan/drF ok, stored
+  `oceQsw >= -1`. **37 s, i.e. ~4.7 MB/s from Nautilus — 8.5x the 0.55 MB/s task 4 measured
+  and task 5 ran at.** The test's own "~5 min" label and task 5's 299 s per hour were link-bound
+  on 2026-10-03; today the same read is ~9x faster. Scale-up numbers below are therefore a
+  worst-case band (0.5-4.7 MB/s), not a constant. Neither Nautilus nor OSN was unreachable, so
+  nothing in this audit is affected by connectivity.
+
+**Step 2 — fresh verifies** (`m2_pull.timestamps_72()`, 72 timestamps `2012-07-02 00:00:00` …
+`2012-07-04 23:00:00`, both endpoints asserted).
+- **`verify_series(tile330_raw_20120702T00_72h.zarr, TS72)` — OK in 1.0 s.** `time` 72 / 72, no
+  missing, extra or duplicate, ordered; `schema` no problems; `niter` steps `{144}`, equal to
+  `osn_date_to_iteration` and to the `iterations` attr; `land_nan` 72 hours, **0 mismatch cells**
+  for all nine variables (`U` vs `hFacW`, `V` vs `hFacS`, the rest vs `hFacC`), land fraction
+  0.31158; `KPPhbl` present, finite on every ocean cell in every hour.
+- **`verify_chunk_series(tile330_chunk_20120702T00_72h.zarr, TS72)` — OK in 5.8 s** (reference
+  levels read from the remote `grid.zarr`, cross-checked against `tile330_grid.zarr`). `time`
+  72 / 72, no missing, ordered; `schema` no problems; `niter` steps `{144}`, matches timestamps
+  and attr, `mit_iteration == niter − 10368`; `drF` [1.0, 1.14, 1.30] = reference, `Z` [−0.5,
+  −1.57, −2.79]; `land_nan` 72 hours × 3 levels, **0 mismatch cells** for all six variables;
+  `sign` stored `oceQsw` min +0.0084, max 797.4, tile-mean max 588.9 W m⁻², 0 hours below −1.
+- Both stores are **untouched since their pulls**: the newest file in each is the root
+  `zarr.json`, at 09:43:13 PDT 2026-10-03 (OSN, end of run 1) and 23:58:57 PDT 2026-10-03 (chunk,
+  end of run 1), so the task-2 / task-5 no-op re-runs (16:44:54 / 06:59:57 UTC) wrote nothing
+  into them, as their sha256 snapshots showed. This audit read them only.
+- Direct reads for the audit (three spread hours 0, 35, 71): OSN `NaN on hFac > 0` cells = 0 for
+  every variable (356,877 finite `Theta` = the ocean count); chunk `NaN on hFacC[0] > 0` = 0 for
+  `Theta`/`Salt` at k = 0, 1, 2, `W` at `k_l` = 0, 1, 2 and the three fluxes; chunk `Theta(k=0)`,
+  `Salt(k=0)`, `W(k_l=0)` bit-identical to OSN (NaN-aware) in all three; stored `oceQsw`
+  252-454 W m⁻² at hour 0 (16 LST), 30-121 at hour 35 (03 LST), 235-574 at hour 71;
+  `oceQnet` tile means +240 / −53 / +277 W m⁻²; `oceFWflx` −2.2e-5 / −2.0e-5 / −2.8e-5
+  kg m⁻² s⁻¹ (net evaporation, negative downward). `time` axes equal across the two stores,
+  steps 3600 s; `niter`, `XC`, `YC`, `j`, `i`, `face` all equal.
+
+**Step 3 — M2 acceptance audit (prompt 3 criteria; coding §6 M2).**
+
+| # | Criterion | Threshold / requirement | Verdict | Evidence |
+|---|---|---|---|---|
+| 1 | 72 timesteps, no gaps, schema §3.2 / §3.3 | both stores, 72 hourly steps 07-02 T00 → 07-04 T23, schema exact | **PASS** | this entry: `verify_series` and `verify_chunk_series` fresh, `time` 72/72, 0 missing, steps 3600 s, `schema` no problems in both; task 2 (`verify_series` OK, 0.9 s), task 5 phase 2 (`verify_chunk_series` OK, 5.7 s); `test_pull_series.py` schema/dtype/chunking tests, `test_load_chunk_levels.py` schema tests. On disk: OSN `(time 72, j 720, i 720, i_g, j_g)`, 9 vars, chunks `(1, 720, 720)`; chunk `(time 72, k 3, k_l 3, j 720, i 720)`, chunks `(1, 3, 720, 720)` / `(1, 720, 720)` / `drF (3,)`; `time` `seconds since 2011-09-10` int64 in both |
+| 2 | Re-running is a no-op | `pull_series` and `load_chunk_levels`, on real data, byte-identical | **PASS** | task 2: re-run 0.9 s, `0 pulled, 72 skipped`, **sha256 + stat of all 834 files, 0 differing lines**, newest mtime unchanged; task 5 phase 2: re-run 0.2 s, `0 pulled, 72 skipped`, 0 MB fetched, **sha256 + stat of all 692 files, 0 differing lines**; done-files `m2_pull_done.json` / `m2_chunk_pull_done.json` (`status ok`, `pulled []`, `skipped 72`) re-read here; store mtimes still at the run-1 end times (above); `test_rerun_is_noop_and_byte_identical` in both test files |
+| 3 | `KPPhbl` present | in the OSN store, every hour | **PASS** | `verify_series` `KPPhbl: present True, nonfinite_on_ocean_hours []`; on-disk dtype float32; task 3's diurnal cycle (amplitude 6.4 m, max ~01 h local solar) is Figure 6's signal |
+| 4 | Land-NaN pattern matches `hFacC`/`hFacW`/`hFacS` every hour (replaces the struck "Masks written") | 0 mismatch cells, 72 hours, both stores | **PASS** | `verify_series` `land_nan` 72 hours, max mismatch 0 for all nine vars; `verify_chunk_series` `land_nan` 72 × 3 levels, 0 for all six; task 3: fraction constant 0.31158 / 0.31336 (`U`) / 0.31267 (`V`), pattern equal to hour 0's in every hour; so M1's `tile330_masks.nc` is valid for all 72 hours |
+| 5 | Chunk store: `k = 0..2`, three flux fields, `drF`, missing hours stated | for as many of the 72 as exist; missing listed explicitly | **PASS — 72/72 hours, missing hours: none** | task 4 inventory 72/72 present; task 5 `m2_chunk_pull_done_run1.json` `n_present 72, pulled 72, failed [], not_attempted []`; on disk `k = [0 1 2]`, `k_l = [0 1 2]`, `Theta`/`Salt (time, k, j, i)`, `W (time, k_l, j, i)` with `source_dim = 'k_p1'`, `oceQnet`/`oceQsw`/`oceFWflx (time, j, i)` with `sign_convention = 'positive downward …'` + `source_sign_convention`, `drF(k)`; root attrs `levels = 'k=0..2, k_l=0..2'`, `source = 'CHUNKS/monterey_bay'`, `flux_sign_convention = 'positive downward'`, `provenance` records the negation |
+| 6 | `drF[0]` confirmed and recorded | `= 1.0 m` (and `Z[0] = −0.5 m`) | **PASS** | task 4 table (`grid.zarr`: `drF` 1.0 / 1.14 / 1.30, `Z` −0.5 / −1.57 / −2.79, `Zl` 0 / −1.0 / −2.14, `Zp1[51]` −968.62); task 5 pre-flight and `verify_chunk_series` `drF` check; this entry: store `drF = [1.0, 1.14, 1.3]`, `Z = [−0.5, −1.57, −2.79]`, `Zl = [0, −1.0, −2.14]`; equal to OSN's 0-d scalars in `tile330_grid.zarr` (§3.1) |
+| 7 | Total volume and wall time, both sources | reported, for scale-up | **PASS** | **OSN:** 765 MiB (`du`; 834 files), 11.1 MB/hour, **27.3 min** (1636.9 s) for 72 hours, median 22.4 s/hour, range 20.7-33.1 s, 0 retries (task 2; `du` re-read here). **Chunk:** 973 MiB (692 files), 13.5 MiB/hour, **7.03 h** (25,305 s), median 299.2 s/hour, range 297-1887 s, mean 306 s on the 67 undisturbed hours, **12,604 MB fetched** (175 MB/hour) at 0.50 MB/s overall (task 5; `du` and done-file re-read here). Today's smoke tests: 9 s (OSN) and 37 s (chunk, ~4.7 MB/s) per hour |
+
+Every criterion passes; nothing is claimed on logged evidence alone without being re-read or
+re-run here.
+
+**"Do not" list — checked on disk.**
+- **No pre-interpolated `U`/`V`:** OSN `U (time, j, i_g)`, `V (time, j_g, i)`, `oceTAUX (time, j,
+  i_g)`, `oceTAUY (time, j_g, i)`; the chunk store has no `U`/`V` (§3.3). PASS.
+- **No halo applied to the stored raw fields:** the land-NaN pattern equals `hFac == 0` *exactly*
+  in every hour and level (`verify_series` / `verify_chunk_series` 0 mismatches), and NaN on
+  `hFac > 0` cells is 0 for every variable in hours 0, 35, 71 — a halo would show as NaN on wet
+  cells near land. `oceTAUX`/`oceTAUY` are stored as they come (922 / 565 finite-on-land, task 3),
+  re-masked at use. PASS.
+- **`float32` on disk:** zarr metadata, not xarray's decoded view — OSN data vars all `float32`
+  (9 of 9), chunk data vars all `float32` (7 of 7 incl. `drF`); index coords and `time`/`niter`/
+  `mit_iteration` int64, `XC`/`YC`/`Z`/`Zl` float32. No float64 array in either store. PASS.
+
+**Discharges vs criteria.** Task 1 (2 in code, tests) — the offline resume/no-op/crash tests
+exist and pass; ok. Task 2 (1, 2, 3, OSN half of 7) — all four re-verified here; ok. Task 3
+(supports 1 and 3; the displacement envelope) — land-NaN constant, `KPPhbl` cycle, envelope
+delivered; ok. Task 4 (6; the hour inventory for 5) — `drF[0]` table, 72/72 inventory; ok.
+Task 5 (5, 6, chunk half of 7) — all three re-verified here; ok. Task 6 (the audit) — this entry.
+Every "Discharges" line is honoured; nothing claimed twice; the "Do not block" split was never
+needed because the transfer was complete.
+
+**Carried forward to M3.**
+1. **The two stores and how they merge.** `data/tile330_raw_20120702T00_72h.zarr` (§3.2, 9 vars)
+   and `data/tile330_chunk_20120702T00_72h.zarr` (§3.3) share `time` (72, equal), `niter` (OSN
+   iteration, equal), `j`, `i`, `XC`, `YC` and scalar `face = 10` — all verified equal here.
+   **But a plain `xr.merge([osn, chunk])` fails** (`MergeError: conflicting values for variable
+   'Salt'`), because both carry `Theta`, `Salt` and `W` under the same names with different dims
+   (2-D vs 3-D; `k = 1, 2` differ). Task 5's note "so `xr.merge` works" holds for the coords, not
+   the whole datasets. Merge after a rename (`chunk.rename({'Theta': 'Theta_k', 'Salt': 'Salt_k',
+   'W': 'W_k'})` → 16 vars, dims `time, j, i, i_g, j_g, k, k_l`) or a subset
+   (`xr.merge([osn, chunk[['oceQnet', 'oceQsw', 'oceFWflx', 'drF']], chunk.W.isel(k_l=1,
+   drop=True).rename('W_k1')])` → 14 vars) — both verified here. The M3 prompt should say which.
+2. **Fluxes are already downward-positive** in the store (negated at write, M2-Q6 (a)):
+   `surface_flux_term` must **not** negate them. Stored `oceQsw >= 0` everywhere; `oceQnet > 0` is
+   ocean warming; `oceFWflx < 0` is net evaporation. The source attrs remain wrong until Lauren
+   fixes them; `load_chunk_levels` refuses an hour whose raw `oceQsw` exceeds +1 W m⁻², so a
+   silently corrected source cannot be double-flipped.
+3. **`W.isel(k_l=1)` is the cell-base velocity** `vertical_term` takes (source `k_p1 = 1`, the top
+   face of cell 1; continuity to 7e-12 m/s). `W(k_l=0) = dEta/dt` (corr 0.998 with centred
+   `dEta/dt`; 0.903 and 0.690 at `k_l` 1 and 2) is a free-surface signal, not a flux.
+4. **The forcing is 6-hourly, linearly interpolated** (kinks at 03/09/15/21 UTC; `forcing_note`
+   attr): the diurnal shortwave is a triangle peaking at 13 LST, not resolved insolation. Figure 6
+   must say so, and its "diurnal residual" axis should be phased on the mixed-layer *minimum*
+   (~13 h solar; `KPPhbl` max ~01 h solar), with the day-to-day deepening (13 → 12 → 8 m) a
+   wind trend (|tau| 0.11 → 0.06 N m⁻²).
+5. **Displacement envelope (71 pairs, `departure_index` defaults):** ocean median 0.27-0.44, p99
+   1.05-1.38, window max **4.05 cells** (pair 59, Gulf of California tidal jet, outside
+   `mask_analysis`); on `mask_analysis` median 0.25-0.44, p99 0.93-1.34, max **2.27** (pair 45),
+   0 NaN departures; M1's 0.36 / 1.25 / 2.1 hold on the analysis domain within the tidal
+   modulation. Front pixels: median 0.33-0.56, p99 1.30-1.79, max 2.27.
+6. **`edge_cells = 7` kept** (M2-Q7 verdict: not tile-edge contamination; crop-invariant to
+   4e-12; a real 2.2 °C model front at i = 7-11 on day 3). **`isfinite(DGDt) & mask_analysis`
+   required at `L = 8`** (7-34 analysis cells per pair lose support; 0 at `L <= 4`). Report the
+   `edge_cells = 13` sensitivity row in M3.
+7. **Baseline stability (M2-Q3):** V3 llc over all 71 pairs **0.972 ± 0.020** (range 0.902-0.997,
+   weighted 0.983, 64/71 pass, every CI overlaps the baseline band); **0.987 ± 0.005 with the top
+   1 % |2F| trimmed**; `edge_cells = 13` row **0.980 ± 0.012** (69/71). Figure 2's baseline stays
+   0.981 [0.970, 0.994] with the V3b band 0.954-1.003. **Report the trimmed and orthogonal fits
+   beside the OLS gate** for every pair (the gate's definition stays OLS); quote the window spread
+   as the temporal systematic; show the day-3 hours with the northern front (07-04 14-20 UTC)
+   separately, not dropped. The failures are leverage from single sub-resolved fronts (interior
+   ones too: pairs 36, 69, 70).
+8. **Scale-up numbers:** OSN **~23 s and 11 MB per tile-hour** (today 9 s) — 1 week ~64 min /
+   1.9 GB, the 504-hour series ~3.2 h / 5.6 GB, at M0's worst 90 s/hour 4x longer. Chunk **~300 s
+   and 175 MB fetched / 13.5 MB stored per tile-hour at 0.55 MB/s** (today 37 s at 4.7 MB/s) — a
+   week ~14 h / 29 GB fetched at the slow rate, ~1.7 h at today's. **Use `caffeinate -i -s` for
+   long pulls on the laptop** (one 28-min idle-sleep stall in task 5). A server-side `k = 0..2`
+   subset (M2-Q5 (c)) would cut the chunk fetch ~7x if anything bigger is planned.
+9. **Module-size flags** (coding §1.3's ~400 lines): `osn_tiles.py` 556, `vertical.py` 524 (will
+   grow with M3's physics — decide the split, e.g. `chunk_store.py` for the reader, when the
+   physics lands), `m2_qa.py` 638, and M1's `validate.py` 1,087 (1,020 + the task-3 keywords).
+   `series_verify.py` 362, `zarr_series.py` 247 are within the cap.
+10. **Note to Lauren** (`claude_prompts/note_to_lauren_flux_signs.md`, M2-Q6 (c)) is drafted and
+    pending JXP's forwarding; the source attrs and the stale llc-repo docs (`Data_Organization.md`
+    "17 stores", the old `run_chunks_monterey_bay.yaml`) are hers.
+11. **Doc contradictions flagged in M2 logs and not corrected here** (judgement calls or outside
+    the task-6 remit), each with its location:
+    - *Planning §4* ("Third source", lines ~305-307): "11 of the needed stores already exist; 61
+      are new, ~33 GB at ~539 MB per timestep" — stale (72/72 exist) and uncompressed figures
+      (306 MB / 22 GB compressed). Planning text; not edited (task 4, items 3-4).
+    - *Planning §2.3 / §4* on `oceQsw` as "the noon-peaking term" — true at the 6-hourly scale
+      only; the diurnal shape is a linear interpolation (task 4, item 6). Science text; for the
+      M3 prompt and Figure 6's caption.
+    - *Planning §4* "different readers of the same physics, a genuine cross-check" — the sources
+      are bit-identical at k = 0, so the cross-check is trivially satisfied (task 4, item 7).
+    - *Planning §2.3 / coding §4.6 `surface_flux_term`* were written against the documented
+      `+=down` sign; now resolved by storing downward-positive (§3.3 / §4.6 corrected below), but
+      planning §2.3's own wording was not touched.
+    - *Prompt 3 task 1 "record it and move on" vs criterion 1 "no gaps"* — resolved as
+      stop-at-gap (task 1, item 4); the prompt text stands as the record.
+    - *Coding §4.9 / M1 task 6 "PASS" on hour 0-1* — the gate does not pass on 7 of 71 pairs
+      (task 3, item 2); the gate's definition is unchanged, so this is a finding for M3's
+      reporting, not a correction.
+    - *Planning §5.3 / M1 task 3 displacement max 2.09-2.1* — an hour-0, analysis-domain number;
+      the window ocean max is 4.05 (task 3, item 4). Planning text; the envelope above supersedes.
+    - *M2-Q3's "about a minute per pair"* — ~2 s with `changes=False` (task 3, item 1). Q&A
+      record; not edited.
+    - *M1 task 6 "edge reach at `L = 8` is exactly 7, no slack"* — zero-displacement statement;
+      with real displacements 7-34 cells per pair exceed it (task 3, item 3). Log record.
+    - *`test_load_chunk_levels.py::test_network_one_real_hour` docstring "SLOW (~5 min)"* — 37 s
+      today; the label is a link-speed statement. Code; not changed (an audit).
+    - *Task 5 log "so `xr.merge` works"* — see item 1; log record, superseded here.
+
+**Step 4 — doc corrections applied** (each marked "(corrected 2026-10-04, M2 task 6)" or
+"(added 2026-10-04, M2 task 6)"; plain factual errors only; no decision or planning science text
+changed; `frontogenesis_planning.md` not touched).
+- `frontogenesis_coding.md` **§3.3**: intro — "Load only" → "Store only", with the one-object-per-
+  variable layout (306 MB compressed per hour, 22 GB; 174 MB fetched / ~14 MB kept per hour, not
+  level-selective); dims line — "+ staggered" removed (no `U`/`V`), `k_l: 3` added; `W` comment —
+  source dim `k_p1` (52), `k_p1 = n` = top face of cell n = `k_l = n`, renamed at write; a `coords`
+  line added (`time` encoding, `niter` = OSN iteration, `mit_iteration = niter − 10368`, `face`,
+  `k`, `k_l`, `j`, `i`, `XC`, `YC`, `Z(k)`, `Zl(k_l)`); attrs line extended
+  (`flux_sign_convention`, `provenance`); a **Flux sign** paragraph (source `+=down` attrs wrong,
+  data upward-positive, negated at write, stored downward-positive with the three attrs,
+  `surface_flux_term` must not negate again, 6-hourly forcing).
+- `frontogenesis_coding.md` **§4.6**: a marked paragraph after the `drF[0]`/`Z[0]` sentence —
+  the store's fluxes are downward-positive so `surface_flux_term` must not flip the sign; chunk
+  `W(k_l=1)` is the source `W(k_p1=1)`; `drF[0..2]` / `Z[0..2]` values from the chunk `grid.zarr`,
+  in the store as `drF(k)`, `Z(k)`, `Zl(k_l)`.
+- `frontogenesis_coding.md` **§6 M2**: `drF` source corrected (`grid.zarr` directly;
+  `process_llc4320_3d_grid` is a column filter); "11 of the 72 stores already exist" struck with
+  the correction (72/72 since 2026-10-01); **"M2 closed 2026-10-04"** paragraph in the M0/M1
+  style after the acceptance line.
+- `claude_prompts/frontogenesis_prompt_3.md`: **Status** — rewritten as "M2 closed 2026-10-04"
+  plus per-task bullets (tasks 1-6 and the M2-Q7 entry), every number of the old paragraph kept,
+  task 7 marked not started; **The window** — a marked note that all 72 stores now exist (the
+  11-hour count kept as the history of the choice); **B. Chunk store** — "~539 MB per timestep"
+  struck → 306 MB compressed per hour / 22 GB, "nothing obliges us to *store* them", the
+  not-level-selective note; `process_llc4320_3d_grid` → the chunk `grid.zarr` directly; a marked
+  note that the source `W` is on `k_p1` (renamed to `k_l`), the store's fluxes are
+  downward-positive, and `niter` is the OSN iteration with `mit_iteration = niter − 10368`;
+  **task 4** bullet "so a `k = 0..2` read touches only those levels" — marked "found otherwise".
+
+**Open items (judgement calls, not applied).**
+1. Planning §4's "11 of the needed stores … ~33 GB at ~539 MB per timestep" and planning §2.3 /
+   §4's "noon-peaking" wording (list 11 above) — JXP to decide whether the planning doc gets
+   marked notes or is left as the pre-execution record.
+2. The M3 prompt (`frontogenesis_prompt_4.md`) should state the merge recipe (item 1), the
+   no-negation rule (item 2), the `isfinite` rule at `L = 8`, the trimmed / orthogonal / 13-cell
+   sensitivity reporting (items 6-7) and the Figure 6 caveats (item 4). Not edited here: prompt 4
+   is M3's doc, outside task 6's remit.
+3. Whether to split `vertical.py` (524 → more with M3's physics) and `osn_tiles.py` (556) — M3's
+   call, with the M1-Q8 precedent of leaving `validate.py` whole.
+4. The network test docstrings' "~5 min" label and the scale-up table assume 0.55 MB/s; today's
+   4.7 MB/s suggests re-timing before planning a longer chunk window.
+5. The note to Lauren — pending JXP.
+6. `git status` shows only the three docs modified by this task (prompt 3, this log, the coding
+   doc); the M2 code and tests are already in `HEAD` (`3984560 ok`, `8b9a89e 3.3`), so nothing of
+   M2's code is uncommitted. The data stores and figures are git-ignored / un-ignored as before.
+
+**Step 5 — closure. M2 closed 2026-10-04.** All seven criteria PASS (table above), the "Do not"
+list is respected on disk, both halves are complete (the "Do not block" split was not needed),
+and the carried-forward list is recorded. Marked in prompt 3's Status and in
+`frontogenesis_coding.md` §6 M2. Task 7 (slides) is the next session's.
+
+Files: modified `claude_prompts/frontogenesis_prompt_3.md` (Status, The window, B. Chunk store,
+task 4 bullet), `frontogenesis_coding.md` (§3.3, §4.6, §6 M2), this log. Scratch only (session
+scratchpad, outside the repo): `m2_audit_verify.py`, `suite_offline.log`, `net_chunk.log`. Not
+touched: every module and test, `pytest.ini`, `deck/`, `note_to_lauren_flux_signs.md`,
+`frontogenesis_planning.md`, every other prompt, the data stores (read-only; their newest mtimes
+are unchanged), the figures. Nothing committed.
+
+### 2026-10-04 — Execution prompt 3, task 7: M2 acceptance deck (Fable)
+
+**Scope.** Task 7 of `frontogenesis_prompt_3.md` only: the M2 acceptance deck under the M1 rules.
+Only `deck/` touched (new files plus an addition to `deck/README.md`), this log entry, and one
+Status line in prompt 3. The M0 / M1 / planning decks and their scripts are unchanged; nothing
+committed; every python / soffice command under `timeout 300`, no background jobs.
+
+**Built.** `deck/make_m2_figs.py` (one crop of `figs/m2_q7_edge_margin.png` panel (c) + five
+large-font re-plots from the tasks' JSON summaries only — `m2_pull_done_run1.json`,
+`m2_chunk_pull_done_run1.json`, `m2_qa_hours.json`, `m2_qa_pairs.json`, `m2_v3_stability.json`,
+`m2_chunk_recon.json`; no zarr opened, no network), `deck/build_m2_deck.py` (helpers copied from
+`build_m1_deck.py`, `MIN_PT = 20`), `deck/figs_m2/` (6 PNGs), **`deck/Frontogenesis_M2_Acceptance.pptx`
+— 14 slides, 0.7 MB.** `check_m1_deck.py` reused with the deck path as argument.
+
+**Slides.** Title; Contents; M2 in one slide; task 1 `pull_series` (atomicity, stop-at-gap); task 2
+the OSN pull (27.3 min, 765 MiB, no-op proof; wall-time re-plot); task 3 QA (tide, KPPhbl,
+displacement envelope; three-panel re-plot); task 3 extra, the V3 baseline on 71 pairs (64/71,
+0.972 ± 0.020, trimmed 0.987 ± 0.005; re-plot); M2-Q7 edge-margin test (the per-`edge_cells` table,
+panel-(c) crop, verdict: a real front, `edge_cells` stays 7); task 4 chunk recon (72/72,
+not level-selective, bit-identical, flux signs, 6-hourly forcing; raw-flux re-plot); task 5 the
+chunk pull (7.03 h, 973 MiB, two timeouts, the 28-min stall and `caffeinate`; wall-time re-plot);
+task 6 the audit (seven criteria); Carried to M3 (merge recipe, no re-negation, `W.isel(k_l=1)`,
+forcing caveat, `isfinite` at L = 8, trimmed / orthogonal / 13-cell reporting, note to Lauren
+pending); Glossary (7 terms); This deck. Every number quoted from the M2 log entries or prompt 3;
+where entries disagree the later one is used — in particular **task 6's finding that a plain
+`xr.merge` of the two stores fails** replaces task 5's "so `xr.merge` works" (`deck/README.md`
+lists the others).
+
+**QA.** `check_m1_deck.py`: **minimum run size 20.0 pt, no offender, 14 slides.** Rendered with
+LibreOffice (`soffice --headless --convert-to pdf`, `pdftoppm`) to the session scratchpad and
+**all 14 pages inspected**; three render passes — nine layout defects fixed after the first
+(summary slide clipping into its bar, Courier table cells wrapping, task-5 column overflow, audit
+bar wrapping, three captions wrapping, QA slide at the edge), one after the second (the summary
+slide again: LibreOffice's Calibri line height is ~1.22x the size), none after the third; a
+fourth pass re-checked pages 3 and 14 after two text-only shortenings. The
+checker's 0.5-em "overflow?" flags are all false positives against the render, as for M1.
+
+**Compromises.** Task 1 has no figure (nothing to quote). `m2_qa_series.png` / `m2_v3_stability.png`
+are re-plotted from their caches rather than cropped (their panel titles would be ~6 pt at slide
+size). The one crop's own labels are ~9-10 pt equivalent; its numbers are repeated at 20 pt. Slide 6
+is the tightest (last line ~0.3 in above the edge).
+
+Files: created `deck/make_m2_figs.py`, `deck/build_m2_deck.py`, `deck/figs_m2/` (6 PNGs),
+`deck/Frontogenesis_M2_Acceptance.pptx`; modified `deck/README.md` (table row + M2 work log),
+`claude_prompts/frontogenesis_prompt_3.md` (Status, one line), this log. Not touched: every module,
+test and data store, the other decks and their scripts, the coding and planning docs. Nothing
+committed.

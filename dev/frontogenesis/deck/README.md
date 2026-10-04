@@ -1,6 +1,6 @@
 # `dev/frontogenesis/deck/` — slide decks
 
-Three decks live here. All are built by script from material already in the repo, so
+Four decks live here. All are built by script from material already in the repo, so
 none can drift from what it claims to summarise.
 
 | Deck | Built by | Summarises |
@@ -8,8 +8,140 @@ none can drift from what it claims to summarise.
 | `Frontogenesis_Planning.pptx` | `build_deck.py` (+ `check_m1_deck.py`) | The planning docs — **v2**, 17 slides, 2026-10-02; no text below 20 pt (v1: 13 slides, 2026-09-19) |
 | `Frontogenesis_M0_Acceptance.pptx` | `make_m0_figs.py` + `build_m0_deck.py` | Milestone M0 (12 slides, 2026-09-29) |
 | `Frontogenesis_M1_Acceptance.pptx` | `make_m1_figs.py` + `build_m1_deck.py` (+ `check_m1_deck.py`) | Milestone M1 (19 slides, 2026-09-30, extended 2026-10-01; no text below 20 pt) |
+| `Frontogenesis_M2_Acceptance.pptx` | `make_m2_figs.py` + `build_m2_deck.py` (+ `check_m1_deck.py`) | Milestone M2 (14 slides, 2026-10-04; no text below 20 pt) |
 
 ---
+
+## M2 acceptance deck — work log, 2026-10-04
+
+**Task.** `frontogenesis_prompt_3.md` task 7: a small deck for M2 acceptance with the M1 rules —
+`deck/`, python-pptx, a figures script plus a builder kept here, **no text below 20 pt** checked
+programmatically, rendered and inspected; a title, contents, a one-slide M2 summary and one slide
+per task.
+
+### What was built
+
+```
+deck/
+  make_m2_figs.py                 one panel crop from ../figs/ + five large-font re-plots
+  build_m2_deck.py                builds the .pptx (helpers copied from build_m1_deck.py)
+  figs_m2/
+    m2_crop_q7c.png                 M2-Q7 panel (c): raw Theta across the day-3 front, j = 176
+    m2_fig_osn_walltime.png         per-hour wall of the OSN pull (data/m2_pull_done_run1.json)
+    m2_fig_chunk_walltime.png       per-hour wall of the chunk pull, the two timeouts, two slow
+                                    reads and the 28-min stall marked (m2_chunk_pull_done_run1.json)
+    m2_fig_qa_series.png            Eta and KPPhbl tile means, displacement envelope
+                                    (data/m2_qa_hours.json, data/m2_qa_pairs.json)
+    m2_fig_stability.png            V3 llc slope on all 71 pairs, CI, trimmed slope, bands
+                                    (data/m2_v3_stability.json)
+    m2_fig_flux_diurnal.png         raw chunk oceQsw / oceQnet tile means over 07-03
+                                    (data/m2_chunk_recon.json)
+  Frontogenesis_M2_Acceptance.pptx  14 slides, 0.7 MB
+```
+
+`check_m1_deck.py` is reused as is (`check_m1_deck.py Frontogenesis_M2_Acceptance.pptx`); it
+already takes the deck path as its argument, so no `check_m2_deck.py` was needed.
+
+**Slides.** 1 Title; 2 Contents; 3 **M2 in one slide** (three stat cards — 72/72 hours in both
+stores with volumes and wall times, bit-identical k = 0, 0 land-NaN mismatches; what was found;
+what is handed to M3; closing bar); 4 Task 1 `pull_series` (the atomicity design and the
+stop-at-gap policy, text only); 5 Task 2 the OSN pull (wall-time re-plot); 6 Task 3 QA (three-panel
+re-plot: tide, KPPhbl, displacement); 7 Task 3 extra step, the V3 baseline on 71 pairs (stability
+re-plot); 8 **M2-Q7 edge-margin test** (the per-`edge_cells` table as text, the panel-(c) crop, the
+verdict); 9 Task 4 chunk recon (raw-flux diurnal re-plot); 10 Task 5 the chunk pull (wall-time
+re-plot with the events); 11 Task 6 the audit (the seven criteria, dark slide); 12 **Carried to M3**;
+13 Glossary (seven M2-specific terms); 14 Task 7, this deck. Task 3 gets two slides because the
+M2-Q3 extra step was a separate result with its own figure; the M2-Q7 test gets its own slide
+because it refuted the edge-contamination hypothesis — a finding, not a task.
+
+### Where the content comes from
+
+**Every number is quoted from the M2 task logs** in `../claude_prompts/frontogenesis_prompts.md`
+("Execution prompt 3", tasks 1-6 and the "M2-Q7: tile-edge margin test" entry, 2026-10-03 ..
+2026-10-04) and from the Status, criteria and Q&A of `../claude_prompts/frontogenesis_prompt_3.md`.
+The re-plots read only the small JSON summaries and done-files the tasks left in `../data/`
+(`m2_pull_done_run1.json`, `m2_chunk_pull_done_run1.json`, `m2_qa_hours.json`,
+`m2_qa_pairs.json`, `m2_v3_stability.json`, `m2_chunk_recon.json`); `make_m2_figs.py` opens no
+zarr store and touches no network. As for M0 and M1, the deck inherits any error in the log.
+
+Where a later entry corrects an earlier one, the later is used:
+
+- **Task 5's "so `xr.merge` works"** is superseded by **task 6's finding that a plain
+  `xr.merge([osn, chunk])` fails** on the shared names `Theta` / `Salt` / `W` (2-D vs 3-D). Slides
+  3 and 12 give task 6's recipe (merge on the shared coords after a rename or a subset).
+- The task-3 recommendation "edge-band sensitivity 7 vs 13 in M3" and its open item ("whether
+  the first analysis rows see the boundary itself") are reported as resolved by the M2-Q7 entry:
+  not contamination, `edge_cells = 7` stays, the 13-cell row (0.980 ± 0.012) goes to M3.
+- The chunk link speed is given as task 4/5's 0.55 MB/s (the rate the pull ran at); task 6's
+  4.7 MB/s on 10-04 appears only on the audit slide ("today 37 s per hour" is not shown; the
+  smoke-test times are in the log).
+- The Q7 table rounds the log's four-decimal values to three (0.9786 ± 0.0125 → 0.979 ± 0.013
+  etc.); nothing is recomputed.
+- Prompt 3's history ("11 hours already in the chunk store") is not on any slide; task 4's
+  72/72 is.
+
+### The 20 pt rule
+
+`build_m2_deck.py` sets an explicit size on every run and clamps it at 20 pt (`MIN_PT`); tags,
+captions, footers, table cells and the contents circles are 20-21 pt, stat-card numbers 24 pt,
+titles 30-38 pt. `check_m1_deck.py` on the saved file: **minimum run size 20.0 pt, no offender,
+14 slides.** The PNGs:
+
+- the five **re-plots** are drawn at the inch size they occupy on the slide (figure fonts
+  12-21 pt, placed at 1:1 or very near it, with explicit margins so the labels do not inflate
+  the image);
+- the one **crop** (M2-Q7 panel (c)) is placed 3.9 in wide, 0.87 of native, so its labels are
+  ~9-10 pt equivalent — the smallest text in the deck, as the M1 crops were. Its content (the
+  11.84 → 14.02 °C jump across i = 7-11 at hour 64) is repeated in the slide text at 20 pt.
+- The Q7 table is built from text boxes, not a python-pptx table, so the checker sees every
+  cell.
+
+### Regenerating
+
+```bash
+PY=~/miniforge3/envs/frontogenesis/bin/python
+cd dev/frontogenesis/deck
+$PY make_m2_figs.py        # matplotlib + PIL + json only; reads ../figs/ and ../data/*.json
+$PY build_m2_deck.py       # python-pptx
+$PY check_m1_deck.py Frontogenesis_M2_Acceptance.pptx
+```
+
+### QA performed
+
+- **Font floor:** programmatic, as above — 20.0 pt minimum, no offender.
+- **Render:** `soffice --headless --convert-to pdf` then `pdftoppm`, **all 14 pages inspected**,
+  three times. First render, nine defects: the M2-summary bullet columns ran into the closing
+  bar and the bar wrapped (cards shortened, columns moved up, bullets and bar text shortened);
+  the Q7 table cells wrapped in Courier New (switched to Calibri, columns widened); the task-5
+  right column overflowed (bullets shortened); the audit bar wrapped and its row pitch was uneven
+  (text shortened, fixed 0.6 in pitch); captions on slides 5, 7, 9 wrapped into the text below
+  (shortened); the QA slide's last line sat at the bottom edge (figure narrowed, bullets moved
+  up). Second render: the summary slide still clipped — LibreOffice's Calibri line height is
+  ~1.22x the size, so six bullet lines need 2.3 in, not 1.9 — fixed by shortening the cards.
+  Third render: no overflow, overlap or clipped text on any page; the middle stat card's last
+  line touched its card edge, so one clause was dropped and the unused panel-(a) crop removed
+  (slide-14 counts updated). Fourth render: pages 3 and 14 re-inspected, clean.
+- **Figures** were also inspected at native size before placement: the stability legend and
+  title had widened the PNG to 10.4 in (legend to two columns, title shortened), the chunk
+  wall-time labels overlapped (moved), the QA panel titles overlapped (shortened), the flux
+  y-label inflated its PNG (one line).
+- **Geometry estimator:** `check_m1_deck.py` flags ~37 boxes as "overflow?" at 0.5 em per glyph;
+  all are false positives at Calibri's real width, as for M1, confirmed by the render.
+- **Content:** slide text dumped by the checker and read against the task logs.
+
+### Compromises, for the record
+
+- Slide 6 (QA) is the tightest: its last line ends ~0.3 in above the bottom edge. Shorten the
+  third bullet before adding anything.
+- Task 1 has no figure: nothing in the task produced one, and a schematic of the append /
+  repair cycle would have been invented rather than quoted. It is the only text-only task slide.
+- `figs/m2_qa_series.png` and `figs/m2_v3_stability.png` are not cropped: their panels carry
+  long numeric titles that would fall to ~6 pt equivalent at slide size. Both are re-plotted
+  from their own cached summaries instead, so the slide shows the same series with 15-16 pt
+  labels; the panel letters and the full captions live in the original PNGs.
+- The crop's own labels are below 20 pt (see above), as the M1 crops were.
+- The deck says nothing about the planning-doc contradictions the task-6 audit left as
+  judgement calls (its item 11); they are in the log, not a result of M2.
 
 ## M1 acceptance deck — work log, 2026-09-30
 

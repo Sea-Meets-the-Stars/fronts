@@ -330,16 +330,37 @@ before any stress-divergence.
 
 ### 3.3 `tile330_chunk_20120702T00_72h.zarr` — the extra budget terms (Q13)
 
-From the hourly full-depth `monterey_bay` transfer. **Load only what we need** — the store
-holds all 51 levels; we want three.
+From the hourly full-depth `monterey_bay` transfer. **Store only what we need** — the source
+holds all 51 levels; we keep three. *(corrected 2026-10-04, M2 task 6: the source writes each
+variable as **one 51-level zstd object per hour** (`(51, 1, 720, 720)`; 306 MB compressed per
+hour, 22 GB for the 72), so a `k = 0..2` read is not level-selective — it fetches the whole
+object, 174 MB per hour / 12.5 GB over the window, and keeps ~14 MB per hour; M2 task 4.)*
 
 ```
-dims : (time: 72, k: 3, j: 720, i: 720) + staggered
+dims : (time: 72, k: 3, k_l: 3, j: 720, i: 720)   # no staggered dims: the store has no U/V
+                                                  # (corrected 2026-10-04, M2 task 6)
 vars : Theta(time,k,j,i), Salt(time,k,j,i), W(time,k_l,j,i),   # W on interfaces k_l=0..2;
-                                                              # k_l=1 is the top-cell base
+                                                              # k_l=1 is the top-cell base.
+                                                              # The SOURCE puts W on k_p1 (52
+                                                              # interfaces); k_p1=n is the top
+                                                              # face of cell n = k_l=n (continuity
+                                                              # to 7e-12 m/s, M2 task 4), renamed
+                                                              # at write (corrected 2026-10-04,
+                                                              # M2 task 6)
        oceQnet(time,j,i), oceQsw(time,j,i), oceFWflx(time,j,i), drF(k)
-attrs : source='CHUNKS/monterey_bay', levels='k=0..2, k_l=0..2', git_commit
+coords: time (seconds since 2011-09-10, as §3.2), niter(time) = the OSN iteration,
+       mit_iteration(time) = niter - 10368 (the source's selected_iteration), face (= 10),
+       k, k_l, j, i, XC, YC, Z(k), Zl(k_l)          # (added 2026-10-04, M2 task 6)
+attrs : source='CHUNKS/monterey_bay', levels='k=0..2, k_l=0..2', git_commit,
+       flux_sign_convention='positive downward', provenance (records the negation below)
 ```
+**Flux sign (corrected 2026-10-04, M2 task 6; decided M2-Q6 (a)).** The source's `oceQnet`,
+`oceQsw`, `oceFWflx` attrs say `+=down` but the data are **upward-positive** (`oceQsw <= 0`
+everywhere). The three are **negated at write time**, so this store holds them
+**downward-positive** (stored `oceQsw >= 0`, `oceQnet > 0` = ocean warming, `oceFWflx < 0` = net
+evaporation), each with `sign_convention` / `source_sign_convention` / `sign_conversion` attrs.
+§4.6's `surface_flux_term` therefore reads the documented convention and must **not** negate
+again. The forcing is 6-hourly, linearly interpolated (`forcing_note`).
 
 ### 3.4 `tile330_derived_L{L}.zarr` — per filter scale
 
@@ -543,6 +564,12 @@ cell (thermal + haline expansion coefficients from the same JMD95 EOS as `operat
 and must treat the **shortwave absorbed inside the top cell** separately from `oceQnet` —
 that is why `oceQsw` was requested. `drF[0] = 1.0 m`, `Z[0] = -0.5 m` (confirmed; also carried
 as 0-d scalars by the OSN gridfile and written to §3.1).
+*(corrected 2026-10-04, M2 task 6)* The §3.3 store already holds the three fluxes
+**downward-positive** — negated at write from the source's upward-positive data, whose `+=down`
+attrs are wrong (M2-Q6 (a), task 5) — so `surface_flux_term` takes them as documented here and
+**must not flip the sign**; the chunk `W(k_l=1)` is the source's `W(k_p1=1)`; and `drF[0..2] =
+1.0, 1.14, 1.30 m`, `Z[0..2] = -0.5, -1.57, -2.79 m` were read from the chunk `grid.zarr` (task 4)
+and are in the store as `drF(k)`, `Z(k)`, `Zl(k_l)`.
 
 ### 4.7 `py/budget.py`
 
@@ -758,7 +785,9 @@ the cubic departure velocity — is the discretisation finding for the writeup.
 Tasks: `pull_series` (resumable), both OSN stores, 72 hours
 **2012-07-02 00:00 -> 2012-07-04 23:00 UTC**, write the §3.2 zarr. Then
 `vertical.load_chunk_levels` for `k = 0..2` + the three flux fields -> §3.3 zarr, **including
-`drF` for `k = 0..2` from the chunk 3-D grid** (`process_llc4320_3d_grid`), which `vertical.py`
+`drF` for `k = 0..2` from the chunk 3-D grid** (read directly from the chunk `grid.zarr`, which
+carries `drF/Z/Zl/Zu/Zp1`; `process_llc4320_3d_grid` is a column filter on a grid Dataset, not
+the source — corrected 2026-10-04, M2 task 6), which `vertical.py`
 needs; OSN carries only the `k = 0` scalar (`drF = 1.0`, already in §3.1 — corrected
 2026-09-28). Cross-check `drF[0] = 1.0 m` here. The chunk `W` must include **`k_l = 1`** (the
 cell-base velocity `vertical_term` takes; §4.6), not just `k_l = 0`.
@@ -768,9 +797,20 @@ cell-base velocity `vertical_term` takes; §4.6), not just `k_l = 0`.
 **Acceptance:** 72 timesteps present, no gaps; schema matches §3.2-§3.3; re-running is a no-op;
 `KPPhbl` present; `drF` captured; missing chunk hours listed explicitly.
 
+**M2 closed 2026-10-04** (prompt 3 task-6 log entry: all seven criteria PASS — 72/72 hours in
+both stores, no gaps, `verify_series` and `verify_chunk_series` OK re-run fresh (§3.2/§3.3
+schema, land-NaN == `hFac` in every hour and level, `niter` steps 144, `KPPhbl` present); both
+re-runs no-ops with every chunk file sha256-identical (834 / 692 files); `drF[0] = 1.0 m`
+(`drF[0..2]` 1.0 / 1.14 / 1.30 m); **0 missing chunk hours**; OSN 765 MiB in 27.3 min (22.4 s per
+hour median), chunk 973 MiB in 7.03 h (299 s per hour median, 12.6 GB fetched); suite 127 passed +
+3 strict xfails, both network smoke tests pass; `float32` on disk, `U` on `i_g` / `V` on `j_g`,
+no halo applied).
+
 **Split by dependency.** The OSN half needs nothing from anyone and can start immediately.
 The chunk half waits on Lauren's hourly transfer (Q13: all 51 levels, plus `oceQsw` and
-`oceFWflx` added to `transfer.variables`); 11 of the 72 stores already exist. Do **not** block
+`oceFWflx` added to `transfer.variables`); ~~11 of the 72 stores already exist~~ *(corrected
+2026-10-04, M2 task 6: the transfer completed 2026-10-01 — all 72 hourly stores exist, the 11 old
+ones rewritten with the new variables; M2 task 4)*. Do **not** block
 M3's development on the chunk half — `compute_budget` runs without `chunk_ds`, just with a
 catch-all residual.
 
