@@ -313,6 +313,99 @@ tests at the 72-hour store and delete it?
 
 > **JXP:** Keep it.
 
+### Claude, 2026-10-03 (after tasks 3-4, before task 5)
+
+The numbers come from the task-3 and task-4 log entries. **M2-Q5 and M2-Q6 block task 5.** M2-Q7
+can be answered at any time, but it is cheapest to settle before M3.
+
+##### Questions
+
+**M2-Q5 — Where to run task 5's ~6.3-hour chunk download.** The chunk store
+(`s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/` on NRP Nautilus) stores each variable as **one
+51-level object per hour** (3-D chunks `(51, 1, 720, 720)`, zstd). So a `k = 0..2` read cannot be
+level-selective:
+- it fetches **174 MB per hour to keep ~25 MB**, i.e. **12.5 GB over the window** for
+  `Theta, Salt, W, oceQnet, oceQsw, oceFWflx`;
+- from this machine the link measured **0.55 MB/s**, and 16 parallel range GETs were no faster,
+  so it is the link and not the client;
+- that is about **316 s per hour, ~6.3 h** for the 72 hours, against 22 s per hour for OSN.
+
+The task-1/2 design (detached, resumable, atomic per hour) handles a run that long; an
+interruption just means relaunching. Options:
+- (a) run it here, detached (about an afternoon);
+- (b) run it on the workstation, if its link to Nautilus is faster, and copy the ~1.8 GB product
+  (25 MB × 72) back. It needs the repo, the `frontogenesis` env and Nautilus `dbof` credentials
+  there;
+- (c) ask Lauren whether a level-subset copy (`k = 0..2` only) can be written server-side,
+  which would cut the transfer ~7x. That costs her time and adds a dependency.
+
+I lean towards (a), unless you know the workstation's link is much faster. Please test it first:
+`m2_chunk_recon.py` can time one object in ~2 min.
+
+> **JXP:** (a)
+
+**M2-Q6 — Sign convention for the chunk flux fields.** Task 4 found that the attrs on `oceQsw`,
+`oceQnet` and `oceFWflx` say **"+=down"**, but the data are **upward-positive**:
+- `oceQsw` is ≤ 0 at every pixel and hour, about −589 W/m² tile mean at local noon;
+- `oceQnet` is about +115 W/m² at night and about −454 W/m² at noon;
+- `oceFWflx` is about +2.5e-5 kg/m²/s, i.e. net evaporation.
+
+Coding §4.6's `surface_flux_term` was written against the documented sign, so taking the attrs
+at face value would **flip the sign of the diabatic term** in M3. Options:
+- (a) **convert at write time** to the documented downward-positive convention (negate all
+  three). Overwrite the attrs with a correct `sign_convention`, keep the original as
+  `source_sign_convention`, and record the negation in the store's provenance. Coding §3.3 and
+  §4.6 then stay as written, and every reader sees one convention;
+- (b) store the data **as-is**, write a correct `sign_convention = 'positive upward'` attr, and
+  make `surface_flux_term` (M3) do the negation;
+- (c) as (a), but also ask Lauren to correct the attrs upstream in the transfer, so other users
+  of the store are not misled.
+
+I lean towards (a), plus a note to Lauren (c) about the attrs: it fixes the problem once, at the
+boundary, where it is easiest to test.
+
+Separately, and needing no decision: the fluxes are **piecewise linear with kinks every 6 h**
+(03/09/15/21 UTC), consistent with 6-hourly forcing interpolated linearly. M3 and Figure 6 will
+state that the diurnal shortwave shape is a triangle, not resolved insolation.
+
+> **JXP:** (a) plus a note to Lauren (c) about the attrs
+
+**M2-Q7 — Test a wider tile-edge margin (`edge_cells = 13`) before M3?** Task 3 re-ran the
+V3 real-velocity null on all 71 hour pairs: **64 of 71 pass** the gate (1 ± 0.05). The 7
+failures (pairs 36 and 62-67, mostly day 3) trace to one 32-cell block at the **northern tile
+edge**, where a sharp front strip enters the analysis domain. There, the OLS slope is **0.71 at
+rows 7-9, 0.83 at rows 10-12, and 0.98-1.02 beyond row 13**.
+
+The task-3 agent read this as an extreme front, and recommended an edge-band sensitivity test
+(7 vs 13 cells) in M3. My concern is that a slope recovering to 1 with distance from the
+boundary is the signature of **tile-edge contamination**, not physics. If so, `edge_cells = 7`
+is too narrow on the northern edge whenever strong flow carries fronts there, and M3's headline
+would inherit the bias. Options:
+- (a) **test it now:** re-run the 71 pairs with `edge_cells = 13` (and perhaps 10). It is
+  cheap, ~2 s per pair, and needs only the stored data. If the day-3 failures disappear, change
+  the margin in `masking.py`/`tile330_masks.nc` (an M1 artefact, so with a marked note) before
+  M3;
+- (b) leave it to M3 as a sensitivity, as the task-3 agent recommended;
+- (c) accept `edge_cells = 7` and report the 7 failing pairs as a temporal systematic
+  (0.972 ± 0.020; 0.987 ± 0.005 trimmed).
+
+I lean towards (a). It turns an interpretation into a measurement before anything depends on
+it. It could run in parallel with task 5's download.
+
+> **JXP:** (a)
+
+*Claude's finding (M2-Q7, 2026-10-03):* **not tile-edge contamination; `edge_cells` stays 7.**
+- `edge_cells` 7 / 10 / 13 / 16 pass 64 / 69 / 69 / 68 of 71. A wider margin clears pairs 62-67
+  only by excluding the front. Pair 36 fails at every width, and 69-70 start failing at 13-16,
+  driven by interior fronts. The trimmed mean is 0.987 ± 0.005 at every width.
+- Crop test: moving the edge 4-16 cells inward changes values only within 3-5 cells of the new
+  edge, and there they become NaN. Beyond that, changes are ≤ 4e-12 (round-off), and the band
+  slopes at rows 10-19 are unchanged.
+- The departure support stays ≥ 2 cells inside the tile.
+- Raw `Theta` has a real 2.2 °C front across i = 7-11 on day 3.
+- Recommendation: (c), plus the 13-cell sensitivity row in M3. Details are in the log entry
+  "M2-Q7: tile-edge margin test" and `figs/m2_q7_edge_margin.png`.
+
 ## Log
 
 Append to `frontogenesis_prompts.md` under `## Logs`, one entry per task, titled

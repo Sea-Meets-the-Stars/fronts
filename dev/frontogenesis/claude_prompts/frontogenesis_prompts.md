@@ -4478,3 +4478,387 @@ xfailed, 1 deselected (network) in 144 s**, unchanged.
 - Not touched: every M1 and M2 module and test, `deck/`, the planning and coding docs, the dbof
   worktree, every remote store (read-only), and `data/`, except the JSON.
 - Nothing committed.
+
+### 2026-10-03 — M2-Q7: tile-edge margin test (Opus; Fable limit reached)
+
+**Scope.** JXP's answer (a) to M2-Q7 in `frontogenesis_prompt_3.md`: re-run the V3 real-velocity
+discrete null on all 71 hour pairs with `edge_cells` = 7 / 10 / 13 / 16, and discriminate tile-edge
+contamination from a real front at the northern edge (crop, motion and support tests). Offline,
+from the stored data; every python command under `timeout 300`; nothing committed.
+*(entry started early; extended below as the work proceeds)*
+
+**Written.** `py/m2_q7_edge_margin.py` (new; `--pairs a:b`, `--crop t0,...`, no flag = analysis +
+figure) → **`figs/m2_q7_edge_margin.png`**. Per-pair caches and `analysis.json` are in the
+session scratchpad (`.../scratchpad/m2q7/`), not in `data/`. **No M1 code changed:**
+`validate._fit_llc` already takes the mask through `inp['ana']`, so no `mask=` keyword was
+needed. The null step (`validate.null_step`, forms `chain`/`discrete_o2`/`discrete`, order 3,
+`vel_order` 3) does not depend on the mask, so it runs once per pair. `_fit_llc`'s fit is then
+applied line for line on each mask. Each mask is `masking.analysis_mask(g, edge_cells=E)`, built
+in memory. `analysis_mask(edge_cells=7)` equals `tile330_masks.nc`'s `mask_analysis` (asserted).
+The front-pixel rule `G_mid >= p90` is **recomputed on each mask** (as V3 does), with the same
+OLS gate and the same 32-cell block bootstrap (1000 draws, seed 0). Runtime is ~1.8 s per pair
+for all four masks.
+
+**Reproduction.** With `edge_cells = 7`, all 71 pairs reproduce `data/m2_v3_stability.json`
+**exactly** (max |diff| 0.0 over slope, CI, n_front, threshold, chain slope and the trimmed
+slope). The result is 64/71 pass, failures 36 and 62-67, hour 0 gives 0.98059
+[0.96982, 0.99423].
+
+**Table (71 pairs, gate = OLS slope on `discrete`, 1 ± 0.05).**
+
+| `edge_cells` | n mask | n front | pass | failing | mean ± std | range | weighted mean | trimmed (top 1 % \|2F\| dropped) mean ± std [range] | hour 0-1 |
+|---|---|---|---|---|---|---|---|---|---|
+| 7 | 262,925 | 26,293 | **64/71** | 36, 62-67 | 0.9720 ± 0.0202 | 0.902-0.997 | 0.9828 | 0.9869 ± 0.0053 [0.971, 1.002] | 0.9806 [0.9698, 0.9942] |
+| 10 | 258,491 | 25,850 | 69/71 | 36, 63 | 0.9786 ± 0.0125 | 0.927-1.002 | 0.9843 | 0.9878 ± 0.0051 [0.971, 1.003] | 0.9807 [0.9709, 0.9937] |
+| 13 | 254,102 | 25,411 | 69/71 | **36, 70** | 0.9799 ± 0.0118 | 0.940-1.002 | 0.9842 | 0.9870 ± 0.0051 [0.972, 1.005] | 0.9793 [0.9700, 0.9921] |
+| 16 | 249,761 | 24,977 | 68/71 | **36, 69, 70** | 0.9778 ± 0.0126 | 0.932-1.001 | 0.9833 | 0.9864 ± 0.0054 [0.971, 1.003] | 0.9792 [0.9689, 0.9916] |
+
+Day-3 pairs (36 and 62-67), E = 7 / 10 / 13 / 16:
+- 36: 0.947 / 0.949 / 0.946 / 0.944;
+- 62: 0.946 / 0.957 / 0.975 / 0.974;
+- 63: 0.903 / 0.927 / 0.980 / 0.980;
+- 64: 0.902 / 0.957 / 0.982 / 0.981;
+- 65: 0.924 / 0.971 / 0.982 / 0.982;
+- 66: 0.914 / 0.968 / 0.987 / 0.985;
+- 67: 0.923 / 0.984 / 0.995 / 0.990.
+
+So a wider margin removes the 62-67 failures, but it does so **by excluding a band, not by
+cleaning one**. The trimmed statistics do not move (0.987 ± 0.005 for every E). Pair 36 fails
+at every E. At E = 13 and 16 **new failures appear (69, 70)**. Leave-one-block-out shows that
+pair 36 (E = 7 and 13), pair 70 (E = 7, 13, 16) and pair 69 (E = 16) are driven by **interior**
+blocks (i = 64-95, i.e. ≥ 64 cells from any edge, lon −124.3 / −125.0, lat 37.1). Each is a
+single sharp front with a LOO shift of +0.02 to +0.03. The same leverage mechanism acts with no
+edge nearby. Once the 7-12 band is excluded at E = 13, the p90 pool shifts and these interior
+blocks gain weight.
+
+**(i) Crop test** (pairs 63, 64 and 0 as a control; tile cropped by N = 4, 8, 16 cells at the
+northern edge, i.e. low `i` on face 10; the full null step is recomputed on the cropped
+tile/grid and compared at the same cells, j 16-703):
+- The new edge reaches **3 cells into `G_mid` and `measured`, 5 cells into `2F` (discrete)**.
+  The affected cells become **NaN** (222 of 222 per column at 0-1, ~10-15 % at 3 / 5). No finite
+  values are wrong there: our operators NaN the edge, so xgcm's 0 pad never reaches a finite
+  output.
+- Beyond 4 (G, DG/Dt) and 6 (2F) cells, the largest change in any column is **≤ 4e-12 of the
+  column max**, which is round-off. Some cells fail `rtol=1e-9` (≤ 2.6 % of a column, at 4-33
+  cells), but only in `measured`, which is the difference of nearly equal G values. The absolute
+  change stays at the 1e-12 level.
+- Band slopes on the northern block's front pixels (full → cropped):
+  - pair 64: N = 4 gives 10-12: 0.8452 → 0.8452, 13-15: 1.0307 → 1.0307, 16-19: 1.0701 → 1.0701,
+    20-31: 0.9472 → 0.9472. N = 8 gives 13-15 and 20-31 unchanged. N = 16 gives 20-31
+    0.9472 → 0.9469, because 9 pixels at 4-5 cells from the new edge became NaN; on the same
+    surviving pixels the full tile gives 0.9469.
+  - The 7-9 band at N = 4 (now 3-5 cells from the new edge) moves 0.637 → 0.969. **This is
+    pixel loss, not value change**: 48 of 72 pixels go NaN, and on the 24 survivors the full tile
+    also gives 0.969.
+  - Pair 63 and pair 0 behave the same way.
+- So the low slopes at rows 7-12 are **crop-invariant to round-off** when the edge moves 4 to 16
+  cells closer. Contamination would change them.
+
+**(ii) Motion test** (hours 55-70, region j 140-230, i < 48):
+- The top-1 % `G_mid` strip (i ≥ 7) stays at **i ≈ 10 (p10-p90 8-13)** throughout. Its j-centre
+  drifts 180 → 177, and the top-1 % |measured − 2F| residual drifts j 174 → 170, at i 8-9.
+- The block-mean displacement is di +0.2 to +0.56 cells/h (southward, away from the edge) and
+  dj −0.22 to −0.37 cells/h (westward).
+- The j drift (−3 to −4 cells in 15 h) matches dj. The i position does not follow di: it is
+  stationary in i.
+- On its own this is **ambiguous**: a stationary front at a confluence (cold inflow from the north
+  meeting a warm tongue) is common.
+- The raw model `Theta` settles the point (figure panel c). At j = 176 the temperature jumps
+  **11.84 → 14.02 °C between i = 7 and i = 11** at hour 64 (2.2 °C in 4 cells). The same front is
+  at i ≈ 6-10 at hour 52 and at i ≈ 7-11 at hour 70. At hour 0 the profile is flat (14.7-15.0 °C).
+- The front is in the model output itself. The tile edge is inside face 10 (`i_face_start` 2880),
+  not a face seam, so nothing in the source data is special at i = 0.
+
+**(iii) Support test** (task-3 displacements, order-3 departure stencil: the lowest node touched
+is `floor(i − di) − 2`):
+- On `mask_analysis` (E = 7), the lowest node over all 71 pairs is **i = 2** (window max
+  displacement towards the edge on the first analysis rows: 2.17 cells).
+- On the northern block it is **i = 3** (pairs 63, 64, 67; max displacement towards the edge
+  1.16 cells).
+- The departure support therefore stays 2-3 cells inside the tile and never reaches the pad. It
+  reads raw `b`, which is finite and correct at i = 0-2. The xgcm-padded outputs (G, Jacobian at
+  i = 0-1) are NaN in our operators and not used.
+
+**Verdict: not tile-edge contamination. It is a real, near-grid-scale model front that happens
+to sit 7-13 cells from the northern edge on day 3.**
+- A wider margin "fixes" pairs 62-67 only by excluding the front.
+- The same leverage failure occurs at interior fronts (pairs 36, 69, 70), and two of those get
+  *worse* with a wider margin.
+- Per JXP's option (a) rule, **nothing in masking was changed**: `edge_cells = 7` stays in
+  `masking.py`, `tile330_masks.nc`, `test_masking.py`, the coding doc and the V6 caption.
+- **Recommendation: (c) with (b)'s sensitivity row.** Keep `edge_cells = 7`, and report the 7
+  failures as the temporal systematic (0.972 ± 0.020; trimmed 0.987 ± 0.005). Add to M3 the
+  `edge_cells = 13` sensitivity (mean 0.980 ± 0.012, 69/71) and the trimmed / orthogonal
+  estimators per pair.
+- The failing hours reflect the OLS-on-p90 gate's sensitivity to a single sub-resolved front
+  (V3b: −4 to −11 % at 1-1.5 dx), wherever the front is. Task 3's open item ("whether the first
+  analysis rows also see the boundary itself cannot be excluded") is **closed: they do not**.
+- Since the mask is unchanged, the V3 hour 0-1 baseline is unchanged (0.9806). For information,
+  it would be 0.9793 [0.9700, 0.9921] at E = 13.
+
+**Suite** (`timeout 300 python -m pytest dev/frontogenesis/py/tests -q`): **127 passed,
+3 xfailed, 2 deselected in 174 s.** The count is up from 104 / 1 deselected because the
+concurrent agent added `tests/test_load_chunk_levels.py` (and `vertical.py`, plus a
+`series_verify.py` modification); none of their tests fail. My work changed no tested code.
+
+**Contradictions / flags.**
+1. The M2-Q7 premise ("a slope recovering to 1 with distance from the boundary is the signature
+   of contamination") does not hold here. The recovery follows the front's position, which
+   happens to be fixed relative to the edge. Crop invariance shows the boundary plays no part.
+2. Task 3's band numbers are reproduced: 7-9 rows 0.637 (task 3 quoted 0.71, presumably over a
+   different hour set or pixel subset), 10-12 rows 0.845 (0.83), ≥ 13 rows 1.03 / 1.07. Over
+   hours 62-70 the 13-19 bands go *above* 1 (1.03-1.29), so "recovers to 1 beyond 13" holds only
+   on average.
+3. Widening the margin is not monotone in pass count (64 → 69 → 69 → 68). Raising `edge_cells`
+   would have traded one leverage failure for others, so it could not be justified "by the
+   numbers".
+
+Files: created `py/m2_q7_edge_margin.py` and `figs/m2_q7_edge_margin.png`; modified this log and
+`frontogenesis_prompt_3.md` (a note under JXP's M2-Q7 answer). Not touched: `masking.py`,
+`validate.py`, `tile330_masks.nc`, every test, the coding/planning docs, the V3/V6 PNGs,
+`vertical.py`, the chunk files, `m2_chunk_pull.py` and `deck/`. Nothing committed.
+
+### 2026-10-03 — Execution prompt 3, task 5: load_chunk_levels and the chunk pull (Opus; Fable limit reached)
+
+**(in progress; phase 2 appends the results.)** Phase 1, this part: the loader, its tests and
+the pull script are written, and the 72-hour pull is launched detached and confirmed to be
+progressing. Phase 2, a later resume after the main session sees `data/m2_chunk_pull_done.json`,
+does the rest: `verify_chunk_series`, the no-op re-run with checksums, the k=0 bit-identity spot
+check against OSN for 3 hours, volume and wall time, the missing hours, and the Status update.
+
+**Scope and rules.** Nothing outside `dev/frontogenesis/` was touched, and nothing was
+committed. `masking.py`, `tile330_masks.nc`, `validate*.py` and `deck/` were left alone, since
+M2-Q7 runs in parallel. The remote store is read-only. The note to Lauren is drafted and not
+sent. Every interactive command ran under `timeout`, and the pull runs under `nohup`.
+
+**Written.**
+- **`py/vertical.py`** (new, ~525 lines; see deviation 1). It holds only
+  `load_chunk_levels(window, k_max=2, out_zarr=None, *, clobber, endpoint, prefix, fs,
+  osn_store, local_grid, attempts, backoff, sleep, log, report)` and its private helpers. The
+  physics functions of §4.6 are M3's. It returns the path, or an in-memory Dataset when
+  `out_zarr=None` (the §4.6 `str | xr.Dataset`).
+- **`series_verify.verify_chunk_series(out_zarr, timestamps, levels=None, k_max=2,
+  sw_tol=1.0)`** (+154 lines in `py/series_verify.py`, now 362). It reuses `_check_time` and
+  `_check_niter`.
+- **`py/tests/test_load_chunk_levels.py`** (new): 23 offline tests and 1 `network` smoke test.
+- **`py/m2_chunk_pull.py`** (new): the driver. It imports `Progress` and `timestamps_72` from
+  `m2_pull.py` rather than copying them.
+- **`claude_prompts/note_to_lauren_flux_signs.md`**: the M2-Q6 (c) draft, for JXP to
+  forward.
+
+**Design.**
+- **Reading.** Each hourly object is one bytes+zstd chunk (task 4). The loader reads
+  `zarr.json` and then the single chunk through `vertical._cat(fs, path)`, the one network
+  primitive (s3fs on Nautilus, path-style, default AWS profile, no cache). It zstd-decodes the
+  bytes, checks that they are exactly `prod(shape) * itemsize`, and reshapes. It does not go
+  through `xr.open_zarr`, so every object can be validated and re-fetched on its own. A corrupt
+  `Theta` re-fetches 57 MB, not the whole 174 MB hour. One field is decoded at a time, and the
+  `k = 0..2` slab is copied so that the 51-level buffer is freed.
+- **Validated before anything is written.**
+  - The layout: one chunk, bytes (little-endian) + zstd, the default key encoding.
+  - The shapes: `(51, 1, nj, ni)`; `W` `(52, …)`; the 2-D fields `(1, nj, ni)`.
+  - Land: NaN exactly where the chunk `grid.zarr` `hFacC[k] == 0`. This is checked for
+    `Theta`/`Salt` at k = 0..2, for `W` at `k_p1 = 0..2`, and for the fluxes and `Eta` at
+    `hFacC[0]`.
+  - Values: finite values inside generous plausibility bounds, which catch garbage that still
+    decodes.
+  - Time alignment, for every hour:
+    - the store's own `time` equals the requested timestamp;
+    - the group attrs `selected_date_utc` and `selected_iteration` (= OSN `niter` − 10368)
+      match, and so do `resolved_face`, `j_start`, `i_start` and `tile_size`;
+    - the chunk `Eta` (1.2 MB) is **bit-identical to the OSN 72-hour store's `Eta`** for that
+      hour (`osn_store=`; task 4 found this true in all 72 hours);
+    - after the append, the store's `time` read back ends at the requested hour.
+  - Once per run, the chunk `grid.zarr` is checked: `drF[0] == 1.0`, `Z[0] == −0.5`, it
+    starts at `j = 0` and `i = 2880`, and `hFacC[0] != 0`, `XC` and `YC` equal M0's
+    `tile330_grid.zarr` (`local_grid=`).
+- **Retries and gaps.** `zarr_series.with_retries` wraps each object and each group-attrs
+  read: 3 attempts, backoff 5/20/60 s. A failed check counts as a failed read. An hour that
+  still fails **stops the run at the gap** (`report['failed']`, `report['not_attempted']`),
+  exactly as in `pull_series`; the next run resumes from that hour.
+- **Resumability: `zarr_series`, reused.** The hour is staged in memory, then appended once
+  (`append_hour`, time-dimensioned variables only). On resume, `repair_trailing` runs before
+  `present_times` is trusted. "Present" is the store's own `time`. The root attrs are re-synced
+  through `osn_tiles._sync_attrs`. Duplicate or out-of-order timestamps, or an hour earlier than
+  the store's end, raise. `clobber` is supported.
+- **Schema (§3.3).**
+  - Variables, all `float32`, one chunk per hour per variable:
+    - `Theta`, `Salt` `(time, k=0..2, j, i)`;
+    - `W` `(time, k_l=0..2, j, i)`;
+    - `oceQnet`, `oceQsw`, `oceFWflx` `(time, j, i)`;
+    - `drF(k)`, static and written once.
+  - Coords:
+    - `time`, encoded as `seconds since 2011-09-10` int64, as in §3.2;
+    - **`niter(time)` = the OSN iteration**, for consistency across the two stores;
+    - `mit_iteration(time)` = `niter − 10368`, the source's `selected_iteration`;
+    - scalar `face = 10`;
+    - `k`, `k_l`;
+    - `j` (0..719) and `i` (2880..3599), int64 with comodo attrs, the same values as the OSN
+      store;
+    - `XC`, `YC`;
+    - `Z(k)` and `Zl(k_l)`, which were cheap.
+  - Root attrs:
+    - the §3.3 set: `source='CHUNKS/monterey_bay'`, `levels='k=0..2, k_l=0..2'` and
+      `git_commit`, plus `dbof_commit` and `created`;
+    - `source_path`, `endpoint` and `addressing`;
+    - `iterations` (OSN), `mit_iterations` and `timestamps`;
+    - the tile attrs and `land_fill`;
+    - `flux_sign_convention`, `flux_sign_conversion`, `w_interfaces`, `forcing_note` and
+      `provenance` (a list that records the negation).
+- **`W` rename.** `W(k_l = n)` = source `W(k_p1 = n)`, for n = 0..2. `k_p1 = n` is the *top*
+  face of cell n. Task 4 verified this by continuity (rms 7e-12 m s⁻¹ for cells 0..2). The
+  mapping is in a code comment, in `W.attrs['interface_mapping']` and `source_dim='k_p1'`, and
+  in the root attr `w_interfaces`.
+- **Sign conversion (M2-Q6 (a)).** `oceQnet`, `oceQsw` and `oceFWflx` are **negated at write
+  time**, so the store is downward-positive, as coding §3.3/§4.6 assume. Each of the three
+  carries:
+  - a correct `long_name`;
+  - `sign_convention='positive downward (into the ocean); …'`;
+  - `source_sign_convention`, the original "+=down" long_name;
+  - `sign_conversion`, which says the variable was negated and why;
+  - `forcing_note`, on the 6-hourly interpolated forcing.
+
+  The root `provenance` says "NEGATED". **Guard:** an hour whose *raw* `oceQsw` exceeds
+  +1 W m⁻² is refused. If the source were ever corrected by negating the data, the pull fails
+  instead of flipping the sign twice.
+
+**`verify_chunk_series`** checks:
+- `time`: gaps, duplicates and order;
+- `schema`: the §3.3 variables, dims, float32, chunks `(1, 3, nj, ni)` / `(1, nj, ni)` /
+  `(3,)`, `k`/`k_l` = 0..2, coords, scalar `face`, time encoding, root attrs, the per-flux sign
+  attrs, and `W.source_dim`;
+- `niter`: steps of 144, equal to `osn_date_to_iteration` and to `iterations`, with
+  `mit_iteration == niter − 10368`;
+- `drF`: equal to the grid's, `drF[0] == 1.0`, `Z[0] == −0.5`;
+- `land_nan`: every hour and every level k = 0..2, NaN exactly where `hFacC[k] == 0`;
+- `sign`: stored `oceQsw ≥ −sw_tol` everywhere, and > 0 somewhere.
+
+The reference `levels` (land and `drF`) is read by default from the chunk `grid.zarr`, about
+0.5 MB of network, which also cross-checks against `tile330_grid.zarr`.
+
+**Tests** (`test_load_chunk_levels.py`, 23 offline + 1 network, 13 s offline).
+- **The source mimic.** Synthetic zarr-v3 stores are written under `tmp_path` with the real
+  layout:
+  - one `YYYYMMDDTHH.zarr` per hour, every variable a single zstd object;
+  - 51 levels on `k`, and `W` on `k_p1` (52);
+  - a `numpy.datetime64` `time`;
+  - the group attrs, with the MIT `selected_iteration`;
+  - flux attrs that say "+=down" over upward-positive data;
+  - a `grid.zarr` whose land block grows with depth, so k = 0, 1, 2 each have their own NaN
+    pattern.
+
+  They are read through a local fsspec filesystem, so the real fetch, decode and validate path
+  runs. Only `vertical._cat` is monkeypatched (plus `zarr.Array.__setitem__` for the
+  mid-append crash).
+- **Covered:**
+  - the level subset and the `k_p1 → k_l` rename (values equal to source levels 0..2);
+  - schema, dtype and chunking (one chunk file per hour), `niter`/`mit_iteration`, `Z`/`Zl`,
+    comodo attrs;
+  - `drF = [1.0, 1.14, 1.30]`, written once;
+  - the sign conversion (values = −source) and every attr;
+  - the in-memory return, and `k_max = 1`;
+  - **the no-op re-run: sha256 of every file identical, and zero source reads**;
+  - resume after a crash between hours (mid-fetch), with hours 0-2 untouched;
+  - **resume after a crash inside `to_zarr`**: the store is half-written, `repaired == 1`,
+    the hour is re-pulled, the good chunks are byte-identical, and verify passes;
+  - clobber and the order errors;
+  - **retry on a corrupt read**, in 4 variants: a truncated zstd stream, zero bytes, a valid
+    stream of the wrong size, and a valid stream with a finite value on land. Each costs
+    exactly one backoff sleep, and the store is right;
+  - **stop-at-gap** on a persistently corrupt `Salt` at hour 2: 2 on disk, 1 failed,
+    3 not attempted, and the next run completes;
+  - an hour refused for a wrong `time`, a wrong `selected_iteration` (OSN instead of MIT), or a
+    source that is already downward-positive;
+  - the `Eta` alignment check: it passes against an aligned OSN store and fails against one
+    shifted by an hour;
+  - `verify_chunk_series` passing, and failing on a gap, an un-negated hour, finite-on-land at
+    k = 2 together with NaN-on-ocean in `W(k_l = 1)` (reported per variable with the first bad
+    hour), a wrong `drF`, a float64 / missing-variable / wrong-sign-attr schema, and a missing
+    store.
+- The `network` smoke test, `test_network_one_real_hour`, is marked SLOW (~5 min, 174 MB). It
+  was **not run** in phase 1; the detached pull exercises the same path.
+
+**Full offline suite** (`timeout 300 python -m pytest dev/frontogenesis/py/tests -q`):
+**127 passed, 3 xfailed, 2 deselected (the two network tests) in 178 s**. That is the previous
+104 + 3 xfailed + 1 deselected, plus the 23 new tests and the new network test.
+
+**Dry run** (`python m2_chunk_pull.py --dry-run`): the store is absent, with 0 of 72 present;
+the grid and OSN stores are present.
+
+**Live pre-flight (~3 MB, before the launch).**
+- `_load_levels` against Nautilus with `local_grid`: 51 levels, 720×720,
+  `drF[0..2] = [1.0, 1.14, 1.30]`, `Z = [−0.5, −1.57, −2.79]`, `Zl = [0, −1.0, −2.14]`,
+  land fraction 0.3116 at k = 0, 1, 2. `hFacC[0]`, `XC` and `YC` equal `tile330_grid.zarr`.
+- At 07-02 T00: `time` and `selected_date_utc` are correct. Raw `oceQsw` spans −454 to
+  −252 W m⁻², upward-positive as expected. `Eta` is bit-identical to OSN.
+
+**First launch: stopped at hour 0 by a plausibility bound; fixed and relaunched.** The first
+launch was at 16:49:32 PDT, PID 73437.
+- `Theta` arrived at 0.52 MB/s.
+- `Salt` was then refused 3 times: `values [28.44, 48.42] outside plausible (0, 45)`. The run
+  stopped at the gap as designed, `status=failed`, and wrote its done-file (kept as
+  `data/m2_chunk_pull_done_run0_salt_bound.json`).
+- The value is real, not corrupt. The OSN 72-hour `Salt` maximum is **48.64 psu**, at
+  −115.74 E, 32.54 N (the northern Gulf of California, hypersaline), with 32 cells above 45 at
+  hour 0.
+- The bounds were widened, to `Salt (0, 70)` and `Theta (−3, 45)`, with a comment. The
+  bounds are meant to catch garbage, not physics. That cost 7 min. It also shows the
+  retry → stop-at-gap → done-file path working on real data.
+
+**Launch** (16:57:12 PDT, 2026-10-03):
+```
+cd dev/frontogenesis/py && nohup ~/miniforge3/envs/frontogenesis/bin/python m2_chunk_pull.py > ../data/m2_chunk_pull.nohup 2>&1 &
+```
+**PID 86425** (host MacBook-Pro-4.local). The log is `data/m2_chunk_pull.log`, appended, and
+also holds the first launch's lines above `pid 86425`. The done-file is
+`data/m2_chunk_pull_done.json`.
+
+**First hour** (no retries, no repairs, no failures in this launch):
+
+| object / hour | size | wall | rate |
+|---|---|---|---|
+| `20120702T00/Theta` | 57.2 MB | 106 s | 0.54 MB/s |
+| `20120702T00/Salt` | 47.5 MB | 86 s | 0.55 MB/s |
+| `20120702T00/W` | 65.4 MB | 127 s | 0.51 MB/s |
+| **hour 2012-07-02 00:00** (+ fluxes, Eta, time, attrs; append) | **175 MB fetched** | **333.0 s** | |
+
+That is the rate task 4 measured, 0.55 MB/s, and the link is the limit. The read-only sanity
+check of the stored hour 0 found:
+- dims `k = k_l = 3`, 720×720;
+- `niter` 1022976, `mit_iteration` 1012608;
+- `drF` [1.0, 1.14, 1.30], `Z` [−0.5, −1.57, −2.79];
+- **`Theta`/`Salt` k=0 and `W(k_l=0)` bit-identical to the OSN store**;
+- stored `oceQsw` 252 to 454 W m⁻², positive downward at 17 LST;
+- tile means: `oceQnet` +240 W m⁻² (ocean warming), `oceFWflx` −2.2e-5 (net evaporation, now
+  negative downward).
+
+The store is **14 MB per hour on disk**, so about **1.0 GB** for 72 hours.
+**ETA:** 72 × ~333 s ≈ 6.7 h from 16:57, i.e. **~23:40 PDT 2026-10-03**. The script's own
+estimate after hour 0 is 394 min. The main session watches for `data/m2_chunk_pull_done.json`.
+
+**Deviations and notes.**
+1. **`vertical.py` is about 525 lines, over coding §1.3's ~400-line cap.** About half of it is
+   docstrings and the validation helpers. It will grow further when M3 adds the physics
+   functions. A split (for example `chunk_store.py` for the reader) is better decided in M3,
+   when `vertical.py` gets its physics. Flagged and not done now, because the task names
+   `vertical.py`.
+2. **§3.3 lists "+ staggered" dims.** There are none: the store has no `U`/`V`. It has
+   `j`, `i`, `k`, `k_l` and `time`.
+3. **Additions beyond §3.3**, all coords or attrs:
+   - `mit_iteration(time)`;
+   - `Z(k)` and `Zl(k_l)`;
+   - `j`/`i` index coords, matching the OSN store;
+   - the sign and provenance attrs.
+4. **The `Eta` check needs the OSN store.** It is passed by the script, and off by default in
+   the function, because the tests use synthetic sources. If OSN lacks an hour, that hour's
+   `Eta` check is skipped, not failed.
+5. Nautilus served no corrupt bytes during the pre-flight or the first launch. The four
+   corrupt-read variants are covered by the offline tests only.
+
+Files so far: created `py/vertical.py`, `py/m2_chunk_pull.py`,
+`py/tests/test_load_chunk_levels.py` and `claude_prompts/note_to_lauren_flux_signs.md`;
+modified `py/series_verify.py` (appended `verify_chunk_series`) and this log. Data, which is
+git-ignored: `data/tile330_chunk_20120702T00_72h.zarr` (growing), `data/m2_chunk_pull.log`,
+`data/m2_chunk_pull.nohup` and `data/m2_chunk_pull_done_run0_salt_bound.json`. Not touched:
+`osn_tiles.py`, `zarr_series.py`, `m2_pull.py`, every M1 module and test, `pytest.ini`, the
+coding and planning docs, and `deck/`. Prompt 3's Status is left for phase 2. Nothing committed.
