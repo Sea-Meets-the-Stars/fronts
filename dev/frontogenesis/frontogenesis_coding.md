@@ -818,6 +818,7 @@ catch-all residual.
 
 Tasks: `vertical.py` (physics), `budget.py`, `stats.py`; run the `L_cells` sweep; compute the
 **measured** vertical and surface-flux terms from the §3.3 chunk product.
+*(added 2026-10-07, M2 task 8: the nine-task sequence, the M3 carry-forward cross-check table and the M3-Q1..Q9 questions are in `claude_prompts/frontogenesis_prompt_4.md`, `## Tasks` and `## Q&A`.)*
 
 Front pixels here are selected as `G` above a stated percentile at the **midpoint time** inside
 `mask_analysis` — **no labelling, no `tile_find`**. That stays in M4, and keeping it out means the

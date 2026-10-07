@@ -5265,3 +5265,172 @@ Files: created `deck/make_m2_figs.py`, `deck/build_m2_deck.py`, `deck/figs_m2/` 
 `claude_prompts/frontogenesis_prompt_3.md` (Status, one line), this log. Not touched: every module,
 test and data store, the other decks and their scripts, the coding and planning docs. Nothing
 committed.
+
+### 2026-10-07 — Execution prompt 3, task 8: M3 prompts and carry-forward (Fable)
+
+**Scope.** Task 8 of `frontogenesis_prompt_3.md`: carry M2 task 6's carry-forward list (and the
+M1 carry-forward items) into the M3 prompt, and give M3 a numbered task sequence. A writing and
+design task: no code, no data, no physics run, nothing committed. Read in full first: prompts 2,
+3 and 4; the M2 task 3 / 4 / 5 / 6 / 7 and M2-Q7 log entries; the M1 task 4 / 6 / 6b / 7 entries;
+coding §1, §3.2-§3.4, §4.3-§4.10, §5, §6, §7, §8; planning §2, §4, §5, §6-§7, §8, §11-§12; the
+function signatures of `operators.py`, `semilag.py`, `coarsegrain.py`, `vertical.py`,
+`masking.py`, `validate.py`, `osn_tiles.py`, `series_verify.py`, `zarr_series.py`,
+`m2_baseline_stability.py`, `pytest.ini` and `conftest.py` (none edited). Edited: prompt 4
+(restructured), prompt 3 (one Status line), coding §6 M3 (one marked line), this log.
+
+**Prompt 4 before.** Header, "The budget", "Modules to write" (`vertical.py`, `budget.py`,
+`stats.py` with the M1 task-7 baseline paragraph), "Runs", "Figures", Acceptance criteria, "Do
+not", a short "Log" — the spec, partly updated by M1 task 7, with no Status, no numbered
+`## Tasks`, no Q&A, no log convention. All of it is kept verbatim; changes are marked
+"(corrected/added 2026-10-07, M2 task 8)".
+
+**The M3 task list** (prompt 4 `## Tasks`, one session each, each with inputs, outputs,
+carry-forward items honoured, anti-stall rules, the coding §8 pitfalls that apply, and a
+*Discharges* line):
+1. **The merged input layer — `inputs.py`.** The one place the two stores are opened and merged
+   (M2 task 6 found `xr.merge` fails on `Theta`/`Salt`/`W`); asserts the shared coords and the
+   `k = 0` bit-identity on every open; the flux sign guard; `W_k1`, `drF`, `fluxes`, `wind`
+   accessors; `hour_pair` / `midpoint` / `time_mid`; `filtered` (same `L` on `b, U, V`); `valid`
+   (`mask_analysis & isfinite`, required at `L = 8`). Rationale: the merge, the mask rule and the
+   pair logic are shared by every later task; one tested module keeps `budget.py` under the cap.
+2. **`vertical.py` physics.** The M3-Q7 split (reader → `chunk_store.py`) first; then `b_z`
+   (sign convention stated), `vertical_term` (tendency first, then `grad_h`; `W(k_l=1)`; the
+   factorised form as a diagnostic; `T_v` lowpassed at `L`), `surface_flux_term` (no re-negation;
+   `oceQsw` separately with the top-cell absorbed fraction `f_sw` ~0.56 at 1 m from `SWFRAC`,
+   verified against the namelist; `oceQnet` includes `oceQsw`; JMD95 `alpha`, `beta` by finite
+   differences of the same EOS; `forcing_note` propagated); the diurnal checks on hours 0 / 9 / 21.
+   Rationale: the terms that make this a real budget, tested before any budget is assembled.
+3. **`budget.py`.** `compute_budget` (both forms, order 3 and 5, semi-Lagrangian and Eulerian,
+   `subfilter = 2 × term` with `tau_delta` mandatory and ≡ 0 at `L = 0`, `vertical` and
+   `surface_flux` = 2 × the task-2 terms, the residual, the strain fields, `lap2_b`,
+   `front_width`, `valid`, `front`), the loud `closure_report` when the chunk terms are absent,
+   `write_derived` through `zarr_series`, and the hour-0 smoke with bit-for-bit checks against
+   `validate.two_F` / `null_step` and M1 task 4's 0.31 / 0.50 / 0.70. Rationale: a sign error
+   found here costs minutes, not a detached run.
+4. **The `L_cells` sweep — `m3_run.py` → `tile330_derived_L{L}.zarr`.** Pilot under
+   `timeout 300`, then detached under `nohup caffeinate -i -s`, resumable per pair, per-pair
+   closure JSONs, `verify_derived_series`, the no-op re-run, wall times and the scale-up
+   extrapolation. Rationale: the one long job, launched as early as its inputs allow.
+5. **`stats.py`.** OLS (the gate), TLS, bisector, **trimmed**, ratio **by sign**, binned `E[Y|X]`
+   by sign, the **contiguous space-time block bootstrap** (32-cell squares × hour; a 3-hour
+   variant), `slope_report` relative to 0.981 with the V3b and temporal bands; equivalence tests
+   against `validate.slope_estimators` / `block_bootstrap_ols`, which are not edited. Rationale:
+   numpy-only, so it is written while the sweep runs.
+6. **Closure — the HARD GATE.** Tolerances, pools, hour sets and estimators pre-declared
+   (M3-Q1, Q2, Q4, Q5, Q9); (a) closure per `L`, with and without the chunk terms, by local hour
+   and by distance offshore; (b) semi-Lagrangian vs Eulerian (M1 task 3's 0.73 / 0.74 at `L = 0`
+   the known start); (c) the sweep's interpretability; (d) the slopes — only where (a) passes —
+   per form, order, mask (`edge_cells` 7 and 13), width (shortfall subtracted), all 71 pairs and
+   the day-3 pairs 62-68 separately, every estimator against 0.981 with the V3b band and the
+   temporal systematic; (e) Figure 2b's regressions. Verdict per `L`; a failure is the result.
+7. **Figures 1, 2, 2b, 3, 3b, 4, 5, 6, 7, 10** in `figures.py`, from the stores and task 6's
+   JSON only; Figure 2's baseline at 0.981 with its band and V3b's beside; Figure 6's forcing
+   caveats in the caption; the `L = 0` `tau` panel labelled zero.
+8. **M3 acceptance audit.** Criteria 1-5 with numbers; "Do not"; discharges; the carry-forward
+   table walked row by row; marked doc notes (coding §3.4, §5, §4.6-§4.8, §4.9, §8; prompt 4
+   acceptance 4; planning §4 / §2.3 / §5.3 if M3-Q8 says so); what goes to M4 / M5; M3 closed or
+   not — if criterion 1 fails, M3 is not closed and nothing downstream starts.
+9. **Slides.** `deck/make_m3_figs.py` + `build_m3_deck.py`, `MIN_PT = 20`, checked and rendered,
+   one slide per task, "Carried to M4 / M5", glossary; `deck/README.md`.
+
+Reordering against the shape proposed in the task prompt: `stats.py` moved from 4th to 5th so
+the sweep is launched first (wall-clock); a pilot and the hour-0 smoke added inside tasks 3-4;
+the pre-declaration made explicit in task 6. Nothing merged or split otherwise.
+
+**The carry-forward mapping** (prompt 4 "M3 carry-forward cross-check", 44 rows; every row names
+a task or says "none"): M2 task 6 items 1-11 → C1-C11k (item 11's eleven sub-bullets each a
+row); M2 task 6 open items 1-6 → O1-O6 (O2 is this restructure, done; O1 → M3-Q8; O3 → M3-Q7;
+O4 → task 4's re-timing; O5, O6 none); M1 items → M1a-M1q: M1-Q1 both forms (3, 6, 7); M1-Q2 /
+6b V3b band, no upward correction, per-width shortfall, chain baseline 0.79 (6, 7; M3-Q5); M1-Q4
+Figure 2 at 0.981 (5, 7); M1-Q6 order 5 and V4's bar with width (3, 6); M1 task 4 `tau_delta` and
+`2 ×` (3), the 0.31 / 0.50 / 0.70 growth and the `L = 0` column (3, 6, 7); M1 task 6 ratio by sign
+(5, 6), edge reach = 7 (1, 6), defaults (1, 3), CI excludes 1 (7); 6b's `kappa_num` caveat (6);
+M1 task 3's Eulerian 0.73 / 0.74 (6); M0's vertical bracket (2, 3); M1-Q8 (a, b) (none / M3-Q7);
+M1 task 7 open items 1-3 (`fronts` bugs, prompt 5 path, NaN recipe) and 6 (M0 deck) → none, M4's;
+coding §6 M3 "Carried from M1" (3, 6). Items with no M3 action: the note to Lauren (C10, O5),
+the prompt-3 wording record (C11e), M2-Q3's cost estimate (C11h), the network docstring (C11j),
+`HEAD` state (O6), M1-Q8 (a), the M4 items, the M0 deck. **Nothing dropped.**
+
+**Questions posed** (prompt 4 `## Q&A`, "Claude, 2026-10-07 (before task 1)", each with a
+recommendation and a `> **JXP:**` placeholder): **M3-Q1** closure tolerance (recommend
+`rms(residual)/rms(measured) <= 0.5` and the residual's slope on `2F` within ±0.10, on front
+pixels, pre-declared); **M3-Q2** semi-Lagrangian / Eulerian tolerance (slope 0.85-1.15, corr
+≥ 0.90 at `L >= 2`; `L = 0` reported — M1 task 3's 0.73 / 0.74 is the known start); **M3-Q3**
+`L_cells` (keep `{0, 2, 4, 8}`; `L = 1` as an extra column if time allows); **M3-Q4** front
+percentile (p90, the V3 / M2 pool, with p80 / p95 as sensitivity); **M3-Q5** per-pixel front-width
+proxy (`ell = 2 sqrt(G/|lap G|)` binned, validated on synthetic tanh fronts; the sweep as the
+cross-check; object widths in M4); **M3-Q6** merge strategy (rename, with accessors); **M3-Q7**
+module splits (`vertical.py` reader → `chunk_store.py` with a re-export and a repointed
+monkeypatch; `osn_tiles.py` / `validate.py` left); **M3-Q8** marked notes in the planning doc for
+the stale §4 / §2.3 / §5.3 numbers (yes, in task 8); **M3-Q9** which `L` the gate is judged at
+(`L >= 2`; `L = 0` interpreted — its explicit subfilter term is zero by construction).
+
+**Edits made.**
+- `claude_prompts/frontogenesis_prompt_4.md`: Prerequisites — marked note that both halves of M2
+  closed (source B complete; the "Do not block" path not needed; `compute_budget` still runs
+  without `chunk_ds` for its offline tests); **Status 2026-10-07** paragraph (not started; Q
+  ordering; inputs on disk; suite 127 + 3 xfails); **`## Tasks`** (preamble with the rules for
+  long jobs and the §8 pitfalls, the shape note, tasks 1-9 as above, the **M3 carry-forward
+  cross-check** table) inserted between "Figures" and "Acceptance criteria"; acceptance
+  criterion 4 — marked note (block-level bootstrap at this milestone; the temporal systematic and
+  the 13-cell row quoted beside the baseline); **`## Q&A`** with M3-Q1..Q9; **`## Log`** — the
+  M0-M2 entry-title convention and the extra items to record. Every pre-existing sentence kept.
+- `claude_prompts/frontogenesis_prompt_3.md`: Status — one sentence, task 8 done 2026-10-07.
+- `frontogenesis_coding.md` §6 M3: one marked line pointing at prompt 4's Tasks / Q&A. Nothing
+  else in the coding doc touched (the §3.4 / §5 / §4.x / §8 corrections are listed for M3 task 8).
+- This log entry. Not touched: every module, test, data store and figure; `deck/`;
+  `frontogenesis_planning.md`; prompts 1, 2, 5, 6; `note_to_lauren_flux_signs.md`. Nothing
+  committed.
+
+**Contradictions and gaps found** (flagged for M3; only the first two edited, in prompt 4):
+1. **Prompt 4 acceptance 4 "with feature-level bootstrap intervals"** contradicts its own
+   `stats.py` paragraph ("Feature-level bootstrap is M4's") and planning §11 (contiguous blocks +
+   hours in Phase 2). Marked note added.
+2. **Prompt 4 Prerequisites "Source B may arrive during this milestone"** — stale since M2 closed
+   2026-10-04 with 72/72 chunk hours. Marked note added.
+3. **Coding §3.4** lists a single `two_F`, no order-5 field, no `(time, j, i)` layout or midpoint
+   coord; M1-Q1 / M1-Q6 require `two_F_chain` and `DGDt_semilag_o5`, and Figure 2b needs a
+   `grad^4`-like field. Task 3 adds them; task 8 marks §3.4.
+4. **Coding §4.8 "Bootstrap over frontal features and hours, never over pixels"** — the
+   Phase-3 block; Phase 2's is spatial blocks + hours (planning §11; coding §6 M3 says so). Task 8
+   marks §4.8; `feature_bootstrap` becomes an alias of the general block bootstrap.
+5. **Coding §4.10 / planning §8** put `figV1..figV6` in `figures.py`; they have lived in
+   `validate_figs.py` since M1 task 5. M5's consolidation; task 7 notes it.
+6. **Coding §5's test table** has `test_stats.py` but no `test_vertical.py`, `test_budget.py`,
+   `test_inputs.py`, `test_figures.py`. Task 8 adds them.
+7. **Coding §8 "Loaded only `k = 0..2` from the chunk store"** — the fetch was never
+   level-selective (one 51-level object per variable per hour, M2 task 4); "stored only" is the
+   true statement. Task 8 marks it.
+8. **Criterion 2 "agree within a stated tolerance"** against M1 task 3's measured real-hour
+   Eulerian-vs-semi-Lagrangian corr 0.74 / slope 0.73 at `L = 0` — the two estimates are not yet
+   known to agree at the grid scale. M3-Q2; task 6 (b) carries the number as the starting point.
+9. **Criterion 3 "the budget closing at each `L`"** vs planning §5.4 (corrected, M1 task 4: the
+   explicit subfilter term ≡ 0 at `L = 0`, so the `L = 0` residual holds the whole numerical
+   term) and planning §12 ("at all filter scales" is the null). M3-Q9.
+10. **Planning §7 Figure 5's `tau = G/(2F)`** collides with the subfilter flux `tau`; task 7 uses
+    `t_sharp` in code.
+11. **`b_z`'s sign:** planning §2.2 quotes the textbook `b_z ~ +2-4e-4 s^-2`; code `b` increases
+    with density (coding §1.1), so the same warm layer gives `b_z < 0` in code. Not an error in
+    either doc, but a trap for `vertical.py`; task 2 states the convention in attrs.
+12. **Coding §4.6 `surface_flux_term`** says to treat `oceQsw` separately but not that `oceQnet`
+    *includes* the shortwave (M2 task 4's tile means show it does: noon `oceQnet − oceQsw` ≈ the
+    night-time non-solar cooling) nor what fraction is absorbed in the 1 m cell (MITgcm `SWFRAC`,
+    Jerlov I: ~0.56 at `z = −1 m`, to be verified against the LLC4320 namelist). Task 2 specifies
+    `Q_top = (oceQnet − oceQsw) + f_sw oceQsw`.
+13. **How the chunk-derived terms are filtered at `L`** is unspecified in coding §4.6 / planning
+    §5.4 (which filters `b, u, v`). Task 2 states the choice (lowpass the tendency `T_v` and
+    `B_sfc` themselves, dot with the filtered gradient) so the subfilter correlation is inside the
+    term rather than dropped; the audit may revisit.
+14. **Coding §4.7's `compute_budget(raw_ds, …, chunk_ds=None)`** against the merged-dataset
+    design of task 1: the signature stands (`raw_ds` may be the merged dataset, `chunk_ds` then
+    implied); task 8 marks §4.7.
+15. **Prompt 4 "Runs": "`tau` computed explicitly at each `L`"** holds trivially at `L = 0`
+    (identically zero); Figure 3b's `L = 0` `tau` panel must be labelled so, not left to look like
+    a missing panel.
+16. For the record, the two "feature" vs "block" statements of planning §11 are internally
+    consistent (block differs by milestone); the inconsistency was in prompt 4's criterion 4
+    and coding §4.8 only.
+
+Files: modified `claude_prompts/frontogenesis_prompt_4.md`, `claude_prompts/frontogenesis_prompt_3.md`
+(Status, one sentence), `frontogenesis_coding.md` (§6 M3, one marked line), this log. Nothing
+committed.

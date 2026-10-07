@@ -9,6 +9,10 @@ is M0's. So M1 and M2 can run in parallel.
 **Status 2026-10-04 — M2 closed 2026-10-04** (task-6 log entry: all seven acceptance criteria
 PASS; "Do not" list respected; details below). Tasks 1-7 done; task 7 (slides) done 2026-10-04:
 `deck/Frontogenesis_M2_Acceptance.pptx`, 14 slides, no text below 20 pt (`deck/README.md`).
+**Task 8 (M3 prompts and carry-forward) done 2026-10-07:** `frontogenesis_prompt_4.md`
+restructured to the prompt-2/3 format (Status, `## Tasks` 1-9 with *Discharges*, the M3
+carry-forward cross-check table mapping every M2 task-6 and M1 item, `## Q&A` M3-Q1..Q9, the Log
+convention); one-line pointer in coding §6 M3; log entry "Execution prompt 3, task 8".
 *(Per-task text condensed into bullets 2026-10-04, M2 task 6, no numbers dropped.)*
 
 - **Task 1** (log entry 2026-10-03): `osn_tiles.pull_series` on `zarr_series`'s per-hour atomic
@@ -304,6 +308,11 @@ A small M2 acceptance deck, with the same rules as M1's (`deck/`, python-pptx; a
 plus a builder script kept in `deck/`; **no text below 20pt**, checked programmatically; rendered
 and inspected). It has a title, contents, a one-slide M2 summary, and one slide per task.
 Log the work in `deck/README.md`.
+
+### 8. Carry forward
+
+Carry forward task 6's carry-forward list into the M3 prompts.
+Create a series of prompts that will be used to guide the development of M3.
 
 ---
 
