@@ -1020,7 +1020,7 @@ the shortwave part, which the smoke shows is only 0.6-18 % of the surface-flux t
 is < 2 % of the term. I recommend **(a)**, with the type exposed as a keyword so (b) is a
 sensitivity.
 
-> **JXP:**
+> **JXP:** Use your recommendation.
 
 **M3-Q11 — The vertical tendency's sign and denominator.** Prompt 4 task 2, coding §4.6 and
 planning §2.2 ("`-w_base (b_base - b)/drF`") write `T_v = −W_k1 (b_k1 − b)/drF[0]`. Planning
@@ -1038,7 +1038,7 @@ signature takes; the factorised identity then holds exactly and the dropped term
 recommend **(a)** (implemented; the sign error is marked in coding §4.6 and planning §2.2 as a
 plain correction, the `dz` choice is this question).
 
-> **JXP:**
+> **JXP:** Use your recommendation.
 
 **M3-Q12 — `rhoConst` (1027.5) or `rho0` (1000) in the flux-to-tendency conversion.** The
 task says `dT/dt = Q_top/(rho0 c_p drF[0])` with "`rho0 = 1000` as in `buoyancy`". The model
@@ -1049,7 +1049,7 @@ with `rhoConst` absent (so `rhoConst = rhoNil = 1027.5`; `HeatCapacity_Cp` absen
 the `g/rho0` of `b = g sigma0/rho0`); (b) `rho0 = 1000` throughout as written. The difference is a
 uniform 2.7 % of the surface-flux term. I recommend **(a)**.
 
-> **JXP:**
+> **JXP:** Use your recommendation.
 
 ## Log
 
