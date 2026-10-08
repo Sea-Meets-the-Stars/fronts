@@ -5434,3 +5434,260 @@ the stale §4 / §2.3 / §5.3 numbers (yes, in task 8); **M3-Q9** which `L` the 
 Files: modified `claude_prompts/frontogenesis_prompt_4.md`, `claude_prompts/frontogenesis_prompt_3.md`
 (Status, one sentence), `frontogenesis_coding.md` (§6 M3, one marked line), this log. Nothing
 committed.
+
+### 2026-10-07 — M3 Q&A applied to prompt 4 (Fable)
+
+**Scope.** Docs only: JXP's answers to M3-Q1..Q9 (prompt 4 `## Q&A`, "Claude, 2026-10-07 (before
+task 1)") written into the places that use them, as minimal marked edits "(decided 2026-10-07,
+M3-Qn)". Every answer accepts the recommendation, so no recommended value changed and no new
+requirement was added; where a task said "per M3-Qn" / "if M3-Qn says so" / "recommended", the
+decided value now stands with the marker. Read first: prompt 4 in full, the M2 task 7 and task 8
+log entries (the latter wrote the tasks and questions), coding §1.2, §3.4, §4.6-§4.8, §6 M3, and
+`operators.py` / `synthetic.py` signatures (for the M3-Q5 check). No code, no data, nothing
+committed; `deck/`, the planning doc and prompts 1-3, 5, 6 untouched. JXP's answer lines were not
+edited; a one-line *Applied (2026-10-07):* pointer sits under each.
+
+**Decisions and where they now live** (all in `claude_prompts/frontogenesis_prompt_4.md` unless
+said otherwise):
+- **M3-Q1** — closure tolerance, pre-declared on `front & valid`, per `L`: `rms(residual)/rms(measured)
+  <= 0.5` (explained fraction ≥ 0.75) **and** the residual's OLS slope on `2F` within ±0.10; the
+  five-term table and the with / without-chunk-terms comparison always reported. → task 6
+  pre-declaration (now a bulleted declaration with the values), task 6 (a) verdict line, task 6
+  "Verdict" paragraph, acceptance criterion 1 (marked note; criterion text kept), Status.
+- **M3-Q2** — semi-Lagrangian / Eulerian: OLS slope of `DGDt_euler` on `DGDt_semilag` within
+  0.85-1.15 **and** corr ≥ 0.90 on front pixels at `L >= 2`; `L = 0` reported and interpreted,
+  not gated. → task 6 pre-declaration and (b), acceptance criterion 2 (marked note), carry-forward
+  row M1l, Status.
+- **M3-Q3 (a)** — `L_cells = {0, 2, 4, 8}` is the contract; `L = 1` only as an extra Figure-3 column
+  if task 4's pilot shows time to spare (not part of the gate or the other figures; say so in the
+  log and in `verify_derived_series`'s count if added). → task 4 (sweep set; a marked sentence after
+  the pilot's ">6 h" rule), task 7 Figure 3, the "Runs" bullet, Status.
+- **M3-Q4 (a)** — front pixels `G_mid >= p90` on `mask_analysis & finite` (the V3 / M2 pool,
+  `n_front` 26,293 at `L = 0`) as primary; p80 and p95 as sensitivities, recomputed from the stored
+  `G` on `valid` in task 6; the trimmed estimator beside the OLS. → task 3 (`front_pct=90.0` marked
+  primary; the `front` field), task 6 pre-declaration and (d) (pools added beside the two masks),
+  the `stats.py` "How front pixels are selected" paragraph, Status.
+- **M3-Q5 (a) + (b) + (c)** — `front_width = 2 sqrt(G_mid/|lap G_mid|)` in dx stored in the derived
+  product (exact for `G ∝ sech^4(x/ell)` at the maximum, i.e. for `synthetic.py`'s `tanh(x/ell)`
+  fronts — checked: `G = b_x^2 ∝ sech^4`, `G''(0) = −4 G(0)/ell^2`), binned `{<= 1, 1-1.5, 1.5-2,
+  2-3, 3-4, > 4}` dx in task 6, validated on the synthetic tanh fronts in `test_budget.py`; the
+  filter sweep as the cross-check; per-object widths noted for M4. → task 3 (the field's definition;
+  a `test_budget.py` item recovering `ell` in `{1, 1.5, 2, 3, 4}` dx), task 6 pre-declaration and
+  (d), carry-forward row M1b, Status; **coding §3.4** one marked note (`front_width` as a store field;
+  the other §3.4 additions stay task 8's).
+- **M3-Q6** — merge by **rename** (`Theta_k`, `Salt_k`, `W_k`; 16 vars; keeps `k = 2` and the `k = 0`
+  invariant) with `inputs.W_k1` / `inputs.fluxes` accessors; the subset recipe recorded as verified
+  but not used. → task 1 `open_inputs` and its `needs_grid` test ("16 vars", no longer "16 (or 14)"),
+  carry-forward row C1, Status.
+- **M3-Q7 (a)** — split `vertical.py` only: reader → `py/chunk_store.py`, `vertical.load_chunk_levels`
+  a re-export, `test_load_chunk_levels.py`'s monkeypatch repointed; `osn_tiles.py` (556) and
+  `validate.py` (1,087) left whole (M1-Q8 precedent; M5 may consolidate). → task 2 (the "if JXP says
+  leave it" branch closed), carry-forward rows C9, O3, M1n, Status; **coding §4.6** one marked note
+  (the reader's new home; the §4.6 signature still holds through the re-export).
+- **M3-Q8 (a)** — yes: marked notes in the planning doc, the doc's own convention, nothing deleted,
+  for §4's store count / volume, §2.3 / §4's `oceQsw` "noon-peaking term", §4's "genuine
+  cross-check" and §5.3's displacement max. → task 8 (the four items spelled out; "if M3-Q8 says so"
+  removed), carry-forward rows C11a, C11b, C11c, C11g, O1, Status. The planning doc itself is not
+  edited now — that is task 8's job, as the question says.
+- **M3-Q9 (a)** — criterion 1 is judged at `L >= 2` (each of `{2, 4, 8}` with its own verdict);
+  `L = 0` is reported and interpreted — its explicit subfilter term ≡ 0, so its residual is the
+  numerics-plus-KPP estimate Figure 2b is about; a failure at `L = 0` alone is not the planning §12
+  null, a failure at every `L` is. → task 6 pre-declaration, (a) verdict line and "Verdict" paragraph,
+  acceptance criteria 1 and 3 (marked notes), Status.
+
+**Also edited in prompt 4.** Status: a "Q&A answered 2026-10-07" paragraph (one compact line per
+decision; "M3 is ready to start at task 1"); the existing Status text kept. Q&A preamble: one marked
+paragraph saying all nine are answered and applied. Nothing else restructured; every pre-existing
+sentence kept except the three conditional clauses the decisions resolved (task 2 "If JXP says
+leave it …" → closed with a marked note; task 8 "if M3-Q8 says so" → "yes, decided"; task 1
+"recommended: rename … the alternative is the subset" → "by rename (decided); the subset … not used").
+
+**Coding doc.** Two minimal marked notes, both "(decided 2026-10-07, M3-Qn; see prompt 4)": §3.4
+(`front_width`, M3-Q5) and §4.6 (reader → `chunk_store.py`, M3-Q7). Checked and left alone: §1.2's
+`L_cells = {0, 2, 4, 8}` (M3-Q3 confirms it), §4.7 / §4.8 (no decision touches them), §6 M3's "to a
+stated tolerance" (consistent; the numbers live in prompt 4 task 6 and criteria 1-2).
+
+**Inconsistencies and gaps found while applying** (none blocks task 1):
+1. **No Laplacian operator exists yet.** `operators.py` has `grad_b`, `gradb2`, `jacobian`,
+   `strain_*`, `lowpass` — nothing that returns `lap b` or `lap G`. M3-Q5's `front_width` needs
+   `lap G_mid`, and task 3's `lap2_b` (the biharmonic for Figure 2b) needs it twice. Task 3 must add
+   one (dims asserted, land NaN propagated, through the same xgcm metrics as `grad_b`); it is
+   implied by the existing `lap2_b` requirement, so no new requirement was written.
+2. **M3-Q4's p80 / p95 sensitivities** are not fields in the derived store (only the p90 `front`
+   is); they are recomputed in task 6 from the stored `G` on `valid`. Stated so in task 3 and task 6.
+3. **M3-Q3's optional `L = 1`** would make task 4 / task 8's "all four `L`" five; task 4 now says to
+   state it in the log and in `verify_derived_series`'s count if added. Not part of the gate.
+4. **M3-Q2 gates on front pixels; task 6 (b) reports on `valid` and on `front`.** Consistent — the
+   verdict is on `front`, both are reported — now explicit in the pre-declaration.
+5. **Criterion 3 "closing at each `L`"** vs M3-Q9's `L >= 2`: resolved by a marked note on the
+   criterion (the `L = 0` column reported and interpreted, not gated); criterion text kept.
+6. **The `front_width` proxy is only meaningful on front pixels** (where `G` is at a local maximum
+   and `lap G < 0`); elsewhere `|lap G|` may be ~0 or `G` not at an extremum. Task 3 now says
+   "meaningful on front pixels, stored everywhere finite"; task 6 bins it on `front & valid` only.
+
+Files: modified `claude_prompts/frontogenesis_prompt_4.md` (Status; "The budget … stats.py"
+paragraph; "Runs"; tasks 1, 2, 3, 4, 6, 7, 8; carry-forward rows C1, C9, C11a-c, C11g, O1, O3,
+M1b, M1l, M1n; acceptance criteria 1-3; Q&A preamble and nine *Applied* pointers),
+`frontogenesis_coding.md` (§3.4 and §4.6, one marked note each), this log. Not touched: every
+module, test, data store and figure; `deck/`; `frontogenesis_planning.md`; prompts 1, 2, 3, 5, 6.
+Nothing committed. **M3 is ready to start at task 1.**
+
+### 2026-10-07 — Execution prompt 4, task 1: inputs.py, the merged input layer (Fable)
+
+**Scope.** Task 1 of `frontogenesis_prompt_4.md` only: `py/inputs.py` (the one place M3 opens the
+two stores; merge by rename, M3-Q6), its accessors, `tests/test_inputs.py`, the full suite. Task 2
+(`vertical.py` physics and the `chunk_store.py` split) not touched; `vertical.py`, `operators.py`,
+`semilag.py`, `masking.py`, `coarsegrain.py`, `validate*.py` not edited; the data stores read-only;
+`deck/` untouched; nothing committed; every python / pytest command under `timeout 300`, no
+background jobs. *(entry started early; extended below as the work proceeds)*
+
+**Written.** `py/inputs.py` (405 lines, functions only, ~a third docstrings; coding §1.3's ~400)
+and `py/tests/test_inputs.py` (424 lines, 13 offline tests on synthetic two-store fixtures + 1
+`needs_grid` test on the real stores). Nothing else created or edited in `py/`.
+
+**The API as written.**
+- Constants: `RAW_ZARR`, `CHUNK_ZARR`, `GRID_ZARR`, `MASKS_NC` (from `osn_tiles.DATA_DIR`; equal in
+  value to `vertical.OSN_RAW_ZARR` / `CHUNK_ZARR`, defined here rather than imported because task 2
+  moves the reader out of `vertical.py`); `RENAME = {Theta: Theta_k, Salt: Salt_k, W: W_k}`;
+  `IDENTITY` (the three k = 0 pairs); `FLUX_VARS`; `MERGED_VARS` (16); `MERGED_DIMS` (7);
+  `LON_TILE = -120.5`, `UTC_OFFSET_H = -8.0`.
+- `open_inputs(raw=RAW_ZARR, chunk=CHUNK_ZARR, grid=GRID_ZARR, masks=MASKS_NC, *, hours=None,
+  check_hours=None) -> (ds, grid_ds, grid, masks_ds)`: paths or open Datasets; `hours` an optional
+  time `isel` on both stores; `assert_shared_coords` (`time` equal with 3600 s steps, `niter`, `j`,
+  `i`, `XC`, `YC` equal, scalar `face = 10` in both); the OSN **scalar** `k`, `k_l` coords dropped
+  (they would collide with the chunk's 3-level index dims — the rename merge also works without
+  dropping them under `compat='override'`, checked, but the explicit drop is cleaner);
+  `chunk.rename(RENAME)`; `xr.merge([osn, chunk], compat='override', join='exact',
+  combine_attrs='drop_conflicts')` → **16 vars on `time, j, i, i_g, j_g, k, k_l`** (asserted
+  against `MERGED_VARS` / `MERGED_DIMS`); then `assert_flux_sign` and `assert_k0_identity` on the
+  hours chosen (below); root attrs `merge`, `source_osn`, `source_chunk`, `k0_identity_checked`,
+  `k0_identity_policy`, `flux_sign_guard`, plus the chunk's `forcing_note`, `flux_sign_convention`,
+  `w_interfaces`, `provenance` carried through; `grid_ds = osn_tiles.open_grid(with_face=True)`,
+  `grid = build_xgcm`, `masks_ds = masking.open_masks`; the grid's `XC` must equal the stores' and
+  `mask_analysis` the `(j, i)` shape.
+- `assert_shared_coords(osn, chunk)`, `assert_k0_identity(ds, hours=None) -> hours checked`,
+  `assert_flux_sign(ds, hours=None)` — public, so `budget.py` / `m3_run.py` can call them.
+- Accessors: `W_k1(ds)` = `ds.W_k.isel(k_l=1, drop=True)` (the `k_l` / `Zl` coords dropped so no
+  level dim leaks; refuses a `W_k` without `k_l`; attrs `k_l=1`, `source_dim='k_p1'`, `Zl_m=-1.0`,
+  the note that `k_l = 0` is `dEta/dt`); `drF(ds)` → float64 `[1.0, 1.14, 1.30]` with `drF[0] = 1.0`
+  asserted; `Z(ds)` → `[-0.5, -1.57, -2.79]` with `Z[0] = -0.5` asserted; `fluxes(ds)` →
+  `(oceQnet, oceQsw, oceFWflx)` **as stored, no negation**, the attrs re-checked, `forcing_note`
+  propagated and `negated_here='no: ...'` added; **`wind(ds, grid_ds)`** → `(oceTAUX, oceTAUY,
+  KPPhbl)` with the stresses re-masked by `hFacW` / `hFacS` (`masking._positional`, so a grid with
+  or without `face` works; dims asserted before and after).
+- `hour_pair(ds, t0) -> (hour_t, hour_tp1)`: `ds.isel(time=t).load()`, the sign guard and the k = 0
+  identity on the loaded snapshot, `expand_dims('face')`, `astype('float64')` (data vars only;
+  coords keep their dtype), attrs `time_index`, `time`; `midpoint(f_t, f_tp1)` =
+  `semilag.midpoint_time`; `time_mid(ds, t0)` = `time[t0] + 30 min`, raising unless the pair is
+  3600 s apart; `local_solar_hour(t)` = UTC hour − 8.0 mod 24 (Figure 6's axis: 00:30 UTC → 16.5 h).
+- `filtered(hour, L_cells) -> (b, U, V)`: `operators.buoyancy` (JMD95) then `operators.lowpass` at the
+  **same** `L` on all three (`L = 0` the identity; dims asserted centred / `(j, i_g)` / `(j_g, i)`;
+  attr `L_cells` on each).
+- `valid(masks, *fields) -> (valid, n_lost)`: `mask_analysis & isfinite(every field)`; `masks` is the
+  §3.5 Dataset or a bare bool array (the `edge_cells = 13` sensitivity); fields may carry a length-1
+  `face` / `time` dim; shape mismatches raise.
+
+**The invariant-check design (what was chosen and why).** The coord assertions run on everything
+opened, every call (cheap: 1-D coords plus the 2 MB `XC`/`YC`). The k = 0 identity and the sign
+guard read data, ~2 MB per field and hour, so they are **lazy**: `open_inputs` checks the hours
+asked for through `hours=` (all of them), or **hour 0 alone** when the whole store is opened
+lazily; `check_hours='all'` checks all 72 (**2.5 s** for identity + sign on this machine), and an
+explicit list is accepted; `hour_pair` re-runs both checks on the two snapshots it loads, where
+the arrays are already in memory. So every hour a budget is computed from has passed the check,
+without reading 72 hours on every open, and `ds.attrs['k0_identity_checked']` records what the open
+itself verified. The sign guard is the prompt's strict `oceQsw >= 0` (stored min over the window
+is +0.0084 W m⁻², M2 task 5; `verify_chunk_series` uses `>= -1`) plus `sign_convention` starting
+with "positive downward" on all three fluxes — a missing or different attr refuses.
+
+**The `needs_grid` test on the real stores — reproduced exactly** (0.8 s):
+- hour 0 opens; **16 vars**, dims `{time, j, i, i_g, j_g, k, k_l}`, `time` 72, `k` = `k_l` = 3;
+- `drF = [1.0, 1.14, 1.30]`, `Z = [-0.5, -1.57, -2.79]`; `time_mid(ds, 0)` = 2012-07-02T00:30;
+- the k = 0 identity (`Theta_k(k=0)`, `Salt_k(k=0)`, `W_k(k_l=0)` vs OSN `Theta`, `Salt`, `W`) on
+  hours 0 and 1 in the test, and on **all 72 hours** in a scratch run (0 mismatches, 2.5 s with
+  the sign guard);
+- `n_valid` at `L = 0` = **262,925** (`valid(masks, b_mid, G_mid, two_F)`, `n_lost` 0) and
+  `n_front` (`G_mid >= p90` over valid) = **26,293** — the V3 / M2 numbers, with `b_mid` the real
+  pair-0 midpoint (`0.5 (b_0 + b_1)`, JMD95), `G_mid = operators.gradb2`, `two_F = 2 *
+  operators.frontogenesis` (defaults, `form='discrete'`);
+- `oceTAUX` finite on `hFacW == 0`: **922** before, **0** after `wind`; `oceTAUY` 0 after;
+- `oceQsw(hour 0) >= 0`, tile-mean `oceQnet > 0` (16 LST, heating, downward-positive);
+  `forcing_note` on the flux arrays; `W_k1` has no `k_l` dim and differs from `W`.
+
+**Lost-cell counts sampled at `L = 8`** (scratch `m3t1_lost_cells.py`, session scratchpad;
+`valid(masks, b_mid, G_mid, DGDt_semilag, two_F)`, `semilag.measured_DGDt` defaults):
+
+| pair | `L` | `n_valid` | `n_lost` (all) | `DGDt` alone | `2F` alone | `n_front` |
+|---|---|---|---|---|---|---|
+| 0 (07-02 00) | 0 | 262,925 | 0 | 0 | 0 | 26,293 |
+| 0 | 8 | 262,904 | **21** | 21 | 0 | 26,291 |
+| 44 (07-03 20) | 0 | 262,925 | 0 | 0 | 0 | 26,293 |
+| 44 | 8 | 262,899 | **26** | 26 | 0 | 26,290 |
+
+The loss is entirely the semi-Lagrangian support (`2F` is finite on all of `mask_analysis` at `L =
+8`, as M1 task 6 found). Pair 0 reproduces M2 task 3's 21. **Pair 44 gives 26, not M2 task 3's
+34**: M2 ran `measured_DGDt` on `lowpass(b, 8)` with the **raw** midpoint velocity; `filtered`
+low-passes `U`, `V` at the same `L` as `b` (coding §1.2), which smooths the displacement near the
+edge. Re-running pair 44 with the raw velocity gives **34** (and pair 0 gives 21 either way), so
+the difference is understood and M2's 34 stands as the upper bound for task 4's per-pair check
+(noted in prompt 4 task 4, marked). Wall time: `open_inputs` 0.4 s; an hour pair with `filtered`,
+`gradb2`, `measured_DGDt` and `frontogenesis` at one `L` ~1.0 s.
+
+**Tests** (`timeout 300 python -m pytest dev/frontogenesis/py/tests -q`): **141 passed, 3 xfailed, 2
+deselected (the two network tests) in 180 s** — the M2 suite's 127 + 3 xfailed + 2 deselected plus the
+14 new tests, all passing; nothing else changed. `test_inputs.py` alone: 14 passed in 1.4 s. The
+offline fixtures: two synthetic stores written to zarr under `tmp_path` (16 x 16, a land block with
+distinct `hFacC/W/S`, six hours, `niter` / `mit_iteration`, scalar `face`, the OSN scalar `k`/`k_l`,
+`oceTAU*` finite on the staggered land as the real store delivers them, the chunk's level 0 equal to
+the OSN surface bit for bit and levels 1-2 different, downward-positive fluxes with the §3.3 sign
+attrs and one exact `oceQsw = 0`, `drF`/`Z`/`Zl`), a `synthetic.synthetic_cgrid` grid with
+`hFacW`/`hFacS` and `XC`/`YC` added, and a masks Dataset. Covered: the merge's var list, dims and
+attrs; the plain `xr.merge` raising `MergeError` (the M2 finding, pinned); `hours=` checking every
+hour requested and `'all'` all; a `time` coord shift and a wrong `face` refused; a one-hour data
+shift refused by the k = 0 identity, and the lazy policy on a defect at hour 3 (lazy open passes,
+`'all'` refuses naming the hour, `hours=slice(2, 5)` refuses, `hour_pair(ds, 0)` passes,
+`hour_pair(ds, 2)` refuses); the sign guard on an upward-positive store, a missing
+`sign_convention`, a wrong one, and a single negative cell caught when its hour is loaded;
+`fluxes` as stored with the attrs; `W_k1` picking `k_l = 1` (equal to the store's level 1, not to
+level 0 = the OSN `W`), no level dim, refusing a 2-D `W_k`; the wind re-mask (finite on `hFacW ==
+0` > 0 before, 0 after, ocean untouched, on the lazy store and on an hour pair); `hour_pair` layout,
+dtype, attrs, `midpoint`, `time_mid`, the end-of-store `IndexError`, a non-hourly gap, the local
+solar hour; `filtered` as the identity at `L = 0` and the same `L` with the NaN rim at `L = 2`, odd
+`L` refused; `valid` dropping and counting NaN, a bare bool mask, a face-dimensioned field, a shape
+mismatch.
+
+**Contradictions / deviations — flagged.**
+1. **`wind(ds)` in prompt 4 task 1 cannot be written as such**: the `hFacW` / `hFacS` masks live in
+   the grid store, not the raw store, so the signature is **`wind(ds, grid_ds)`**. Prompt 4 task 1
+   marked "(corrected 2026-10-07, M3 task 1)".
+2. **`valid(...) -> bool array`** in the prompt vs "return the count of cells lost": written as
+   **`(valid, n_lost)`**; task 3's budget puts `n_lost` in the `valid` field's attrs. Prompt 4
+   task 1 marked "(as written 2026-10-07, M3 task 1)".
+3. **M2 task 3's worst-pair bound at `L = 8` (34 cells, pair 44) was measured with the raw
+   midpoint velocity**; with the same filter on `U`, `V` (coding §1.2) pair 44 loses 26. 34 remains
+   the bound; prompt 4 task 4 marked "(note 2026-10-07, M3 task 1)".
+4. The prompt's `open_inputs(raw=vertical.OSN_RAW_ZARR, chunk=vertical.CHUNK_ZARR, ...)`: the path
+   constants are **defined in `inputs.py`** (`RAW_ZARR`, `CHUNK_ZARR`, `GRID_ZARR`, `MASKS_NC`) rather
+   than imported from `vertical`, as the task prompt allowed, because task 2 moves `vertical.py`'s
+   reader (and possibly its constants) to `chunk_store.py`; the values are identical.
+5. The prompt's "the `k = 0` identity on all three levels" is read as the three **variables**
+   (`Theta`, `Salt`, `W`) at level 0 — the identity exists only at `k = 0` / `k_l = 0` by
+   construction. Wording only; not edited.
+6. The OSN store's **scalar `k` and `k_l` coords** (both 0) are not mentioned in M2 task 6's merge
+   recipe; they are dropped before the merge here (the merge happens to succeed without the drop
+   under `compat='override'`, verified, but would then carry the chunk's 3-level `k` index with no
+   record of the OSN scalar). Recorded in a code comment, no doc edit.
+7. **Strict `oceQsw >= 0`** (the prompt) against `series_verify.verify_chunk_series`'s `>= -1`
+   tolerance: the strict guard is used; both hold on the window (min +0.0084). Not a change to
+   `series_verify`.
+8. `git status` shows `frontogenesis_coding.md`, prompt 4 and this log already modified before this
+   task (the uncommitted docs of the M2 task 8 and "M3 Q&A applied" sessions); this task did not
+   edit the coding doc. Coding §5's test table still lacks `test_inputs.py` — task 8's job per
+   prompt 4, left alone.
+
+Files: created `py/inputs.py`, `py/tests/test_inputs.py`; scratch `m3t1_lost_cells.py` in the
+session scratchpad (outside the repo); modified `claude_prompts/frontogenesis_prompt_4.md` (Status;
+task 1 two marked notes; task 4 one marked note) and this log. Not touched: `vertical.py`,
+`operators.py`, `semilag.py`, `masking.py`, `coarsegrain.py`, `validate*.py`, `osn_tiles.py`,
+`series_verify.py`, `zarr_series.py`, every other test, `pytest.ini`, `conftest.py`,
+`frontogenesis_coding.md`, `frontogenesis_planning.md`, `deck/`, the data stores (read-only).
+Nothing committed.

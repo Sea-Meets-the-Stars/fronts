@@ -368,6 +368,8 @@ again. The forcing is 6-hourly, linearly interpolated (`forcing_note`).
 vars : b, G, two_F, DGDt_semilag, DGDt_euler, subfilter, vertical, surface_flux,
        residual, delta, sigma_n, sigma_s, sigma_mag, theta_align
 ```
+*(decided 2026-10-07, M3-Q5; see prompt 4: the store also carries `front_width = 2 sqrt(G/|lap G|)`,
+the per-pixel width proxy in dx. The other M3 additions to this list are marked by M3 task 8.)*
 
 ### 3.5 `tile330_masks.nc`
 
@@ -542,6 +544,9 @@ model's flux-form divergence at the centres, and both gradients are `operators.g
 ### 4.6 `py/vertical.py` — the extra budget terms from the chunk store (Q13)
 
 `load_chunk_levels` is an **M2** step (it is a data pull); the physics functions below are **M3**.
+*(decided 2026-10-07, M3-Q7; see prompt 4: the chunk-store reader moves to `py/chunk_store.py` in
+M3 task 2, `vertical.load_chunk_levels` remaining as a re-export, so the signature below still
+holds; `osn_tiles.py` and `validate.py` are left whole.)*
 
 ```python
 def load_chunk_levels(window, k_max=2, out_zarr=None):  -> str | xr.Dataset  # §3.3, M2

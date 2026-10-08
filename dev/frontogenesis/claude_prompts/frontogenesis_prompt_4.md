@@ -10,7 +10,10 @@ how its tests work offline.)*
 **Goal:** close the surface buoyancy-gradient budget, per pixel, with no front finding involved.
 This is the rigorous core of the study.
 
-**Status 2026-10-07 — not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+**Status 2026-10-07 — task 1 done** (`py/inputs.py` + `tests/test_inputs.py`, 14 tests; suite
+**141 passed + 3 xfails**, 2 deselected, 180 s; the V3 / M2 numbers reproduce on the real stores —
+`n_valid` 262,925, `n_front` 26,293, `drF` [1.0, 1.14, 1.30], the `k = 0` identity on all 72 hours;
+log entry "Execution prompt 4, task 1"). **Tasks 2-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
@@ -18,6 +21,29 @@ M3-Q8 before task 8.** Inputs on disk: `data/tile330_grid.zarr` (M0),
 `data/tile330_masks.nc` (M1), `data/tile330_raw_20120702T00_72h.zarr` and
 `data/tile330_chunk_20120702T00_72h.zarr` (M2). Suite at the start of M3: **127 passed + 3 strict
 xfails** (2 network tests deselected); it must still pass at the end of every task.
+
+**Q&A answered 2026-10-07.** All nine M3-Q questions are answered by JXP (`## Q&A` below); every
+answer accepts the recommendation, and each decision is written into the task that uses it,
+marked "(decided 2026-10-07, M3-Qn)":
+- **M3-Q1** — closure tolerance, on `front & valid`, per `L`: `rms(residual)/rms(measured) <= 0.5`
+  (explained fraction ≥ 0.75) **and** the residual's OLS slope on `2F` within ±0.10 (task 6).
+- **M3-Q2** — semi-Lagrangian / Eulerian: OLS slope of `DGDt_euler` on `DGDt_semilag` within
+  0.85-1.15 **and** corr ≥ 0.90 on front pixels at `L >= 2`; `L = 0` reported and interpreted,
+  not gated (task 6).
+- **M3-Q3** — `L_cells = {0, 2, 4, 8}` is the contract; `L = 1` as an extra column for Figure 3
+  only if the pilot shows time to spare (task 4).
+- **M3-Q4** — front pixels `G_mid >= p90` on `mask_analysis & finite` (primary); p80 and p95 as
+  sensitivities; the trimmed estimator beside the OLS (tasks 3, 6).
+- **M3-Q5** — `front_width = 2 sqrt(G/|lap G|)` stored in the derived product, binned
+  `{<= 1, 1-1.5, 1.5-2, 2-3, 3-4, > 4}` dx, validated on `synthetic.py` tanh fronts in
+  `test_budget.py`; the filter sweep as the cross-check; object widths noted for M4 (tasks 3, 6).
+- **M3-Q6** — merge by **rename** (`Theta_k`, `Salt_k`, `W_k`; 16 vars) with accessors (task 1).
+- **M3-Q7** — split `vertical.py` only: the reader goes to `chunk_store.py` with a re-export;
+  `osn_tiles.py` / `validate.py` left whole (task 2).
+- **M3-Q8** — yes: marked notes in the planning doc for the stale §4 / §2.3 / §5.3 numbers (task 8).
+- **M3-Q9** — criterion 1 is judged at `L >= 2`; `L = 0` is reported and interpreted (its explicit
+  subfilter term ≡ 0) (task 6).
+**M3 is ready to start at task 1.**
 
 > **The exit criterion is budget closure, not a slope.** No efficiency number is quoted before
 > the terms balance. If closure fails, that is the result (planning §12) — write it up as a
@@ -92,7 +118,8 @@ controlled before any efficiency is claimed:
   Feature-level bootstrap is M4's.
 
 **How front pixels are selected here — without front finding.** Take `G` above a stated
-percentile at the **midpoint time**, inside `mask_analysis`. That is independent of both endpoints
+percentile at the **midpoint time**, inside `mask_analysis` *(the percentile is **p90** on
+`mask_analysis & finite`, with p80 / p95 as sensitivities — decided 2026-10-07, M3-Q4)*. That is independent of both endpoints
 (which is what the selection-bias argument demands) and needs no labelling, no thinning and no
 despurring. Keeping `tile_find` out of this milestone means the budget is not entangled with
 front-detection choices; M4 is where labelled objects appear.
@@ -116,7 +143,8 @@ when the front pool has both signs of `2F` (M1 task 6): quote it separately for 
 
 ## Runs
 
-- The filter sweep, `L_cells` in `{0, 2, 4, 8}`, with `tau` computed explicitly at each.
+- The filter sweep, `L_cells` in `{0, 2, 4, 8}`, with `tau` computed explicitly at each
+  *(confirmed as the contract 2026-10-07, M3-Q3; `L = 1` only as an optional extra Figure-3 column)*.
 - Semi-Lagrangian vs Eulerian, as independent estimates.
 - Statistics restricted to `>= 100 km` offshore, **and** stratified by distance offshore.
 - Residual composited by hour of day, with `KPPhbl`.
@@ -194,11 +222,13 @@ zonal); NaN-aware reductions; `float64` in the compute path, `float32` on disk; 
 - Write `py/inputs.py` (new, small; functions only). It is the **only** place M3 opens the stores.
   - `open_inputs(raw=vertical.OSN_RAW_ZARR, chunk=vertical.CHUNK_ZARR, grid=..., masks=...)
     -> (ds, grid_ds, grid, masks_ds)`. Opens `tile330_raw_20120702T00_72h.zarr` (§3.2) and
-    `tile330_chunk_20120702T00_72h.zarr` (§3.3) and merges them per **M3-Q6** (recommended:
-    **rename**, `chunk.rename({'Theta': 'Theta_k', 'Salt': 'Salt_k', 'W': 'W_k'})` → 16 vars on
-    dims `time, j, i, i_g, j_g, k, k_l`; the alternative is the **subset**
+    `tile330_chunk_20120702T00_72h.zarr` (§3.3) and merges them by **rename** (decided
+    2026-10-07, **M3-Q6**): `chunk.rename({'Theta': 'Theta_k', 'Salt': 'Salt_k', 'W': 'W_k'})`
+    → 16 vars on dims `time, j, i, i_g, j_g, k, k_l`, keeping `k = 2` for the second-order `b_z`
+    sensitivity and the `k = 0` bit-identity as an assertable invariant. (The **subset**
     `xr.merge([osn, chunk[['oceQnet', 'oceQsw', 'oceFWflx', 'drF']], chunk.W.isel(k_l=1,
-    drop=True).rename('W_k1')])` → 14 vars — both verified by M2 task 6). **A plain
+    drop=True).rename('W_k1')])` → 14 vars was also verified by M2 task 6 but is **not** used.)
+    **A plain
     `xr.merge([osn, chunk])` fails** (`MergeError` on `Salt`: 2-D vs 3-D under the same names).
     `grid_ds` via `osn_tiles.open_grid(with_face=True)`, `grid` via `osn_tiles.build_xgcm`,
     masks via `masking.open_masks`.
@@ -217,7 +247,8 @@ zonal); NaN-aware reductions; `float64` in the compute path, `float32` on disk; 
     `Z(ds)` = `[−0.5, −1.57, −2.79]` m from the store; `fluxes(ds)` returning `oceQnet, oceQsw,
     oceFWflx` **as stored (no negation)**, with the `forcing_note` attr propagated; `wind(ds)`
     returning `oceTAUX`/`oceTAUY` **re-masked with `hFacW`/`hFacS`** (922 / 565 finite-on-land
-    values otherwise; M0 task 3) and `KPPhbl`.
+    values otherwise; M0 task 3) and `KPPhbl`. *(corrected 2026-10-07, M3 task 1: the signature is
+    `wind(ds, grid_ds)` — the `hFac` masks live in the grid store, not in the raw store.)*
   - `hour_pair(ds, t0) -> (hour_t, hour_tp1)`: the two snapshots with `expand_dims('face')`,
     `float64`; `midpoint(f_t, f_tp1)` = `semilag.midpoint_time`; `time_mid(ds, t0)` = `t0 + 30
     min` (the store coord for the derived product and Figure 6's local-solar axis: lon −120.5 →
@@ -228,7 +259,9 @@ zonal); NaN-aware reductions; `float64` in the compute path, `float32` on disk; 
     the reduction rule at every `L`, and it is **required at `L = 8`**, where the order-3
     departure support leaves the low-passed field's finite part for 7-34 analysis cells per pair
     (0 at `L <= 4`; worst pair 44, 07-03 20:00; M2 task 3). Return the count of cells lost so
-    task 4 logs it per pair. `edge_cells` stays 7 (M2-Q7; the `L = 8` reach is exactly 7 at zero
+    task 4 logs it per pair. *(as written 2026-10-07, M3 task 1: `valid(masks, *fields) ->
+    (valid, n_lost)`; `masks` is the §3.5 Dataset or a bare bool array such as
+    `masking.analysis_mask(grid_ds, edge_cells=13)`.)* `edge_cells` stays 7 (M2-Q7; the `L = 8` reach is exactly 7 at zero
     displacement, M1 task 6, so it **must not shrink**); the `edge_cells = 13` sensitivity is a
     second mask built at analysis time with `masking.analysis_mask(grid_ds, edge_cells=13)`
     (task 6), not a change here.
@@ -244,7 +277,7 @@ zonal); NaN-aware reductions; `float64` in the compute path, `float32` on disk; 
   the sign guard refuses an upward-positive store and a missing `sign_convention`; `W_k1` picks
   `k_l = 1` and never `k_l = 0`; `valid` drops NaN cells and counts them; `time_mid`; the wind
   re-mask leaves 0 finite values on `hFacW == 0`. One `needs_grid` test on the real stores: hour 0
-  opens, 16 (or 14) vars, the `k = 0` identity on all three levels, `drF`, `n_valid` at `L = 0`
+  opens, 16 vars (rename, M3-Q6), the `k = 0` identity on all three levels, `drF`, `n_valid` at `L = 0`
   = 262,925 and `n_front` (p90) = 26,293 — the V3 / M2 numbers.
 - *Honours:* M2 task 6 items 1 (merge), 2 (no re-negation, guard), 3 (`W.isel(k_l=1)`), 5
   (envelope), 6 (`isfinite` at `L = 8`, `edge_cells = 7`); M1 task 6 flag 10 (defaults).
@@ -257,14 +290,15 @@ from.
 
 ### 2. `vertical.py` physics — `b_z`, `vertical_term`, `surface_flux_term`
 
-- **Module split first (M3-Q7).** `vertical.py` is 524 lines before any physics (M2 task 5
-  deviation 1). Recommended: move the chunk-store **reader** (`make_fs`, `_cat`, `_read_object`,
-  `_load_levels`, `_load_hour`, `load_chunk_levels` and its helpers and constants) to a new
-  `py/chunk_store.py`, keep `vertical.load_chunk_levels` as a one-line re-export so
+- **Module split first (decided 2026-10-07, M3-Q7: option (a)).** `vertical.py` is 524 lines
+  before any physics (M2 task 5 deviation 1). Move the chunk-store **reader** (`make_fs`, `_cat`,
+  `_read_object`, `_load_levels`, `_load_hour`, `load_chunk_levels` and its helpers and constants)
+  to a new `py/chunk_store.py`, keep `vertical.load_chunk_levels` as a one-line re-export so
   `m2_chunk_pull.py` keeps working, and repoint `test_load_chunk_levels.py`'s monkeypatch target
   (`vertical._cat` → `chunk_store._cat`) — its 23 offline tests must still pass unchanged
-  otherwise. The physics then lands in a `vertical.py` that starts near empty. If JXP says leave
-  it, write the physics anyway and flag the size (M1-Q8 precedent).
+  otherwise. The physics then lands in a `vertical.py` that starts near empty. *(The "if JXP says
+  leave it" branch is closed: the split is decided. `osn_tiles.py` (556) and `validate.py`
+  (1,087) are **left whole** — M3-Q7, the M1-Q8 precedent; M5 may consolidate.)*
 - Write, per coding §4.6 (signatures are the contract), all in **F units** (s^-5); the budget
   fields are `2 ×` these (task 3), exactly as `subfilter = 2 * subfilter_term` (coding §4.5, §1.1):
   - **`b_z(Theta, Salt, grid_ds, drF)`**: `b` at `k = 0` and `k = 1` from **the same
@@ -337,7 +371,8 @@ tested and have the expected diurnal signature); supports criterion 5 (Figure 6,
 
 - **`compute_budget(raw_ds, grid_ds, grid, masks, L_cells, dt=3600.0, chunk_ds=None, *, t0=0,
   forms=('discrete', 'chain'), order=3, order_sens=5, front_pct=90.0)`** (coding §4.7's
-  signature plus keyword-only options; `raw_ds` may be the merged dataset of task 1, in which case
+  signature plus keyword-only options; `front_pct=90.0` is the **primary** pool — decided
+  2026-10-07, M3-Q4 (a); p80 / p95 are recomputed from the stored `G` in task 6, not here; `raw_ds` may be the merged dataset of task 1, in which case
   `chunk_ds` is implied) → one hour pair's budget as an `xr.Dataset` on `(time: 1, j, i)` with
   `time = t0`'s hour and a `time_mid` coord, the §3.4 fields plus the additions below (the §3.4
   var list is extended, not changed — task 8 marks coding §3.4):
@@ -369,11 +404,14 @@ tested and have the expected diurnal signature); supports criterion 5 (Figure 6,
     to centres, model basis rotated by `2 alpha`), `theta_align` (`operators.strain_alignment`,
     compressional axis, folded to `[0, pi/2]`; sign final, M1-Q3);
   - diagnostics for tasks 6-7: **`lap2_b`** (the biharmonic of `b_mid`, the `grad^4`-like field
-    Figure 2b regresses the residual on), **`front_width`** (the per-pixel width proxy of
-    **M3-Q5**), **`valid`** (`inputs.valid`, with `n_lost` in attrs), **`front`** (`G_mid >=
+    Figure 2b regresses the residual on), **`front_width`** (the per-pixel width proxy, decided
+    2026-10-07, **M3-Q5** (a): **`ell = 2 sqrt(G_mid / |lap G_mid|)`** in units of dx, exact for
+    `G ∝ sech^4(x/ell)` at the maximum — i.e. for `synthetic.py`'s `b = b0 tanh(x/ell)` fronts;
+    meaningful on front pixels, stored everywhere finite; task 6 bins it `{<= 1, 1-1.5, 1.5-2,
+    2-3, 3-4, > 4}` dx), **`valid`** (`inputs.valid`, with `n_lost` in attrs), **`front`** (`G_mid >=
     percentile(G_mid[valid], front_pct)` — the selection at the midpoint time, independent of both
-    endpoints, planning §11; **M3-Q4**), `KPPhbl` (midpoint mean) and `coast_distance_km` copied
-    for the composites.
+    endpoints, planning §11; **p90 primary, decided 2026-10-07, M3-Q4**), `KPPhbl` (midpoint mean)
+    and `coast_distance_km` copied for the composites.
   - **If `chunk_ds` is None** (and the merged dataset lacks the chunk vars): `vertical`,
     `surface_flux` are **absent** (not zero), `residual.attrs['terms_missing'] = ['vertical',
     'surface_flux']`, and **`closure_report` says loudly** — in its printed summary and in
@@ -409,7 +447,8 @@ tested and have the expected diurnal signature); supports criterion 5 (Figure 6,
   `subfilter` is 0 at `L = 0`, non-zero at `L = 2`, and differs from the no-`tau_delta` form;
   `two_F_chain != two_F`; `DGDt_semilag_o5` has the wider NaN rim; the §3.4 var list, dims,
   dtype and attrs; `front` is selected on `G_mid` (shifting `G_tp1` does not move it); `valid`
-  excludes NaN; `write_derived` resume / no-op / clobber through `zarr_series`; the `needs_grid`
+  excludes NaN; **`front_width` recovers `ell` on `synthetic.py`'s tanh fronts** at the front
+  centre for `ell` in `{1, 1.5, 2, 3, 4}` dx to a stated tolerance (decided 2026-10-07, M3-Q5); `write_derived` resume / no-op / clobber through `zarr_series`; the `needs_grid`
   smoke asserts the pair-0 bit-for-bit identities above.
 - *Honours:* M1 task 4 (`tau_delta`; `subfilter = 2 × term`; the `L = 0` column); M1-Q1 (both
   forms); M1-Q6 (order 5); M2 task 6 items 1-3 (through `inputs`), 6 (`isfinite` at `L = 8`);
@@ -424,7 +463,8 @@ tested and have the expected diurnal signature); supports criterion 5 (Figure 6,
 
 ### 4. The `L_cells` sweep over the 72 hours — `py/m3_run.py` → `tile330_derived_L{L}.zarr`
 
-- Write `py/m3_run.py`: for `L` in **`{0, 2, 4, 8}`** (coding §1.2; **M3-Q3**) and `t0` in
+- Write `py/m3_run.py`: for `L` in **`{0, 2, 4, 8}`** (coding §1.2; the contract — decided
+  2026-10-07, **M3-Q3** (a)) and `t0` in
   `0..70`, `compute_budget` with the chunk terms, `write_derived`, and `closure_report` per pair
   cached to `data/m3_closure_L{L}.json` (resumable; the per-pair JSON is what tasks 6-7 read
   first). Progress log `data/m3_run.log` (per-pair wall time, `n_lost`, the five rms fractions),
@@ -436,14 +476,20 @@ tested and have the expected diurnal signature); supports criterion 5 (Figure 6,
   seconds to tens of seconds per pair per `L` (the V3 null step is ~2 s; the budget adds
   `coarsegrain`, the vertical and flux terms, the chain form, order 5 and the Eulerian estimate),
   i.e. **~1-4 h** for the sweep — a detached job either way. If the extrapolation exceeds ~6 h,
-  run `L = 0, 4` first and `2, 8` in a second launch, and say so.
+  run `L = 0, 4` first and `2, 8` in a second launch, and say so. *(decided 2026-10-07, M3-Q3:
+  if instead the pilot shows time to spare, `L = 1` may be run as an **extra column for Figure 3
+  only** — it needs no new mask — and is not part of the contract, the gate or the other figures;
+  say so in the log and in `verify_derived_series`'s count if it is added.)*
 - **Launch detached under `nohup caffeinate -i -s`** (rules above), poll the log, and verify the
   first pairs on disk. The session may end before the run does; the next session (task 5) checks
   `m3_run_done.json`, **re-runs `m3_run.py` and shows it is a no-op** (0 pairs computed; sha256 of
   the chunk files unchanged), and runs **`series_verify.verify_derived_series(out_zarr,
   timestamps, L)`** (new; add it to `series_verify.py`): 71 pairs, no gaps, the §3.4 (+ additions)
   schema, `float32`, one chunk per pair, `L_cells` attr, NaN ⊇ land every pair, `valid`'s
-  `n_lost` = 0 at `L <= 4` and ≤ 34 per pair at `L = 8` (M2 task 3's bound).
+  `n_lost` = 0 at `L <= 4` and ≤ 34 per pair at `L = 8` (M2 task 3's bound). *(note 2026-10-07,
+  M3 task 1: 34 is M2 task 3's pair-44 count with the **raw** midpoint velocity; with `U`, `V`
+  low-passed at the same `L` as `b` (coding §1.2, `inputs.filtered`) pair 44 loses 26 cells and
+  pair 0 loses 21 either way, so 34 stands as the upper bound.)*
 - **Report** (criterion-7 style, as M2): pairs present per `L`, failures and relaunches, per-pair
   wall time (median, range) per `L`, volume on disk per store, and the extrapolation to the
   504-hour OSN series — extending M2's scale-up table (OSN ~23 s and 11 MB per tile-hour; chunk
@@ -514,12 +560,29 @@ run has finished. **Read planning §11 before writing it** (the stats paragraph 
 ### 6. Closure — the HARD GATE
 
 - **Pre-declare before any number is seen**, as module constants in `py/m3_closure.py` and in
-  the log entry's first paragraph: the closure tolerance (**M3-Q1**), the semi-Lagrangian /
-  Eulerian tolerance (**M3-Q2**), which `L` the gate is judged at (**M3-Q9**), the front percentile
-  (**M3-Q4**; default p90, the V3 / M2 pool), the width proxy and its bins (**M3-Q5**), the hour
-  sets (all 71 pairs; the **day-3 northern-front pairs 62-68 = 07-04 14-20 UTC shown separately,
-  not dropped**; M2 task 3), the estimators (OLS gate, trimmed, orthogonal, ratio by sign, binned
-  means) and the block definition. Nothing changes after the numbers.
+  the log entry's first paragraph *(all decided 2026-10-07 — the values below are the
+  declaration; the M3-Q answers are their source)*:
+  - the closure tolerance (**M3-Q1**), on **`front & valid`**, per `L`: **(a)
+    `rms(residual) / rms(measured) <= 0.5`** (equivalently the explained fraction ≥ 0.75) **and
+    (b) the residual's OLS slope on `2F` within ±0.10** (no term missing in proportion to `2F`);
+    the five-term rms table and the with / without-chunk-terms comparison always reported;
+  - the semi-Lagrangian / Eulerian tolerance (**M3-Q2**): OLS slope of `DGDt_euler` on
+    `DGDt_semilag` within **0.85-1.15 and corr ≥ 0.90**, on **front pixels at `L >= 2`**; `L = 0`
+    reported and interpreted, not gated;
+  - which `L` the gate is judged at (**M3-Q9** (a)): **criterion 1 is judged at `L >= 2`** (every
+    `L` in `{2, 4, 8}` reported with its own verdict); `L = 0` is reported and interpreted — its
+    explicit subfilter term is ≡ 0, so its residual is the numerics-plus-KPP estimate Figure 2b
+    is about. A failure at `L = 0` alone is **not** the planning §12 null; a failure at every `L` is;
+  - the front percentile (**M3-Q4** (a)): **p90 on `mask_analysis & finite`** (the V3 / M2 pool,
+    `n_front` = 26,293 at `L = 0`) is the gate's pool; **p80 and p95 as sensitivities**
+    (recomputed from the stored `G` on `valid`), and the trimmed estimator beside the OLS;
+  - the width proxy and its bins (**M3-Q5** (a)): the derived store's `front_width = 2 sqrt(G /
+    |lap G|)` on front pixels, binned **`{<= 1, 1-1.5, 1.5-2, 2-3, 3-4, > 4}` dx**; the filter
+    sweep (resolved width ≥ `L`) as the cross-check (b); per-object widths are M4's (c);
+  - the hour sets (all 71 pairs; the **day-3 northern-front pairs 62-68 = 07-04 14-20 UTC shown
+    separately, not dropped**; M2 task 3), the estimators (OLS gate, trimmed, orthogonal, ratio
+    by sign, binned means) and the block definition (task 5's 32 × 32-cell square × hour).
+  Nothing changes after the numbers.
 - Write `py/m3_closure.py` → `data/m3_closure_summary.json` and a working figure
   `figs/m3_closure.png` (task 7 makes the publication figures from the JSON). It reads the four
   derived stores and the per-pair `m3_closure_L{L}.json`, and reports, per `L`:
@@ -532,13 +595,15 @@ run has finished. **Read planning §11 before writing it** (the stats paragraph 
     whole numerical term sits in the residual there); the residual composited by local solar hour
     with `KPPhbl` (Figure 6's data; phase on the mixed-layer **minimum** ~13 h solar) and by
     `coast_distance_km` (Figure 7's data; also the primary statistic **restricted to `>= 100 km`**
-    and stratified, planning §5.6); the **verdict per `L`** against M3-Q1.
+    and stratified, planning §5.6); the **verdict per `L`** against M3-Q1's **0.5 / ±0.10**,
+    judged at **`L >= 2`** (M3-Q9; `L = 0` interpreted, not gated — decided 2026-10-07).
   - **(b) Semi-Lagrangian vs Eulerian — criterion 2.** OLS slope and corr of `DGDt_euler` on
     `DGDt_semilag`, per `L`, on `valid` and on `front`. **Known starting point:** on the real hour
     at `L = 0` M1 task 3 measured **corr 0.74, slope 0.73** on `mask_analysis` — the two estimates
     are *not* yet known to agree at the grid scale; expect convergence with `L`. Verdict against
-    M3-Q2; a failure at `L = 0` alone is interpreted (the Eulerian split's two nearly cancelling
-    terms, planning §5.3), not hidden.
+    M3-Q2's **slope 0.85-1.15 and corr ≥ 0.90 on front pixels at `L >= 2`** (decided 2026-10-07);
+    `L = 0` is not gated — a failure there alone is interpreted (the Eulerian split's two nearly
+    cancelling terms, planning §5.3), not hidden.
   - **(c) The filter sweep is interpretable — criterion 3.** `rms(subfilter)/rms(two_F)` and its
     correlation with `two_F` vs `L` over 71 pairs (M1 task 4 on hour 0: **0.31 / 0.50 / 0.70 at
     `L = 2 / 4 / 8`**, anti-correlated −0.66 / −0.60 / −0.54 — O(1) and *growing* with `L`, not
@@ -548,13 +613,16 @@ run has finished. **Read planning §11 before writing it** (the stats paragraph 
     `L`, per form (`discrete` primary; `chain` alongside with the discrete-vs-chain difference as
     a stated systematic — the V3 baselines are 0.981 and 0.791), order 3 and **order 5**, masks
     **`edge_cells = 7` and `13`** (`masking.analysis_mask(grid_ds, edge_cells=13)`, the p90 pool
-    recomputed on it, as `m2_q7_edge_margin.py` did; the M2-Q7 row is 0.980 ± 0.012, 69/71), all
+    recomputed on it, as `m2_q7_edge_margin.py` did; the M2-Q7 row is 0.980 ± 0.012, 69/71),
+    front pools **p90 (primary) with p80 and p95 as sensitivities** (M3-Q4, decided 2026-10-07), all
     71 pairs pooled and per pair: OLS (the gate's definition) with the **trimmed (top 1 % |2F|) and
     orthogonal fits beside it**, the ratio by sign, binned `E[Y|X]` by sign, space-time block
     bootstrap CIs; every slope **relative to 0.981 [0.970, 0.994]** with the V3b model-advection
     band **0.954-1.003 (0.975 ± 0.025; no upward correction for the Jacobian attenuation, V3b
     measured −0.006 ± 0.025)** and the **temporal systematic 0.972 ± 0.020 (0.987 ± 0.005
-    trimmed)** as separate bands; **per front width** (M3-Q5 bins), with the advection-numerics
+    trimmed)** as separate bands; **per front width** (the `front_width` bins `{<= 1, 1-1.5,
+    1.5-2, 2-3, 3-4, > 4}` dx — M3-Q5, decided 2026-10-07; the per-`L` sweep as the cross-check),
+    with the advection-numerics
     shortfall **−2 % at 2 dx, −4 % at 1.5 dx, −11 % at 1 dx** (discrete form; V3b) subtracted
     before anything on the sharpest fronts is attributed to diffusion; V4's bar **0.28-1.0 % of
     `G` per hour (order 3)** quoted with the width; the day-3 northern-front pairs separately.
@@ -565,8 +633,9 @@ run has finished. **Read planning §11 before writing it** (the stats paragraph 
     estimate — V3b saw only +0.009 ± 0.03 of it in the resolved slope in one hour (the limiter a
     tail effect, p10 −1.9 %/h), while a third-order scheme would give −0.13 — so quote
     `kappa_num` at the scale of the feature, not as one number.
-- **Verdict, plainly, per `L`: closure PASS or FAIL**, with the tolerance it was judged against,
-  in the log and in the Status. If it fails, **that is the result**: write the methodological
+- **Verdict, plainly, per `L`: closure PASS or FAIL**, with the tolerance it was judged against
+  (M3-Q1's 0.5 / ±0.10 on `front & valid`; the gate is the `L >= 2` verdicts, M3-Q9, with `L = 0`
+  reported beside them — decided 2026-10-07), in the log and in the Status. If it fails, **that is the result**: write the methodological
   finding against planning §12's criteria (residual comparable to `2F` at all `L`; slope
   indistinguishable from the baseline; residual tracking `grad^4 b` not `KPPhbl`), name the
   limiting factor, and do **not** quote an efficiency. **Do not tune anything to pass.** If a bug
@@ -605,7 +674,8 @@ run has finished. **Read planning §11 before writing it** (the stats paragraph 
   - **Figure 2b** — the residual against `lap2_b` and against `KPPhbl` (binned means with CIs),
     and against local solar hour. The discriminator.
   - **Figure 3** — slope and correlation vs `L` (both forms, both orders, both masks), baseline
-    and bands drawn; plus `rms(subfilter)/rms(2F)` vs `L`.
+    and bands drawn; plus `rms(subfilter)/rms(2F)` vs `L` *(plus the optional `L = 1` column if
+    task 4's pilot had time to spare — this figure only; M3-Q3, decided 2026-10-07)*.
   - **Figure 3b** — rows `{b, G, 2F, tau-term}` × columns `{L = 0, 2, 4, 8}` on one hour; the
     `L = 0` `tau` panel is **identically zero — label it so** (planning §5.4, corrected).
   - **Figure 4** — alignment PDF of `theta_align` on front pixels (compressional axis, folded to
@@ -655,7 +725,12 @@ run has finished. **Read planning §11 before writing it** (the stats paragraph 
   the window, the gate's definition unchanged); coding **§8**'s "loaded only `k = 0..2`" (stored,
   not fetched); this prompt's acceptance 4 ("feature-level bootstrap intervals" — the block is
   spatial + hour here, M4's are features; planning §11); planning **§4 / §2.3 / §5.3** stale
-  numbers **if M3-Q8 says so**; coding §6 M3 **closed** if it is.
+  numbers — **yes, decided 2026-10-07, M3-Q8 (a): marked notes, the planning doc's own
+  convention, nothing deleted**, for §4's "11 of the needed stores … 61 new, ~33 GB at ~539 MB"
+  (72/72 exist; 306 MB compressed per hour, 22 GB), §2.3 / §4's `oceQsw` "noon-peaking term"
+  (true at the 6-hourly scale only), §4's "different readers … genuine cross-check"
+  (bit-identical at `k = 0`) and §5.3's displacement max 2.09-2.1 (hour-0, analysis-domain;
+  window ocean max 4.05, 2.27 on the mask); coding §6 M3 **closed** if it is.
 - **List what is carried to M4 / M5**: the per-pair closure JSONs and derived stores M4
   reconciles against (coding §6 M4 criterion 4, on the advected pixel set); the slopes M4's
   Figure 9 compares to; the `fronts` fixes and the caller-side NaN recipe (M1 task 7a; prompt 5
@@ -689,7 +764,7 @@ no M3 action say so. Task 8 walks this table and marks each row.
 
 | # | Source | Item | M3 task | Note |
 |---|---|---|---|---|
-| C1 | M2 task 6, item 1 | The two stores and how they merge (plain `xr.merge` fails on `Theta`/`Salt`/`W`; rename or subset) | **1** | M3-Q6 picks rename vs subset; `inputs.open_inputs` is the one place |
+| C1 | M2 task 6, item 1 | The two stores and how they merge (plain `xr.merge` fails on `Theta`/`Salt`/`W`; rename or subset) | **1** | **rename** (decided 2026-10-07, M3-Q6); `inputs.open_inputs` is the one place |
 | C2 | M2 task 6, item 2 | Fluxes already downward-positive; `surface_flux_term` must **not** re-negate; `load_chunk_levels` refuses raw `oceQsw > +1` | **1, 2** | guard on `sign_convention` and `oceQsw >= 0` in `inputs`; §4.6 marked paragraph |
 | C3 | M2 task 6, item 3 | `W.isel(k_l=1)` is the cell-base velocity; `W(k_l=0) = dEta/dt` | **1, 2** | `inputs.W_k1`; a 3-D `W` raises in `vertical_term` |
 | C4 | M2 task 6, item 4 | 6-hourly linearly interpolated forcing; shortwave a triangle at 13 LST; Figure 6 phased on the ML minimum; deepening 13 → 12 → 8 m a wind trend | **2, 6, 7** | `forcing_note` → term attrs (2); composites by local hour (6); Figure 6 caption (7) |
@@ -697,27 +772,27 @@ no M3 action say so. Task 8 walks this table and marks each row.
 | C6 | M2 task 6, item 6 | `edge_cells = 7` kept; `isfinite(DGDt) & mask_analysis` required at `L = 8`; `edge_cells = 13` sensitivity row | **1, 3, 4, 6** | `inputs.valid` (1, 3); counts per pair (4); the 13-cell mask at analysis time (6) |
 | C7 | M2 task 6, item 7 | Baseline stability 0.972 ± 0.020 (0.902-0.997; 64/71), 0.987 ± 0.005 trimmed, `edge_cells = 13` row 0.980 ± 0.012; trimmed and orthogonal beside the OLS gate; window spread as temporal systematic; day-3 hours 07-04 14-20 UTC separate | **5, 6, 7** | `slope_trimmed`, `slope_report` (5); reporting (6); Figure 2's third band and marker (7) |
 | C8 | M2 task 6, item 8 | Scale-up numbers; `caffeinate -i -s` for long jobs; server-side subset option | **4** | the anti-stall rules; the sweep extends the table |
-| C9 | M2 task 6, item 9 | Module-size flags: `osn_tiles.py` 556, `vertical.py` 524, `m2_qa.py` 638, `validate.py` 1,087 | **2, 7, 8** | M3-Q7: `vertical.py` split (2); `figures.py` split if needed (7); `osn_tiles`/`validate` left (M1-Q8 precedent) unless JXP says otherwise (8 records) |
+| C9 | M2 task 6, item 9 | Module-size flags: `osn_tiles.py` 556, `vertical.py` 524, `m2_qa.py` 638, `validate.py` 1,087 | **2, 7, 8** | decided 2026-10-07, M3-Q7: `vertical.py` split, reader → `chunk_store.py` (2); `figures.py` split if needed (7); `osn_tiles`/`validate` **left whole** (M1-Q8 precedent; 8 records the sizes) |
 | C10 | M2 task 6, item 10 | Note to Lauren (`note_to_lauren_flux_signs.md`) pending JXP's forwarding; stale llc-repo docs are hers | **none** | no M3 action; task 8 records its status |
-| C11a | M2 task 6, item 11 | Planning §4 "11 of the needed stores … ~33 GB at ~539 MB" stale / uncompressed | **8** | marked note if M3-Q8 says so |
-| C11b | M2 task 6, item 11 | Planning §2.3 / §4 `oceQsw` "the noon-peaking term" — true at the 6-hourly scale only | **7, 8** | Figure 6 caption (7); marked note if M3-Q8 (8) |
-| C11c | M2 task 6, item 11 | Planning §4 "different readers … a genuine cross-check" — sources bit-identical at `k = 0` | **1, 8** | the identity is asserted as an input invariant (1); marked note if M3-Q8 (8) |
+| C11a | M2 task 6, item 11 | Planning §4 "11 of the needed stores … ~33 GB at ~539 MB" stale / uncompressed | **8** | marked note — yes (decided 2026-10-07, M3-Q8) |
+| C11b | M2 task 6, item 11 | Planning §2.3 / §4 `oceQsw` "the noon-peaking term" — true at the 6-hourly scale only | **7, 8** | Figure 6 caption (7); marked note — yes (decided 2026-10-07, M3-Q8) (8) |
+| C11c | M2 task 6, item 11 | Planning §4 "different readers … a genuine cross-check" — sources bit-identical at `k = 0` | **1, 8** | the identity is asserted as an input invariant (1); marked note — yes (decided 2026-10-07, M3-Q8) (8) |
 | C11d | M2 task 6, item 11 | Planning §2.3 / coding §4.6 written against the documented `+=down` sign; resolved by storing downward-positive | **2** | coding §4.6 already marked; `surface_flux_term` reads the documented convention |
 | C11e | M2 task 6, item 11 | Prompt 3 task 1 "record it and move on" vs "no gaps" — resolved as stop-at-gap | **none** | record only |
 | C11f | M2 task 6, item 11 | Coding §4.9 / M1 task 6 "PASS" on hour 0-1 — 7/71 pairs fail the OLS gate over the window | **6, 8** | reported as the temporal systematic (6); coding §4.9 marked (8); the gate's definition unchanged |
-| C11g | M2 task 6, item 11 | Planning §5.3 / M1 task 3 displacement max 2.09-2.1 is hour-0 / analysis-domain; window ocean max 4.05 | **8** | marked note if M3-Q8; the envelope (C5) supersedes |
+| C11g | M2 task 6, item 11 | Planning §5.3 / M1 task 3 displacement max 2.09-2.1 is hour-0 / analysis-domain; window ocean max 4.05 | **8** | marked note — yes (decided 2026-10-07, M3-Q8); the envelope (C5) supersedes |
 | C11h | M2 task 6, item 11 | M2-Q3 "about a minute per pair" — ~2 s | **none** | Q&A record |
 | C11i | M2 task 6, item 11 | M1 task 6 "edge reach at `L = 8` exactly 7, no slack" — zero-displacement statement; 7-34 cells exceed it | **1** | `isfinite` at `L = 8`; `edge_cells` must not shrink; log record, no doc edit |
 | C11j | M2 task 6, item 11 | `test_load_chunk_levels.py` network docstring "~5 min" — link-speed statement | **none** | M2 code; re-time before a longer window (open item 4) |
 | C11k | M2 task 6, item 11 | Task 5 log "so `xr.merge` works" — superseded by item 1 | **1** | = C1 |
-| O1 | M2 task 6, open item 1 | Planning §4 / §2.3 marked notes or pre-execution record — JXP's call | **8** | **M3-Q8** |
+| O1 | M2 task 6, open item 1 | Planning §4 / §2.3 marked notes or pre-execution record — JXP's call | **8** | **M3-Q8: marked notes** (decided 2026-10-07) |
 | O2 | M2 task 6, open item 2 | The M3 prompt should state the merge recipe, no-negation rule, `isfinite` at `L = 8`, trimmed / orthogonal / 13-cell reporting, Figure 6 caveats | **this restructure** | done 2026-10-07 (M2 task 8): tasks 1, 2, 3, 6, 7 |
-| O3 | M2 task 6, open item 3 | Split `vertical.py` / `osn_tiles.py` | **2, 8** | **M3-Q7** |
+| O3 | M2 task 6, open item 3 | Split `vertical.py` / `osn_tiles.py` | **2, 8** | **M3-Q7** (decided 2026-10-07): `vertical.py` yes (2); `osn_tiles.py` no (8 records) |
 | O4 | M2 task 6, open item 4 | Network docstring "~5 min" and the 0.55 MB/s scale-up assumption; re-time before a longer window | **4** | the sweep's report re-times the local side; the chunk link is re-timed only if a longer window is planned (none in M3) |
 | O5 | M2 task 6, open item 5 | Note to Lauren pending | **none** | = C10 |
 | O6 | M2 task 6, open item 6 | M2 code already in `HEAD`; only docs uncommitted | **none** | record |
 | M1a | M1-Q1 (task 6, 7) | Both forms of `F`: `discrete` primary, `chain` alongside, the difference a stated systematic (~0.79x on front pixels; V3 0.981 vs 0.791) | **3, 6, 7** | `two_F`, `two_F_chain` (3); reporting (6); Figures 2, 3 (7) |
-| M1b | M1-Q2 / task 6b | V3b band 0.954-1.003 (0.975 ± 0.025) as the model-advection systematic; **no upward correction** for the 0.80-0.85x Jacobian attenuation (−0.006 ± 0.025); per-width shortfall −2 / −4 / −11 % at 2 / 1.5 / 1 dx subtracted first; chain form's own baseline 0.79 | **6, 7** | M3-Q5 width proxy; `slope_report` bands (5) |
+| M1b | M1-Q2 / task 6b | V3b band 0.954-1.003 (0.975 ± 0.025) as the model-advection systematic; **no upward correction** for the 0.80-0.85x Jacobian attenuation (−0.006 ± 0.025); per-width shortfall −2 / −4 / −11 % at 2 / 1.5 / 1 dx subtracted first; chain form's own baseline 0.79 | **6, 7** | M3-Q5 width proxy `front_width = 2 sqrt(G/|lap G|)`, binned (decided 2026-10-07; computed in 3, binned in 6); `slope_report` bands (5) |
 | M1c | M1-Q4 | Figure 2's baseline drawn at 0.981 with its band [0.970, 0.994], V3b band beside | **5, 7** | `slope_report` default; `fig02` |
 | M1d | M1-Q6 | Order 3 default; **order 5 as a sensitivity**; V4's bar 0.28-1.0 % of `G`/h (order 3) quoted with the front width | **3, 6** | `DGDt_semilag_o5` (3); reporting (6) |
 | M1e | M1 task 4 | `tau_delta` must be passed (flux form alone overstates 2.2x); budget field `subfilter = 2 * subfilter_term` | **3** | mandatory in `compute_budget`; test pins the difference |
@@ -727,9 +802,9 @@ no M3 action say so. Task 8 walks this table and marks each row.
 | M1i | M1 task 6, flag 10 | Call `operators.frontogenesis` and `semilag` with their defaults; "`F = frontogenesis_tendency`" means `form='chain'` | **1, 3** | the Tasks preamble |
 | M1j | M1 task 6, flag 6 | The llc CI excludes 1 (0.970-0.994): draw 0.981 with its band, not 1 | **7** | = M1c |
 | M1k | M1 task 6b, flags 1-2 | The "open systematic" (attenuation) closed as a recorded bias; planning §2.3's OS7MP `kappa_num` an over-estimate by an order of magnitude as a caveat on the *resolved* slope (+0.009 ± 0.03 in one hour; DST3 −0.13 shows a diffusive scheme) | **6** | (e) interpretation; `kappa_num` at the feature scale |
-| M1l | M1 task 3 | Real hours: Eulerian vs semi-Lagrangian corr 0.74, slope 0.73 at `L = 0` | **6** | (b)'s known starting point; M3-Q2 |
+| M1l | M1 task 3 | Real hours: Eulerian vs semi-Lagrangian corr 0.74, slope 0.73 at `L = 0` | **6** | (b)'s known starting point; M3-Q2 (decided 2026-10-07: gated at `L >= 2`, slope 0.85-1.15 / corr ≥ 0.90; `L = 0` interpreted) |
 | M1m | M0 task 3 / planning §2.2 | Vertical term bracket 0.4-14 % rms (order-one pointwise at fronts), ~30 % of `F` by day, ~0 at night | **2, 3** | the diurnal check on the smoke hours |
-| M1n | M1-Q8 (a, b) | `tile330_masks.nc` stays git-ignored; `validate.py` not split | **none / 8** | (a) no action; (b) under M3-Q7 |
+| M1n | M1-Q8 (a, b) | `tile330_masks.nc` stays git-ignored; `validate.py` not split | **none / 8** | (a) no action; (b) stands — `validate.py` left whole (decided 2026-10-07, M3-Q7) |
 | M1o | M1 task 7, open items 1-3 | `fronts` bugs and the xfails; prompt 5's non-existent `build.tile_find` path; the caller-side NaN recipe | **none** | M4's; task 8 lists them in "carried to M4 / M5" |
 | M1p | M1 task 7, open item 6 | The M0 planning deck still asserts two overturned claims | **none** | record |
 | M1q | coding §6 M3 "Carried from M1" | The paragraph's items (both forms; baseline and band; no upward correction; per-width shortfall; order 5; V4's bar) | **3, 6** | all covered by M1a-M1d above |
@@ -739,9 +814,15 @@ no M3 action say so. Task 8 walks this table and marks each row.
 ## Acceptance criteria
 
 1. **Closure** to a stated tolerance, with `vertical` and `surface_flux` **measured** from the
-   chunk store rather than assumed.
-2. Semi-Lagrangian and Eulerian estimates agree within a stated tolerance.
+   chunk store rather than assumed. *(decided 2026-10-07, M3-Q1 / M3-Q9: the tolerance is, on
+   `front & valid`, per `L`, `rms(residual)/rms(measured) <= 0.5` **and** the residual's OLS
+   slope on `2F` within ±0.10; judged at `L >= 2`, with `L = 0` reported and interpreted — task 6.)*
+2. Semi-Lagrangian and Eulerian estimates agree within a stated tolerance. *(decided 2026-10-07,
+   M3-Q2: OLS slope of `DGDt_euler` on `DGDt_semilag` within 0.85-1.15 and corr ≥ 0.90 on front
+   pixels at `L >= 2`; `L = 0` reported and interpreted, not gated — task 6.)*
 3. The filter sweep is interpretable — `tau` explicit, and the budget closing at each `L`.
+   *(decided 2026-10-07, M3-Q9: "each `L`" is judged at `L >= 2`; at `L = 0` the explicit
+   subfilter term is ≡ 0 by construction, so that column is reported and interpreted, not gated.)*
 4. Every slope quoted against the M1 baseline (0.981 [0.970, 0.994], with the V3b systematic band
    0.954-1.003; both forms of `F`, M1-Q1; order 5 as a sensitivity, M1-Q6 — decided 2026-09-30),
    with feature-level bootstrap intervals. *(corrected 2026-10-07, M2 task 8: at this milestone
@@ -775,6 +856,11 @@ recommendation. **M3-Q6 is needed before task 1, M3-Q7 before task 2, M3-Q3 and 
 task 3; M3-Q1, M3-Q2, M3-Q5 and M3-Q9 are pre-declared in task 6 and so must be answered before
 it; M3-Q8 before task 8.**
 
+*(2026-10-07)* **All nine answered by JXP the same day; every answer accepts the recommendation.**
+Each decision is written into the task that uses it, marked "(decided 2026-10-07, M3-Qn)", and
+summarised in the Status paragraph; an *Applied* pointer under each answer says where (log entry
+"2026-10-07 — M3 Q&A applied to prompt 4").
+
 ##### Questions
 
 **M3-Q1 — The closure tolerance (criterion 1).** Planning §12 says a null result is "the residual
@@ -792,7 +878,9 @@ Alternatives: a tighter 0.3 on (a) (M1's synthetic closure suggests it is reacha
 numerical term is small on the resolved `G`, which V3b hints — +0.009 ± 0.03 — but which real
 data has not shown); or (a) alone. I recommend (a) + (b) at 0.5 / 0.10.
 
-> **JXP:** 
+> **JXP:**  Go with your recommendation.
+
+*Applied (2026-10-07):* → task 6 (pre-declaration, (a), verdict); acceptance criterion 1; Status.
 
 **M3-Q2 — The semi-Lagrangian / Eulerian agreement tolerance (criterion 2).** The docs say
 "within a stated tolerance". The known starting point is poor: M1 task 3 measured **corr 0.74,
@@ -803,7 +891,9 @@ with `L = 0` reported and interpreted rather than gated. Alternative: gate at ev
 the hour-0 number suggests fails at `L = 0` for a reason that is not a bug. I recommend the
 proposal.
 
-> **JXP:** 
+> **JXP:**  Go with your recommendation.
+
+*Applied (2026-10-07):* → task 6 (pre-declaration, (b)); acceptance criterion 2; table row M1l; Status.
 
 **M3-Q3 — Which `L_cells` to sweep.** Coding §1.2 fixes `{0, 2, 4, 8}`. M1 task 4 found the
 subfilter term growing with `L` (0.31 / 0.50 / 0.70 of `Fbar`), and at `L = 8` the budget loses
@@ -813,7 +903,9 @@ and `halo_cells` ≥ 11, i.e. a new mask, so it is not free); (c) drop 8. The sw
 extra `L`. I recommend **(a)**; if the pilot shows time to spare, `L = 1` as an extra column for
 Figure 3 only (it needs no new mask).
 
-> **JXP:** 
+> **JXP:** Use (a)
+
+*Applied (2026-10-07):* → task 4 (the sweep set; the optional `L = 1` after the pilot); task 7 Figure 3; "Runs"; Status.
 
 **M3-Q4 — The front-pixel percentile.** V3 (M1 task 6), M2 task 3 and M2-Q7 all used
 **`G_mid >= p90`** on `mask_analysis & finite` (n 26,293 of 262,925), and the baseline 0.981 and
@@ -822,7 +914,9 @@ the OLS gate's known leverage sensitivity (top 1 % of |2F| moves day-3 pairs by 
 Options: (a) **p90, with p80 and p95 as a sensitivity** in task 6 and the trimmed estimator
 beside the OLS; (b) p95 as primary. I recommend **(a)**.
 
-> **JXP:** 
+> **JXP:** Use (a)
+
+*Applied (2026-10-07):* → task 3 (`front_pct=90.0`, `front`); task 6 (pre-declaration, (d) pools); the `stats.py` paragraph; Status.
 
 **M3-Q5 — A per-pixel front-width proxy, for "slope per front width".** M1-Q2 asks for the slope
 per front width with V3b's shortfall (−2 / −4 / −11 % at 2 / 1.5 / 1 dx) subtracted, but V3b's
@@ -834,7 +928,9 @@ defer per-width reporting to M4, where `curtains.path_metrics` gives a width per
 I recommend **(a)** stored as `front_width` in the derived product, validated on `synthetic.py`'s
 tanh fronts in `test_budget.py`, with (b) as the cross-check and (c) noted for M4.
 
-> **JXP:** 
+> **JXP:**  Go with your recommendations
+
+*Applied (2026-10-07):* → task 3 (`front_width` field and its `test_budget.py` check); task 6 (pre-declaration, (d) bins); table row M1b; coding §3.4 note; Status.
 
 **M3-Q6 — Merge strategy for the two stores.** M2 task 6 verified both recipes: **rename**
 (`Theta_k`, `Salt_k`, `W_k`; 16 vars, keeps `k`, `k_l` dims and all three levels) or **subset**
@@ -843,7 +939,9 @@ second-order `b_z` sensitivity and makes the `k = 0` bit-identity an assertable 
 every open; subset is simpler to use and cannot pass a 3-D `W` by mistake. I recommend
 **rename**, with `inputs.W_k1` / `inputs.fluxes` accessors so the physics never indexes the store.
 
-> **JXP:** 
+> **JXP:**  Go with your recommendation.
+
+*Applied (2026-10-07):* → task 1 (`open_inputs`, the `needs_grid` test's 16 vars); table row C1; Status.
 
 **M3-Q7 — Module splits (coding §1.3's ~400-line cap).** `vertical.py` is 524 lines of
 chunk-store reader before any physics, `osn_tiles.py` 556, `validate.py` 1,087 (M1-Q8 (b) left it
@@ -854,7 +952,9 @@ target (one line) — the physics then lands in a near-empty `vertical.py` as co
 physics in a new `vertical_terms.py` (contradicts §4.6's module name). For `osn_tiles.py` and
 `validate.py`: leave (the M1-Q8 precedent; M5 may consolidate). I recommend **(a)** and leave.
 
-> **JXP:** 
+> **JXP:**  Go with your recommendation.
+
+*Applied (2026-10-07):* → task 2 (module split first); table rows C9, O3, M1n; coding §4.6 note; Status.
 
 **M3-Q8 — Marked notes in the planning doc for the stale numbers (M2 task 6, open item 1).**
 Planning §4's "11 of the needed stores … 61 new, ~33 GB at ~539 MB per timestep" (72/72 exist;
@@ -865,7 +965,9 @@ the mask). Options: (a) **marked notes** in task 8, the doc's own convention, no
 (b) leave the planning doc as the pre-execution record and let the log carry the corrections. I
 recommend **(a)**: the planning doc is what a reader opens first.
 
-> **JXP:** 
+> **JXP:** Go with your recommendation.
+
+*Applied (2026-10-07):* → task 8 (the marked-notes list); table rows C11a, C11b, C11c, C11g, O1; Status. The planning doc itself is edited by task 8, not now.
 
 **M3-Q9 — At which `L` is the gate judged?** Criterion 3 says "the budget closing at each `L`",
 but planning §5.4 (corrected, M1 task 4) says the explicit subfilter term is identically zero at
@@ -876,7 +978,9 @@ numerics-plus-KPP estimate Figure 2b is about); (b) judge at every `L` including
 `L = 4` only. A failure at `L = 0` alone would then not be the planning §12 null; a failure at
 every `L` would. I recommend **(a)**.
 
-> **JXP:** 
+> **JXP:** Go with your recommendation.
+
+*Applied (2026-10-07):* → task 6 (pre-declaration, (a), verdict); acceptance criteria 1 and 3; Status.
 
 ## Log
 
