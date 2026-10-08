@@ -316,7 +316,7 @@ def verify_chunk_series(out_zarr, timestamps, levels: dict = None, k_max: int = 
         ``land`` (bool ``(k, j, i)``, ``hFacC == 0`` at ``k = 0..k_max``) and
         ``drF`` (``k = 0..k_max``) -- the reference.  Default: read from the
         chunk store's ``grid.zarr`` (network, ~0.5 MB) with
-        ``vertical._load_levels``, which also checks ``hFacC[0]``/``XC``/``YC``
+        ``chunk_store._load_levels``, which also checks ``hFacC[0]``/``XC``/``YC``
         against M0's ``tile330_grid.zarr``.
     k_max : int
     sw_tol : float
@@ -338,9 +338,9 @@ def verify_chunk_series(out_zarr, timestamps, levels: dict = None, k_max: int = 
     if not out.exists():
         return dict(ok=False, error=f'{out} does not exist')
     if levels is None:
-        import vertical
-        levels = vertical._load_levels(vertical.make_fs(), vertical.CHUNK_PREFIX, k_max,
-                                       local_grid=DATA_DIR / 'tile330_grid.zarr')
+        import chunk_store                 # the reader (moved from vertical.py, M3 task 2 / M3-Q7)
+        levels = chunk_store._load_levels(chunk_store.make_fs(), chunk_store.CHUNK_PREFIX, k_max,
+                                          local_grid=DATA_DIR / 'tile330_grid.zarr')
     ds = xr.open_zarr(out)
     res = dict(time=_check_time(ds, timestamps), schema=_check_chunk_schema(ds, k_max))
     niter = _check_niter(ds)

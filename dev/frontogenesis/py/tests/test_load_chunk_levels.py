@@ -8,7 +8,7 @@ on ``k``, ``W`` on ``k_p1`` (52), a ``numpy.datetime64`` ``time``, the
 group attrs (``selected_iteration`` = MIT, ``selected_date_utc``, tile), the
 flux attrs saying "+=down" with upward-positive data, and a ``grid.zarr``.
 They are read through a local fsspec filesystem, so the real
-fetch/decode/validate path runs; only ``vertical._cat`` is monkeypatched,
+fetch/decode/validate path runs; only ``chunk_store._cat`` is monkeypatched,
 to inject corrupt reads and crashes.  One ``network`` test loads a real
 hour and is deselected by default (``pytest.ini``).
 """
@@ -26,6 +26,7 @@ import zarr
 from zarr.codecs import ZstdCodec
 
 import vertical as vt
+import chunk_store as cs          # the reader's home since M3 task 2 (M3-Q7); vt re-exports
 import series_verify as sv
 import zarr_series as zs
 from dbof.llc4320_ingestion.date_iterations import osn_date_to_iteration
@@ -129,11 +130,11 @@ def src(tmp_path):
 def cat_log(monkeypatch):
     """Count the reads (the network primitive)."""
     calls = []
-    orig = vt._cat
+    orig = cs._cat
     def logged(fs, path):
         calls.append(path)
         return orig(fs, path)
-    monkeypatch.setattr(vt, '_cat', logged)
+    monkeypatch.setattr(cs, '_cat', logged)
     return calls
 
 
@@ -248,18 +249,18 @@ def test_noop_rerun_byte_identical(tmp_path, src, cat_log):
 def test_resume_between_hours(tmp_path, src, monkeypatch):
     class Crash(BaseException):
         pass
-    orig = vt._cat
+    orig = cs._cat
     def crash(fs, path):
         if '20120702T03.zarr/Salt/c' in path:
             raise Crash('killed mid-fetch')
         return orig(fs, path)
-    monkeypatch.setattr(vt, '_cat', crash)
+    monkeypatch.setattr(cs, '_cat', crash)
     out = tmp_path / 'c.zarr'
     with pytest.raises(Crash):
         pull(TS, out, src)
     assert len(zs.present_times(out)) == 3                # nothing of hour 3 on disk
     before = snapshot(out)
-    monkeypatch.setattr(vt, '_cat', orig)
+    monkeypatch.setattr(cs, '_cat', orig)
     rep = pull(TS, out, src)
     assert rep['skipped'] == TS[:3] and rep['pulled'] == TS[3:] and rep['repaired'] == 0
     after = snapshot(out)
@@ -323,7 +324,7 @@ def test_retry_on_corrupt_read(tmp_path, src, monkeypatch, corruption):
     """The first read of hour 1's Theta object is corrupt; the retry gets
     good bytes and the store is right."""
     from numcodecs import Zstd
-    orig = vt._cat
+    orig = cs._cat
     hits = []
     def flaky(fs, path):
         blob = orig(fs, path)
@@ -340,7 +341,7 @@ def test_retry_on_corrupt_read(tmp_path, src, monkeypatch, corruption):
             a[np.isnan(a).argmax()] = 5.0                # a finite value on land: decodes fine
             return Zstd().encode(a.tobytes())
         return blob
-    monkeypatch.setattr(vt, '_cat', flaky)
+    monkeypatch.setattr(cs, '_cat', flaky)
     out = tmp_path / 'c.zarr'
     slept, lines = [], []
     rep = {}
@@ -354,11 +355,11 @@ def test_retry_on_corrupt_read(tmp_path, src, monkeypatch, corruption):
 
 
 def test_persistent_corruption_stops_at_gap(tmp_path, src, monkeypatch):
-    orig = vt._cat
+    orig = cs._cat
     def dead(fs, path):
         blob = orig(fs, path)
         return blob[:10] if '20120702T02.zarr/Salt/c/' in path else blob
-    monkeypatch.setattr(vt, '_cat', dead)
+    monkeypatch.setattr(cs, '_cat', dead)
     out = tmp_path / 'c.zarr'
     lines = []
     rep = pull(TS, out, src, attempts=3, backoff=(0,), log=lines.append)
@@ -369,7 +370,7 @@ def test_persistent_corruption_stops_at_gap(tmp_path, src, monkeypatch):
     assert sum('giving up after 3' in l for l in lines) == 1
     v = sv.verify_chunk_series(out, TS, levels=levels())
     assert not v['ok'] and v['time']['missing'] == [t.replace(' ', 'T') for t in TS[2:]]
-    monkeypatch.setattr(vt, '_cat', orig)
+    monkeypatch.setattr(cs, '_cat', orig)
     rep = pull(TS, out, src)
     assert rep['skipped'] == TS[:2] and rep['pulled'] == TS[2:]
     assert sv.verify_chunk_series(out, TS, levels=levels())['ok']

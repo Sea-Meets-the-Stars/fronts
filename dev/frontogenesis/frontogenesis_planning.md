@@ -143,7 +143,9 @@ which already contains both the `dEta/dt` and the convergence parts — gives `w
 do not assume `b_z` is uniform across the front: the factorised form `-b_z grad w . grad b`
 drops `-w grad(b_z) . grad b`, which with `w ~ 5e-5 m s^-1` and front-scale changes in
 stratification is not obviously smaller, so `vertical.py` computes the top-cell vertical
-advective tendency `-w_base (b_base - b)/drF` first and takes `grad_h b . grad_h` of it. What
+advective tendency `-w_base (b_base - b)/drF` *(corrected 2026-10-07, M3 task 2: `-w_base b_z =
+-w_base (b - b_base)/dz` — the sign here was reversed relative to `D_h b/Dt = B - w b_z` above;
+`vertical.py` uses `-W_k1 (b_k0 - b_k1)/dz`, `dz = Z[0] - Z[1] = 1.07 m`, M3-Q11)* first and takes `grad_h b . grad_h` of it. What
 was a bound from 11 snapshots becomes an explicit budget term. Confirmed from the source while
 sizing that transfer: **`drF[0] = 1.0 m`, `Z[0] = -0.5 m`**, 51 levels to ~968 m — so the
 "~1 m top cell" above is a measured fact, not an assumption.

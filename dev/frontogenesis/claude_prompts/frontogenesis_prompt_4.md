@@ -13,7 +13,17 @@ This is the rigorous core of the study.
 **Status 2026-10-07 — task 1 done** (`py/inputs.py` + `tests/test_inputs.py`, 14 tests; suite
 **141 passed + 3 xfails**, 2 deselected, 180 s; the V3 / M2 numbers reproduce on the real stores —
 `n_valid` 262,925, `n_front` 26,293, `drF` [1.0, 1.14, 1.30], the `k = 0` identity on all 72 hours;
-log entry "Execution prompt 4, task 1"). **Tasks 2-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+log entry "Execution prompt 4, task 1"). **Task 2 done 2026-10-07** (the reader moved to
+`py/chunk_store.py` with `vertical.load_chunk_levels` re-exported, M3-Q7; `py/vertical.py`
+physics — `b_z`, `vertical_term` (+ `vertical_term_factorised`), `surface_flux_term`, all in F
+units; `tests/test_vertical.py` 19 tests; suite **160 passed + 3 xfails**, 2 deselected, 257 s;
+namelist verified: `f_sw = 0.521` (Jerlov IA, M3-Q10), `c_p = 3994`, `rhoConst = 1027.5`
+(M3-Q12), `convertFW2Salt = −1`; the tendency's sign corrected, M3-Q11; smoke at `L = 0`:
+vertical term **2.7-6.5 %** of `2F` in rms (diurnal shape right, the warm layer is 0.01 K not
+0.1-0.3 K), surface-flux term **0.65-0.94** of `2F` at every hour, dominated by the non-solar
+flux gradient (a damping of `G` at ~7e-6 s^-1), not peaking at 13 LST — findings, not tuned;
+log entry "Execution prompt 4, task 2"; **M3-Q10..Q12 await JXP**, all implemented as
+recommended). **Tasks 3-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
@@ -310,7 +320,11 @@ from.
     convention in attrs; the terms below are built entirely in code `b`, so they are consistent.
     Offer `k = 2` as an optional second-order estimate for a sensitivity (the store has it).
   - **`vertical_term(b, b_x, b_y, b_k1, W_k1, drF, grid_ds, grid)`**: compute the **top-cell
-    vertical advective tendency first**, `T_v = −W_k1 (b_k1 − b) / drF[0]`, then
+    vertical advective tendency first**, `T_v = −W_k1 (b_k1 − b) / drF[0]` *(as written
+    2026-10-07, M3 task 2: `T_v = −W_k1 b_z = −W_k1 (b − b_k1)/dz`, `dz = Z[0] − Z[1] =
+    (drF[0] + drF[1])/2 = 1.07 m` — the formula here has the sign of `−w b_z` reversed relative
+    to planning §2.2's own equation and to the factorised form below, and `dz` for `drF[0]`
+    makes the two forms agree exactly for uniform `b_z`; M3-Q11)*, then
     `grad_h T_v` through `operators.grad_b`, dotted with `(b_x, b_y)`. **Not** the factorised
     `−b_z (w_x b_x + w_y b_y)`, which drops `−w grad(b_z) . grad b` (planning §2.2, coding
     §4.6); provide that form as **`vertical_term_factorised`**, a diagnostic only. `W_k1` is the
@@ -329,10 +343,17 @@ from.
     M2 task 4's tile means: noon `oceQnet − oceQsw` ≈ the night-time non-solar ~+115-135 W m^-2
     cooling), and only the fraction `f_sw` absorbed inside the 1 m cell heats the `b` we measure.
     `f_sw` from the model's shortwave penetration (MITgcm `SWFRAC`, Paulson-Simpson two-band,
-    Jerlov type I by default: `0.58 exp(z/0.35 m) + 0.42 exp(z/23 m)`, so **~0.56 at `z = −1 m`**);
+    Jerlov type I by default: `0.58 exp(z/0.35 m) + 0.42 exp(z/23 m)`, so **~0.56 at `z = −1 m`**)
+    *(verified 2026-10-07, M3 task 2: `SHORTWAVE_HEATING` is defined, no `data.kpp` / `data.exf`
+    override, and `swfrac.F` (checkpoint65v) hard-codes `jwtype = 2` = Jerlov **IA**,
+    `0.62 exp(z/0.6 m) + 0.38 exp(z/20 m)`, so **`f_sw = 0.521`** in the 1 m cell, not 0.56;
+    M3-Q10)*;
     **verify** the LLC4320 `data` namelist (planning §2.3's URL) for any override and record
     `f_sw`. Temperature tendency `dT/dt = Q_top / (rho0 c_p drF[0])` (`c_p = 3994 J kg^-1 K^-1`,
-    MITgcm `HeatCapacity_Cp`; `rho0 = 1000` as in `buoyancy`), salinity tendency `dS/dt =
+    MITgcm `HeatCapacity_Cp`; `rho0 = 1000` as in `buoyancy`) *(as written 2026-10-07, M3 task 2:
+    the model divides the fluxes by `rhoConst = rhoNil = 1027.5` (`data`: `rhonil=1027.5`,
+    `rhoConst` absent; `HeatCapacity_Cp` absent → 3994), so `rhoConst` is used here and
+    `rho0 = 1000` only in the `g/rho0` of the buoyancy definition; M3-Q12)*, salinity tendency `dS/dt =
     −S oceFWflx / (rho0 drF[0])` with the local `Salt` (check `convertFW2Salt` in the namelist:
     `−1` means local salinity; a constant 35 otherwise — record which). Then `B_sfc = (g/rho0)
     [ −rho alpha dT/dt + rho beta dS/dt ]` in **code-`b` sign** (heating *lowers* `b`), with
@@ -981,6 +1002,54 @@ every `L` would. I recommend **(a)**.
 > **JXP:** Go with your recommendation.
 
 *Applied (2026-10-07):* → task 6 (pre-declaration, (a), verdict); acceptance criteria 1 and 3; Status.
+
+### Claude, 2026-10-07 (during task 2)
+
+Three judgement calls met while writing `vertical.py` (log entry "Execution prompt 4, task 2").
+Each was implemented as recommended (all three are one-line constants or a sign, trivially
+undone); the real-data smoke numbers in the log entry were computed with these choices.
+
+**M3-Q10 — `f_sw`: Jerlov type IA (0.521), not type I (0.56).** Task 2 assumed MITgcm's
+`SWFRAC` with "Jerlov type I by default" (`0.58 exp(z/0.35) + 0.42 exp(z/23)`, 0.565 absorbed in
+1 m). The LLC4320 `code/CPP_OPTIONS.h` defines `SHORTWAVE_HEATING`, `data.kpp` / `data.exf` /
+`data.pkg` set no penetration option, and `model/src/swfrac.F` at checkpoint65v **hard-codes
+`jwtype = 2` = type IA** (`0.62 exp(z/0.6) + 0.38 exp(z/20)`), giving **`f_sw = 0.521`** for
+`drF[0] = 1.0 m`. Options: (a) **0.521** (the model's own profile; `vertical.F_SW`,
+`sw_fraction_absorbed(dz, jwtype=2)`); (b) 0.565 as the prompt wrote. The difference is 8 % of
+the shortwave part, which the smoke shows is only 0.6-18 % of the surface-flux term, so this
+is < 2 % of the term. I recommend **(a)**, with the type exposed as a keyword so (b) is a
+sensitivity.
+
+> **JXP:**
+
+**M3-Q11 — The vertical tendency's sign and denominator.** Prompt 4 task 2, coding §4.6 and
+planning §2.2 ("`-w_base (b_base - b)/drF`") write `T_v = −W_k1 (b_k1 − b)/drF[0]`. Planning
+§2.2's own budget equation, `D_h b/Dt = B − w b_z` with the factorised term `−b_z (w_x b_x +
+w_y b_y)`, requires `T_v = −W_k1 b_z`; with `b_z = (b − b_k1)/dz` (the `b_z` contract) that is
+`−W_k1 (b − b_k1)/dz` — **the opposite sign** (an upwelling `W_k1 > 0` of denser water,
+`b_k1 > b` in code `b`, must raise the top-cell `b`), and `dz = Z[0] − Z[1] = 1.07 m` rather
+than `drF[0] = 1.0`. As literally written, the task's own test "equals the factorised form when
+`b_k1 − b` is uniform" cannot pass (the two differ in sign and by 1.07). Options: (a)
+**`T_v = −W_k1 (b − b_k1)/dz`**, `dz = (drF[0] + drF[1])/2` (derived from the `drF` the
+signature takes; the factorised identity then holds exactly and the dropped term is exactly
+`−w grad(b_z) . grad b`); (b) the same sign with `drF[0]` (7 % larger, the identity holds to 7 %);
+(c) the model's face-value form `W_k1 (b_face − b)/drF[0]` with a linear face value, which is
+0.535x (a) and would need OS7MP's actual near-surface reconstruction to be more than a guess. I
+recommend **(a)** (implemented; the sign error is marked in coding §4.6 and planning §2.2 as a
+plain correction, the `dz` choice is this question).
+
+> **JXP:**
+
+**M3-Q12 — `rhoConst` (1027.5) or `rho0` (1000) in the flux-to-tendency conversion.** The
+task says `dT/dt = Q_top/(rho0 c_p drF[0])` with "`rho0 = 1000` as in `buoyancy`". The model
+converts its fluxes with `mass2rUnit = 1/rhoConst`, and the `data` namelist has `rhonil = 1027.5`
+with `rhoConst` absent (so `rhoConst = rhoNil = 1027.5`; `HeatCapacity_Cp` absent → 3994;
+`convertFW2Salt = −1` → local salinity, `useRealFreshWaterFlux = .TRUE.`). Options: (a)
+**`rhoConst = 1027.5`** for `dT/dt` and `dS/dt` (what the model does; `rho0 = 1000` stays only in
+the `g/rho0` of `b = g sigma0/rho0`); (b) `rho0 = 1000` throughout as written. The difference is a
+uniform 2.7 % of the surface-flux term. I recommend **(a)**.
+
+> **JXP:**
 
 ## Log
 

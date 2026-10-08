@@ -1,524 +1,457 @@
-""" The extra budget terms from the chunk store (coding §4.6, Q13).
+""" The extra budget terms from the chunk store (coding §4.6, Q13): the
+top-cell stratification ``b_z``, the **vertical** (finite-top-cell tilting)
+term and the **surface-flux** (diabatic) term of the surface budget
 
-Only the M2 step lives here so far: :func:`load_chunk_levels`, which pulls
-``k = 0..2`` of ``Theta, Salt, W`` and the three surface fluxes from the
-hourly full-depth ``monterey_bay`` chunk store into the §3.3 zarr.  The
-physics functions of §4.6 (``b_z``, ``vertical_term``,
-``surface_flux_term``) are M3's.
+    D_h/Dt ( G/2 ) = F + vertical_term + surface_flux_term + subfilter + residual
 
-The source (M2 task 4)
-----------------------
-``s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/{YYYYMMDDTHH}.zarr`` on NRP
-Nautilus (``https://s3-west.nrp-nautilus.io``, path-style addressing,
-credentialed: s3fs uses the default AWS profile), one zarr-v3 store per
-hour plus a static ``grid.zarr``; exactly tile 330 (face 10, j 0:720,
-i 2880:3600).  Every variable is **one object per hour** -- 3-D chunks
-``(51, 1, 720, 720)``, ``W`` ``(52, 1, 720, 720)``, 2-D ``(1, 720, 720)``,
-codecs bytes (little-endian) + zstd -- so a ``k = 0..2`` read must fetch the
-whole 51-level object (~174 MB per hour for the six variables) and keep
-three levels.  The objects are read and decoded directly here (zarr.json,
-then the single chunk, zstd, reshape) rather than through ``xr.open_zarr``,
-so every object can be validated, and re-fetched if Nautilus serves corrupt
-bytes (dbof's reader warns that it intermittently does).
+Every function here returns **F units** (s^-5), exactly as
+``coarsegrain.subfilter_term`` does; the §3.4 budget fields are ``2 x``
+these (``vertical = 2 * vertical_term``, ``surface_flux = 2 *
+surface_flux_term``), formed in ``budget.py`` (task 3), never here.
 
-What is checked before an hour is written
------------------------------------------
-* every object: the layout (one chunk, bytes+zstd, little-endian), a
-  successful zstd decode of exactly ``prod(shape) * itemsize`` bytes, the
-  expected shape, and plausible finite values;
-* land: NaN exactly where the chunk grid's ``hFacC[k] == 0`` for
-  ``Theta``/``Salt`` at ``k = 0..k_max``, ``W`` at ``k_p1 = 0..k_max`` and
-  the 2-D fluxes (``hFacC[0]``) -- task 4 found these equal;
-* time: the store's own ``time`` equals the requested timestamp, its
-  ``selected_date_utc`` attr too, and ``selected_iteration`` (the MIT
-  iteration) equals the OSN iteration minus 10368; optionally (``osn_store``)
-  the chunk ``Eta`` is bit-identical to the OSN store's ``Eta`` for that hour
-  (task 4: true in all 72 hours), which pins the hour to the OSN series;
-* sign: the raw ``oceQsw`` is nowhere above +1 W m^-2 (it is upward-positive,
-  see below); a store whose shortwave were already downward-positive fails
-  here instead of being silently negated twice.
+The chunk-store **reader** (``load_chunk_levels`` and its helpers, M2 task 5)
+lives in ``chunk_store.py`` since M3 task 2 (decided 2026-10-07, M3-Q7 (a));
+``load_chunk_levels`` and the path constants are re-exported below so
+``m2_chunk_pull.py`` keeps working.
 
-A failed check is retried like a failed read (``zarr_series.with_retries``,
-per object, so a corrupt ``Theta`` re-fetches 57 MB, not the hour), and an
-hour that still fails stops the run at a gap, as ``pull_series`` does.
+Physics (planning §2.2; M0 task 3)
+----------------------------------
+From ``Db/Dt = B`` with ``w`` the vertical velocity, the *horizontal*
+material derivative of ``b`` is ``D_h b/Dt = B - w b_z``; taking ``grad_h``
+and dotting with ``grad_h b`` gives
 
-Sign convention (M2-Q6, JXP: option (a))
-----------------------------------------
-The source attrs call ``oceQnet``/``oceQsw``/``oceFWflx`` "+=down", but the
-data are MITgcm's upward-positive forcing (task 4: ``oceQsw <= 0`` at every
-pixel and hour, about -589 W m^-2 tile mean at local noon; ``oceQnet`` +115
-at night, -454 at noon; ``oceFWflx`` about +2.5e-5 kg m^-2 s^-1, net
-evaporation).  The three are **negated at write time**, so the store holds
-the documented downward-positive convention that coding §3.3/§4.6 assume;
-each variable carries ``sign_convention`` (correct), ``source_sign_convention``
-(the original long_name) and ``sign_conversion``, and the root attrs record
-the negation in ``provenance``.
+    D_h/Dt (G/2) = F + grad_h b . grad_h( -w b_z ) + grad_h b . grad_h B .
 
-Resumability is ``zarr_series``'s (task 1): stage the hour in memory, one
-atomic per-hour append of the time-dimensioned variables, repair on resume,
-"present" from the store's own ``time`` coord, stop at the first hour that
-still fails.
+In the continuum the tilting term vanishes *at* the free surface (the
+velocity relative to the surface does), but the stored ``b`` is the
+average of a fixed 1 m box (``drF[0] = 1.0 m``; LLC4320 has a linear free
+surface) whose budget carries the advective flux through its **base**,
+where the model's ``W(k_l=1)`` is ``dEta/dt + drF delta`` -- so the term is
+real, diurnal (a warm layer by day, ~0 at night) and is built from the
+chunk ``W(k_l=1)``, never from ``delta`` (wrong sign, missing part) and
+never from the OSN ``W(k_l=0) = dEta/dt``.  The tendency ``T_v = -W_k1 b_z``
+is formed **first** and then differenced, so that ``-w grad(b_z) . grad b``
+is kept; the factorised ``-b_z (w_x b_x + w_y b_y)`` is a diagnostic only.
+
+Sign of ``b``: code ``b = +g sigma0/rho0`` **increases with density**
+(coding §1.1), so a warm layer over cooler water has ``b_z < 0`` here
+(planning §2.2's textbook ``b_z ~ +2-4e-4 s^-2`` is the same state) and a
+heat flux *into* the ocean **lowers** ``b``.  Everything below is written
+in code ``b``; the dot products are even in the sign of ``b``, so the
+terms are what the budget needs either way.
+
+Filtering at ``L``: the tendencies ``T_v`` and ``B_sfc`` are low-passed
+**themselves** with ``operators.lowpass`` (the kernel that filters ``b, U,
+V``) and dotted with the filtered ``grad bbar``, so the subfilter
+correlation ``mean(w b_z) - wbar bzbar`` sits inside the term instead of
+being dropped (prompt 4 task 2).  Land and the ``W``/``b_k1`` NaN propagate.
+
+Namelist constants (verified 2026-10-07 against ``MITgcm_contrib/llc_hires/
+llc_4320/input/{data,data.pkg,data.kpp,data.exf}`` and ``code/CPP_OPTIONS.h``
+on GitHub master, the files M0 task 3 cites; the production-era commit
+differs only in the Leith coefficient): ``rhonil = 1027.5`` with ``rhoConst``
+absent, so ``rhoConst = rhoNil = 1027.5`` (the density the model divides the
+fluxes by); ``HeatCapacity_Cp`` absent -> the default **3994**;
+``convertFW2Salt = -1.`` (the *local* salinity converts the fresh-water
+flux) with ``useRealFreshWaterFlux = .TRUE.`` and a linear free surface
+(``nonlinFreeSurf`` unset); ``eosType = 'JMD95Z'``; ``#define
+SHORTWAVE_HEATING`` with no ``data.kpp``/``data.exf`` override of the
+penetration, so the shortwave profile is ``model/src/swfrac.F``
+(checkpoint65v), which **hard-codes Jerlov type IA** (``jwtype = 2``:
+``0.62 exp(z/0.6 m) + 0.38 exp(z/20 m)``), not type I -- ``f_sw = 0.521`` of
+``oceQsw`` is absorbed inside the 1 m top cell, not the 0.56 the prompt
+assumed (M3-Q10).
 """
-
-import json
-import shutil
-import time
-from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 import xarray as xr
-from numcodecs import Zstd
 
-import zarr_series as zs
-import osn_tiles as ot
-from osn_tiles import DATA_DIR
-from dbof.llc4320_ingestion.date_iterations import osn_date_to_iteration, DATE_FMT
-from dbof.llc4320_ingestion.grid import ensure_comodo_attrs
+import operators as op
+# the reader, re-exported for m2_chunk_pull.py and the M2 tests (M3-Q7)
+from chunk_store import (load_chunk_levels, CHUNK_ZARR, OSN_RAW_ZARR, CHUNK_ENDPOINT,  # noqa: F401
+                         CHUNK_PREFIX, DATA_DIR, _store_name)
+from dbof.preprocessing.physical_constants import G, RHO0_REFERENCE
+import dbof.utils.jmd95_xgcm_implementation as jmd95
 
-CHUNK_ENDPOINT = 'https://s3-west.nrp-nautilus.io'
-CHUNK_PREFIX = 'dbof/LLC4320_RAW/CHUNKS/monterey_bay'
-CHUNK_ZARR = DATA_DIR / 'tile330_chunk_20120702T00_72h.zarr'
-OSN_RAW_ZARR = DATA_DIR / 'tile330_raw_20120702T00_72h.zarr'
-
-LEVEL_VARS = ('Theta', 'Salt')                  # on k
-FLUX_VARS = ('oceQnet', 'oceQsw', 'oceFWflx')   # 2-D, negated (M2-Q6)
-OSN_MINUS_MIT = 10368                           # osn_date_to_iteration = MIT + 10368
-TILE_FACE, J_START, I_START = 10, 0, 2880       # tile 330 (task 4: the store is exactly it)
-
-# finite values outside these are a corrupt read, not ocean (raw source units/sign).  Generous
-# on purpose: they catch garbage that decodes, not physics.  Salt reaches 48.6 psu in the
-# northern Gulf of California (OSN 72 h, -115.7 E 32.5 N; a 45 bound stopped the first launch)
-PLAUSIBLE = {'Theta': (-3.0, 45.0), 'Salt': (0.0, 70.0), 'W': (-1.0, 1.0),
-             'oceQnet': (-3000.0, 3000.0), 'oceQsw': (-2000.0, 1.0),   # upward-positive: <= 0
-             'oceFWflx': (-0.1, 0.1), 'Eta': (-20.0, 20.0)}
-
-SIGN_CONVENTION = {
-    'oceQnet': 'positive downward (into the ocean); >0 increases theta',
-    'oceQsw': 'positive downward (into the ocean); >0 increases theta',
-    'oceFWflx': 'positive downward (into the ocean); >0 decreases salinity',
-}
-LONG_NAME = {
-    'oceQnet': 'net surface heat flux into the ocean, positive downward',
-    'oceQsw': 'net shortwave radiation into the ocean, positive downward',
-    'oceFWflx': 'net surface fresh-water flux into the ocean, positive downward',
-}
-SIGN_CONVERSION = ('negated at write time by vertical.load_chunk_levels (M2-Q6): the source '
-                   'attrs say +=down but the source data are upward-positive (MITgcm forcing '
-                   'convention; M2 task 4: oceQsw <= 0 everywhere, oceFWflx > 0 = evaporation)')
-W_MAPPING = ('W(k_l=n) is the source W(k_p1=n), n=0..k_max: the source puts W on k_p1 (52 '
-             'interfaces), and k_p1=n is the TOP face of cell n, i.e. k_l=n -- verified by '
-             'continuity in M2 task 4 (rA*(W[k]-W[k+1]) + horizontal divergence closes to rms '
-             '7e-12 m/s for cells 0..2). W(k_l=0) = dEta/dt (linear free surface); W(k_l=1) is '
-             'the top-cell base velocity vertical_term takes (coding §4.6).')
-FORCING_NOTE = ('the surface fluxes are 6-hourly forcing linearly interpolated by the model '
-                '(kinks at 03/09/15/21 UTC, M2 task 4): the diurnal shortwave shape is a '
-                'triangle, not resolved insolation')
+# --- the model's constants (LLC4320 namelist; see the module docstring) -----
+HEAT_CAPACITY_CP = 3994.0     # J kg^-1 K^-1; MITgcm HeatCapacity_Cp default (absent from data)
+RHO_CONST = 1027.5            # kg m^-3; rhoConst = rhoNil (data: rhonil=1027.5; rhoConst absent)
+CONVERT_FW2SALT = -1.0        # data: convertFW2Salt=-1. -> the local salinity dilutes
+# swfrac.F (checkpoint65v): swdk(z) = rfac exp(z/a1) + (1 - rfac) exp(z/a2), z <= 0 in m;
+# Jerlov types I, IA, IB, II, III = 1..5; jwtype = 2 is hard-coded in the routine
+JERLOV = {1: (0.58, 0.35, 23.0), 2: (0.62, 0.6, 20.0), 3: (0.67, 1.0, 17.0),
+          4: (0.77, 1.5, 14.0), 5: (0.78, 1.4, 7.9)}
+JWTYPE = 2
+NAMELIST_SOURCE = ('MITgcm_contrib/llc_hires/llc_4320/input/data (+data.pkg, data.kpp, data.exf, '
+                   'code/CPP_OPTIONS.h), GitHub master, read 2026-10-07; swfrac.F at checkpoint65v')
+CONVENTION = ('F units (s^-5): D_h/Dt(G/2) = F + vertical_term + surface_flux_term + ...; the '
+              '§3.4 budget fields are 2 x these (budget.py, task 3), as subfilter = 2 * subfilter_term')
 
 
-class CorruptRead(ValueError):
-    """An object that did not decode to the expected bytes or values."""
+def sw_fraction_absorbed(dz: float, jwtype: int = JWTYPE) -> float:
+    """The fraction of ``oceQsw`` absorbed between the surface and depth
+    ``dz`` (m), ``1 - swdk(-dz)`` with MITgcm's two-band Paulson-Simpson
+    profile for Jerlov water type ``jwtype`` (``swfrac.F``).  For the 1 m
+    top cell and the model's type IA this is **0.521** (type I would give
+    0.565; the two-band fit is not meant below ~1 m accuracy, so the ~8 %
+    between the types is the honest uncertainty of ``f_sw``)."""
+    rfac, a1, a2 = JERLOV[int(jwtype)]
+    z = -abs(float(dz))
+    return float(1.0 - (rfac * np.exp(z / a1) + (1.0 - rfac) * np.exp(z / a2)))
+
+
+F_SW = sw_fraction_absorbed(1.0)      # 0.5214 for drF[0] = 1.0 m, Jerlov IA
 
 
 # ---------------------------------------------------------------------------
-# reading one object
+# small guards and level geometry
 # ---------------------------------------------------------------------------
-def make_fs(endpoint: str = CHUNK_ENDPOINT):
-    """s3fs on Nautilus, path-style, default AWS profile (no secret handled
-    here).  No block cache: each object is read once."""
-    import s3fs
-    return s3fs.S3FileSystem(client_kwargs={'endpoint_url': endpoint},
-                             config_kwargs={'s3': {'addressing_style': 'path'},
-                                            'connect_timeout': 60, 'read_timeout': 300,
-                                            'retries': {'max_attempts': 5, 'mode': 'adaptive'}},
-                             default_cache_type='none')
+def _drF(drF):
+    v = np.asarray(getattr(drF, 'values', drF), dtype='float64').reshape(-1)
+    if v.size < 2 or not np.all(v > 0):
+        raise ValueError(f'drF must hold at least the two top cell thicknesses, got {v}')
+    return v
 
 
-def _cat(fs, path: str) -> bytes:
-    """The one network primitive (monkeypatched by the tests)."""
-    return fs.cat(path)
+def level_depths(drF):
+    """Cell-centre depths ``Z_k = -(sum_{k' <= k} drF - drF_k/2)`` from the
+    thicknesses: ``[-0.5, -1.57, -2.79]`` for ``[1.0, 1.14, 1.30]`` (the
+    store's ``Z``, M2 task 4)."""
+    v = _drF(drF)
+    return -(np.cumsum(v) - 0.5 * v)
 
 
-def _np_dtype(data_type) -> np.dtype:
-    if isinstance(data_type, dict):                  # 'numpy.datetime64' extension dtype
-        if data_type.get('name') == 'numpy.datetime64':
-            return np.dtype('<i8')                   # ns since epoch, viewed by the caller
-        raise CorruptRead(f'unexpected data_type {data_type}')
-    return np.dtype(data_type).newbyteorder('<')
-
-
-def _read_object(fs, prefix: str, store: str, var: str) -> tuple:
-    """Fetch and decode one single-chunk zarr-v3 array.
-
-    Returns ``(array, meta, n_bytes_fetched)``.  Raises :class:`CorruptRead`
-    if the layout is not the one task 4 found or the bytes do not decode to
-    exactly the array's size.
-    """
-    base = f'{prefix}/{store}/{var}'
-    try:
-        meta = json.loads(_cat(fs, f'{base}/zarr.json'))
-    except json.JSONDecodeError as e:
-        raise CorruptRead(f'{store}/{var}: zarr.json does not parse ({e})') from e
-    shape = tuple(meta['shape'])
-    chunks = tuple(meta['chunk_grid']['configuration']['chunk_shape'])
-    codecs = meta.get('codecs', [])
-    if chunks != shape:
-        raise CorruptRead(f'{store}/{var}: chunks {chunks} != shape {shape} (expected one object)')
-    if [c['name'] for c in codecs] != ['bytes', 'zstd'] or \
-            codecs[0].get('configuration', {}).get('endian', 'little') != 'little':
-        raise CorruptRead(f'{store}/{var}: codecs {codecs} != bytes(little) + zstd')
-    if meta.get('chunk_key_encoding', {}).get('name', 'default') != 'default':
-        raise CorruptRead(f'{store}/{var}: chunk_key_encoding {meta["chunk_key_encoding"]}')
-    dtype = _np_dtype(meta['data_type'])
-    blob = _cat(fs, f'{base}/' + '/'.join(['c'] + ['0'] * len(shape)))
-    try:
-        raw = Zstd().decode(blob)
-    except Exception as e:                           # noqa: BLE001 -- any decoder failure
-        raise CorruptRead(f'{store}/{var}: zstd decode failed on {len(blob)} bytes '
-                          f'({type(e).__name__}: {e})') from e
-    want = int(np.prod(shape)) * dtype.itemsize
-    if len(raw) != want:
-        raise CorruptRead(f'{store}/{var}: decoded {len(raw)} bytes, expected {want}')
-    return np.frombuffer(raw, dtype=dtype).reshape(shape), meta, len(blob)
-
-
-def _check_values(name: str, a: np.ndarray, land: np.ndarray, rng: tuple):
-    """NaN exactly on land, finite values within ``rng``."""
-    nan = np.isnan(a)
-    bad = int((nan != land).sum())
+def _check_no_level_dim(da, what):
+    """A field that must already be a single level: a 3-D ``W`` (``k_l``)
+    or ``Theta_k`` (``k``) passed where ``W_k1`` / ``Theta`` is expected
+    is refused rather than silently broadcast."""
+    dims = op._dims_of(da, what)
+    bad = [d for d in ('k', 'k_l', 'k_p1', 'k_u') if d in dims]
     if bad:
-        raise CorruptRead(f'{name}: NaN pattern differs from hFacC == 0 in {bad} cells')
-    if (~nan).any():
-        lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
-        if lo < rng[0] or hi > rng[1]:
-            hint = (' -- positive source shortwave: is the source already downward-positive? '
-                    'then the M2-Q6 negation would be wrong' if name.endswith('oceQsw')
-                    and hi > rng[1] else '')
-            raise CorruptRead(f'{name}: values [{lo:.4g}, {hi:.4g}] outside plausible {rng}{hint}')
+        raise ValueError(f'{what}: has a level dim {bad} (dims {dims}); pass one level -- '
+                         'inputs.W_k1(ds) for W(k_l=1), never the 3-D W')
+
+
+def _same_centred(**fields):
+    """Every field centred, all on identical dims."""
+    dims, shape = None, None
+    for name, da in fields.items():
+        d = op.require_centred(da, name)
+        _check_no_level_dim(da, name)
+        if dims is None:
+            dims, shape = d, da.shape
+        elif d != dims or da.shape != shape:
+            raise ValueError(f'{name}: dims {d} {da.shape} differ from {dims} {shape}')
+    return dims
+
+
+def _lagrange_derivative_weights(z_nodes, z):
+    """Weights ``w_i`` with ``f'(z) ~ sum_i w_i f(z_i)`` for the Lagrange
+    polynomial through ``z_nodes`` (two nodes: the centred difference,
+    independent of ``z``)."""
+    zn = np.asarray(z_nodes, dtype='float64')
+    n = zn.size
+    w = np.zeros(n)
+    for i in range(n):
+        for j in range(n):
+            if j == i:
+                continue
+            term = 1.0 / (zn[i] - zn[j])
+            for k in range(n):
+                if k not in (i, j):
+                    term *= (z - zn[k]) / (zn[i] - zn[k])
+            w[i] += term
+    return w
 
 
 # ---------------------------------------------------------------------------
-# the static levels (grid.zarr), once per run
+# b at the chunk levels and b_z
 # ---------------------------------------------------------------------------
-def _load_levels(fs, prefix: str, k_max: int, local_grid=None) -> dict:
-    """``drF``/``Z``/``Zl`` for ``k = 0..k_max``, ``hFacC`` there (the land
-    reference), ``XC``/``YC`` and the index coords, from the chunk store's
-    ``grid.zarr`` (task 4: bit-identical to ``tile330_grid.zarr``)."""
-    g = {}
-    for v in ('drF', 'Z', 'Zl', 'hFacC', 'XC', 'YC', 'j', 'i'):
-        g[v] = _read_object(fs, prefix, 'grid.zarr', v)[0]
-    n_lev = g['drF'].shape[0]
-    if g['hFacC'].ndim != 4 or g['hFacC'].shape[:2] != (n_lev, 1):
-        raise CorruptRead(f'grid.zarr hFacC shape {g["hFacC"].shape}')
-    if not k_max < n_lev:
-        raise ValueError(f'k_max={k_max} but the store has {n_lev} levels')
-    lev = dict(n_lev=n_lev, nj=g['hFacC'].shape[2], ni=g['hFacC'].shape[3],
-               drF=np.array(g['drF'][:k_max + 1], dtype='f4'),
-               Z=np.array(g['Z'][:k_max + 1], dtype='f4'),
-               Zl=np.array(g['Zl'][:k_max + 1], dtype='f4'),
-               land=np.array(g['hFacC'][:k_max + 1, 0]) == 0,
-               XC=np.array(g['XC'][0], dtype='f4'), YC=np.array(g['YC'][0], dtype='f4'),
-               j=g['j'].astype('int64'), i=g['i'].astype('int64'))
-    # §3.3/§4.6 and task 4: the OSN top-cell values
-    if lev['drF'][0] != 1.0 or lev['Z'][0] != -0.5:
-        raise ValueError(f'drF[0]={lev["drF"][0]}, Z[0]={lev["Z"][0]}; expected 1.0, -0.5')
-    if lev['j'][0] != J_START or lev['i'][0] != I_START:
-        raise ValueError(f'grid.zarr starts at j={lev["j"][0]}, i={lev["i"][0]}; expected '
-                         f'{J_START}, {I_START} (tile 330)')
-    if local_grid is not None:
-        # same tile, same land, same coordinates as M0's grid (task 4: bit-identical)
-        loc = xr.open_zarr(local_grid)
-        for v, a in (('hFacC', ~lev['land'][0]), ('XC', lev['XC']), ('YC', lev['YC'])):
-            b = loc[v].values
-            same = np.array_equal(a, b != 0) if v == 'hFacC' else np.array_equal(a, b)
-            if not same:
-                raise ValueError(f'chunk grid.zarr {v} differs from {local_grid}')
-    return lev
+def buoyancy_levels(Theta, Salt):
+    """``b`` on every level of ``Theta``/``Salt`` (the chunk ``Theta_k``,
+    ``Salt_k`` on ``(face, k, j, i)``) from **one** ``operators.buoyancy``
+    call: JMD95 potential density referenced to ``p = 0`` for all levels
+    (planning §5.1: the ~0.5 dbar in-situ difference between ``k = 0`` and
+    ``k = 1`` is negligible, and ``b_z`` must be a difference of the *same*
+    density). Returns the DataArray with the ``k`` dim kept."""
+    if 'k' not in Theta.dims or 'k' not in Salt.dims:
+        raise ValueError(f'buoyancy_levels: Theta/Salt need a k dim, got {Theta.dims} / {Salt.dims}')
+    ds = xr.Dataset({'Theta': Theta, 'Salt': Salt})
+    b = op.buoyancy(ds)
+    op.assert_dims(b, Theta.dims, 'buoyancy_levels')
+    b.attrs['eos'] = 'JMD95, p = 0 at every level (potential density; same call for all levels)'
+    return b
 
 
-# ---------------------------------------------------------------------------
-# one hour
-# ---------------------------------------------------------------------------
-def _store_name(ts: str) -> str:
-    return datetime.strptime(ts, DATE_FMT).strftime('%Y%m%dT%H') + '.zarr'
+def b_z(Theta, Salt, grid_ds, drF, *, order: int = 1):
+    """Top-cell vertical buoyancy gradient ``b_z`` [s^-2] at the base of
+    the top cell from the chunk levels ``Theta(k)``, ``Salt(k)``.
 
+    ``order = 1`` (default): ``(b_k0 - b_k1) / (Z[0] - Z[1])`` with the
+    centre depths from ``drF`` (``dz = (drF[0] + drF[1])/2 = 1.07 m``; the
+    store's ``Z = -0.5, -1.57``), i.e. the centred difference across the
+    ``k_l = 1`` interface (``z = -1.0 m``, 3.5 cm off the midpoint).
+    ``order = 2``: the quadratic through ``k = 0, 1, 2`` differentiated at
+    ``z = -drF[0]`` -- the sensitivity the store's third level allows.
+    Both levels' ``b`` come from one JMD95 call at ``p = 0``
+    (:func:`buoyancy_levels`).
 
-def _as_dt64(ts: str) -> np.datetime64:
-    return np.datetime64(datetime.strptime(ts, DATE_FMT), 's')
-
-
-def _osn_eta_reader(osn_store):
-    """``ts -> Eta(j, i)`` from the OSN series store, or None if absent."""
-    if osn_store is None or not Path(osn_store).exists():
-        return None
-    ds = xr.open_zarr(osn_store)
-
-    def read(ts):
-        t = _as_dt64(ts)
-        if t not in ds['time'].values.astype('datetime64[s]'):
-            return None
-        return ds['Eta'].sel(time=t.astype('datetime64[ns]')).values
-    return read
-
-
-def _load_hour(fs, prefix: str, ts: str, lev: dict, k_max: int, osn_eta=None, *,
-               attempts: int, backoff, sleep, log) -> tuple:
-    """Fetch, validate and subset one hour; nothing is written here.
-
-    Returns ``(ds_hour, info)``; ``info`` has the bytes fetched and the
-    MIT iteration.  Every fetch is retried on its own.
+    **Sign:** code ``b`` increases with density, so a warm layer over
+    cooler water (the afternoon state) gives ``b_z < 0`` here where
+    planning §2.2's textbook ``b_z ~ +2-4e-4 s^-2`` is positive; recorded in
+    ``attrs['sign_convention']``.  ``grid_ds`` is accepted for the §4.6
+    signature and used only to check the horizontal shape.
     """
-    store = _store_name(ts)
-    nk, nj, ni, n_lev = k_max + 1, lev['nj'], lev['ni'], lev['n_lev']
-    osn_it = int(osn_date_to_iteration(ts))
-    mit_it = osn_it - OSN_MINUS_MIT
-    fetched = {'bytes': 0}
-
-    def get(var, check):
-        def once():
-            t0 = time.time()
-            a, meta, nb = _read_object(fs, prefix, store, var)
-            out = check(a)
-            fetched['bytes'] += nb
-            dt = time.time() - t0
-            if nb > 5e6:                             # one line per large object
-                zs._say(f'    {store}/{var}: {nb / 1e6:.1f} MB in {dt:.0f} s '
-                        f'({nb / 1e6 / max(dt, 1e-3):.2f} MB/s)', log)
-            return out, meta
-        return zs.with_retries(once, attempts=attempts, backoff=backoff, sleep=sleep, log=log,
-                               what=f'{store}/{var}')
-
-    # time and provenance of the hour (small)
-    def group_attrs():
-        try:
-            a = json.loads(_cat(fs, f'{prefix}/{store}/zarr.json')).get('attributes', {})
-        except json.JSONDecodeError as e:
-            raise CorruptRead(f'{store}: zarr.json does not parse ({e})') from e
-        want = dict(selected_date_utc=ts, selected_iteration=mit_it, resolved_face=TILE_FACE,
-                    j_start=J_START, i_start=I_START, tile_size=nj)
-        bad = {k: (a.get(k), v) for k, v in want.items() if a.get(k) != v}
-        if bad:
-            raise ValueError(f'{store}: attrs (found, expected) {bad}')
-        return a
-    src_attrs = zs.with_retries(group_attrs, attempts=attempts, backoff=backoff, sleep=sleep,
-                                log=log, what=f'{store}/zarr.json')
-
-    def check_time(a):
-        got = a.view('datetime64[ns]').astype('datetime64[s]')
-        if got.shape != (1,) or got[0] != _as_dt64(ts):
-            raise ValueError(f'{store}: store time {got} != requested {ts}')
-    get('time', check_time)
-
-    def levels(var, n):
-        def check(a):
-            if a.shape != (n, 1, nj, ni):
-                raise CorruptRead(f'{store}/{var}: shape {a.shape} != {(n, 1, nj, ni)}')
-            sub = np.array(a[:nk, 0], dtype='f4')    # copy: frees the 51-level buffer
-            for k in range(nk):
-                _check_values(f'{store}/{var}[{k}]', sub[k], lev['land'][k], PLAUSIBLE[var])
-            return sub
-        return check
-
-    def surface(var):
-        def check(a):
-            if a.shape != (1, nj, ni):
-                raise CorruptRead(f'{store}/{var}: shape {a.shape} != {(1, nj, ni)}')
-            sub = np.array(a[0], dtype='f4')
-            _check_values(f'{store}/{var}', sub, lev['land'][0], PLAUSIBLE[var])
-            return sub
-        return check
-
-    data, attrs = {}, {}
-    for v in LEVEL_VARS:
-        data[v], meta = get(v, levels(v, n_lev))
-        attrs[v] = meta.get('attributes', {})
-    # W lives on k_p1 (n_lev + 1 interfaces); see W_MAPPING for k_p1 -> k_l
-    data['W'], meta = get('W', levels('W', n_lev + 1))
-    attrs['W'] = meta.get('attributes', {})
-    for v in FLUX_VARS:
-        data[v], meta = get(v, surface(v))
-        attrs[v] = meta.get('attributes', {})
-    if osn_eta is not None:
-        ref = osn_eta(ts)
-        if ref is not None:
-            def check_eta(a):
-                e = surface('Eta')(a)
-                if not np.array_equal(e, ref, equal_nan=True):
-                    raise ValueError(f'{store}: Eta differs from the OSN store at {ts} '
-                                     f'(max |d| {np.nanmax(np.abs(e - ref)):.3g}) -- time offset?')
-            get('Eta', check_eta)
-
-    t = np.array([_as_dt64(ts)]).astype('datetime64[ns]')
-    var_attrs = {v: dict(attrs[v]) for v in data}
-    var_attrs['W'].update(source_dim='k_p1', interface_mapping=W_MAPPING)
-    for v in FLUX_VARS:
-        a = attrs[v]
-        var_attrs[v] = dict(units=a.get('units'), standard_name=a.get('standard_name', v),
-                            long_name=LONG_NAME[v], sign_convention=SIGN_CONVENTION[v],
-                            source_sign_convention=a.get('long_name', ''),
-                            sign_conversion=SIGN_CONVERSION, forcing_note=FORCING_NOTE)
-    dvars = {v: (('time', 'k', 'j', 'i'), data[v][None], var_attrs[v]) for v in LEVEL_VARS}
-    dvars['W'] = (('time', 'k_l', 'j', 'i'), data['W'][None], var_attrs['W'])
-    for v in FLUX_VARS:
-        # M2-Q6 (a): upward-positive source -> downward-positive store
-        dvars[v] = (('time', 'j', 'i'), (-data[v])[None], var_attrs[v])
-    dvars['drF'] = (('k',), lev['drF'], dict(long_name='cell z size', units='m',
-                                             source='CHUNKS/monterey_bay/grid.zarr'))
-    ds = xr.Dataset(dvars, coords=dict(
-        time=('time', t), niter=('time', [osn_it]), mit_iteration=('time', [mit_it]),
-        face=TILE_FACE, k=('k', np.arange(nk, dtype='int64')),
-        k_l=('k_l', np.arange(nk, dtype='int64')), j=('j', lev['j']), i=('i', lev['i']),
-        XC=(('j', 'i'), lev['XC']), YC=(('j', 'i'), lev['YC']),
-        Z=('k', lev['Z'], dict(long_name='vertical coordinate of cell center', units='m')),
-        Zl=('k_l', lev['Zl'], dict(long_name='vertical coordinate of upper cell interface '
-                                   '(k_l=n is the top of cell n)', units='m'))))
-    ds['niter'].attrs.update(long_name='OSN iteration (MIT iteration + 10368), as in §3.2')
-    ds['mit_iteration'].attrs.update(long_name='MITgcm iteration (source selected_iteration)')
-    ds = ensure_comodo_attrs(ds)
-    return ds, dict(bytes=fetched['bytes'], mit_iteration=mit_it, source_attrs=src_attrs)
-
-
-def _encoding(ds: xr.Dataset) -> dict:
-    """One chunk per hour per variable; ``time`` as in §3.2."""
-    enc = {v: {'chunks': tuple(1 if d == 'time' else n for d, n in zip(ds[v].dims, ds[v].shape))}
-           for v in ds.data_vars}
-    enc['time'] = {'units': 'seconds since 2011-09-10', 'dtype': 'int64'}
-    return enc
-
-
-def _series_attrs(stored: list, k_max: int, endpoint: str, prefix: str) -> dict:
-    """The §3.3 root attrs for the hours ``stored`` (full list on every append)."""
-    osn = [int(osn_date_to_iteration(ts)) for ts in stored]
-    return dict(
-        source='CHUNKS/monterey_bay', levels=f'k=0..{k_max}, k_l=0..{k_max}',
-        source_path=f's3://{prefix}/{{YYYYMMDDTHH}}.zarr (+ grid.zarr)', endpoint=endpoint,
-        addressing='path-style', iterations=osn, mit_iterations=[i - OSN_MINUS_MIT for i in osn],
-        timestamps=list(stored), face_index=TILE_FACE, j_face_start=J_START,
-        i_face_start=I_START, land_fill='NaN', flux_sign_convention='positive downward',
-        flux_sign_conversion=SIGN_CONVERSION, w_interfaces=W_MAPPING, forcing_note=FORCING_NOTE,
-        provenance=[
-            'vertical.load_chunk_levels (M2 task 5): k=0..k_max of Theta/Salt, W(k_p1=0..k_max) '
-            'renamed k_l, oceQnet/oceQsw/oceFWflx, drF/Z/Zl from grid.zarr; float32',
-            'oceQnet, oceQsw, oceFWflx NEGATED (source upward-positive -> stored downward-'
-            'positive; M2-Q6 (a), JXP 2026-10-03)',
-            'each object validated before writing: zstd decode and size, shape, NaN == '
-            '(hFacC == 0), plausible range; time == request; MIT iteration == OSN - 10368'],
-        **ot._provenance())
+    b = buoyancy_levels(Theta, Salt)
+    Z = level_depths(drF)
+    n = {1: 2, 2: 3}.get(int(order))
+    if n is None:
+        raise ValueError(f'b_z: order must be 1 or 2, got {order!r}')
+    if b.sizes['k'] < n:
+        raise ValueError(f'b_z: order {order} needs {n} levels, the store has {b.sizes["k"]}')
+    z_eval = -_drF(drF)[0]                              # the base of the top cell, Zl[1]
+    w = _lagrange_derivative_weights(Z[:n], z_eval)     # order 1: (1/dz, -1/dz) for any z
+    out = sum(float(w[k]) * b.isel(k=k, drop=True) for k in range(n))
+    out_dims = tuple(d for d in b.dims if d != 'k')
+    op.assert_dims(out, out_dims, 'b_z')
+    nj, ni = out.sizes['j'], out.sizes['i']
+    if (grid_ds.sizes.get('j'), grid_ds.sizes.get('i')) != (nj, ni):
+        raise ValueError(f'b_z: grid ({grid_ds.sizes.get("j")}, {grid_ds.sizes.get("i")}) and '
+                         f'field ({nj}, {ni}) shapes differ')
+    out.name = 'b_z'
+    out.attrs.clear()
+    out.attrs.update(
+        units='s-2', order=int(order), levels=list(range(n)), Z_m=Z[:n].tolist(),
+        z_eval_m=float(z_eval), dz_m=float(Z[0] - Z[1]),
+        long_name='top-cell vertical buoyancy gradient db/dz at the base of the top cell (code b)',
+        sign_convention=('code b = +g sigma0/rho0 increases with density: a warm (light) layer over '
+                         'cooler water gives b_z < 0 here; textbook b_z (planning §2.2, +2-4e-4 s^-2 '
+                         'for the diurnal warm layer) is the negative of this'),
+        eos='JMD95 at p = 0 for every level, one operators.buoyancy call')
+    return out
 
 
 # ---------------------------------------------------------------------------
-# the entry point
+# the vertical (finite-top-cell tilting) term
 # ---------------------------------------------------------------------------
-def load_chunk_levels(window, k_max: int = 2, out_zarr=None, *, clobber: bool = False,
-                      endpoint: str = CHUNK_ENDPOINT, prefix: str = CHUNK_PREFIX, fs=None,
-                      osn_store=None, local_grid=None, attempts: int = 3,
-                      backoff=zs.RETRY_BACKOFF_S, sleep=time.sleep, log=None,
-                      report: dict = None):
-    """Pull ``k = 0..k_max`` of the chunk store into the §3.3 schema.
+def vertical_tendency(b, b_k1, W_k1, drF):
+    """The top-cell vertical advective tendency ``T_v = -W_k1 b_z``
+    [m s^-3], with ``b_z = (b - b_k1)/dz``, ``dz = (drF[0] + drF[1])/2 =
+    Z[0] - Z[1] = 1.07 m`` -- the centred difference across the cell base
+    where ``W_k1`` lives.  ``W_k1`` is the chunk ``W(k_l=1)``, positive
+    upward, so an upwelling (``W_k1 > 0``) of denser water from below
+    (``b_k1 > b`` in code ``b``) raises the top-cell ``b``: ``T_v > 0``.
 
-    Parameters
-    ----------
-    window : sequence of str
-        Hourly timestamps, ``dbof`` format, strictly increasing.
-    k_max : int
-        Deepest cell (and interface) kept; 2 per §3.3.
-    out_zarr : path-like, optional
-        The §3.3 store (``CHUNK_ZARR`` for the 72-hour window), written
-        hour by hour, resumably; returns the path.  ``None`` returns the
-        hours as one in-memory Dataset (and raises if any hour fails).
-    clobber : bool
-        Remove ``out_zarr`` first.
-    endpoint, prefix, fs
-        The source; ``fs`` defaults to :func:`make_fs` (any fsspec
-        filesystem works -- the tests use a local one).
-    osn_store : path-like, optional
-        The OSN series store (``OSN_RAW_ZARR``); if given, each hour's chunk
-        ``Eta`` must be bit-identical to it (a time-alignment check; 1.2 MB).
-    local_grid : path-like, optional
-        ``tile330_grid.zarr``; if given, the chunk grid's ``hFacC[0]``,
-        ``XC``, ``YC`` must equal it.
-    attempts, backoff, sleep, log, report
-        As in ``osn_tiles.pull_series``; ``report`` also gets ``bytes``
-        (fetched per hour).
-
-    Returns
-    -------
-    str or xarray.Dataset
+    *(deviation, M3-Q10 / M3-Q11: the prompt and coding §4.6 write
+    ``-W_k1 (b_k1 - b)/drF[0]``, which is ``-w b_z`` with the sign reversed
+    and ``dz`` replaced by ``drF[0] = 1.0``; the form here is the one
+    planning §2.2's equation and the factorised ``-b_z (w_x b_x + w_y b_y)``
+    follow from, so the two forms agree exactly for uniform ``b_z``.)*
     """
-    window = list(window)
-    want = np.array([_as_dt64(ts) for ts in window], dtype='datetime64[s]')
-    if len(set(window)) != len(window):
-        raise ValueError('duplicated timestamps')
-    if len(want) > 1 and not np.all(np.diff(want) > np.timedelta64(0, 's')):
-        raise ValueError('timestamps must be strictly increasing')
-    rep = {} if report is None else report
-    rep.update(pulled=[], skipped=[], failed=[], not_attempted=[], repaired=0, wall_s={},
-               bytes={})
-    say = lambda msg: zs._say(msg, log)
-    fs = make_fs(endpoint) if fs is None else fs
-    retry = dict(attempts=attempts, backoff=backoff, sleep=sleep, log=log)
-    eta = _osn_eta_reader(osn_store)
-    lev = None
+    _same_centred(b=b, b_k1=b_k1, W_k1=W_k1)
+    dz = 0.5 * (_drF(drF)[0] + _drF(drF)[1])
+    T_v = -W_k1 * (b - b_k1) / dz                       # -w db/dz, z up, w up
+    T_v = op.assert_dims(T_v, b.dims, 'vertical_tendency')
+    T_v.name = 'T_v'
+    T_v.attrs.clear()
+    T_v.attrs.update(units='m s-3', dz_m=float(dz),
+                     long_name='top-cell vertical advective tendency T_v = -W_k1 (b - b_k1)/dz '
+                               '(code b; W_k1 = chunk W(k_l=1), positive upward)')
+    return T_v
 
-    def levels():
-        nonlocal lev
-        if lev is None:
-            lev = zs.with_retries(lambda: _load_levels(fs, prefix, k_max, local_grid),
-                                  what='grid.zarr', **retry)
-            say(f'grid.zarr: {lev["n_lev"]} levels, tile {lev["nj"]}x{lev["ni"]}, '
-                f'drF[0..{k_max}]={lev["drF"].tolist()}, Z={lev["Z"].tolist()}')
-        return lev
 
-    if out_zarr is None:                             # in memory: no resume, failures raise
-        hours = [_load_hour(fs, prefix, ts, levels(), k_max, eta, **retry)[0] for ts in window]
-        ds = xr.concat(hours, dim='time', data_vars='minimal', coords='minimal',
-                       compat='override', combine_attrs='override')
-        ds.attrs = _series_attrs(window, k_max, endpoint, prefix)
-        return ds
+def vertical_term(b, b_x, b_y, b_k1, W_k1, drF, grid_ds, grid, *, L_cells: int = 0):
+    """The vertical term ``grad_h b . grad_h T_v`` [s^-5, **F units**]:
+    ``T_v = -W_k1 (b - b_k1)/dz`` (:func:`vertical_tendency`) is formed
+    **first**, low-passed at ``L_cells`` with the kernel that filtered
+    ``b, U, V`` (so ``mean(w b_z) - wbar bzbar`` stays inside the term), then
+    differenced with ``operators.grad_b`` and dotted with the **filtered**
+    ``(b_x, b_y)``.  Not the factorised ``-b_z (w_x b_x + w_y b_y)``, which
+    drops ``-w grad(b_z) . grad b`` (planning §2.2; see
+    :func:`vertical_term_factorised`, a diagnostic).
 
-    out = Path(out_zarr)
-    if clobber and out.exists():
-        say(f'clobber: removing {out}')
-        shutil.rmtree(out)
-    rep['repaired'] = zs.repair_trailing(out, log=log)
-    present = zs.present_times(out)
-    stored = [str(t).replace('T', ' ') for t in present]
-    if len(present):
-        new = want[~np.isin(want, present)]
-        if len(new) and new.min() <= present.max():
-            raise ValueError(f'{out} ends at {present.max()}; cannot append earlier hours '
-                             f'{new[new <= present.max()].astype(str).tolist()} -- clobber '
-                             'or pull them into a new store')
-        ot._sync_attrs(out, present, _series_attrs(stored, k_max, endpoint, prefix), say)
-    say(f'{out.name}: {len(present)} hours present, {len(window)} requested')
+    Inputs: ``b``, ``b_k1`` (code ``b`` at ``k = 0`` and ``k = 1``, from
+    :func:`buoyancy_levels`), ``W_k1`` (``inputs.W_k1``: the chunk
+    ``W(k_l=1)``, a 3-D ``W`` is refused) **unfiltered**, all at the same
+    (midpoint) time; ``b_x, b_y`` the filtered gradient at ``L_cells``.
+    The budget field is ``2 *`` this (task 3).  NaN (land, the ``W``/``b_k1``
+    pattern) propagates; dims asserted after every dbof call.
+    """
+    dims = _same_centred(b=b, b_x=b_x, b_y=b_y, b_k1=b_k1, W_k1=W_k1)
+    T_v = op.lowpass(vertical_tendency(b, b_k1, W_k1, drF), L_cells)
+    Tx, Ty = op.grad_b(T_v, grid_ds, grid)              # asserts the centred dims
+    term = op.assert_dims(b_x * Tx + b_y * Ty, dims, 'vertical_term')
+    term.name = 'vertical_term'
+    term.attrs.clear()
+    term.attrs.update(
+        units='s-5', convention=CONVENTION, L_cells=int(L_cells), dz_m=float(T_v.attrs['dz_m']),
+        form='grad_h b . grad_h[ lowpass(-W_k1 (b - b_k1)/dz, L) ]: tendency first, then grad_h',
+        filter_note=('T_v itself is low-passed at L with the b/U/V kernel and dotted with the '
+                     'filtered grad bbar; the subfilter correlation mean(w b_z) - wbar bzbar is '
+                     'inside the term, not dropped'),
+        W_source='chunk W(k_l=1) = source W(k_p1=1), the cell-base velocity (dEta/dt + drF delta); '
+                 'never delta, never the OSN W(k_l=0)',
+        long_name='vertical (finite-top-cell tilting) term, F units')
+    return term
 
-    for n, ts in enumerate(window):
-        if want[n] in present:
-            rep['skipped'].append(ts)
-            continue
-        t0 = time.time()
-        try:
-            hour, info = _load_hour(fs, prefix, ts, levels(), k_max, eta, **retry)
-        except Exception as e:                       # noqa: BLE001 -- stop at the gap
-            rep['failed'].append(ts)
-            rep['not_attempted'] = window[n + 1:]
-            say(f'{ts}: FAILED after retries ({type(e).__name__}: {e}); stopping here so the '
-                f'store stays gap-free -- {len(rep["not_attempted"])} hours not attempted, '
-                're-run to resume')
-            break
-        stored.append(ts)
-        zs.append_hour(out, hour, encoding=_encoding(hour),
-                       attrs=_series_attrs(stored, k_max, endpoint, prefix))
-        # the store's own clock, read back, must be the requested hour
-        got = zs.present_times(out)
-        if len(got) != len(stored) or got[-1] != want[n]:
-            raise RuntimeError(f'{out}: after appending {ts} the store time ends at '
-                               f'{got[-1] if len(got) else None} ({len(got)} hours)')
-        rep['pulled'].append(ts)
-        rep['wall_s'][ts] = round(time.time() - t0, 1)
-        rep['bytes'][ts] = info['bytes']
-        say(f'{ts}: pulled and appended in {rep["wall_s"][ts]:.1f} s, '
-            f'{info["bytes"] / 1e6:.0f} MB fetched ({len(stored)}/{len(window)} on disk)')
-    say(f'{out.name}: done -- {len(rep["pulled"])} pulled, {len(rep["skipped"])} skipped, '
-        f'{len(rep["failed"])} failed, {len(rep["not_attempted"])} not attempted')
-    return str(out)
+
+def vertical_term_factorised(b_x, b_y, b_z, W_k1, grid_ds, grid, *, L_cells: int = 0):
+    """**Diagnostic only:** the factorised form ``-b_z (w_x b_x + w_y b_y)``
+    [s^-5, F units] of planning §2.2, which assumes ``b_z`` uniform across
+    the front and so drops ``-w grad(b_z) . grad b``.  ``b_z`` and ``W_k1``
+    are low-passed at ``L_cells`` before the gradient of ``W``; ``b_x, b_y``
+    are the filtered gradient.  Equal to :func:`vertical_term` when
+    ``b - b_k1`` is uniform; otherwise ``vertical_term - this`` is the
+    dropped term (``-w grad(b_z) . grad b``, exactly for fields on which the
+    centred stencil obeys the product rule)."""
+    dims = _same_centred(b_x=b_x, b_y=b_y, b_z=b_z, W_k1=W_k1)
+    bz = op.lowpass(b_z, L_cells)
+    w = op.lowpass(W_k1, L_cells)
+    wx, wy = op.grad_b(w, grid_ds, grid)
+    term = op.assert_dims(-bz * (wx * b_x + wy * b_y), dims, 'vertical_term_factorised')
+    term.name = 'vertical_term_factorised'
+    term.attrs.clear()
+    term.attrs.update(units='s-5', convention=CONVENTION, L_cells=int(L_cells),
+                      form='-b_z (w_x b_x + w_y b_y): DIAGNOSTIC, drops -w grad(b_z) . grad b',
+                      long_name='factorised vertical term (uniform-b_z approximation), F units')
+    return term
+
+
+# ---------------------------------------------------------------------------
+# the surface-flux (diabatic) term
+# ---------------------------------------------------------------------------
+def expansion_coefficients(Theta, Salt, dT: float = 0.01, dS: float = 0.01):
+    """``(alpha, beta, rho)`` at ``p = 0`` by **centred finite differences of
+    the same JMD95 density** ``operators.buoyancy`` wraps
+    (``dbof.utils.jmd95_xgcm_implementation.jmd95``): ``alpha = -(1/rho)
+    drho/dTheta`` [K^-1], ``beta = (1/rho) drho/dS`` [psu^-1].  At (17 degC,
+    33.6) they are ``2.30e-4`` and ``7.49e-4`` (the linear-EOS constants in
+    ``physical_constants`` are 2.0e-4 / 7.4e-4 and are **not** used).
+    Accepts DataArrays or arrays (NaN propagates); returns the same type."""
+    T = np.asarray(getattr(Theta, 'values', Theta), dtype='float64')
+    S = np.asarray(getattr(Salt, 'values', Salt), dtype='float64')
+    p = np.zeros_like(T)
+    with np.errstate(invalid='ignore'):
+        rho = jmd95.jmd95(S, T, p)
+        drho_dT = (jmd95.jmd95(S, T + dT, p) - jmd95.jmd95(S, T - dT, p)) / (2.0 * dT)
+        drho_dS = (jmd95.jmd95(S + dS, T, p) - jmd95.jmd95(S - dS, T, p)) / (2.0 * dS)
+        alpha, beta = -drho_dT / rho, drho_dS / rho
+    if isinstance(Theta, xr.DataArray):
+        wrap = lambda a, name, units: Theta.copy(data=a).rename(name).assign_attrs(  # noqa: E731
+            units=units, eos='JMD95 p=0, centred finite differences dT=%g K, dS=%g' % (dT, dS))
+        return (wrap(alpha, 'alpha', 'K-1'), wrap(beta, 'beta', 'psu-1'), wrap(rho, 'rho', 'kg m-3'))
+    return alpha, beta, rho
+
+
+def _check_flux_sign(**fluxes):
+    """Refuse a flux array whose ``sign_convention`` attr is not positive
+    downward, or an ``oceQsw`` with negative values (an upward-positive or
+    twice-negated store; ``inputs.fluxes`` guards the same way)."""
+    for name, da in fluxes.items():
+        sc = da.attrs.get('sign_convention')
+        if sc is not None and not str(sc).startswith('positive downward'):
+            raise ValueError(f'{name}: sign_convention {sc!r} is not "positive downward" -- '
+                             'the term takes the stored downward-positive fluxes, no negation')
+    sw = np.asarray(fluxes['oceQsw'].values, dtype='float64')
+    if np.any(sw[np.isfinite(sw)] < 0):
+        raise ValueError(f'oceQsw < 0 on {int(np.sum(sw < 0))} cells: upward-positive (or negated '
+                         'twice) -- refusing')
+
+
+def surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, *, f_sw=None):
+    """The top-cell buoyancy tendency ``B_sfc`` [m s^-3] from the stored
+    **downward-positive** fluxes (no negation: the §3.3 store negated the
+    source's upward-positive data at write, M2-Q6 (a); ``inputs.fluxes``
+    and :func:`_check_flux_sign` refuse anything else), in **code-``b``
+    sign** (heating lowers ``b``), as the model forces its top cell:
+
+    * heat into the 1 m cell ``Q_top = (oceQnet - oceQsw) + f_sw oceQsw``:
+      ``oceQnet`` *includes* the shortwave (M2 task 4), the non-solar part
+      enters at the surface, and only the fraction ``f_sw`` of the shortwave
+      is absorbed inside the cell (MITgcm ``SHORTWAVE_HEATING`` + ``swfrac``,
+      Jerlov IA: ``f_sw = 0.521`` for ``drF[0] = 1 m``, :data:`F_SW`); the
+      rest heats the water below and is not in this cell's budget;
+    * ``dTheta/dt = Q_top / (rhoConst c_p drF[0])`` with the model's
+      ``rhoConst = 1027.5``, ``c_p = 3994`` (M3-Q11: ``rhoConst``, not the
+      ``rho0 = 1000`` of the buoyancy definition, is what the model divides by);
+    * ``dS/dt = -S oceFWflx / (rhoConst drF[0])`` with the **local** ``S``
+      (``convertFW2Salt = -1``): fresh water in (``oceFWflx > 0``) dilutes;
+    * ``B_sfc = (g/rho0) [ drho/dT dT/dt + drho/dS dS/dt ] = (g/rho0) [ -rho
+      alpha dT/dt + rho beta dS/dt ]`` with ``alpha, beta, rho`` from
+      :func:`expansion_coefficients` (JMD95 finite differences at the local
+      ``Theta, Salt``) and ``g = 9.81``, ``rho0 = 1000`` as in
+      ``operators.buoyancy`` -- i.e. ``d(g sigma0/rho0)/dt``.
+
+    ``Theta``/``Salt`` are the top-cell values (a ``k`` dim is reduced to
+    ``k = 0``).  ``forcing_note`` (6-hourly, linearly interpolated forcing:
+    the diurnal shortwave is a triangle peaking at 13 LST) is propagated.
+    """
+    if 'k' in Theta.dims:
+        Theta = Theta.isel(k=0, drop=True)
+    if 'k' in Salt.dims:
+        Salt = Salt.isel(k=0, drop=True)
+    dims = _same_centred(oceQnet=oceQnet, oceQsw=oceQsw, oceFWflx=oceFWflx, Theta=Theta, Salt=Salt)
+    _check_flux_sign(oceQnet=oceQnet, oceQsw=oceQsw, oceFWflx=oceFWflx)
+    drF0 = _drF(drF)[0]
+    f_sw = sw_fraction_absorbed(drF0) if f_sw is None else float(f_sw)
+    if not 0.0 <= f_sw <= 1.0:
+        raise ValueError(f'f_sw = {f_sw} is not a fraction')
+    alpha, beta, rho = expansion_coefficients(Theta, Salt)
+    # heat: the non-solar flux at the surface plus the shortwave absorbed within the cell
+    Q_top = (oceQnet - oceQsw) + f_sw * oceQsw                      # W m^-2 into the 1 m cell
+    dT_dt = Q_top / (RHO_CONST * HEAT_CAPACITY_CP * drF0)           # K s^-1
+    # salt: a downward (into the ocean) fresh-water flux dilutes the local salinity
+    S_conv = Salt if CONVERT_FW2SALT < 0 else CONVERT_FW2SALT
+    dS_dt = -S_conv * oceFWflx / (RHO_CONST * drF0)                 # psu s^-1
+    # code b = g sigma0/rho0: its tendency is (g/rho0) d rho(T, S)/dt; heating lowers b
+    B = (G / RHO0_REFERENCE) * (-rho * alpha * dT_dt + rho * beta * dS_dt)
+    B = op.assert_dims(B, dims, 'surface_buoyancy_tendency')
+    B.name = 'B_sfc'
+    B.attrs.clear()
+    note = next((d.attrs['forcing_note'] for d in (oceQsw, oceQnet, oceFWflx)
+                 if 'forcing_note' in d.attrs), 'not supplied by the caller')
+    B.attrs.update(
+        units='m s-3', f_sw=float(f_sw), jwtype=JWTYPE, c_p=HEAT_CAPACITY_CP, rhoConst=RHO_CONST,
+        convertFW2Salt=CONVERT_FW2SALT, g=G, rho0=RHO0_REFERENCE, drF0_m=float(drF0),
+        namelist_source=NAMELIST_SOURCE, forcing_note=note,
+        sign='code b (increases with density): heat/fresh water INTO the ocean lowers b; fluxes '
+             'taken downward-positive as stored, not negated here',
+        long_name='top-cell buoyancy tendency from the surface fluxes (code b)')
+    return B
+
+
+def surface_flux_term(b_x, b_y, oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, grid_ds, grid, *,
+                      L_cells: int = 0, f_sw=None):
+    """The surface-flux term ``grad_h b . grad_h B_sfc`` [s^-5, **F units**]
+    with ``B_sfc`` from :func:`surface_buoyancy_tendency` (downward-positive
+    fluxes as stored, **no negation**; ``oceQsw`` separately with ``f_sw``;
+    JMD95 ``alpha``/``beta`` by finite differences; code-``b`` sign),
+    low-passed at ``L_cells`` as ``T_v`` is, then ``operators.grad_b`` and
+    the dot with the filtered ``(b_x, b_y)``.  The budget field is ``2 *``
+    this (task 3).
+
+    Sign, in code ``b``: a heating gradient *towards the dense side* (more
+    heat where ``b`` is larger) lowers ``b`` most where it is highest, so
+    ``grad B_sfc`` opposes ``grad b`` and the term is **negative --
+    frontolytic**; heating that favours the light side is frontogenetic.
+    The dot product is even in the sign of ``b``, so this is the physical
+    statement, not a convention.  ``forcing_note`` is propagated to the
+    attrs; dims asserted after every dbof call.
+    """
+    dims = _same_centred(b_x=b_x, b_y=b_y)
+    B = surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, f_sw=f_sw)
+    if B.dims != dims:
+        raise ValueError(f'surface_flux_term: flux dims {B.dims} != gradient dims {dims}')
+    Bbar = op.lowpass(B, L_cells)
+    Bx, By = op.grad_b(Bbar, grid_ds, grid)
+    term = op.assert_dims(b_x * Bx + b_y * By, dims, 'surface_flux_term')
+    term.name = 'surface_flux_term'
+    term.attrs.clear()
+    term.attrs.update(
+        units='s-5', convention=CONVENTION, L_cells=int(L_cells),
+        form='grad_h b . grad_h[ lowpass(B_sfc, L) ], B_sfc the top-cell buoyancy tendency',
+        filter_note='B_sfc itself is low-passed at L with the b/U/V kernel and dotted with grad bbar',
+        **{k: B.attrs[k] for k in ('f_sw', 'jwtype', 'c_p', 'rhoConst', 'convertFW2Salt',
+                                   'namelist_source', 'forcing_note', 'sign')},
+        long_name='surface-flux (diabatic) term grad_h b . grad_h B_sfc, F units')
+    return term

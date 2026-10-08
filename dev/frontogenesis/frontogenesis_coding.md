@@ -564,6 +564,17 @@ coordinate-relative flux the tracer equation sets to zero) and the convergence p
 flux. Compute the top-cell vertical advective tendency `-W_k1 (b_k1 - b)/drF` first and take
 the horizontal gradient of that, rather than the factorised `-b_z (w_x b_x + w_y b_y)`,
 which drops `-w grad(b_z) . grad b`; report the factorised form as a diagnostic only.
+*(corrected 2026-10-07, M3 task 2: the tendency is `T_v = -W_k1 b_z = -W_k1 (b - b_k1)/dz` —
+the sign above was reversed relative to planning §2.2's `D_h b/Dt = B - w b_z` and to the
+factorised form (an upwelling of denser water must raise the top-cell code `b`); `dz = Z[0] -
+Z[1] = (drF[0] + drF[1])/2 = 1.07 m` so that the factorised identity holds exactly for uniform
+`b_z` — M3-Q11. Also: the namelist check found `swfrac.F` hard-codes Jerlov type IA, so
+`f_sw = 0.521` of `oceQsw` is absorbed in the 1 m cell (M3-Q10), and the model converts fluxes
+with `rhoConst = rhoNil = 1027.5`, `HeatCapacity_Cp = 3994` (default), `convertFW2Salt = -1`
+(local salinity) — M3-Q12. `vertical.py` also exposes `buoyancy_levels`, `vertical_tendency`,
+`vertical_term_factorised`, `surface_buoyancy_tendency`, `expansion_coefficients`,
+`sw_fraction_absorbed`; the three contract functions take `L_cells` as a keyword and low-pass
+the tendency itself.)*
 `surface_flux_term` must convert heat and freshwater flux into a buoyancy tendency for the top
 cell (thermal + haline expansion coefficients from the same JMD95 EOS as `operators.buoyancy`),
 and must treat the **shortwave absorbed inside the top cell** separately from `oceQnet` —

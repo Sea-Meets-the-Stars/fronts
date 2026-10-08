@@ -5691,3 +5691,244 @@ task 1 two marked notes; task 4 one marked note) and this log. Not touched: `ver
 `series_verify.py`, `zarr_series.py`, every other test, `pytest.ini`, `conftest.py`,
 `frontogenesis_coding.md`, `frontogenesis_planning.md`, `deck/`, the data stores (read-only).
 Nothing committed.
+
+### 2026-10-07 — Execution prompt 4, task 2: vertical.py physics and the chunk_store split (Fable)
+
+**Scope.** Task 2 of `frontogenesis_prompt_4.md` only: the `vertical.py` → `chunk_store.py` split
+(M3-Q7 (a)), the three physics functions `b_z`, `vertical_term` (+ `vertical_term_factorised`,
+diagnostic) and `surface_flux_term` in `py/vertical.py`, `tests/test_vertical.py`, the LLC4320
+namelist check (`f_sw`, `HeatCapacity_Cp`, `rhoConst`, `convertFW2Salt`), the real-data smoke on
+hours 0 / 9 / 21 at `L = 0`, the full suite. Task 3 (`budget.py`) not started; `operators.py`,
+`semilag.py`, `masking.py`, `coarsegrain.py`, `validate*.py`, `inputs.py` not edited; the data
+stores read-only; `deck/` untouched; nothing committed; every python / pytest command under
+`timeout 300`, no background jobs. *(entry started early; extended below as the work proceeds)*
+
+**The split (M3-Q7 (a)).** The reader — `make_fs`, `_cat`, `_read_object`, `_check_values`,
+`_load_levels`, `_store_name`, `_as_dt64`, `_osn_eta_reader`, `_load_hour`, `_encoding`,
+`_series_attrs`, `load_chunk_levels`, `CorruptRead` and every constant (`CHUNK_ENDPOINT`,
+`CHUNK_PREFIX`, `CHUNK_ZARR`, `OSN_RAW_ZARR`, `PLAUSIBLE`, `SIGN_CONVENTION`, `LONG_NAME`,
+`SIGN_CONVERSION`, `W_MAPPING`, `FORCING_NOTE`, …) — moved verbatim to **`py/chunk_store.py`**
+(529 lines; only the docstring head changed). The strings written into the store's attrs
+("vertical.load_chunk_levels", the `provenance` list) are **deliberately unchanged**: a resume or
+no-op re-run re-syncs the root attrs through `osn_tiles._sync_attrs`, and a changed string would
+rewrite an otherwise byte-identical store. `vertical.py` re-exports `load_chunk_levels`,
+`CHUNK_ZARR`, `OSN_RAW_ZARR`, `CHUNK_ENDPOINT`, `CHUNK_PREFIX`, `DATA_DIR`, `_store_name` (what
+`m2_chunk_pull.py` and the M2 tests use), so `m2_chunk_pull.py` is untouched and `--dry-run`
+works (72 present, 0 to pull). `test_load_chunk_levels.py`: the monkeypatch target repointed
+(`vt._cat` → `cs._cat`, 4 `orig =` lines + 6 `monkeypatch.setattr` lines, plus the `import
+chunk_store as cs` and one docstring word); its **23 offline tests pass otherwise unchanged**
+(20 s). `series_verify.verify_chunk_series` lazily imported `vertical._load_levels` /
+`make_fs` / `CHUNK_PREFIX` — the reader — so those three lines were repointed to `chunk_store`
+(the only edit outside the task's named files; a re-export would have worked too).
+
+**The physics API (`py/vertical.py`, 457 lines, ~45 % docstrings — over coding §1.3's ~400 even
+after the split; flagged for M5, not split again now).** Functions, not classes; every function
+returns **F units** (s^-5; attr `convention` says the §3.4 budget fields are `2 x` these,
+formed in task 3); dims asserted after every dbof call; land / `W` / `b_k1` NaN propagate;
+nothing filtered unless asked.
+- Namelist constants (source in the module docstring and `NAMELIST_SOURCE`): `HEAT_CAPACITY_CP
+  = 3994.0`, `RHO_CONST = 1027.5`, `CONVERT_FW2SALT = -1.0`, `JERLOV` (the five `swfrac.F`
+  types), `JWTYPE = 2`, `sw_fraction_absorbed(dz, jwtype=2)` → `F_SW = 0.5214` for 1 m.
+- `level_depths(drF)` → `[-0.5, -1.57, -2.79]`; `buoyancy_levels(Theta_k, Salt_k)` → `b(k)` from
+  **one** `operators.buoyancy` call (JMD95 at `p = 0` on every level).
+- **`b_z(Theta, Salt, grid_ds, drF, *, order=1)`**: `(b_k0 − b_k1)/(Z[0] − Z[1])`, `dz = 1.07 m`
+  from `drF`; `order=2` the three-level quadratic differentiated at `z = −drF[0]` (the store's
+  `k = 2`, the sensitivity); attrs `sign_convention` (code `b` increases with density: the
+  afternoon warm layer gives `b_z < 0`), `dz_m`, `z_eval_m`, `eos`.
+- **`vertical_tendency(b, b_k1, W_k1, drF)`** → `T_v = −W_k1 (b − b_k1)/dz` [m s^-3] (M3-Q11);
+  **`vertical_term(b, b_x, b_y, b_k1, W_k1, drF, grid_ds, grid, *, L_cells=0)`** →
+  `grad_h b . grad_h[ lowpass(T_v, L) ]` with `b`, `b_k1`, `W_k1` **unfiltered** and `b_x, b_y`
+  the filtered gradient (the subfilter correlation `mean(w b_z) − wbar bzbar` stays inside the
+  term; attrs `filter_note`, `W_source`); a `W` carrying `k_l`/`k` is refused.
+  **`vertical_term_factorised(b_x, b_y, b_z, W_k1, grid_ds, grid, *, L_cells=0)`** →
+  `−b_z (w_x b_x + w_y b_y)`, diagnostic only.
+- **`expansion_coefficients(Theta, Salt, dT=0.01, dS=0.01)`** → `(alpha, beta, rho)` by centred
+  finite differences of `dbof.utils.jmd95_xgcm_implementation.jmd95` at `p = 0` (the function
+  `buoyancy_of_field` wraps); **`surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta,
+  Salt, drF, *, f_sw=None)`** → `B_sfc` [m s^-3]: `Q_top = (oceQnet − oceQsw) + f_sw oceQsw`,
+  `dT/dt = Q_top/(rhoConst c_p drF[0])`, `dS/dt = −S oceFWflx/(rhoConst drF[0])` (local `S`),
+  `B_sfc = (g/rho0)[−rho alpha dT/dt + rho beta dS/dt]` in code-`b` sign (heating lowers `b`),
+  **no negation** (a `sign_convention` attr not "positive downward", or any `oceQsw < 0`, raises);
+  attrs `f_sw`, `jwtype`, `c_p`, `rhoConst`, `convertFW2Salt`, `namelist_source`, `forcing_note`
+  (propagated from the flux arrays), `sign`. **`surface_flux_term(b_x, b_y, oceQnet, oceQsw,
+  oceFWflx, Theta, Salt, drF, grid_ds, grid, *, L_cells=0, f_sw=None)`** →
+  `grad_h b . grad_h[ lowpass(B_sfc, L) ]`, the same attrs.
+
+**The namelist (verified 2026-10-07; WebFetch of GitHub master of `MITgcm_contrib/llc_hires/
+llc_4320/`, the files M0 task 3 cites — `input/data`, `input/data.pkg`, `input/data.kpp`,
+`input/data.exf`, `code/CPP_OPTIONS.h` — and `MITgcm/model/src/swfrac.F` at checkpoint65v).**
+- `data &PARM01`: `rhonil=1027.5`, **`rhoConst` absent** (→ `rhoConst = rhoNil = 1027.5`),
+  `rhoConstFresh=999.8`, **`HeatCapacity_Cp` absent** (→ default **3994**), `eosType='JMD95Z'`,
+  **`convertFW2Salt=-1.`** (local salinity), `useRealFreshWaterFlux=.TRUE.`, `temp_EvPrRn=0.`,
+  `nonlinFreeSurf` / `select_rStar` absent (linear free surface), `viscC4Leith=2.15` on master.
+- `data.pkg`: `useCAL, useEXF, useSEAICE, useKPP, useFRAZIL, useTIDES`. `data.kpp`: `Ricr=0.3559,
+  Riinfty=0.6998`, **nothing on shortwave**. `data.exf`: `swdownfile='EOG_dsw'` with
+  `swdownperiod=21600` (the 6-hourly forcing M2 task 4 saw; `apressure` hourly, `runoff`
+  monthly), `exf_albedo=0.15`, **no penetration option**. `CPP_OPTIONS.h`: **`#define
+  SHORTWAVE_HEATING`** (also `NONLIN_FRSURF` compiled but unset at run time, `EXACT_CONSERV`).
+- `swfrac.F` (checkpoint65v): `rfac = (0.58, 0.62, 0.67, 0.77, 0.78)`, `a1 = (0.35, 0.6, 1.0,
+  1.5, 1.4)`, `a2 = (23, 20, 17, 14, 7.9)` for Jerlov I, IA, IB, II, III and **`jwtype = 2`
+  hard-coded** → type **IA**, `swdk(−1 m) = 0.4786`, **`f_sw = 0.521`** absorbed in the 1 m cell
+  (type I, the prompt's assumption, gives 0.565). **Contradiction with prompt 4 task 2's "~0.56"
+  → M3-Q10**; the model's value is used.
+So: `f_sw = 0.521` (Jerlov IA), `c_p = 3994`, `rhoConst = 1027.5` (used for the flux-to-tendency
+conversion — **M3-Q12**, the prompt wrote `rho0 = 1000`; `g/rho0 = 9.81/1000` stays in the
+buoyancy definition), `convertFW2Salt = −1` (local `S`). None of these is unverified.
+
+**The `alpha`/`beta` check.** At (17 °C, 33.6, `p = 0`) JMD95 gives `rho = 1024.44`,
+**`alpha = 2.297e-4 K^-1`, `beta = 7.488e-4 psu^-1`** (centred `dT = dS = 0.01`; within 1e-4
+relative of a ten-times finer step). `beta` matches the prompt's 7.5e-4; **`alpha` is 2.30e-4,
+not the prompt's "≈ 2.4e-4"** (4 % high — a rounded literature value; the test pins 2.30e-4
+within 2 %). Consistency with `operators.buoyancy`: `d b/dT` from the 1-cell buoyancy equals
+`−(g/rho0) rho alpha` to 1e-9 relative, likewise `d b/dS` (so `B_sfc` is exactly `d(code b)/dt`).
+The linear-EOS `ALPHA = 2.0e-4` / `BETA = 7.4e-4` of `dbof.physical_constants` are **not** used.
+
+**The real-data smoke (scratch `m3t2_smoke.py` / `.json` in the session scratchpad; hour pairs
+0, 9, 21 at `L = 0`; `inputs.hour_pair` / `filtered` / `midpoint` / `valid`; `F` the default
+`form='discrete'`, chain in parentheses; `rms(2·term)/rms(2F)` on `valid = mask_analysis &
+finite` (n 262,925, `n_lost` 0 for every term) and on front pixels (`G_mid >= p90`, n 26,293);
+~1.5 s per hour).**
+
+| pair | LST | pool | rms `2F` (s^-5) | `vertical` | `surface_flux` | factorised / full (corr) | `b_z` median (s^-2) | `Theta_k0 − Theta_k1` (K) |
+|---|---|---|---|---|---|---|---|---|
+| 0 (07-02 00 UTC) | 16.5 | valid | 5.07e-19 (6.09e-19) | **0.046** (0.038) | **0.71** (0.59) | 0.78 (0.71) | **−1.29e-5** | +0.0086 (p10 +0.003, p90 +0.015) |
+| 0 | | front | 1.58e-18 (1.91e-18) | 0.043 (0.036) | 0.69 (0.57) | 0.78 (0.69) | | |
+| 9 (07-02 09 UTC) | 1.5 | valid | 4.19e-19 (4.97e-19) | **0.027** (0.023) | **0.94** (0.79) | 0.95 (0.88) | **+1.33e-5** | −0.0059 (p10 −0.0075, p90 −0.0039) |
+| 9 | | front | 1.31e-18 (1.55e-18) | 0.025 (0.021) | 0.92 (0.77) | 0.96 (0.86) | | |
+| 21 (07-02 21 UTC) | 13.5 | valid | 5.21e-19 (6.21e-19) | **0.065** (0.055) | **0.65** (0.54) | 0.71 (0.79) | **−2.18e-5** | +0.0122 (p10 +0.008, p90 +0.018) |
+| 21 | | front | 1.63e-18 (1.95e-18) | 0.063 (0.053) | 0.63 (0.53) | 0.70 (0.77) | | |
+
+Supporting numbers (tile means on `mask_analysis`): `oceQnet` +194 / −96 / +410 W m^-2,
+`oceQsw` 310 / 15 / 535, `oceFWflx` −2.2 / −1.9 / −2.8e-5 kg m^-2 s^-1, `W_k1` +3.4 / +3.2 /
++7.8e-5 m s^-1 (the tide, rising at all three hours), `B_sfc` mean −2.2e-8 / **+6.5e-8** /
+**−7.5e-8** m s^-3 (heating lowers code `b` by day, cooling raises it at night), `T_v` rms
+6.0e-10 / 6.6e-10 / 2.3e-9 m s^-3; `b_z` order-2 within 1 % of order-1 at every hour; median
+pointwise `|2 vert / 2F|` 0.17 / 0.16 / 0.31 on valid, 0.055 / 0.034 / 0.084 on front; median
+`|2 sfc / 2F|` 2.0 / 2.4 / 2.0 on valid, 1.15 / 1.35 / 1.00 on front; `corr(vert, 2F)` −0.02 /
++0.05 / −0.08, `corr(sfc, 2F)` −0.13 / −0.05 / −0.07; `sum(2 sfc · 2F)/sum(2F²)` −0.095 / −0.048
+/ −0.049. Decomposition of the surface term (rms over `2F`, valid): **non-solar `oceQnet −
+oceQsw` 0.72 / 0.86 / 0.73**, shortwave `f_sw oceQsw` 0.096 / 0.006 / **0.18**, fresh water 0.07
+/ 0.09 / 0.08; with `alpha, beta, rho` frozen at the tile mean the term is 0.998 correlated with
+the full one (it is the **flux gradient**, not the EOS variation). The term is a damping of `G`:
+OLS slope of `2·sfc` on `G` **−6.5 / −7.9 / −7.4e-6 s^-1** (front −6.1 / −7.9 / −8.4e-6) against
+`2F` on `G` +9.6 / +3.8 / +4.8e-6 (front +13.1 / +4.3 / +5.1e-6); `corr(sfc, G)` −0.35 / −0.38 /
+−0.47; 63-67 % of cells negative. That slope is `2 gamma/(rho c_p drF[0])` with `gamma ≈
+13-17 W m^-2 K^-1`, the SST-sensitivity of the bulk (latent + sensible + longwave) fluxes that
+EXF computes from the model's own SST — a 1 m cell that loses heat in proportion to its own
+temperature anomaly.
+
+**Comparison with the expected signatures — findings, not tuned.**
+1. **The vertical term is 2.5-6.5 % of `2F` in rms, not ~30 %.** It has the expected diurnal
+   shape (max 0.065 at 13 LST, min 0.027 at 01 LST, 0.046 at 16 LST) and the expected `b_z`
+   phase (a warm layer by day, `b_z` median −1.3e-5 at 16 LST and −2.2e-5 at 13 LST, an inverted
+   night-time profile +1.3e-5 at 01 LST), but the model's `Theta_k0 − Theta_k1` is only
+   **+0.009-0.012 K** by day (−0.006 K at night), not the 0.1-0.3 K planning §2.2 assumed for
+   the "~30 %" — KPP keeps the top 1.6 m mixed to 0.01 K. The size sits at the `b_z ~ 1e-5`
+   end of M0's bracket (0.4-14 % rms; here 3-6 % with the full `W` gradient including the
+   `dEta/dt` part), and it is order-one pointwise where `F` is small (median `|2 vert/2F|`
+   0.16-0.31 on valid), as M0 said. Uncorrelated with `2F` (|corr| < 0.1). The factorised form
+   is 0.71-0.95 of the full one in rms with corr 0.71-0.88: the dropped `−w grad(b_z) . grad b`
+   is 20-30 % of the term, which vindicates "tendency first".
+2. **The surface-flux term does not peak at 13 LST; it is O(2F) at every hour (0.65-0.94 of
+   `2F` in rms), and it is dominated by the non-solar, SST-dependent bulk fluxes.** The
+   shortwave part alone does peak at 13 LST (0.18 of `2F`, 0.10 at 16 LST, 0.006 at 01 LST),
+   the mean `B_sfc` does reverse sign over the day (−7.5e-8 at 13 LST, +6.5e-8 at 01 LST) and
+   the `forcing_note` triangle is in the attrs — but the *gradient* term is set by the
+   front-scale gradient of `oceQnet − oceQsw` (0.72-0.86 of `2F`), which is as large at night as
+   by day. It acts as a damping of `G` at `~7e-6 s^-1` (slope on `G`), i.e. 0.5-1.9x the
+   `2F`-on-`G` slope, with |corr(sfc, 2F)| < 0.13. Planning §2.3 / §4's "noon-peaking term" is
+   therefore wrong for the gradient term beyond the 6-hourly caveat already recorded (C11b):
+   the diurnal signal is in the shortwave *part* and in the mean tendency, not in the term's
+   magnitude. **For tasks 3 and 6:** the budget will carry a surface term comparable to `2F`
+   whose counterpart — KPP mixing of the 1 m cell with the 8-13 m mixed layer, which undoes
+   most of the top-cell flux signal — sits in the residual; expect a residual anti-correlated
+   with `surface_flux` and of its size, and interpret "numerics + interior KPP" accordingly
+   (Figure 2b / 6). Not a design change (the budget is the top-cell budget by construction,
+   planning §2.2), so no Q&A; recorded here for task 3's smoke and task 6's verdict.
+3. Tidal phase: `W_k1` tile mean is positive at all three hours (rising tide) and `T_v`
+   follows `−W_k1 b_z` in sign (positive by day, negative at night); the tidal modulation of
+   the term is visible only across more hours (task 4).
+
+**Tests** (`timeout 300 … pytest dev/frontogenesis/py/tests -q`): **160 passed, 3 xfailed, 2
+deselected (the two network tests) in 257 s** — task 1's 141 + the **19** new tests of
+`tests/test_vertical.py` (18 offline on `synthetic.py` grids + 1 `needs_grid`, 1.6 s alone),
+nothing else changed; the wall time grew from 180 s to 257 s in this run (the suite ran once
+concurrently with the smoke; the second, solo run is the quoted one — still under 300 s but
+worth watching). `test_vertical.py` covers: `level_depths`; `b_z` of a two-level profile with the
+stated sign and value (`−g alpha dT/dz` within 0.2 %), zero for a mixed column, the order-2
+option; the vertical term zero for `b_k1 = b`, equal to the factorised form for uniform
+`b_k1 − b` at `L = 0` and `L = 2` (to 1e-10) with `sign(T_v) = sign(W)`, and differing from it
+by exactly `−w grad(b_z) . grad b` for linear `w`, `b_z` (pinned to 1e-9; the dropped term > 5 %
+of the full one there); a 3-D `W` refused (three entry points); the surface term exactly zero
+for uniform flux and state; **the sign test, with the expectation stated in the docstring
+before the assertion** (heating gradient towards the dense side frontolytic → negative;
+reversed → positive; fresh water into the dense side → negative); `oceQsw` with `f_sw` and
+`oceQnet − oceQsw` with 1 by linearity, `f_sw = 1` and an out-of-range `f_sw`;
+`sw_fraction_absorbed` (0.5214 IA, 0.5646 I, limits); `alpha`/`beta` as above; an
+upward-positive store refused here (negative `oceQsw`, a wrong attr) and through
+`inputs.assert_flux_sign` / `inputs.fluxes`; NaN at land propagating one cell (cross-shaped,
+the gradient's reach) with every other value identical to the land-free result, for both
+terms; the dims guards (a staggered `b_x`, a numpy array, a shape mismatch, a missing `k`);
+rotation invariance on the face-10 orientation (1e-10); the F-units attrs, `forcing_note`,
+`rhoConst`, `c_p`, `convertFW2Salt`, `jwtype`. The `needs_grid` smoke: hour 0 at `L = 0`,
+`buoyancy_levels(k=0)` bit-identical to `b_mid`, all four fields `(face, j, i)` and finite on
+all 262,925 analysis cells (`n_lost` 0), `b_z` median < 0 at 16 LST, both rms ratios in
+(0, 1), the `forcing_note` propagated. The exact-zero and identity checks exclude the tile rim
+(2 cells), whose gradient is finite but wrong (xgcm pads with 0; M0 task 5).
+
+**Q&A added** (prompt 4 `## Q&A`, "Claude, 2026-10-07 (during task 2)"): **M3-Q10** `f_sw` =
+0.521 (Jerlov IA, the model's hard-coded type) vs the prompt's 0.56; **M3-Q11** the vertical
+tendency's sign and denominator (`−W_k1 (b − b_k1)/dz`, `dz = 1.07 m`); **M3-Q12** `rhoConst =
+1027.5` vs `rho0 = 1000` in the flux conversion. All three implemented as recommended; each is
+a constant or a sign.
+
+**Contradictions / deviations — flagged.**
+1. **Sign error in the docs' vertical tendency**: prompt 4 task 2, coding §4.6 and planning §2.2
+   write `−W_k1 (b_k1 − b)/drF[0]` / `−w_base (b_base − b)/drF`, the negative of `−w b_z` that
+   planning §2.2's own equation and the factorised form require (an upwelling of denser water
+   must raise the top-cell code `b`); as written, the task's own test "equals the factorised
+   form when `b_k1 − b` is uniform" cannot pass (sign, and 1.07 for the `drF[0]`-vs-`dz`
+   denominator). Implemented `−W_k1 (b − b_k1)/dz`; marked corrections in coding §4.6 and
+   planning §2.2 "(corrected 2026-10-07, M3 task 2)"; prompt 4 task 2 marked "(as written …)";
+   the denominator is M3-Q11. The M0 task-3 log's "`−w_base (T_base − T)/drF`" (the origin) is a
+   log record and is left as is.
+2. **`f_sw`**: 0.521 (Jerlov IA, hard-coded `jwtype = 2`), not the "~0.56" (type I) of prompt 4
+   task 2 — M3-Q10; prompt 4 marked.
+3. **`rho0 = 1000` in the flux conversion** (prompt 4 task 2) vs the model's `rhoConst = 1027.5`
+   — M3-Q12; prompt 4 marked.
+4. **`alpha ≈ 2.4e-4`** (prompt 4 task 2's test expectation) is 2.30e-4 at (17 °C, 33.6) from
+   JMD95; `beta` 7.49e-4 as stated. The test pins the JMD95 values; no doc edit (a test
+   expectation in the prompt, superseded by this entry).
+5. **"~30 % of `F` by day"** (planning §2.2, prompt 4 task 2, table row M1m): measured 4.6 % at
+   16 LST, 6.5 % at 13 LST, 2.7 % at 01 LST — the warm-layer `dT` is 0.01 K, not 0.1-0.3 K.
+   Science text, not corrected here (a finding for task 6 / 8's marked notes); the diurnal
+   *shape* is as expected.
+6. **"the surface-flux term peaking at 13 LST"** (prompt 4 task 2; planning §2.3 / §4 "noon-
+   peaking", C11b): false for the gradient term, which is 0.65-0.94 of `2F` at every hour and
+   dominated by the non-solar flux gradient; only its shortwave part (≤ 0.18 of `2F`) and the
+   mean tendency peak at 13 LST. For task 7's Figure 6 caption and task 8's marked note (C11b
+   needs strengthening, not just the 6-hourly caveat).
+7. `vertical.py` is **457 lines** after the split (coding §1.3's ~400; ~45 % docstrings), with
+   seven public helpers beyond the three contract functions (`buoyancy_levels`,
+   `level_depths`, `vertical_tendency`, `vertical_term_factorised`, `expansion_coefficients`,
+   `surface_buoyancy_tendency`, `sw_fraction_absorbed`) that the budget, the smoke and the
+   tests use. Left whole; recorded for M5 with C9.
+8. `series_verify.py` (not on the task's list) edited by three lines to import the reader from
+   `chunk_store` — the alternative was re-exporting private names from `vertical`.
+9. The contract signatures gained keyword-only `L_cells` (and `f_sw`, `order`): the prompt says
+   "lowpass `T_v` itself", which needs the unfiltered `b`, `b_k1`, `W_k1` plus the filtered
+   `b_x, b_y`, so the scale must be an argument. Coding §4.6 note added.
+10. The full suite's wall time: 257 s in the solo run (180 s at task 1). Under 300 s; the
+    `timeout 300` margin is shrinking as tests are added — task 3 should run it in batches if
+    it approaches the limit.
+
+Files: created `py/chunk_store.py` (the reader, moved), `py/tests/test_vertical.py`; rewritten
+`py/vertical.py` (the physics + re-exports); modified `py/series_verify.py` (3 lines, the reader
+import), `py/tests/test_load_chunk_levels.py` (monkeypatch target, import, one docstring word),
+`claude_prompts/frontogenesis_prompt_4.md` (Status; task 2 three marked notes; Q&A M3-Q10..Q12),
+`frontogenesis_coding.md` (§4.6 marked correction), `frontogenesis_planning.md` (§2.2 marked
+correction) and this log. Scratch (session scratchpad, outside the repo): `m3t2_smoke.py`,
+`m3t2_smoke.json`, `m3t2_smoke.log`, `suite_m3t2.log`. Not touched: `operators.py`, `semilag.py`,
+`masking.py`, `coarsegrain.py`, `validate*.py`, `inputs.py`, `osn_tiles.py`, `zarr_series.py`,
+`m2_chunk_pull.py`, every other test, `pytest.ini`, `conftest.py`, `deck/`, the data stores
+(read-only; the chunk store's attrs unchanged). Nothing committed.
