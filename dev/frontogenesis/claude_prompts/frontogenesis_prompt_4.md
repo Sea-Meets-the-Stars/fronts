@@ -388,6 +388,109 @@ from.
 *Discharges:* the "**measured** from the chunk store" half of criterion 1 (the terms exist, are
 tested and have the expected diurnal signature); supports criterion 5 (Figure 6, Figure 10).
 
+### 2b. Workstation setup — the Python environment *(added 2026-10-08; run once, on the workstation, before task 3)*
+
+M3 moves from the laptop (macOS arm64) to JXP's workstation from task 3 onwards. This session
+builds and verifies the Python environment there; it writes **no** M3 code. JXP will already have
+done the following on the workstation:
+- pulled the `frontogenesis` branch of `fronts`;
+- copied `dev/frontogenesis/data/` (~1.8 GB, git-ignored) from the laptop.
+
+If either is missing, stop and say so.
+
+- **Read first:**
+  - the M0 task-1 log entry "Execution prompt 1, task 1: environment" in
+    `frontogenesis_prompts.md` (the install commands, why Python 3.13 and not 3.14, the
+    `dbof --no-deps` reason, the resolved-version table);
+  - prompt 1 task 1, including its marked correction: **`xgcm>=0.10`**, not `<0.10`;
+    `set_xgcm_grid` passes `padding='fill'`;
+  - `env/frontogenesis_pip_freeze.txt` and `env/frontogenesis_env.yml`. These are the laptop's
+    exports, macOS arm64, conda `file://` paths, so they **will not rebuild verbatim**; use them
+    as the version reference only.
+- **Platform.** Report the OS, architecture, CPU count, RAM, free disk, and whether conda/mamba
+  (miniforge) is installed. If not, install miniforge in the user's home (no sudo) and say so.
+- **Code.**
+  - `fronts`: confirm the checkout is on `frontogenesis` and matches `origin/frontogenesis`.
+  - `dbof`: clone `Sea-Meets-the-Stars/llc4320-native-grid-preprocessing` (or add a worktree if a
+    clone exists) on branch `tiles-surface-only`, **pinned to commit `938bce1`**, the commit every
+    M0-M3 log quotes line numbers against. If `origin/tiles-surface-only` has moved past it, check
+    out `938bce1` anyway and report how far the branch has moved.
+- **The env: `frontogenesis`, Python 3.13, conda-forge.**
+  - Use the M0 package list with `xgcm>=0.10`, plus what M0-M3 added since: `python-pptx` (pip),
+    `pytest`.
+  - Pin the core packages to the laptop's working versions where conda-forge has them for this
+    platform: **numpy 2.5.3, scipy 1.18.1, xarray 2026.7.0, zarr 3.4.0, dask 2026.8.0, xgcm
+    0.10.1, scikit-image 0.26.0, skan 0.13.1, python-pptx 1.0.2**. Read the rest of the table in
+    the M0 log and `pip freeze`, and pin those too where they matter: s3fs/fsspec, xmitgcm,
+    scikit-fmm, h5netcdf, matplotlib.
+  - If a pin is unavailable, take the nearest version and **record every deviation**.
+  - Leave out what M3 does not need if it fights the solver (`healpy`, `pyvista`/`trame`,
+    `PyQt6`, `pytorch`). Check first that nothing in `dev/frontogenesis/py/` or its tests imports
+    it, and say what was dropped.
+  - Then install:
+    - `dbof` with `pip install -e . --no-deps`, because its `torch`/`timm` pins would otherwise
+      downgrade torch (M0 task 1);
+    - `fronts` with `pip install -e .`. If its deps drag in GUI or `timm` packages that fail on
+      this platform, use `--no-deps` and install only what `fronts.finding` needs
+      (`test_nan_finding.py` is the check).
+  - Run `pip check` and explain each complaint. M0 found two metadata-only ones from `dbof`'s pins.
+- **Non-Python tools.**
+  - For task 9's slides: `soffice` (LibreOffice) and `pdftoppm` (poppler). Install without sudo
+    (conda-forge or user-level) if possible; otherwise report the command JXP needs to run.
+  - For long jobs: the prompts' `caffeinate -i -s` is macOS-only. On Linux use `nohup` inside
+    `tmux`/`screen`, and check whether the machine suspends at all (a server normally doesn't).
+    Record the equivalent the later tasks should use.
+- **Network and credentials,** read-only checks, no secrets printed:
+  - can this machine reach OSN (`https://mghp.osn.xsede.org`)?
+  - can it reach Nautilus `s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/`, and does an AWS default
+    profile exist?
+  - time one small read from each.
+
+  M3 needs neither, because the data is local. This only records whether a re-pull would be
+  possible here.
+- **Verify:**
+  1. Imports: `dbof`, `fronts`, `xgcm`, `skfmm`, `skan`, `pptx`, and every module in
+     `dev/frontogenesis/py/`.
+  2. The data is present and intact. Run `series_verify.verify_series` on the OSN 72-hour store
+     and `verify_chunk_series` on the chunk store, with `m2_pull.timestamps_72()`. Both must be
+     `ok`.
+  3. The full suite: `python -m pytest dev/frontogenesis/py/tests -q` must give **160 passed,
+     3 xfailed, 2 deselected**, the laptop's count after task 2. The 3 strict xfails document
+     `fronts` bugs (M1 task 7a). If they XPASS, the installed `fronts` differs; report it.
+     `test_inputs`'s `needs_grid` test must reproduce **262,925** valid and **26,293** front
+     pixels.
+  4. Optionally, the two `-m network` smoke tests, if the network checks passed.
+  5. Record the suite's wall time. It was 257 s on the laptop, close to the 300 s per-command
+     timeout. If it is much faster here, say so, because later tasks may not need to run it in
+     batches.
+- **Write down what later sessions need:**
+  - a portable env spec, **`env/frontogenesis_env_<platform>.yml`** (`conda env export
+    --from-history` plus the pip-installed lines) and `env/frontogenesis_pip_freeze_<platform>.txt`.
+    Leave the laptop's files untouched.
+  - the absolute **Python path** of the new env;
+  - the long-job wrapper (`nohup` + `tmux`, or `caffeinate`).
+
+  Add a marked note to the Tasks preamble of this prompt: "(workstation, 2026-10-08, task 2b):
+  interpreter `<path>`, long jobs `<wrapper>`; the `~/miniforge3/.../python` and `caffeinate`
+  references below mean these on the workstation". **Do not** rewrite the per-task paths.
+- **Log:** `### <date> — Execution prompt 4, task 2b: workstation environment (<model>)` at the
+  end of `frontogenesis_prompts.md` `## Logs`. Include:
+  - the platform;
+  - the commits (`fronts`, `dbof`);
+  - the install commands as run;
+  - a resolved-version table against the laptop's, with every deviation;
+  - what was dropped;
+  - `pip check`;
+  - the tool and network checks;
+  - the verification results with numbers, and the suite's wall time.
+
+  Update this prompt's Status with one line.
+- *Rules:* do not edit any code, test, data store or `deck/`. Commit nothing. Prefix interactive
+  commands with `timeout 300`; a long conda solve may need more, so run it under `nohup` with a
+  log if it does.
+
+*Discharges:* nothing in the criteria. It is the precondition for tasks 3-9 on the workstation.
+
 ### 3. `budget.py` — `compute_budget`, `closure_report`, the hour-0 smoke
 
 - **`compute_budget(raw_ds, grid_ds, grid, masks, L_cells, dt=3600.0, chunk_ds=None, *, t0=0,
