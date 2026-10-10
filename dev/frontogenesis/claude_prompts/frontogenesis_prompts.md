@@ -6550,3 +6550,244 @@ Scratch (session scratchpad, outside the repo): `t5_machinery.py`, `t5_machinery
 `budget.py`, `m3_run.py`, `operators.py`, `semilag.py`, `coarsegrain.py`, `vertical.py`,
 `inputs.py`, `masking.py`, `zarr_series.py`, `osn_tiles.py`, `series_verify.py`, every other
 test, `pytest.ini`, `conftest.py`, `deck/`, the data stores (read-only). Nothing committed.
+
+### 2026-10-10 — Execution prompt 4, task 6: closure, the HARD GATE (Opus 5)
+
+**Pre-declaration, written before `m3_closure.py` was run.** Every value below was decided by JXP
+on **2026-10-07** (`frontogenesis_prompt_4.md` `## Q&A`, M3-Q1/Q2/Q4/Q5/Q9), three days before
+the sweep existed, and is a module constant in `py/m3_closure.py`. Nothing in it changes after
+the numbers.
+
+- **Criterion 1, closure (M3-Q1).** On **`front & valid`**, per `L`: `rms(residual) /
+  rms(measured) <= 0.50` (equivalently explained fraction `1 - var(res)/var(meas) >= 0.75`)
+  **and** the residual's OLS slope on `2F` within **±0.10**. The five-term rms table and the
+  with/without-chunk-terms comparison are reported whatever the verdict.
+- **Criterion 2, semi-Lagrangian vs Eulerian (M3-Q2).** OLS slope of `DGDt_euler` on
+  `DGDt_semilag` within **0.85-1.15** *and* corr **>= 0.90**, on front pixels, at **`L >= 2`**.
+  `L = 0` reported and interpreted, not gated.
+- **Where the gate is judged (M3-Q9 (a)).** Criterion 1 is judged at **`L >= 2`**; each of
+  `L = 2, 4, 8` carries its own verdict. `L = 0` is reported and interpreted — its explicit
+  subfilter term is identically 0, so its residual is the numerics-plus-KPP estimate Figure 2b is
+  about. **A failure at `L = 0` alone is not planning §12's null; a failure at every `L` is.**
+- **The front pool (M3-Q4 (a)).** **p90 of `G_mid` on `mask_analysis & finite`** is the gate's
+  pool; **p80 and p95** are sensitivities, recomputed from the stored `G` on `valid`. The trimmed
+  (top 1 % of `|2F|`) estimator is reported beside the OLS.
+- **The width proxy and its bins (M3-Q5 (a)).** `front_width = 2 sqrt(G / |lap G|)` on front
+  pixels, binned **`{<= 1, 1-1.5, 1.5-2, 2-3, 3-4, > 4}` dx**; the filter sweep is the
+  cross-check.
+- **Hour sets, estimators, blocks.** All 71 pairs; the day-3 northern-front pairs **62-68
+  (07-04 14-20 UTC) shown separately, not dropped**. Estimators: OLS (the gate's definition),
+  trimmed, orthogonal, ratio by sign, binned `E[Y|X]` by sign. Blocks: task 5's 32 x 32-cell
+  square x hour, with the 3-hour block reported beside it.
+- **Baselines (coding §8 — never against 1).** Every slope relative to **0.981 [0.970, 0.994]**,
+  with the V3b model-advection band **0.954-1.003** and the temporal systematic **0.972 ± 0.020**
+  (trimmed 0.987 ± 0.005) carried as separate bands.
+- **Criterion 4 is reported only where criterion 1 passes at that `L`**; otherwise the slopes go
+  under "**what the slope would have been — not quoted**" (the "Do not" list's first item).
+
+*(entry started early; extended below)*
+
+**Written.** `py/m3_closure.py` (new, 560 lines), `py/m3_closure_fig.py` (new, 130),
+`py/tests/test_m3_closure.py` (new, 11 tests) → `data/m3_closure_summary.json` and
+`figs/m3_closure.png`. Suite **248 passed + 3 xfails**, 2 deselected, 218 s. Nothing committed.
+
+---
+
+## VERDICT: criterion 1 FAILS at every gated `L`. This is planning §12's null result.
+
+```
+  L      2F  subfil    vert   sflux   resid   catch    expl    r~2F    m~2F  verdict
+  0   0.521   0.000   0.017   0.355   0.813   0.739   0.344  +0.440   1.342  FAIL (not gated)
+  2   0.596   0.210   0.015   0.445   0.841   0.728   0.301  +0.447   1.138  FAIL
+  4   0.639   0.353   0.015   0.568   0.898   0.713   0.209  +0.462   0.977  FAIL
+  8   0.653   0.488   0.016   0.795   1.042   0.685  -0.051  +0.529   0.831  FAIL
+```
+*(rms relative to `rms(measured)` on `front & valid`, 1,866,803 pixels pooled over 71 pairs;
+`catch` = `residual + vertical + surface_flux`, the no-chunk-store comparison; `expl` =
+`1 - var(res)/var(meas)`; `r~2F` = the residual's OLS slope on `2F`; `m~2F` = measured on `2F`.)*
+
+**All three M3-Q1 checks fail at all four `L`**, and not marginally: the residual ratio is
+0.81-1.04 against the 0.50 tolerance, the explained fraction 0.34 down to −0.05 against 0.75, and
+the residual's slope on `2F` +0.44 to +0.53 against ±0.10. **Not one of the 71 pairs reaches
+`rms(residual)/rms(measured) <= 0.5` at any `L`** (per-pair median 0.831 / 0.861 / 0.910 / 1.048,
+sd 0.07-0.10, full range 0.715-1.245). The day-3 northern-front pairs 62-68, shown separately as
+declared, are **better** than the median, not worse (0.728 at `L = 0`), so M2's day-3 anomaly does
+not drive this.
+
+### Why — the diagnosis, which is the useful part
+
+**1. The measured chunk terms do not explain the residual; they enlarge it.** The catch-all
+(no chunk store) residual is *smaller* than the full one at every `L`: 0.739 vs 0.813 at `L = 0`,
+0.685 vs 1.042 at `L = 8`. That is the opposite of what adding measured physics should do, so
+task 6 asked **which** — a sign error, or a term that is simply uncorrelated. The test is the
+multiplier that would *minimise* the residual: **+1 for a correct term, −1 for a sign error,
+~0 for an irrelevant one.**
+
+| term | `L` | rms/meas | corr with the rest | optimal multiplier | diagnosis |
+|---|---|---|---|---|---|
+| `two_F` | 0 | 0.521 | **+0.693** | +1.44 | explains part of the residual |
+| `vertical` | 0 | 0.017 | +0.017 | +0.82 | real but negligible |
+| `surface_flux` | 0 | 0.355 | **+0.022** | **+0.048** | **uncorrelated** |
+| `subfilter` | 8 | 0.488 | +0.272 | +0.59 | real, overstated at unit weight |
+| `surface_flux` | 8 | 0.795 | **+0.010** | **+0.009** | **uncorrelated** |
+
+**`surface_flux` is not sign-flipped** — adding it is worse still (0.826 vs 0.813 at `L = 0`) —
+it is **near-orthogonal** to the imbalance it is meant to explain, while carrying 0.36-0.80 of
+the measured amplitude. Subtracting a large uncorrelated quantity at unit weight adds its
+variance, which is the whole of the residual's growth with `L`.
+
+**2. A specific, falsifiable hypothesis for why — reported, not applied.** The optimal multiplier
+on `surface_flux` is **+0.0476** at `L = 0` and **+0.0463** at `L = 2`; `drF[0] / median(KPPhbl)`
+is **0.0451** and **0.0450** (median `KPPhbl` 22.2 m over front pixels). The agreement is 3-5 %.
+`vertical.surface_buoyancy_tendency` divides the flux by the **1 m top cell**; if KPP mixes the
+flux through the boundary layer within the hour, the effective divisor is the **mixed-layer
+depth**, and the term is over-weighted by ~22x. This is M3-Q10..Q12's neighbourhood, which task 2
+recorded as **awaiting JXP** — so it is **not** applied here, and the "do not tune" rule is not
+the only reason: **it cannot change the verdict.** At the optimal multiplier the residual moves
+from 0.7392 to 0.7390 at `L = 0`, i.e. in the fourth decimal, because the term is orthogonal to
+the residual whatever its amplitude. `would_closure_change` is `False` at every `L`. The
+amplitude question is real and worth settling; it is not the reason the budget fails.
+
+**3. At the grid scale, the hourly sampling alone bounds what any term could explain.** Three
+estimates of the *same* quantity, from the same data:
+
+| `L` | o3 vs o5 corr | `rms(o5 − o3)/meas` | SL vs Eulerian corr | `rms(Eu − SL)/meas` |
+|---|---|---|---|---|
+| 0 | 0.9946 | 0.108 | 0.758 | **0.672** |
+| 2 | 0.9987 | 0.053 | 0.913 | 0.408 |
+| 4 | 0.9997 | 0.027 | 0.969 | 0.252 |
+| 8 | 0.9998 | 0.021 | 0.984 | 0.183 |
+
+At `L = 0` the semi-Lagrangian and Eulerian estimates of `DG/Dt` differ by **0.672 of
+measured** — comparable to the residual itself (0.813). Interpolation order is *not* the cause
+(0.108). Hourly snapshots cannot pin `DG/Dt` at 2 km to better than the imbalance we are trying
+to explain. **But this is not the whole story**: at `L = 8` the sampling discrepancy falls to
+0.183 while the catch-all residual is still 0.685, so at the filtered scales the budget fails for
+the first reason, not this one.
+
+### (b) Criterion 2 — semi-Lagrangian vs Eulerian: **passes at `L >= 4`**
+
+| `L` | OLS slope (front) | corr | gated | verdict |
+|---|---|---|---|---|
+| 0 | +0.691 | 0.758 | no | reported — M1 task 3's 0.73 / 0.74 reproduced |
+| 2 | +0.813 | 0.913 | yes | **FAIL** (slope below the 0.85 floor; corr passes) |
+| 4 | +0.891 | 0.969 | yes | **PASS** |
+| 8 | +0.939 | 0.984 | yes | **PASS** |
+
+The expected convergence with `L` is there, and `L = 0` reproduces M1 task 3's starting point
+almost exactly. Criterion 2 is **met at `L >= 4`** and misses at `L = 2` on the slope alone.
+
+### (c) Criterion 3 — the filter sweep is interpretable: **met**
+
+`rms(subfilter)/rms(2F)` = 0.000 / **0.353 / 0.552 / 0.748** at `L = 0/2/4/8`, correlation with
+`2F` = −0.547 / −0.590 / −0.563. M1 task 4's hour-0 values were 0.31 / 0.50 / 0.70 and
+−0.66 / −0.60 / −0.54. Over 71 pairs the term is slightly larger and the `L = 2` anti-correlation
+weaker, but the behaviour M1-Q8 (c) left to the sweep is confirmed: the explicit subfilter term
+is **O(1) and grows with `L`**, it does not converge, and it is anti-correlated with `2F`
+throughout. It is also the one chunk-free term that genuinely helps (optimal multiplier +0.59 at
+`L = 8`, corr +0.27).
+
+### (e) Figure 2b's data — **and the reason no damping is claimed**
+
+Partial correlations of the residual, on the gate's pool:
+
+| `L` | corr(res, `lap2_b`) | corr(res, `KPPhbl`) | partial(res, `lap2_b` \| `KPPhbl`) | partial(res, `KPPhbl` \| `lap2_b`) |
+|---|---|---|---|---|
+| 0 | +0.149 | +0.068 | **+0.144** | +0.056 |
+| 2 | +0.145 | +0.106 | **+0.134** | +0.090 |
+| 4 | +0.109 | +0.152 | +0.100 | **+0.146** |
+| 8 | +0.073 | +0.218 | +0.076 | **+0.219** |
+
+There is a **crossover between `L = 2` and `L = 4`**: at the grid scale the residual tracks
+`grad^4 b` more than the mixed layer, and at `L = 8` the reverse. That is a real and interesting
+structure — and it is the planning §12 third criterion firing, because **neither correlation ever
+exceeds 0.22**. No diabatic signal can be isolated from this residual at any scale, and per the
+"Do not" list **no slope is called diabatic damping here.**
+
+Composites, for completeness: the residual ratio is nearly flat in local solar hour at `L = 0`
+(0.78-0.87 across the day) and in coast distance (0.77-0.89 from 100 km to >300 km); the
+`>= 100 km` offshore restriction is a **no-op** here, because `mask_analysis` already imposes it
+(planning §5.6's cut is inside the pool, not an extra one). At `L = 0` the residual is flat across
+the `front_width` bins (0.76-0.87, median width 2.36 dx); at `L = 8` it is strongly
+width-dependent (0.49 at 1-1.5 dx on 1 k pixels, 1.11 at >4 dx on 1.66 M), which is the filter
+widening the fronts rather than a physical width dependence.
+
+### (d) Criterion 4 — **what the slope would have been. NOT QUOTED.**
+
+Criterion 1 failed at every `L`, so by the "Do not" list's first item no frontogenesis efficiency
+is reported. The numbers are in the JSON under `slopes_not_quoted` with
+`slopes_quotable = False`, so the next session need not recompute them and cannot mistake them
+for a result. For the record of *what was computed*: OLS of measured on `2F` 1.342 / 1.138 /
+0.977 / 0.831 at `L = 0/2/4/8`, trimmed 1.194 / 1.004 / 0.888 / 0.801, chain form 1.073 / 1.006 /
+0.927 / 0.820, order-5 within 0.01 of order-3, `edge_cells = 13` within 0.04, p80 and p95 within
+0.01 of p90, 3-hour-block CIs ~1.5x the 1-hour ones (task 5's effect, on the data). **TLS sits at
+2.0-2.4 at every `L`** — four to five baseline-widths above OLS — which in planning §11's language
+means both axes carry large and comparable noise. That is itself an argument against quoting any
+of these as an efficiency, independently of the gate.
+
+### Against planning §12, criterion by criterion
+
+| §12 null criterion | met? |
+|---|---|
+| the residual is comparable to `2F` at all filter scales and the budget does not close | **YES** — `rms(residual)/rms(2F)` = 1.56 / 1.41 / 1.41 / 1.60 |
+| the measured slope is not distinguishable from the discrete-null baseline | no — the slopes differ clearly from 0.981, but they are not quotable |
+| the residual tracks `grad^4 b` rather than `KPPhbl` or the diurnal cycle, so no diabatic signal can be isolated | **YES** — in the stronger form that *neither* exceeds \|r\| 0.22 |
+| the Phase-0 discrete null cannot be made to pass at 1 ± 0.05 | no — V3 passed at 0.981 |
+
+Two of the four, and the first is decisive. **The conclusion is methodological.**
+
+### The limiting factor, named
+
+**Hourly surface fields at 2 km cannot close the surface buoyancy-gradient budget in this
+regime, for two separable reasons, and the sweep separates them:**
+
+1. **At the grid scale (`L = 0-2`), the time sampling.** Two defensible estimates of `DG/Dt` from
+   the same hourly pair differ by 0.67 and 0.41 of the measured amplitude. No term evaluated at
+   the midpoint can explain a difference that large, and the budget's imbalance (0.81, 0.84) is
+   the same size. The hour is too long for the 2 km scale — the tide and the internal-wave band
+   alias straight into `DG/Dt`.
+2. **At the filtered scales (`L = 4-8`), the surface-flux term's formulation.** The sampling
+   discrepancy has fallen to 0.25 and 0.18, but the term carrying the largest amplitude after
+   `2F` is uncorrelated with the imbalance, and subtracting it at unit weight is what drives the
+   residual past 1.0. Whether its divisor should be `drF[0]` or `KPPhbl` (§2 above) is a real
+   open question — but settling it changes the amplitude, not the correlation, so it would not
+   close the budget either.
+
+**No efficiency is quoted. Nothing was tuned.** The tolerances in `m3_closure.py` are the ones
+JXP fixed on 2026-10-07 and are asserted in `test_m3_closure.py` against `budget.py`'s copies, so
+the two gates cannot drift apart.
+
+### What was checked before declaring the null
+
+- **A sign error on `surface_flux` or `vertical`** — ruled out: the optimal multiplier is +0.05
+  and +0.82, not −1, and flipping either makes the residual worse.
+- **An interpolation-order artefact** — ruled out: order 3 and order 5 agree to corr 0.995+ and
+  differ by 0.02-0.11 of measured, an order below the residual.
+- **A front-selection artefact** — ruled out: p80, p90 and p95 give residual ratios within 0.01,
+  and `edge_cells = 13` within 0.02.
+- **The day-3 pairs dragging the pool** — ruled out: they are better than the median.
+- **A bug in `budget.py`'s plumbing** — ruled out in task 3, bit-for-bit against `validate`.
+- **The `(lo, hi]` convention of M3-Q5's width bins** — a genuine bug, found and fixed here:
+  `np.digitize` defaults to `right=False`, which put a width of exactly 1.0 dx in the `1-1.5`
+  bin instead of `<=1`. Fixed, `m3_closure.py` re-run, the verdict unchanged (it touches only the
+  by-width composite).
+
+### Questions for JXP
+
+1. **The surface-flux depth scale** (the §2 hypothesis above). `drF[0] = 1 m` or `KPPhbl`? It
+   does not change this verdict, but it changes Figure 6 and every statement about the term's
+   size. This is adjacent to M3-Q10..Q12, which task 2 recorded as still open.
+2. **Is a sub-hourly window worth pricing?** The sampling bound in §1 is the hard one at the grid
+   scale. The chunk store's cadence is hourly too, so this would be a new pull — M2's scale-up
+   table puts a 504-hour chunk pull at 42 h, and a shorter sub-hourly window would be cheaper.
+3. **Does M3 proceed to tasks 7-9 as a null result?** The prompt says a null is publishable and
+   that the write-up is the deliverable. Tasks 7-9 (figures, audit, slides) still make sense —
+   the figures now carry a methodological finding rather than an efficiency — but the deck's
+   framing changes, so this is JXP's call.
+
+Scratch (session scratchpad, outside the repo): `t6_sign.py`, `m3_closure.log`,
+`m3_closure2.log`, `suite_m3t6.log`. In `data/` and `figs/` (this task's own products):
+`m3_closure_summary.json`, `m3_closure.png`. Not touched: `budget.py`, `stats.py`, `m3_run.py`,
+`vertical.py`, `validate.py`, `operators.py`, `semilag.py`, `coarsegrain.py`, `inputs.py`,
+`masking.py`, `series_verify.py`, the derived stores and every M0/M1/M2 store (read-only),
+`deck/`. **No data was re-generated** — the sweep of task 4 stands unchanged. Nothing committed.

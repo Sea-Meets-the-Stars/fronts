@@ -82,7 +82,34 @@ the real interval 1.52-1.54x — task 6 should quote that interval, or both — 
 unsplit ratio reads 0.088 against pos/neg 0.61/1.05, so the split is load-bearing. Task 4's
 hand-over re-checked: re-run computed 0 pairs, all 7308 files byte-identical,
 `verify_derived_series` ok on all four stores; log entry "Execution prompt 4, task 5").
-**Tasks 6-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+**Task 6 done 2026-10-10 — THE GATE FAILED.** (`py/m3_closure.py` + `m3_closure_fig.py` +
+`tests/test_m3_closure.py` 11 tests → `data/m3_closure_summary.json`, `figs/m3_closure.png`;
+suite **248 passed + 3 xfails**, 2 deselected, 218 s.) **Criterion 1 fails at every gated `L`**
+— `rms(residual)/rms(measured)` **0.813 / 0.841 / 0.898 / 1.042** at `L = 0/2/4/8` against the
+pre-declared 0.50, explained fraction 0.344 → −0.051 against 0.75, residual-on-`2F` slope +0.44
+→ +0.53 against ±0.10, and **0 of 71 pairs** reach the tolerance at any `L`. **This is planning
+§12's null result; no frontogenesis efficiency is quoted and nothing was tuned.** Criterion 2
+**passes at `L >= 4`** (slope 0.691 / 0.813 / 0.891 / 0.939, corr 0.758 / 0.913 / 0.969 / 0.984;
+`L = 0` reproduces M1 task 3's 0.73 / 0.74). Criterion 3 **met** — `subfilter/2F` 0 / 0.353 /
+0.552 / 0.748, corr −0.55 / −0.59 / −0.56, confirming M1 task 4's growth with `L` over all 71
+pairs. **The diagnosis:** the measured chunk terms do not explain the residual, they *enlarge*
+it (catch-all 0.739 / 0.728 / 0.713 / 0.685 is smaller at every `L`) — `surface_flux` carries
+0.36-0.80 of the measured amplitude but correlates **+0.02** with the imbalance, optimal
+multiplier **+0.048**, so it is near-orthogonal, **not** sign-flipped. Its optimal multiplier
+matches `drF/median(KPPhbl)` = 0.045 to 3-5 %, suggesting the flux should be divided by the
+~22 m mixed layer rather than the 1 m top cell — **reported, not applied**, and it cannot change
+the verdict (at the optimum the residual moves in the fourth decimal). Separately, at `L = 0` the
+semi-Lagrangian and Eulerian estimates of the *same* `DG/Dt` differ by **0.672 of measured**,
+comparable to the residual itself, so hourly sampling alone bounds what any term could explain at
+2 km; by `L = 8` that falls to 0.183 and the failure is the flux term's, not the sampling's.
+Figure 2b: partial corr(res, `lap2_b` | `KPPhbl`) **+0.144** vs corr(res, `KPPhbl` | `lap2_b`)
++0.056 at `L = 0`, **crossing over** to +0.076 vs +0.219 at `L = 8` — and **neither exceeds
+0.22**, so no diabatic signal can be isolated and no damping is claimed. Slopes computed but
+**NOT QUOTED** (`slopes_not_quoted`, `slopes_quotable=False`). One real bug found and fixed: the
+M3-Q5 width bins needed `np.digitize(right=True)` for `<=1` to mean `(0, 1]`; re-run, verdict
+unchanged. **Three questions for JXP** in the log: the surface-flux depth scale, whether a
+sub-hourly window is worth pricing, and whether tasks 7-9 proceed as a null result; log entry
+"Execution prompt 4, task 6". **Tasks 7-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
