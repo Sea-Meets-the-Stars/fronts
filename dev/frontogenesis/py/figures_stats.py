@@ -76,8 +76,8 @@ def fig02_joint_pdf(data_dir=None, fig_dir=None, summary=None, Ls=fg.L_ALL, bins
         df = fg.binned(x, y, bins=10)
         ax.plot(df['x_mean'], df['y_mean'], 'o-', color=fg.COL['red'], ms=4, lw=1.3,
                 label='binned E[Y|X]')
-        d3 = np.isin(fg.front_pool(L, ('two_F',), data_dir, pairs=fg.DAY3_PAIRS)['pair'],
-                     fg.DAY3_PAIRS)
+        # the day-3 marker comes from the summary's own fit (task 6), not from a
+        # second pass over the store -- one source of numbers, as the prompt asks
         if 'day3' in sl:
             ax.plot([-lim, lim], [-lim * sl['day3']['value'], lim * sl['day3']['value']],
                     color=fg.COL['day3'], lw=1.2, ls=':',
@@ -126,8 +126,7 @@ def fig02b_discriminator(data_dir=None, fig_dir=None, summary=None, Ls=fg.L_ALL)
     out = {}
     for L in Ls:
         d = fg.front_pool(L, ('residual', 'lap2_b', 'KPPhbl'), data_dir)
-        import stats as st
-        blk = None
+        blk = None                       # block labels are not pooled here; se_iid is labelled
         for ax, key, xlabel in ((axs[0], 'lap2_b', 'lap²b  (grad⁴-like)  [s$^{-2}$ m$^{-4}$]'),
                                 (axs[1], 'KPPhbl', 'KPPhbl  [m]')):
             df = fg.binned(d[key], d['residual'], bins=12, labels=blk)
@@ -213,8 +212,6 @@ def fig03_slope_vs_L(data_dir=None, fig_dir=None, summary=None, Ls=fg.L_ALL):
     axs[0].set_title('slope vs L  |  front & valid, p90, 71 pairs\nNOT an efficiency — '
                      'criterion 1 failed at every L', fontsize=9, color=fg.COL['red'])
     axs[0].legend(fontsize=7, ncol=2)
-    for L in Ls:
-        pass
     axs[1].plot(Ls, [s['per_L'][str(L)]['euler']['front']['corr'] for L in Ls], '-o',
                 color=fg.COL['measured'], label='corr(Eulerian, semi-Lagrangian)')
     axs[1].plot(Ls, [s['per_L'][str(L)]['euler']['front']['ols'] for L in Ls], '-s',
