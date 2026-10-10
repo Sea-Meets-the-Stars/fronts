@@ -5932,3 +5932,194 @@ correction) and this log. Scratch (session scratchpad, outside the repo): `m3t2_
 `masking.py`, `coarsegrain.py`, `validate*.py`, `inputs.py`, `osn_tiles.py`, `zarr_series.py`,
 `m2_chunk_pull.py`, every other test, `pytest.ini`, `conftest.py`, `deck/`, the data stores
 (read-only; the chunk store's attrs unchanged). Nothing committed.
+
+### 2026-10-09 — Execution prompt 4, task 2b: workstation environment (Opus 5)
+
+**Scope.** Task 2b of `frontogenesis_prompt_4.md` only: build and verify the Python environment
+on JXP's workstation. No M3 code written, no test changed, nothing committed. *(The task is
+dated 2026-10-08 in the prompt; it was run 2026-10-09.)*
+
+**Prerequisites — both met.** `fronts` at `/home/xavier/Oceanography/python/fronts` is on
+`frontogenesis` @ `f88117e`, equal to `origin/frontogenesis` after a fetch;
+`dev/frontogenesis/data/` is present, 1.8 GB, with `tile330_grid.zarr`, `tile330_masks.nc`,
+`tile330_raw_20120702T00_2h.zarr`, `tile330_raw_20120702T00_72h.zarr`,
+`tile330_chunk_20120702T00_72h.zarr` and the M2 JSON/log files.
+
+**Platform.** Host `profx`, Ubuntu 24.04.4 LTS, kernel 6.8.0-134, **x86_64** (the laptop was
+macOS arm64 — a different platform, so the laptop's conda `file://` exports could not be
+replayed). Intel Xeon w5-2455X, 12 cores / **24 threads**; **755 GB** RAM; 435 GB free on `/`
+(where the env lives) and 8.8 TB free on `/mnt/tank`. **Miniforge is not installed**; miniconda3
+25.1.1 is, at `/home/xavier/miniconda3`, already using the **libmamba** solver. Rather than
+install a second base distribution, the env was built with that conda and
+`--override-channels -c conda-forge`, which gives a pure conda-forge env and leaves JXP's shell
+init alone. Its global channel config still lists the anaconda defaults; that matters only for
+the export (see below), not for this env.
+
+**Commits.**
+- `fronts` — editable from `/home/xavier/Oceanography/python/fronts`, branch `frontogenesis` @
+  **`f88117e`** ("env"), equal to origin.
+- `dbof` — a **new detached worktree** at
+  `/mnt/tank/Oceanography/python/llc4320-tiles-surface-only`, pinned at **`938bce1`** ("nb
+  check"), added from the existing clone at
+  `/mnt/tank/Oceanography/python/llc4320-native-grid-preprocessing` (which is itself on
+  `tiles-surface-only` @ `938bce1`). `origin/tiles-surface-only` has **not** moved past
+  `938bce1` — it is exactly that commit, so there is nothing to report as drift. The worktree
+  exists so the installed `dbof` cannot follow a branch switch in JXP's working clone.
+
+**Install commands, as run.**
+
+```bash
+# dbof worktree pinned at the commit every M0-M3 log quotes line numbers against
+cd /mnt/tank/Oceanography/python/llc4320-native-grid-preprocessing && git fetch origin
+git worktree add --detach /mnt/tank/Oceanography/python/llc4320-tiles-surface-only 938bce1
+
+# the env (run detached under nohup; the solve + download took ~6 min)
+conda create -y -n frontogenesis --override-channels -c conda-forge \
+  python=3.13 numpy=2.5.3 scipy=1.18.1 xarray=2026.7.0 dask=2026.8.0 zarr=3.4.0 \
+  "xgcm>=0.10" scikit-image=0.26.0 skan=0.13.1 \
+  pandas=3.0.6 matplotlib=3.11.2 h5netcdf=1.8.1 s3fs=2026.9.0 fsspec=2026.9.0 \
+  ujson=6.0.0 xmitgcm=0.5.2 scikit-fmm=2025.6.23 \
+  scikit-learn h5py netcdf4 pyyaml cartopy cmocean seaborn bokeh tqdm \
+  astropy astropy-healpix gsw pyarrow boto3 cftime emcee corner ipython \
+  smart_open umap-learn llvmlite pytest importlib-metadata pip setuptools future
+
+PY=/home/xavier/miniconda3/envs/frontogenesis/bin/python
+(cd /mnt/tank/Oceanography/python/llc4320-tiles-surface-only && $PY -m pip install -e . --no-deps)
+(cd /home/xavier/Oceanography/python/fronts && $PY -m pip install -e . --no-deps)   # see below
+$PY -m pip install "python-pptx==1.0.2"
+```
+
+The **fully pinned solve succeeded on the first attempt** — no pin had to be relaxed. Env size
+2.6 GB.
+
+**Resolved versions, against the laptop (M0 task 1 table + this prompt's pins).**
+
+| package | laptop | workstation | | package | laptop | workstation |
+|---|---|---|---|---|---|---|
+| python | 3.13.15 | **3.13.16** | | s3fs | 2026.9.0 | 2026.9.0 |
+| numpy | 2.5.3 | 2.5.3 | | fsspec | 2026.9.0 | 2026.9.0 |
+| scipy | 1.18.1 | 1.18.1 | | ujson | 6.0.0 | 6.0.0 |
+| xarray | 2026.7.0 | 2026.7.0 | | h5netcdf | 1.8.1 | 1.8.1 |
+| dask | 2026.8.0 | 2026.8.0 | | matplotlib | 3.11.2 | 3.11.2 |
+| zarr | 3.4.0 | 3.4.0 | | xmitgcm | 0.5.2 | 0.5.2 |
+| xgcm | 0.10.1 | 0.10.1 | | scikit-fmm | 2025.6.23 | 2025.6.23 |
+| pandas | 3.0.6 | 3.0.6 | | scikit-image | 0.26.0 | 0.26.0 |
+| skan | 0.13.1 | 0.13.1 | | python-pptx | 1.0.2 | 1.0.2 |
+| torch | 2.13.0 | **dropped** | | torchvision | 0.28.0 | **dropped** |
+
+**The only version deviation is Python's patch level, 3.13.15 → 3.13.16** (conda-forge no longer
+offers 3.13.15 for linux-64). Every other pinned package resolved to the laptop's exact version.
+Not in the M0 table, recorded for completeness: netCDF4 1.7.4, scikit-learn 1.9.1, numcodecs
+0.17.0, h5py 3.16.0, IPython 9.17.1, PyYAML 6.0.3, Cartopy 0.26.0, cmocean 4.0.3, gsw 3.6.23,
+astropy 8.0.1, seaborn 0.13.2, bokeh 3.10.0, tqdm 4.70.1, smart_open 8.0.2, umap-learn 0.5.12,
+llvmlite 0.50.0, boto3 1.43.106, pyarrow 25.0.0, pytest 9.1.1.
+
+**Dropped, and why it is safe.** `pytorch`, `torchvision`, `healpy`, `pyvista`(+`trame`),
+`PyQt6`, `pyqtgraph`, `timm`. None is imported anywhere in `dev/frontogenesis/py/` or its tests
+(checked by grepping every `import`/`from` in the package and its tests: the full set is `dbof`,
+`fronts`, `fsspec`, `matplotlib`, `numcodecs`, `numpy`, `s3fs`, `scipy`, `skfmm`, `skimage`,
+`xarray`, `yaml`, `zarr`, `pytest` plus the local modules). Nor does the `fronts` code M3 uses:
+`fronts.finding.pyboa` / `fronts.finding.algorithms` reach only `skan`, `skimage`, `scipy`,
+`numpy`, `pandas`, `matplotlib`, `tqdm`, `yaml`, `dask`, `xarray` and `IPython`. (`wrangler` is
+imported only by `fronts/finding/dev.py`, which is not on that path, so `wrangler` was not
+installed either; `netCDF4` is needed only by `ported_thin_cc.py` but is cheap and was kept.)
+
+**`fronts` had to go in with `--no-deps`, unlike the laptop.** A `--dry-run` of the plain
+editable install showed it would pull **~8 GB**: `torch 2.14.1` with the full CUDA 13 wheel stack
+(`nvidia-cublas`, `cudnn`, `nccl`, `cusolver`, …), `triton`, `torchvision`, `timm 0.3.2`,
+`PyQt6`, `pyvista`+`vtk`+ten `trame-*` packages and `healpy`. That is the exact set the prompt
+says to leave out, so the prompt's `--no-deps` fallback was taken; `fronts.finding`'s real
+dependencies were all already in the conda env, and `test_nan_finding.py` (the prescribed check)
+passes.
+
+**`pip check`** — 17 complaints, all metadata-only, in three groups, none affecting any import:
+1. *Declared but never imported by `dbof`*: `ecco-v4-py`, `reader`, `seawater`. Same as M0's
+   2026-09-28 addendum; `grep` finds no import of any of them in `src/dbof`.
+2. *The deliberate drops*: `timm`, `torch`, `torchvision` (both packages), and `healpy`,
+   `pyqt6`, `pyqtgraph`, `pyvista` (`fronts`). Expected, see above.
+3. *Pin mismatches `dbof` declares and `--no-deps` ignores*: `boto3==1.41.5` (have 1.43.106),
+   `dask==2025.10.0` (2026.8.0), `s3fs==2025.9.0` (2026.9.0), `xarray==2025.10.1` (2026.7.0).
+   The laptop has the same four; M0 recorded two of them.
+
+**Non-Python tools.** `soffice` (LibreOffice) **and** `pdftoppm` (poppler) are **already
+installed system-wide** at `/usr/bin/soffice` and `/usr/bin/pdftoppm` — nothing to install for
+task 9. `tmux` and `screen` are both present. **`caffeinate` is macOS-only and has no equivalent
+needed here:** `sleep.target` and `suspend.target` are static and inactive, i.e. this box does
+not suspend. **Long jobs from task 4 onwards should use**
+`nohup <cmd> > <log> 2>&1 &` **inside a `tmux` session** (`systemd-inhibit` exists if a future
+need arises, but it is not required).
+
+**Network and credentials** (read-only, no secrets printed). Both reachable:
+- OSN `https://mghp.osn.xsede.org` — HTTP 200, connect 0.34 s; a 4 KiB `fsspec` read **0.53 s**.
+- Nautilus `s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/` via
+  `https://s3-west.nrp-nautilus.io` — listing works (80 keys, **0.25 s**), one small object
+  (`20120702T00.zarr/zarr.json`, 523 B) read in **0.10 s**. An AWS **`[default]` profile exists**
+  in `~/.aws/credentials`, which is what `chunk_store.make_fs` uses.
+
+M3 needs neither; this only records that a re-pull would be possible here.
+
+**Verification.**
+1. **Imports — all ok.** `dbof`, `fronts`, `fronts.finding.pyboa`, `fronts.finding.algorithms`,
+   `xgcm` 0.10.1, `skfmm` 2025.06.23, `skan` 0.13.1, `pptx` 1.0.2, and **every module in
+   `dev/frontogenesis/py/`**.
+2. **Data intact.** `series_verify.verify_series` on `tile330_raw_20120702T00_72h.zarr` with
+   `m2_pull.timestamps_72()`: **`ok=True`** (time, schema, niter, land_nan, KPPhbl all ok), 4 s.
+   `verify_chunk_series` on `tile330_chunk_20120702T00_72h.zarr`: **`ok=True`** (time, schema,
+   niter, drF, land_nan, sign all ok), 6 s.
+3. **Suite: `160 passed, 3 xfailed, 2 deselected`** — exactly the laptop's count after task 2.
+   The three strict xfails did **not** XPASS, so the installed `fronts` matches the one M1 task
+   7a documented. `test_inputs`'s `needs_grid` test ran (zero skips in the summary) and its
+   hard-coded assertions `== 262_925` (n_valid) and `== 26_293` (n_front, p90) both hold, as do
+   `drF == [1.0, 1.14, 1.30]` and the `k = 0` identity.
+4. **Network smokes: `2 passed`** in 17.7 s (`-m network`, the two tests in
+   `test_pull_series.py` and `test_load_chunk_levels.py`).
+5. **Suite wall time 194 s** (laptop 257 s), i.e. ~25 % faster but **still close to the 300 s
+   per-command timeout** — later tasks should keep launching it detached rather than in the
+   foreground. `user` 3m22s against `real` 3m17s, so it is essentially single-threaded; the 24
+   threads are available for task 4's sweep.
+
+**One mistake, and its consequence.** Verification step 1 says "import every module in
+`dev/frontogenesis/py/`". Three of them — **`m0_write.py`, `m0_qa_checks.py`, `m0_recon.py`** —
+are top-level scripts with **no `if __name__ == '__main__'` guard**, so importing `m0_write`
+*ran M0 task 4*: it re-pulled hours 0 and 1 from OSN and **rewrote `data/tile330_grid.zarr` and
+`data/tile330_raw_20120702T00_2h.zarr`** (`clobber=True`). The run completed with its own
+`ALL CHECKS PASSED`, including `Theta[t0]/Theta[t1]/V[t1] on disk == fresh load_hour(...)
+bit-for-bit` and `XC/YC coords equal the grid store`, so both stores were regenerated with
+identical content, not corrupted. Independent confirmation: `verify_series`'s `land_nan` check
+passes for **all 72 hours** of the untouched 72-hour store *against the rewritten grid store*,
+and the suite's `needs_grid` tests reproduce 262,925 / 26,293 from it. **Not touched:**
+`tile330_masks.nc` (2026-09-28) and both 72-hour stores (2026-10-03) — `m1_write_masks.py` and
+every `m2_*.py` **are** guarded. The verification script was then changed to `py_compile` those
+three instead of importing them. **Later sessions: never `import m0_write` / `m0_qa_checks` /
+`m0_recon`.**
+
+**Written** (the only files this task created or changed):
+- `dev/frontogenesis/env/frontogenesis_env_linux-x86_64.yml` — `conda env export --from-history`
+  plus a comment block naming the three pip installs. Its `channels:` was corrected by hand to
+  `conda-forge` / `nodefaults`: `--from-history` copied in the box's *global* channel config
+  (the anaconda defaults), which is not what the env was built with and would not rebuild it.
+- `dev/frontogenesis/env/frontogenesis_pip_freeze_linux-x86_64.txt` — 182 lines, written with
+  `pip list --format=freeze`, because a plain `pip freeze` in a conda env emits
+  `name @ file:///...` with **no version**, which is useless as a version reference.
+- the `(workstation, 2026-10-08, task 2b)` note in this prompt's **Tasks** preamble, this prompt's
+  **Status** line, and this log entry.
+
+The laptop's `env/frontogenesis_env.yml` and `env/frontogenesis_pip_freeze.txt` were **not**
+touched — in fact they are **not in the repository**: `.gitignore:141` ignores `env/`, so the M0
+exports were never committable and exist only on the Mac. They could not be read here, and the
+version reference used instead was the M0 task-1 log table above plus this prompt's own pin
+list. **The two new files are ignored for the same reason** — they are a local record on the
+workstation, not something a `git pull` will carry anywhere. If JXP wants them versioned, the
+`env/` rule needs a `!dev/frontogenesis/env/` un-ignore, the way `figs/.gitignore` un-ignores
+`*.png`; that was not done here, because this task may not edit the repo beyond the prompts.
+
+**What later sessions need.**
+- Interpreter: **`/home/xavier/miniconda3/envs/frontogenesis/bin/python`**.
+- Long jobs: **`nohup <cmd> > <log> 2>&1 &` inside `tmux`**; no `caffeinate` equivalent needed.
+- `fronts` repo root `/home/xavier/Oceanography/python/fronts`; `dbof` worktree
+  `/mnt/tank/Oceanography/python/llc4320-tiles-surface-only` @ `938bce1`.
+- Scratch goes in the session scratchpad, as before. Scratch used here (outside the repo):
+  `create_env.sh`, `create_env.log`, `verify_env.py`, `verify_data.py`, `verify_data.log`,
+  `net_time.py`, `pytest.log`.
+
+Nothing committed.

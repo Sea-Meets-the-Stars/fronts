@@ -23,7 +23,15 @@ vertical term **2.7-6.5 %** of `2F` in rms (diurnal shape right, the warm layer 
 0.1-0.3 K), surface-flux term **0.65-0.94** of `2F` at every hour, dominated by the non-solar
 flux gradient (a damping of `G` at ~7e-6 s^-1), not peaking at 13 LST — findings, not tuned;
 log entry "Execution prompt 4, task 2"; **M3-Q10..Q12 await JXP**, all implemented as
-recommended). **Tasks 3-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+recommended). **Task 2b done 2026-10-09** (workstation `profx`, Ubuntu 24.04 x86_64, 24 cores /
+755 GB; env `frontogenesis` at `/home/xavier/miniconda3/envs/frontogenesis/bin/python`,
+Python 3.13.16, conda-forge; every pinned version matches the laptop exactly — numpy 2.5.3,
+scipy 1.18.1, xarray 2026.7.0, zarr 3.4.0, dask 2026.8.0, xgcm 0.10.1, scikit-image 0.26.0,
+skan 0.13.1, python-pptx 1.0.2; torch/torchvision/healpy/pyvista/PyQt6/pyqtgraph/timm dropped,
+none imported by M3; `fronts` and `dbof` both editable `--no-deps`, dbof from a worktree pinned
+at `938bce1`; suite **160 passed + 3 xfails**, 2 deselected, **194 s**; both 72-hour stores
+verify `ok`; OSN and Nautilus both reachable; `soffice`/`pdftoppm` already present;
+log entry "Execution prompt 4, task 2b"). **Tasks 3-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
@@ -183,6 +191,17 @@ when the front pool has both signs of `2F` (M1 task 6): quote it separately for 
 ## Tasks
 
 *(added 2026-10-07, M2 task 8)*
+
+**(workstation, 2026-10-08, task 2b):** interpreter
+`/home/xavier/miniconda3/envs/frontogenesis/bin/python`, long jobs
+`nohup <cmd> > <log> 2>&1 &` inside `tmux` (this box never suspends: `sleep.target` is static
+and inactive, so no `caffeinate` equivalent is needed); the `~/miniforge3/.../python` and
+`caffeinate` references below mean these on the workstation. Repo roots there: `fronts`
+`/home/xavier/Oceanography/python/fronts`, `dbof` worktree
+`/mnt/tank/Oceanography/python/llc4320-tiles-surface-only` @ `938bce1`. The suite runs in
+**194 s** here (laptop 257 s) -- still close enough to the 300 s per-command timeout that it
+should be launched detached, not in the foreground. *(Run 2026-10-09; the task is dated
+2026-10-08 as written.)*
 
 Run **one task per session**, in order, as in M0-M2, with one log entry per task (see **Log**).
 Code goes in `dev/frontogenesis/py/`, tests in `dev/frontogenesis/py/tests/` (offline; those that
