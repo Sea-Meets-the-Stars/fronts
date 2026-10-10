@@ -6123,3 +6123,430 @@ workstation, not something a `git pull` will carry anywhere. If JXP wants them v
   `net_time.py`, `pytest.log`.
 
 Nothing committed.
+
+### 2026-10-10 — Execution prompt 4, task 3: budget.py, compute_budget / closure_report / the hour-0 smoke (Opus 5)
+
+*(entry started early; extended below)*
+
+**Scope.** Task 3 of `frontogenesis_prompt_4.md` only: `py/budget.py`, `py/tests/test_budget.py`
+and the hour-0 smoke on the real stores. On the workstation (task 2b), interpreter
+`/home/xavier/miniconda3/envs/frontogenesis/bin/python`.
+
+**Written.** `py/budget.py` (new, 644 lines) and `py/tests/test_budget.py` (new, 32 tests).
+Nothing else in `py/` touched; no data store written (task 3 writes none — `write_derived` is
+exercised only in `tmp_path`); nothing committed.
+
+**`budget.py`.** `compute_budget(raw_ds, grid_ds, grid, masks, L_cells, dt=3600.0,
+chunk_ds=None, *, t0=0, forms=('discrete','chain'), order=3, order_sens=5, front_pct=90.0)`
+→ `(time: 1, j, i)` Dataset with the §3.4 vars plus the M3 additions; `closure_report(budget_ds,
+mask=None)`, `format_closure` / `print_closure`, `write_derived(budget_ds, L, out=None,
+clobber=False)`, `measured(budget_ds)`, and the three discrete helpers below. Module constants
+carry the **pre-declared** tolerances with `TOL_SOURCE` citing M3-Q1 / M3-Q2.
+
+Four decisions worth recording, because each is a place the prompt left a choice:
+
+1. **`measured` is not stored twice.** §3.4 names `DGDt_semilag`; storing a second identical
+   array would cost ~600 MB across the sweep (4 `L` × 72 pairs). The Dataset carries
+   `attrs['measured'] = 'DGDt_semilag'` and `budget.measured(ds)` is the accessor.
+2. **A Laplacian had to be written** — neither `dbof` nor `operators.py` has one, and `lap2_b`
+   and `front_width` both need it. `budget.laplacian` is `div(grad)` in **flux form**: the
+   staggered gradient (`staggered_grad`, the first two steps of
+   `calculate_native_gradient_tracer` *without* the interpolation back to centres) through
+   `coarsegrain.flux_divergence`. That is the model's own `del^2`; **exact to round-off on a
+   quadratic** (tested), unlike `grad_b` twice, which interpolates between the two differences
+   and no longer telescopes. `lap2_b` is it applied twice.
+3. **`front_width` reports in cells of `sqrt(rA)`** (the area-equivalent cell width): exact on a
+   square grid, and on the tile `dxC` 1796 m / `dyC` 1950 m bracket it by ±4 %, far inside
+   M3-Q5's bins.
+4. **`b_z` is computed from the midpoint *buoyancy levels*, not from midpoint `Theta`/`Salt`**
+   (`_b_z_mid`). It then shares `b_k0`, `b_k1` with `vertical_term`, so
+   `vertical − vertical_factorised` is exactly the dropped `-w grad(b_z) . grad b` and not that
+   plus an EOS mismatch.
+
+`clobber` follows `osn_tiles.pull_series`'s policy: an append-only time-ordered store can only be
+rewritten from a prefix, so `write_derived(..., clobber=True)` truncates from that pair (through
+`zarr_series._truncate`) and re-appends, saying in the log how many later pairs it dropped. The
+sweep writes in time order, so on a re-run that is the intended effect.
+
+**Hour-0 smoke — pair 0 (2012-07-02 00-01 UTC, 16.5 LST), `L = 0, 2, 4, 8`, chunk terms in.**
+
+*The three bit-for-bit identities all hold* (`np.array_equal`, NaN-aware): `two_F` **is**
+`validate.two_F(b_mid, U_mid, V_mid, …, form='discrete')`; `DGDt_semilag` **is**
+`validate.null_step`'s `measured` with the real `b_tp1` substituted (`advect=lambda …: b1`); and
+`two_F` **is** that same `null_step`'s `two_F_discrete`. Same functions, same inputs — the
+plumbing adds nothing.
+
+*The pool reproduces V3 / M2 exactly.* `n_valid` **262,925** and `n_front` **26,293** at
+`L = 0, 2, 4`, `n_lost = 0`. At `L = 8`, `n_valid` 262,904 and `n_front` 26,291 — **21 cells
+lost**, inside the "up to 34 per pair at `L = 8`" M2 task 3 predicted, and the first time that
+prediction has been exercised through the full budget.
+
+*`subfilter` reproduces M1 task 4's hour-0 numbers* (rms relative to `Fbar`; M1's value in
+brackets): `L = 2` **0.323** [0.31], `L = 4` **0.506** [0.50], `L = 8` **0.702** [0.70];
+correlation with `2F` −0.616 [−0.66], −0.601 [−0.60], −0.561 [−0.54]. Exactly 0 at `L = 0`.
+The small drift at `L = 2` is expected and not a discrepancy: M1 measured against `Fbar` at the
+**hour-0 snapshot**, this is `2F` at the **midpoint**.
+
+*The five-term table* (rms relative to `rms(measured)`, on `valid`; the `front & valid` column
+differs in the third decimal and is in the JSON):
+
+| L | rms(measured) s^-5 | 2F | subfilter | vertical | surface_flux | residual | residual/2F | explained | res~2F slope |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | 1.210e-18 | 0.418 | 0.000 | 0.019 | 0.297 | **0.909** | 2.173 | 0.175 | +0.258 |
+| 2 | 6.383e-19 | 0.482 | 0.156 | 0.018 | 0.355 | **0.914** | 1.898 | 0.165 | +0.271 |
+| 4 | 3.391e-19 | 0.518 | 0.262 | 0.017 | 0.425 | **0.932** | 1.800 | 0.132 | +0.357 |
+| 8 | 1.450e-19 | 0.519 | 0.364 | 0.017 | 0.562 | **1.020** | 1.965 | −0.038 | +0.513 |
+
+*`rms(vertical)/rms(2F)` is 0.046 / 0.038 / 0.034 / 0.033* at `L = 0/2/4/8` — **inside M0's
+0.4-14 % bracket** at 16 LST, and consistent with task 2's 2.7-6.5 % of `2F`. The factorised
+diagnostic is smaller throughout (0.036 / 0.028 / 0.023 / 0.017), i.e. the dropped
+`-w grad(b_z) . grad b` is a 20-50 % part of the term and grows with `L` — the factorised form
+is not a usable substitute. `surface_flux/2F` is 0.71 / 0.74 / 0.82 / 1.08, matching task 2's
+0.65-0.94 and exceeding `2F` itself at `L = 8`.
+
+*M3-Q2's gate placement is vindicated by the data.* The OLS slope of `DGDt_euler` on
+`DGDt_semilag` (front pixels) is **0.749 / 0.870 / 0.935 / 0.968** with corr 0.754 / 0.906 /
+0.972 / 0.987 at `L = 0/2/4/8`: it **fails** at `L = 0` and **passes** at `L >= 2`, which is
+precisely why M3-Q9 gates it at `L >= 2`. That decision was taken before any of these numbers
+existed.
+
+**The finding task 6 will have to deal with: at hour 0 the budget does not close at any `L`.**
+`rms(residual)/rms(measured)` is 0.90-1.02 against M3-Q1's 0.50; the explained fraction is
+0.13-0.19 (−0.04 at `L = 8`) against 0.75; and the residual's slope on `2F` is +0.24 to +0.51
+against ±0.10. `2F` is only 0.42-0.54 of measured in rms, and the residual is ~1.8-2.2x `2F`.
+`2F` itself is right — `rms(Fbar)` 1.54e-19 at `L = 2` against M1 task 4's 1.8e-19 at the
+snapshot — so the gap is in `measured`, which on the **real** next hour carries everything the
+hourly snapshots contain (internal waves and the tide above all) that `F` at the midpoint cannot
+represent. **This is one pair at one hour**, not the 72-hour statistic M3-Q1 is declared
+against; task 6 is the gate, and nothing here is a verdict. Recorded now, unmassaged, so the
+number cannot drift between tasks. `closure_report` returns `closed=False` for this pair at
+every `L`, as it should.
+
+*Wall time* **5.8-7.2 s per `L` per pair** (24-core workstation, single-threaded). The task-4
+sweep is therefore ~71 pairs x 4 `L` x 6 s ≈ **30 min** of compute, far less than the prompt's
+anti-stall rules assume — but still to be launched detached.
+
+*`front_width` on the real hour*: the median over front pixels is **2.17 / 2.81 / 3.88 / 5.93**
+dx at `L = 0/2/4/8`. The `L = 0` value sits exactly at the proxy's measured resolution floor
+(2.17 dx, see the tests), i.e. the unfiltered fronts of this tile are at or below the width the
+2 dx gradient stencil can represent — a real constraint on M3-Q5's narrow bins, not a bug.
+
+**`tests/test_budget.py` — 32 tests, all offline but one.** The synthetic hour pair is built **in
+buoyancy space**: a field `b_t` is chosen, advected one hour by `semilag`'s own step, and both
+hours are turned back into `Theta` by inverting JMD95 at uniform `Salt` on a 40,001-point
+monotone table (`operators.buoyancy` then recovers the intended `b` to ~1e-9 relative). This
+matters: `compute_budget` reaches `b` only through the EOS, so advecting `Theta` instead would
+make the truth `f(interp Theta)` while the measurement expects `interp f(Theta)`, and the EOS's
+curvature would enter the residual as a fake numerical term.
+
+Three places where the prompt's expected number did not survive contact, each resolved by
+measuring rather than by loosening a tolerance:
+
+1. **"residual < 2 % of measured (the V3 identity)" holds only for the *pure deformation*.**
+   `synthetic.null_strain_case`'s default velocity (the V3 'strain mix': shear, vorticity and
+   divergence modes at 36-48 dx) gives **8.1 %**, and that is not this module's doing —
+   `validate.null_step` on the same inputs gives 8.108 % too, and `compute_budget` reproduces it
+   to five decimals. With the modes off (`u = -a x, v = a y`) the residual is **1.0 %** at
+   `ell = 8 dx` and **1.7 %** at `ell = 4 dx`. The test therefore asserts < 2 % on the pure
+   deformation *and* records the strain mix's 4-10 % floor in a second test, so the 2 % figure
+   can never be mistaken for what the operators do on a varying flow.
+2. **"uniform fluxes → `surface_flux = 0` exactly" is false, and interestingly so.** `B_sfc`
+   carries JMD95's `alpha(Theta, Salt)`, which rises ~1.1e-5 K^-2 at 17 degC, so a *spatially
+   uniform* 100 / 200 W m^-2 across a temperature front still has a buoyancy-tendency gradient:
+   **0.4 % of `2F`** in rms in the test case, with `W = 0` so nothing else can contribute.
+   **Zero** fluxes give exactly zero, which is the clean identity, so the two tests are now
+   "zero fluxes → exactly 0" and "uniform fluxes → a small but real term through `alpha(T)`".
+   Worth knowing before Figure 6 is read as "the flux gradient": part of that term is the flux
+   field and part is the front's own temperature.
+3. **"`tau_delta` changes the subfilter term" cannot be shown on the pure deformation.**
+   `u = -a x, v = a y` is exactly non-divergent and `tau_delta = mean(b div u) - bbar div ubar`
+   is identically zero for a non-divergent (or uniformly divergent) flow. That test uses the V3
+   strain mix.
+
+**`front_width`'s stated tolerance (M3-Q5).** The proxy does not return `ell` but
+**`sqrt(ell^2 + 3.5 dx^2)`**, to within 6 % over `ell = 1..8 dx` (measured: 2.166, 2.420, 2.747,
+3.534, 4.411, 6.280, 8.212 dx for `ell = 1, 1.5, 2, 3, 4, 6, 8`). The 2 dx centred gradient
+stencil inside `G` cannot represent a front narrower than ~1.9 dx, so the proxy has a floor
+there; it is within 11 % of `ell` itself only for `ell >= 4 dx`, and narrower fronts are reported
+wider, **monotonically** — which is what M3-Q5's binning needs. A property of the discretisation,
+stated, not tuned away.
+
+The remaining tests: the Laplacian exact on a quadratic and `-k^2` on a sine; `compute_budget`
+term-by-term against `validate.null_step`; the loud degradation without `chunk_ds` (variables
+absent not zero, `terms_missing`, `closed=None`, the warning present in `format_closure`'s text);
+`W_k1 = 0` → `vertical` exactly 0 and `b_z < 0` in the median for a warm layer; an
+upward-positive flux store refused through `inputs`; `subfilter` identically 0 at `L = 0` and
+non-zero at `L = 2`; `two_F_chain != two_F` and `forms` required to contain `'discrete'`; the
+order-5 NaN rim wider than order 3; the §3.4 var list, dims, dtypes and attrs; `valid` dropping a
+planted NaN and counting it in `n_lost`; the front pool selected on `G_mid` alone and p80 wider
+than p90; `residual` equal to measured minus the terms present; `write_derived` write / resume
+no-op / clobber / wrong-`L` refusal; and both report pools, the gate wiring and a hand-made large
+residual flipping the verdict to `False`.
+
+**Suite: `192 passed, 3 xfailed, 2 deselected` in 212 s** (160 before + the 32 new), the three
+strict xfails unchanged.
+
+**One deviation to flag for task 8's audit.** `budget.py` is **644 lines** against coding §1.3's
+"no module may exceed ~400 lines". It was not split because the prompt names `budget.py` as one
+of the three modules to write and the pieces are one unit (the §3.4 packing, the verdict and the
+store all read the same term list); `validate.py` (1087) and `osn_tiles.py` (556) are the
+existing precedents. If task 8 wants it inside the cap, the natural cut is the three discrete
+helpers (`staggered_grad`, `laplacian`, `front_width`, ~90 lines) into `operators.py`, where
+`laplacian` arguably belongs anyway.
+
+Scratch (session scratchpad, outside the repo): `m3t3_smoke.py`, `m3t3_smoke.json`,
+`m3t3_smoke.log`, `suite_m3t3.log`, and the four throwaway probes. Not touched: `operators.py`,
+`semilag.py`, `coarsegrain.py`, `vertical.py`, `inputs.py`, `masking.py`, `validate*.py`,
+`zarr_series.py`, `osn_tiles.py`, every other test, `pytest.ini`, `conftest.py`, `deck/`, the
+data stores (read-only). Nothing committed.
+
+### 2026-10-10 — Execution prompt 4, task 4: the L sweep over the 72 hours (Opus 5)
+
+*(entry started early; extended below)*
+
+**Scope.** Task 4 of `frontogenesis_prompt_4.md` only: `py/m3_run.py`, the
+`series_verify.verify_derived_series` the sweep's output is checked with, the pilot, and the
+detached sweep over `L = {0, 2, 4, 8}` x pairs 0..70. On the workstation (task 2b): interpreter
+`/home/xavier/miniconda3/envs/frontogenesis/bin/python`, long jobs `nohup ... &` inside `tmux`
+(no `caffeinate` on Linux; this box does not suspend).
+
+**Written.** `py/m3_run.py` (new, 337 lines), `series_verify.verify_derived_series` (+ two
+private checks and `N_LOST_MAX_L8`, `series_verify.py` 362 → 494 lines),
+`py/tests/test_m3_run.py` (new, 19 tests). `budget.py` untouched. Nothing committed.
+
+**`m3_run.py`.** Flags `--L 0,2,4,8`, `--pairs a:b`, `--dry-run`, `--no-chunk`, `--clobber`.
+Outer loop over `L` so one store is finished before the next is opened; one pair in memory at a
+time. **Resumable in both places**: `write_derived` skips a pair already in the store
+(`zarr_series.present_times`) and the closure report is cached per pair in
+`data/m3_closure_L{L}.json`, rewritten atomically after **every** pair. The two can disagree only
+if a run is killed between the append and the JSON write, so the next run detects that case and
+recomputes just those reports — the store is the authority. `--no-chunk` writes to
+`tile330_derived_noChunk_L{L}.zarr`, never the real product, and strips the §3.3 variables from
+the dataset rather than withholding an argument, so the terms are genuinely *absent* and every
+report a no-verdict catch-all.
+
+**Pilot (foreground, `timeout 300`, `--pairs 0:2 --L 0,8`).** 4 budgets, **6.4-7.0 s each**,
+28 s total. Extrapolation 284 × 6.8 s ≈ **32 min** — an order of magnitude under the prompt's
+1-4 h estimate and far under the 6 h split threshold, so all four `L` went in one launch.
+
+**M3-Q3's optional `L = 1` column cannot be run.** The pilot did leave time to spare, so the
+option was live — but `operators.lowpass` **refuses an odd `L`**: the top-hat's half-width is
+`L/2` and must be an integer (`ValueError: lowpass: L_cells must be even`). Adding `L = 1` would
+mean a different filter, not an extra column, which is well beyond "needs no new mask". Recorded
+as a test (`test_lowpass_refuses_an_odd_L`) so the option is not proposed again without that
+change. The contract is `{0, 2, 4, 8}`, unchanged, and `verify_derived_series` counts 71 pairs
+per `L` with no extra column.
+
+**The sweep.** Launched detached in `tmux` (`nohup … &`; no `caffeinate` on Linux, task 2b):
+
+```
+tmux new-session -d -s m3run "cd dev/frontogenesis/py && nohup \
+    /home/xavier/miniconda3/envs/frontogenesis/bin/python m3_run.py > ../data/m3_run.nohup 2>&1"
+```
+
+**`status=ok`, 280 budgets computed (4 already there from the pilot), wall 1807 s = 0.50 h, no
+failures and no relaunches.** Per-pair wall over all 280: **median 6.41 s, min 5.75, max 7.62**.
+
+| L | pairs | reports | GB | median s | min | max | MB/pair |
+|---|---|---|---|---|---|---|---|
+| 0 | 71 | 71 | 1.85 | 6.30 | 5.80 | 7.00 | 26.1 |
+| 2 | 71 | 71 | 1.91 | 6.30 | 5.70 | 7.60 | 26.9 |
+| 4 | 71 | 71 | 1.89 | 6.60 | 5.90 | 7.10 | 26.6 |
+| 8 | 71 | 71 | 1.85 | 6.50 | 5.80 | 7.30 | 26.0 |
+
+**7.50 GB total** — 26 MB per pair per `L` after zstd, against 44.6 MB uncompressed.
+
+**Verification — all four stores `ok`.** `verify_derived_series(store, timestamps_72()[:71], L)`:
+71 pairs, no gaps, no duplicates, in order; 24 variables (the 23 `DERIVED_VARS` plus the static
+`coast_distance_km`); every float field `float32` and the two masks `bool`; one chunk per pair in
+every array; the coords, the `seconds since 2011-09-10` time encoding and the root attrs present;
+`L_cells` matching; land NaN in every pair of every field; `time_mid` exactly 30 min after
+`time`; `front` inside `valid` everywhere.
+
+**The re-run is a no-op, and byte-identical.** `m3_run.py` with no arguments: **0 computed, 284
+skipped, 18 s**; the sha256 of all **7308** chunk and metadata files across the four stores is
+unchanged. *(The prompt assigns this check to task 5; it is done here because this session
+outlived the run. Task 5 should still repeat it as instructed — it costs 18 s.)*
+
+**`n_lost` against M2 task 3's envelope.** **0 at `L = 0, 2, 4`** on all 71 pairs. At `L = 8`:
+min 10, **median 19**, **max 31** (pair 64; then 29 at pair 65). The 2026-10-07 note's two
+anchors reproduce **exactly** — pair 44 loses **26** and pair 0 **21** with `U`, `V` low-passed at
+the same `L` — but neither is the worst pair: pairs 64 and 65, which M2 task 3 never looked at,
+lose more. The bound of **34 still holds**, with less margin than the note implied (31 of 34, not
+26 of 34). `verify_derived_series` enforces 0 at `L <= 4` and ≤ 34 at `L >= 8`.
+
+**What the 71 pairs say — the data task 6 will gate on.** Median over the 71 pairs on
+`front & valid`, rms relative to `rms(measured)`, with the [min, max] range:
+
+| L | 2F | subfilter | vertical | surface_flux | residual | explained | closed |
+|---|---|---|---|---|---|---|---|
+| 0 | 0.521 [0.394, 0.627] | 0.000 | 0.015 [0.009, 0.029] | 0.378 [0.223, 0.483] | **0.831** [0.715, 0.998] | +0.317 | **0/71** |
+| 2 | 0.610 [0.450, 0.775] | 0.190 [0.132, 0.318] | 0.014 [0.007, 0.027] | 0.488 [0.286, 0.604] | **0.861** [0.714, 1.012] | +0.271 | **0/71** |
+| 4 | 0.652 [0.497, 0.876] | 0.337 [0.250, 0.532] | 0.014 [0.007, 0.025] | 0.601 [0.378, 0.745] | **0.910** [0.731, 1.066] | +0.186 | **0/71** |
+| 8 | 0.666 [0.533, 0.871] | 0.473 [0.368, 0.668] | 0.015 [0.007, 0.024] | 0.831 [0.551, 0.996] | **1.048** [0.824, 1.245] | −0.053 | **0/71** |
+
+Task 3's hour-0 result holds across the whole window: **the budget does not close at any `L` on
+any pair** against M3-Q1 (residual ≤ 0.50 of measured, explained ≥ 0.75, residual-on-`2F` slope
+within ±0.10; the medians are 0.83-1.05, +0.32 to −0.05, and +0.40 to +0.52). Task 4 produces the
+data; **task 6 is the gate and the place to interpret this**, and the prompt's own instruction
+stands — if closure fails, that is the result, written up as a methodological finding rather than
+a slope quoted anyway.
+
+Three things in the sweep that task 6 will want:
+
+- **`subfilter/2F` is 0.000 / 0.316 / 0.525 / 0.742** (median) at `L = 0/2/4/8`, tracking M1 task
+  4's hour-0 0.31 / 0.50 / 0.70 across all 71 pairs — the term grows with `L` rather than
+  converging, as M1 found.
+- **M3-Q2 passes only where it is gated.** The median OLS slope of `DGDt_euler` on
+  `DGDt_semilag` is **0.714 / 0.823 / 0.898 / 0.939** with corr 0.766 / 0.921 / 0.973 / 0.986.
+  At `L = 0` it is far outside 0.85-1.15; from `L = 2` it is inside, and the correlation clears
+  0.90 at every gated `L`. M3-Q9's "judge at `L >= 2`" was decided before any of this was
+  computed.
+- **The diurnal signatures are not the expected ones.** The vertical term is ~1.5 % of measured
+  with almost no day/night contrast (0.018 day vs 0.015 night at `L = 0`), not the "~30 % of `F`
+  by day, ~0 at night" the prompt anticipated — the same conclusion task 2 reached from the
+  0.01 K warm layer. The surface-flux term is **larger at night than by day** (0.42 vs 0.30 at
+  `L = 0`; 0.88 vs 0.67 at `L = 8`), again consistent with task 2: it is dominated by the
+  non-solar flux gradient, not by the solar term that would peak at 13 LST. Figure 6 should be
+  drawn knowing this.
+
+**Scale-up to the 504-hour OSN series**, extending M2's table with the budget's own cost:
+
+| stage | per tile-hour | 72-hour window | 504-hour series |
+|---|---|---|---|
+| OSN surface pull (M2 task 2) | ~23 s, 11 MB | 28 min, 0.75 GB | 3.2 h, 5.3 GB |
+| chunk pull k=0..2 (M2 task 5) | ~300 s at 0.55 MB/s, 175 MB (37 s at the 4.7 MB/s of 10-04) | 6.3 h (0.7 h), 12.6 GB | 42 h (5.2 h), 88 GB |
+| **M3 budget, 4 `L` (this task)** | **4 × 6.4 s, 4 × 26 MB** | **0.50 h, 7.5 GB** | **3.58 h, 53.2 GB** |
+
+The budget is **not** the bottleneck — the chunk pull is, by an order of magnitude, and a
+server-side `k = 0..2` subset would cut that fetch ~7x. At 504 hours the sweep is 3.6 h of
+single-threaded compute and 53 GB; the 24 cores are idle throughout (`user` ≈ `real`), so an
+embarrassingly parallel split over `L`, or over pair blocks, would bring it under an hour if it
+ever matters.
+
+**`tests/test_m3_run.py` — 19 tests, all offline.** The store under test is written by
+`budget.write_derived` from a synthetic hour pair with every term present, and each defect case
+is that store rewritten with one thing wrong: a missing variable, `float64` on disk, two pairs
+sharing a chunk, a `time_mid` 37 min after `time`, a `front` pixel outside `valid`, a finite
+value on newly-declared land, the wrong `L_cells`, a gap in `time`, and `n_lost` over the
+envelope. Plus the `n_lost` reference being the §3.5 analysis mask and not the store's own
+maximum (a bug found and fixed during the pilot: with a within-store maximum, `L = 8` reported
+`n_lost_max = 3` instead of 21, because *every* pair loses cells there); the runner's pair-range
+parsing and clipping; `--no-chunk` keeping separate store and JSON names so it can never
+overwrite the real product, and genuinely stripping the chunk variables; the closure cache's
+atomic round trip and its recovery from a file truncated mid-write; and `lowpass` refusing an
+odd `L`.
+
+**Suite: `211 passed, 3 xfailed, 2 deselected` in 215 s** (192 before + the 19 new).
+
+Scratch (session scratchpad, outside the repo): `m3t4_report.py`, `m3t4_summary.json`,
+`suite_m3t4.log`, the two sha256 manifests. In `data/` (the script's own products, as the rules
+allow): `tile330_derived_L{0,2,4,8}.zarr`, `m3_closure_L{0,2,4,8}.json`, `m3_run.log`,
+`m3_run.nohup`, `m3_run_done.json`. Not touched: `budget.py`, `operators.py`, `semilag.py`,
+`coarsegrain.py`, `vertical.py`, `inputs.py`, `masking.py`, `validate*.py`, `zarr_series.py`,
+`osn_tiles.py`, the M0/M1/M2 stores (read-only), `deck/`. Nothing committed.
+
+### 2026-10-10 — Execution prompt 4, task 5: stats.py, estimators and the space-time block bootstrap (Opus 5)
+
+*(entry started early; extended below)*
+
+**Scope.** Task 5 of `frontogenesis_prompt_4.md` only: the task-4 hand-over checks, then
+`py/stats.py` and `py/tests/test_stats.py`. No figure, no closure number — task 6 owns those.
+Planning §11 read first, as instructed.
+
+**Task-4 hand-over, repeated here as the prompt asks.** `data/m3_run_done.json` reads
+`status=ok`, 4 x 71 pairs present, 71 cached reports each, 7.50 GB. The no-op re-run computed
+**0 pairs** in 16 s and left all **7308** chunk and metadata files byte-identical (sha256).
+`verify_derived_series` is **ok** on all four stores: 71 pairs, no gaps, `n_lost` 0 at
+`L <= 4` and max 31 / median 19 at `L = 8`, inside M2 task 3's bound of 34.
+*(One wrinkle: `m3_run_done.json` records the **last** run, so the 0.50 h full-sweep timing now
+lives only in `data/m3_run.log`, which keeps the whole history. Task 8 should read the log, not
+the done-file, for the sweep's cost.)*
+
+**Written.** `py/stats.py` (new, 469 lines) and `py/tests/test_stats.py` (new, 26 tests).
+`validate.py` **not edited** — it is M1's, and closed. Nothing committed.
+
+**`stats.py`.** Coding §4.8's signatures plus what M1-M2 found necessary: `slope_ols` (with
+intercept — the gate's definition), `slope_tls`, `slope_bisector`, `slope_trimmed(pct=1.0)`,
+`ratio_estimator(split_sign=True)`, `binned_conditional_mean(... ) -> DataFrame`,
+`block_bootstrap` / `feature_bootstrap`, `block_ids` / `space_time_block_ids`, `slope_report`
+and `format_report`. Module constants carry the baselines: `BASELINE = 0.981`,
+`BASELINE_CI = (0.970, 0.994)`, `V3B_BAND = (0.954, 1.003)`, `TEMPORAL = (0.972, 0.020)`.
+
+**The equivalences with `validate` are exact, not approximate.** `_moments` is written exactly as
+`validate.slope_estimators` writes it — `np.sum` of the centred products, not a dot product —
+so `stats.slope_ols` and `stats.slope_tls` are **bit-identical** to `validate`'s `ols` and
+`orthogonal` (the first draft used `@` and differed in the 16th digit; the equality is worth more
+than the speed, and the test is an `==`). `block_ids` reproduces `validate._block_ids`, and
+`block_bootstrap(..., slope_ols, seed=0)` makes the **same multinomial draw** as
+`validate.block_bootstrap_ols`, so their CIs agree to 1e-12 rather than only within bootstrap
+noise.
+
+**A performance problem found and fixed on the real pool.** The first implementation materialised
+each replicate's sample by looping over blocks in Python. On the synthetic tests (16-64 blocks)
+that was fine; on the **real M3 pool — 1,866,803 front pixels over 71 pairs in 17,165 one-hour
+blocks** — it did not finish in two minutes. The fix is the trick `validate.block_bootstrap_ols`
+already used, generalised: an estimator that is a function of the per-block sufficient statistics
+`(n, Sx, Sy, Sxx, Syy, Sxy)` alone carries a **`moment_form`**, and its replicates are one matrix
+product with nothing materialised. `slope_ols`, `slope_tls`, `slope_bisector` and `mean_y` have
+one; `slope_trimmed` cannot (its trim threshold depends on the resample) and takes a general path
+that is now vectorised (no Python loop over blocks) but still ~100x dearer. A test strips the
+`moment_form` off a copy of `slope_ols` and asserts the two paths give the **same replicates**,
+not merely compatible intervals. The offline suite went from 33 s to 2.5 s, and `slope_report` on
+the real pool from "did not finish" to 99 s — then to **23.8 s** once `n_boot_general = 200` gave
+the trimmed estimator its own (shallower, and recorded) replicate count. Task 6 can afford
+`slope_report` per `L`.
+
+**`tests/test_stats.py` — 26 tests, offline, every one a mechanism planning §11 names.**
+
+| guard | measured |
+|---|---|
+| known slope recovered by all four estimators | within 1 % at `b` = 0.6 / 0.9 / 1.3 |
+| **attenuation**: OLS -> `b var(X)/(var(X)+var(eta))`, TLS -> `b` | at `eta` sd 0.3: OLS 0.8265 vs 0.8257 predicted, TLS 0.9008 vs 0.9; at 0.6: 0.6640 vs 0.6618, TLS 0.9028 |
+| the **bisector is not a fix** — it overshoots | 0.910 at sd 0.3, 0.933 at 0.6 (truth 0.9) |
+| **leverage**: one heavy-tailed point | OLS 0.897 -> 0.760; trimmed 0.8980 -> 0.8980 (4 dp) |
+| **ratio on a two-signed pool** | `all` **1.18** where OLS is 1.000 and pos/neg are 1.0009/0.9991; cancellation `sum|x|/|sum x|` = 196 |
+| **block vs pixel bootstrap** on an autocorrelated field | block CI **15.2x** wider (64 blocks vs 65,536 pixels) |
+| **3-hour blocks** on a temporally correlated series | **1.58x** wider than 1-hour — and **0.63x**, i.e. *narrower*, when the series is uncorrelated |
+| `binned_conditional_mean` returns the asymmetry | 1.2 / 0.4 either side of zero recovered to 2 %, while one pooled slope is neither |
+| `validate` equivalences | `==` for OLS, TLS, ratio; 1e-12 for the bootstrap CI |
+| `slope_report` divides by the baseline | `relative = value / 0.981`, asserted `!= value` |
+
+The 3-hour-block test is the one worth singling out. Deepening the block **widens the interval
+only when the hours really are correlated**; on a series whose per-pair offset alternates every
+hour the 3-hour block is *narrower*, because fewer, larger units average more within each. So the
+widening is the correlation and not the coarser blocking — which is exactly the claim M2 task 3's
+chi^2/dof 1.8 rests on, and it would have been easy to "confirm" with a test that only checked
+the interval got bigger.
+
+**Machinery check on the real pool — these are NOT task 6's numbers.** Run only to show
+`stats.py` works at scale and to time it; the selection, the pooling and the interpretation are
+task 6's, and nothing here is a result. On `front & valid` across all 71 pairs, `two_F` against
+`DGDt_semilag`: at `L = 0` the pool is 1,866,803 pixels in 17,165 blocks; at `L = 8`, 1,866,659
+in 11,391. Two observations that are about the *machinery*:
+
+- **3-hour blocks widen the real interval by 1.52x (`L = 0`) and 1.54x (`L = 8`)** — the same
+  effect the synthetic test pins, now on the data, and comfortably consistent with M2 task 3's
+  chi^2/dof 1.8 (sqrt 1.8 = 1.34). The hour-to-hour correlation is real and the one-hour block
+  does not see it. **Task 6 should quote the 3-hour interval**, or both.
+- **The split ratio earns its keep.** At `L = 8` the unsplit `sum(y)/sum(x)` reads **0.088**
+  while `pos` and `neg` read 0.61 and 1.05. A pool with both signs of `2F` destroys the
+  denominator exactly as M1 task 6 flag 5 said; quoting `all` would have been a disaster.
+
+Also visible, and task 6's to explain rather than mine: TLS sits far above OLS on the real pool
+(2.4 vs 1.34 at `L = 0`), which in planning §11's language means **both axes carry a lot of
+noise** — the regime where the OLS/TLS gap is informative and a single slope is not.
+
+**Suite: `237 passed, 3 xfailed, 2 deselected` in 210 s** (211 before + the 26 new).
+
+**One deviation to flag for task 8's audit.** `stats.py` is **469 lines** against coding §1.3's
+~400 — about 90 of them the two-path bootstrap the real pool forced. If task 8 wants it inside
+the cap, the clean cut is the sufficient-statistics machinery (`SUFFICIENT`, `_central`,
+`_moment_form`, the four `_*_T` forms, `_block_sums`, `_resample_index`) into a small private
+module; the public API would not move.
+
+Scratch (session scratchpad, outside the repo): `t5_machinery.py`, `t5_machinery.log`,
+`t_stats.py`, `t_cal.py`, `suite_m3t5.log`, two sha256 manifests. Not touched: `validate.py`,
+`budget.py`, `m3_run.py`, `operators.py`, `semilag.py`, `coarsegrain.py`, `vertical.py`,
+`inputs.py`, `masking.py`, `zarr_series.py`, `osn_tiles.py`, `series_verify.py`, every other
+test, `pytest.ini`, `conftest.py`, `deck/`, the data stores (read-only). Nothing committed.

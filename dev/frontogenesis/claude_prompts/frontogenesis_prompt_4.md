@@ -31,7 +31,58 @@ skan 0.13.1, python-pptx 1.0.2; torch/torchvision/healpy/pyvista/PyQt6/pyqtgraph
 none imported by M3; `fronts` and `dbof` both editable `--no-deps`, dbof from a worktree pinned
 at `938bce1`; suite **160 passed + 3 xfails**, 2 deselected, **194 s**; both 72-hour stores
 verify `ok`; OSN and Nautilus both reachable; `soffice`/`pdftoppm` already present;
-log entry "Execution prompt 4, task 2b"). **Tasks 3-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+log entry "Execution prompt 4, task 2b"). **Task 3 done 2026-10-10** (`py/budget.py` 644 lines
++ `tests/test_budget.py` 32 tests; suite **192 passed + 3 xfails**, 2 deselected, 212 s; the
+three hour-0 bit-for-bit identities hold (`two_F` = `validate.two_F(form='discrete')`,
+`DGDt_semilag` = `validate.null_step`'s `measured` with the real `b_tp1`); `n_valid` 262,925 /
+`n_front` 26,293 at `L = 0, 2, 4` and 262,904 / 26,291 at `L = 8` (21 lost, inside M2's
+prediction); `subfilter` reproduces M1 task 4 — 0.323 / 0.506 / 0.702 of `Fbar` at `L = 2/4/8`,
+corr −0.62 / −0.60 / −0.56; `vertical`/`2F` 0.033-0.046, inside M0's bracket; `surface_flux`/`2F`
+0.71-1.08; the euler/semilag slope 0.749 / 0.870 / 0.935 / 0.968 — failing at `L = 0`, passing
+at `L >= 2`, vindicating M3-Q9. **Hour 0 does not close at any `L`**
+(`rms(residual)/rms(measured)` 0.90-1.02 vs 0.50, explained 0.13-0.19 vs 0.75) — one pair, not
+the 72-hour statistic the gate is declared against; task 6 judges it. Findings: the "< 2 %" V3
+identity holds for the pure deformation (1.0-1.7 %) but the V3 strain mix's own floor is 8.1 %;
+uniform fluxes give a **non-zero** surface-flux term (0.4 % of `2F`) through `alpha(T)`;
+`front_width` returns `sqrt(ell^2 + 3.5 dx^2)`, with a ~1.9 dx floor, and the real `L = 0` fronts
+sit at it. Wall time 5.8-7.2 s per `L` per pair → the task-4 sweep is ~30 min; log entry
+"Execution prompt 4, task 3"). **Task 4 done 2026-10-10** (`py/m3_run.py` +
+`series_verify.verify_derived_series` + `tests/test_m3_run.py` 19 tests; suite **211 passed +
+3 xfails**, 2 deselected, 215 s. The sweep ran `status=ok` in **0.50 h**: 284 pair-budgets,
+**71 pairs on every `L` of {0, 2, 4, 8}**, 7.50 GB (26 MB per pair per `L`), median 6.41 s per
+budget, no failures or relaunches. All four stores `verify_derived_series` **ok**; the re-run is
+a no-op and all **7308** files are byte-identical. `n_lost` **0 at `L <= 4`**; at `L = 8` median
+19, **max 31 (pair 64)** — M2's bound of 34 holds, and the note's anchors reproduce exactly
+(pair 44 → 26, pair 0 → 21), but neither is the worst pair. **M3-Q3's optional `L = 1` column is
+not available**: `operators.lowpass` refuses an odd `L` (half-width `L/2` must be an integer), so
+it would mean a different filter, not an extra column — recorded as a test. **The budget does not
+close on any of the 71 pairs at any `L`** (median residual/measured 0.83 / 0.86 / 0.91 / 1.05
+vs M3-Q1's 0.50; explained +0.32 / +0.27 / +0.19 / −0.05 vs 0.75) — task 6 is the gate and the
+place to interpret it. M3-Q2's median euler/semilag slope 0.714 / 0.823 / 0.898 / 0.939 fails at
+`L = 0` and passes from `L = 2`, vindicating M3-Q9 a second time. The diurnal signatures are not
+the expected ones: the vertical term is ~1.5 % of measured with almost no day/night contrast, and
+the surface-flux term is **larger at night**, both as task 2 found. Scale-up: the budget is not
+the bottleneck — 3.58 h and 53 GB for the 504-hour series against the chunk pull's 42 h; log
+entry "Execution prompt 4, task 4"). **Task 5 done 2026-10-10** (`py/stats.py` 469 lines +
+`tests/test_stats.py` 26 tests; suite **237 passed + 3 xfails**, 2 deselected, 210 s.
+`validate.py` not edited; the equivalences are **exact** — `stats.slope_ols` / `slope_tls` are
+bit-identical to `validate.slope_estimators`' `ols` / `orthogonal`, and `block_bootstrap` makes
+the same multinomial draw as `validate.block_bootstrap_ols` (CIs agree to 1e-12). Planning §11's
+mechanisms are all pinned: OLS attenuates to `b var(X)/(var(X)+var(eta))` within 1 % while TLS
+does not (and the bisector **overshoots**, so it is not a fix); one leverage point moves OLS 0.897
+→ 0.760 and the trimmed estimate not at all; the unsplit ratio reads 1.18 where OLS reads 1.000;
+the block bootstrap is **15.2x** wider than a pixel bootstrap; 3-hour blocks are **1.58x** wider
+than 1-hour **only when the series is correlated** (0.63x, i.e. narrower, when it is not — so the
+widening is the correlation, not the coarser blocking). The real pool forced a **two-path
+bootstrap**: estimators that are functions of the per-block sufficient statistics carry a
+`moment_form` and bootstrap by one matrix product (`slope_trimmed` cannot and takes the
+vectorised general path), which took `slope_report` on 1.87 M pixels / 17,165 blocks from "did
+not finish" to **23.8 s**. Machinery check only, **not** task 6's numbers: 3-hour blocks widen
+the real interval 1.52-1.54x — task 6 should quote that interval, or both — and at `L = 8` the
+unsplit ratio reads 0.088 against pos/neg 0.61/1.05, so the split is load-bearing. Task 4's
+hand-over re-checked: re-run computed 0 pairs, all 7308 files byte-identical,
+`verify_derived_series` ok on all four stores; log entry "Execution prompt 4, task 5").
+**Tasks 6-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),

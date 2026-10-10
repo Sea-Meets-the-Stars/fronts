@@ -360,3 +360,148 @@ def verify_chunk_series(out_zarr, timestamps, levels: dict = None, k_max: int = 
     res['ok'] = all(r['ok'] for r in res.values())
     res['path'] = str(out)
     return res
+
+
+# ---------------------------------------------------------------------------
+# the §3.4 derived store (M3 task 4)
+# ---------------------------------------------------------------------------
+#: §3.4 plus the M3 additions; ``budget.DERIVED_VARS`` is the authority and is
+#: imported lazily so ``series_verify`` keeps working without ``budget.py``
+DERIVED_BOOL = ('valid', 'front')
+DERIVED_STATIC = ('coast_distance_km',)
+DERIVED_COORDS = ('time', 'time_mid', 'j', 'i', 'XC', 'YC')
+DERIVED_ATTRS = ('L_cells', 'front_pct', 'edge_cells', 'order', 'order_sens', 'measured',
+                 'terms_present', 'terms_missing', 'budget', 'operators', 'git_commit',
+                 'dbof_commit', 'vars', 'schema')
+#: M2 task 3's bound on the analysis cells one pair may lose at ``L = 8``
+#: (pair 44 with the raw midpoint velocity; 26 with ``U``/``V`` low-passed at
+#: the same ``L``, and 21 at pair 0 either way -- note 2026-10-07, M3 task 1)
+N_LOST_MAX_L8 = 34
+
+
+def _derived_vars():
+    import budget as bg
+    return tuple(bg.DERIVED_VARS)
+
+
+def _check_derived_schema(ds: xr.Dataset, L: int) -> dict:
+    """The §3.4 (+ M3 additions) contract: every variable, its dims, its
+    dtype (``float32`` on disk, ``bool`` for the two masks), one chunk per
+    pair, the coords, the time encoding and the root attrs."""
+    want = _derived_vars()
+    missing = [v for v in want if v not in ds.data_vars]
+    extra = [v for v in ds.data_vars if v not in want + DERIVED_STATIC]
+    bad_dims = {v: tuple(ds[v].dims) for v in want if v in ds
+                and tuple(ds[v].dims) != ('time', 'j', 'i')}
+    bad_dtype = {v: str(ds[v].dtype) for v in want if v in ds
+                 and str(ds[v].dtype) != ('bool' if v in DERIVED_BOOL else 'float32')}
+    bad_chunks = {}
+    for v in want:
+        if v in ds:
+            ch = ds[v].encoding.get('chunks')
+            if ch is None or ch[0] != 1:
+                bad_chunks[v] = ch
+    r = dict(n_vars=len(ds.data_vars), missing=missing, extra=extra, bad_dims=bad_dims,
+             bad_dtype=bad_dtype, bad_chunks=bad_chunks,
+             missing_coords=[c for c in DERIVED_COORDS if c not in ds.coords],
+             missing_attrs=[a for a in DERIVED_ATTRS if a not in ds.attrs],
+             L_cells=ds.attrs.get('L_cells'), L_expected=int(L),
+             time_units=ds['time'].encoding.get('units'),
+             static_present=[v for v in DERIVED_STATIC if v in ds.data_vars])
+    r['ok'] = (not missing and not extra and not bad_dims and not bad_dtype and not bad_chunks
+               and not r['missing_coords'] and not r['missing_attrs']
+               and r['L_cells'] == int(L) and r['time_units'] == TIME_UNITS)
+    return r
+
+
+def _check_derived_hours(ds: xr.Dataset, land: np.ndarray, L: int, n_analysis: int) -> tuple:
+    """Per pair: land is NaN in every float field (the derived fields are
+    built from NaN land, so NaN **contains** land -- a filtered or
+    differenced field is NaN beyond it too), ``time_mid`` is ``time`` plus
+    30 min, ``valid`` is inside the analysis mask, and ``n_lost`` obeys M2
+    task 3's envelope (0 at ``L <= 4``, ``<= 34`` at ``L = 8``)."""
+    want = _derived_vars()
+    land_bad, lost, mid_bad, front_out = {}, [], [], []
+    n_valid = []
+    for t in range(ds.sizes['time']):
+        h = ds.isel(time=t)
+        for v in want:
+            if v in DERIVED_BOOL or v not in h:
+                continue
+            a = np.asarray(h[v].values)
+            n = int(np.sum(land & ~np.isnan(a)))      # finite ON land: forbidden
+            if n:
+                land_bad.setdefault(v, []).append((t, n))
+        dt_min = (h['time_mid'].values - h['time'].values) / np.timedelta64(1, 'm')
+        if float(dt_min) != 30.0:
+            mid_bad.append((t, float(dt_min)))
+        val = np.asarray(h['valid'].values, bool)
+        fr = np.asarray(h['front'].values, bool)
+        n_valid.append(int(val.sum()))
+        if np.any(fr & ~val):
+            front_out.append(t)
+        if int(np.sum(land & val)):
+            land_bad.setdefault('valid', []).append((t, int(np.sum(land & val))))
+    # the reference is the §3.5 analysis mask, NOT the store's own maximum:
+    # at L = 8 every pair loses cells, so a within-store maximum would hide
+    # the loss the M2 task 3 envelope is about
+    n_ana = int(n_analysis)
+    lost = [n_ana - n for n in n_valid]
+    bound = N_LOST_MAX_L8 if int(L) >= 8 else 0
+    over = [(t, n) for t, n in enumerate(lost) if n > bound]
+    r = dict(n_pairs=int(ds.sizes['time']), land_finite=land_bad, time_mid_bad=mid_bad,
+             front_outside_valid=front_out, n_analysis=n_ana,
+             n_valid_max=max(n_valid or [0]), n_valid_min=min(n_valid or [0]),
+             n_lost_max=max(lost or [0]), n_lost_median=float(np.median(lost)) if lost else 0.0,
+             n_lost_bound=bound, n_lost_over_bound=over)
+    r['ok'] = not land_bad and not mid_bad and not front_out and not over
+    return r
+
+
+def verify_derived_series(out_zarr, timestamps, L: int, grid_ds: xr.Dataset = None,
+                          masks=None) -> dict:
+    """Check an ``m3_run`` store against §3.4 + the M3 additions (task 4).
+
+    Parameters
+    ----------
+    out_zarr : path-like
+        ``data/tile330_derived_L{L}.zarr``.
+    timestamps : sequence of str
+        The ``t0`` hours the store should hold, ``dbof`` format -- the
+        **first 71** of ``m2_pull.timestamps_72()``, since a pair is written
+        under its first hour and hour 71 has no successor.
+    L : int
+        The filter scale the store claims, checked against its attr.
+    grid_ds : xarray.Dataset, optional
+        Source of ``hFacC``; default M0's ``tile330_grid.zarr``.
+    masks : xarray.Dataset or path-like, optional
+        §3.5 masks, the reference ``n_lost`` is measured against; default
+        M1's ``tile330_masks.nc``.
+
+    Returns
+    -------
+    dict
+        ``ok`` and one entry per check: ``time`` (gaps, duplicates, order
+        against the request), ``schema`` (vars, dims, ``float32``/``bool``,
+        one chunk per pair, coords, time encoding, root attrs, ``L_cells``)
+        and ``hours`` (land NaN in every pair, the 30-minute ``time_mid``,
+        ``front`` inside ``valid``, and ``n_lost`` within M2 task 3's
+        envelope -- 0 at ``L <= 4``, ``<= 34`` at ``L = 8``).
+    """
+    out = Path(out_zarr)
+    if not out.exists():
+        return dict(ok=False, error=f'{out} does not exist')
+    ds = xr.open_zarr(out)
+    if grid_ds is None:
+        grid_ds = open_grid(DATA_DIR / 'tile330_grid.zarr', with_face=False)
+    land = np.asarray(grid_ds['hFacC'].squeeze().values) == 0
+    if masks is None or not isinstance(masks, xr.Dataset):
+        import masking as mk
+        masks = mk.open_masks(masks if masks is not None else DATA_DIR / 'tile330_masks.nc')
+    n_analysis = int(np.asarray(masks['mask_analysis'].values, bool).sum())
+    res = dict(time=_check_time(ds, timestamps), schema=_check_derived_schema(ds, L))
+    res['hours'] = _check_derived_hours(ds, land, L, n_analysis)
+    res['ok'] = all(r['ok'] for r in res.values())
+    res['path'] = str(out)
+    res['L_cells'] = int(L)
+    return res
