@@ -88,16 +88,22 @@ CONVENTION = ('F units (s^-5): D_h/Dt(G/2) = F + vertical_term + surface_flux_te
               '§3.4 budget fields are 2 x these (budget.py, task 3), as subfilter = 2 * subfilter_term')
 
 
-def sw_fraction_absorbed(dz: float, jwtype: int = JWTYPE) -> float:
+def sw_fraction_absorbed(dz, jwtype: int = JWTYPE):
     """The fraction of ``oceQsw`` absorbed between the surface and depth
     ``dz`` (m), ``1 - swdk(-dz)`` with MITgcm's two-band Paulson-Simpson
     profile for Jerlov water type ``jwtype`` (``swfrac.F``).  For the 1 m
     top cell and the model's type IA this is **0.521** (type I would give
     0.565; the two-band fit is not meant below ~1 m accuracy, so the ~8 %
-    between the types is the honest uncertainty of ``f_sw``)."""
+    between the types is the honest uncertainty of ``f_sw``).
+
+    ``dz`` may be an array (M3-Q13 (c): the mixed-layer sensitivity needs
+    ``f_sw`` at ``KPPhbl``, where it is ~1 -- essentially all the shortwave
+    is absorbed within 20 m); a scalar returns a float, as before."""
     rfac, a1, a2 = JERLOV[int(jwtype)]
-    z = -abs(float(dz))
-    return float(1.0 - (rfac * np.exp(z / a1) + (1.0 - rfac) * np.exp(z / a2)))
+    scalar = np.isscalar(dz) or np.ndim(dz) == 0
+    z = -np.abs(np.asarray(getattr(dz, 'values', dz), dtype='float64'))
+    f = 1.0 - (rfac * np.exp(z / a1) + (1.0 - rfac) * np.exp(z / a2))
+    return float(f) if scalar else (dz.copy(data=f) if hasattr(dz, 'dims') else f)
 
 
 F_SW = sw_fraction_absorbed(1.0)      # 0.5214 for drF[0] = 1.0 m, Jerlov IA
@@ -358,7 +364,8 @@ def _check_flux_sign(**fluxes):
                          'twice) -- refusing')
 
 
-def surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, *, f_sw=None):
+def surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, *, f_sw=None,
+                              depth=None):
     """The top-cell buoyancy tendency ``B_sfc`` [m s^-3] from the stored
     **downward-positive** fluxes (no negation: the §3.3 store negated the
     source's upward-positive data at write, M2-Q6 (a); ``inputs.fluxes``
@@ -385,6 +392,16 @@ def surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, *, f_
     ``Theta``/``Salt`` are the top-cell values (a ``k`` dim is reduced to
     ``k = 0``).  ``forcing_note`` (6-hourly, linearly interpolated forcing:
     the diurnal shortwave is a triangle peaking at 13 LST) is propagated.
+
+    **``depth`` (M3-Q13 (c), decided 2026-10-10)** replaces ``drF[0]`` as the
+    layer the flux is spread over, and ``f_sw`` follows it.  The default
+    (``None`` -> ``drF[0] = 1 m``) is the **top cell's own** budget and stays
+    primary; passing ``KPPhbl`` gives the **mixed-layer-mean** tendency,
+    which is the right one if KPP redistributes the flux within the hour --
+    task 6 found the multiplier that minimises the residual matches
+    ``drF[0]/KPPhbl`` to 3-5 %.  An array is accepted (per pixel) and is
+    floored at ``drF[0]``: a boundary layer thinner than the top cell cannot
+    concentrate the flux into less than the cell the budget is written for.
     """
     if 'k' in Theta.dims:
         Theta = Theta.isel(k=0, drop=True)
@@ -393,16 +410,22 @@ def surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, *, f_
     dims = _same_centred(oceQnet=oceQnet, oceQsw=oceQsw, oceFWflx=oceFWflx, Theta=Theta, Salt=Salt)
     _check_flux_sign(oceQnet=oceQnet, oceQsw=oceQsw, oceFWflx=oceFWflx)
     drF0 = _drF(drF)[0]
-    f_sw = sw_fraction_absorbed(drF0) if f_sw is None else float(f_sw)
-    if not 0.0 <= f_sw <= 1.0:
-        raise ValueError(f'f_sw = {f_sw} is not a fraction')
+    if depth is None:
+        h, h_note = drF0, f'drF[0] = {drF0:g} m (the top cell; primary, M3-Q13 (c))'
+    else:
+        h = np.maximum(depth, drF0) if not hasattr(depth, 'dims') else depth.clip(min=drF0)
+        h_note = ('per-pixel depth (the KPPhbl sensitivity, M3-Q13 (c)), floored at drF[0]')
+    f_sw = sw_fraction_absorbed(h) if f_sw is None else f_sw
+    if np.any((np.asarray(getattr(f_sw, 'values', f_sw)) < 0)
+              | (np.asarray(getattr(f_sw, 'values', f_sw)) > 1)):
+        raise ValueError(f'f_sw is not a fraction: {f_sw}')
     alpha, beta, rho = expansion_coefficients(Theta, Salt)
     # heat: the non-solar flux at the surface plus the shortwave absorbed within the cell
     Q_top = (oceQnet - oceQsw) + f_sw * oceQsw                      # W m^-2 into the 1 m cell
-    dT_dt = Q_top / (RHO_CONST * HEAT_CAPACITY_CP * drF0)           # K s^-1
+    dT_dt = Q_top / (RHO_CONST * HEAT_CAPACITY_CP * h)              # K s^-1
     # salt: a downward (into the ocean) fresh-water flux dilutes the local salinity
     S_conv = Salt if CONVERT_FW2SALT < 0 else CONVERT_FW2SALT
-    dS_dt = -S_conv * oceFWflx / (RHO_CONST * drF0)                 # psu s^-1
+    dS_dt = -S_conv * oceFWflx / (RHO_CONST * h)                    # psu s^-1
     # code b = g sigma0/rho0: its tendency is (g/rho0) d rho(T, S)/dt; heating lowers b
     B = (G / RHO0_REFERENCE) * (-rho * alpha * dT_dt + rho * beta * dS_dt)
     B = op.assert_dims(B, dims, 'surface_buoyancy_tendency')
@@ -411,8 +434,12 @@ def surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, *, f_
     note = next((d.attrs['forcing_note'] for d in (oceQsw, oceQnet, oceFWflx)
                  if 'forcing_note' in d.attrs), 'not supplied by the caller')
     B.attrs.update(
-        units='m s-3', f_sw=float(f_sw), jwtype=JWTYPE, c_p=HEAT_CAPACITY_CP, rhoConst=RHO_CONST,
+        units='m s-3', f_sw=(float(f_sw) if np.ndim(getattr(f_sw, 'values', f_sw)) == 0
+                             else float(np.nanmedian(getattr(f_sw, 'values', f_sw)))),
+        jwtype=JWTYPE, c_p=HEAT_CAPACITY_CP, rhoConst=RHO_CONST,
         convertFW2Salt=CONVERT_FW2SALT, g=G, rho0=RHO0_REFERENCE, drF0_m=float(drF0),
+        depth=h_note, depth_m=(float(drF0) if depth is None
+                               else float(np.nanmedian(getattr(h, 'values', h)))),
         namelist_source=NAMELIST_SOURCE, forcing_note=note,
         sign='code b (increases with density): heat/fresh water INTO the ocean lowers b; fluxes '
              'taken downward-positive as stored, not negated here',
@@ -421,7 +448,7 @@ def surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, *, f_
 
 
 def surface_flux_term(b_x, b_y, oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, grid_ds, grid, *,
-                      L_cells: int = 0, f_sw=None):
+                      L_cells: int = 0, f_sw=None, depth=None):
     """The surface-flux term ``grad_h b . grad_h B_sfc`` [s^-5, **F units**]
     with ``B_sfc`` from :func:`surface_buoyancy_tendency` (downward-positive
     fluxes as stored, **no negation**; ``oceQsw`` separately with ``f_sw``;
@@ -439,7 +466,8 @@ def surface_flux_term(b_x, b_y, oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, gri
     attrs; dims asserted after every dbof call.
     """
     dims = _same_centred(b_x=b_x, b_y=b_y)
-    B = surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, f_sw=f_sw)
+    B = surface_buoyancy_tendency(oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, f_sw=f_sw,
+                                  depth=depth)
     if B.dims != dims:
         raise ValueError(f'surface_flux_term: flux dims {B.dims} != gradient dims {dims}')
     Bbar = op.lowpass(B, L_cells)
@@ -452,6 +480,7 @@ def surface_flux_term(b_x, b_y, oceQnet, oceQsw, oceFWflx, Theta, Salt, drF, gri
         form='grad_h b . grad_h[ lowpass(B_sfc, L) ], B_sfc the top-cell buoyancy tendency',
         filter_note='B_sfc itself is low-passed at L with the b/U/V kernel and dotted with grad bbar',
         **{k: B.attrs[k] for k in ('f_sw', 'jwtype', 'c_p', 'rhoConst', 'convertFW2Salt',
-                                   'namelist_source', 'forcing_note', 'sign')},
+                                   'namelist_source', 'forcing_note', 'sign', 'depth',
+                                   'depth_m')},
         long_name='surface-flux (diabatic) term grad_h b . grad_h B_sfc, F units')
     return term

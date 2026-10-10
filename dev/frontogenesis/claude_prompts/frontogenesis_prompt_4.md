@@ -107,9 +107,9 @@ Figure 2b: partial corr(res, `lap2_b` | `KPPhbl`) **+0.144** vs corr(res, `KPPhb
 0.22**, so no diabatic signal can be isolated and no damping is claimed. Slopes computed but
 **NOT QUOTED** (`slopes_not_quoted`, `slopes_quotable=False`). One real bug found and fixed: the
 M3-Q5 width bins needed `np.digitize(right=True)` for `<=1` to mean `(0, 1]`; re-run, verdict
-unchanged. **Three questions for JXP** in the log: the surface-flux depth scale, whether a
-sub-hourly window is worth pricing, and whether tasks 7-9 proceed as a null result; log entry
-"Execution prompt 4, task 6". **Tasks 7-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+unchanged. **Three questions for JXP, open: M3-Q13..Q15** in the `## Q&A` section below — the
+surface-flux depth scale, whether a sub-hourly window is worth pricing, and whether tasks 7-9
+proceed as a null result; log entry "Execution prompt 4, task 6". **Tasks 7-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
@@ -1078,6 +1078,8 @@ task 3; M3-Q1, M3-Q2, M3-Q5 and M3-Q9 are pre-declared in task 6 and so must be 
 it; M3-Q8 before task 8.**
 
 *(2026-10-07)* **All nine answered by JXP the same day; every answer accepts the recommendation.**
+*(M3-Q10..Q12 were raised during task 2 and answered the same way; **M3-Q13..Q15, raised by task 6
+on 2026-10-10, are open** — see the last subsection of this Q&A.)*
 Each decision is written into the task that uses it, marked "(decided 2026-10-07, M3-Qn)", and
 summarised in the Status paragraph; an *Applied* pointer under each answer says where (log entry
 "2026-10-07 — M3 Q&A applied to prompt 4").
@@ -1250,6 +1252,87 @@ the `g/rho0` of `b = g sigma0/rho0`); (b) `rho0 = 1000` throughout as written. T
 uniform 2.7 % of the surface-flux term. I recommend **(a)**.
 
 > **JXP:** Use your recommendation.
+
+### Claude, 2026-10-10 (after task 6 — the gate failed)
+
+Three questions raised by task 6's result. Numbered M3-Q13..Q15 in the M3 series; **note that
+plain "Q13" elsewhere in this prompt is a *planning* Q-number (the vertical / surface-flux
+transfer) and is a different thing.** None of them changes task 6's verdict — that is stated in
+each — but the first two change what the terms mean and the third is a scope decision.
+
+##### Questions
+
+**M3-Q13 — The surface-flux term's depth scale: `drF[0] = 1 m`, or `KPPhbl`?**
+`vertical.surface_buoyancy_tendency` converts the fluxes to a top-cell buoyancy tendency by
+dividing by `rhoConst * c_p * drF[0]`, i.e. over the **1 m top cell** — which is the right thing
+for an *instantaneous* top-cell budget, and is what M3-Q10..Q12 settled the constants of. Task 6
+found that the resulting term carries **0.36-0.80 of the measured amplitude** but correlates
+**+0.02** with the budget imbalance, and that the multiplier which would minimise the residual is
+**+0.0476** at `L = 0` and **+0.0463** at `L = 2` — against `drF[0] / median(KPPhbl)` = **0.0451**
+and **0.0450** (median `KPPhbl` 22.2 m over front pixels). The agreement is 3-5 % at the two `L`
+where the term is best determined. The physical reading is that KPP mixes the surface flux
+through the boundary layer **within the hour**, so the hourly-mean tendency of the top cell is
+set by the mixed-layer depth and not by the cell thickness; our term then over-weights the flux
+by a factor ~22.
+
+Options: (a) **keep `drF[0]`** and report the discrepancy as a finding (the term is the top
+cell's own budget; the mismatch is then evidence that the hourly comparison is the wrong one);
+(b) **divide by `KPPhbl`** (per pixel, from the §3.2 store — it is already in the derived
+product), making the term the mixed-layer-mean tendency and consistent with the hourly sampling;
+(c) **report both**, with `drF[0]` primary and `KPPhbl` as a declared sensitivity, which costs
+one extra column in the sweep.
+
+**This does not change task 6's verdict either way** — at the optimal multiplier the residual
+moves from 0.7392 to 0.7390, because the term is near-orthogonal to the residual whatever its
+amplitude. It does change Figure 6, every statement about the term's size, and what M5 would
+write. I recommend **(c)**: it settles the question with data rather than argument, and the extra
+column is cheap (the sweep is 30 min).
+
+> **JXP:** (c)
+
+**M3-Q14 — Is a sub-hourly window worth pricing?** Task 6's hard limit at the grid scale is the
+**time sampling**, not any term: at `L = 0` the semi-Lagrangian and Eulerian estimates of the
+*same* `DG/Dt`, from the same hourly pair, differ by **0.672 of the measured amplitude** —
+comparable to the budget's own imbalance (0.813) — and interpolation order is demonstrably not
+the cause (order 3 vs order 5 differ by 0.108). By `L = 8` the discrepancy falls to 0.183. The
+tide and the internal-wave band alias straight into an hourly `DG/Dt` at 2 km.
+
+A shorter window would test this directly: if the imbalance at `L = 0-2` is sampling, it should
+fall with `dt`. M1 task 4's synthetic closure already showed the midpoint-field time
+discretisation alone costs 4-9 % rms at `dt = 3600` against 2-3 % at `dt = 900`. Options:
+(a) **no** — accept the methodological finding as it stands and write it up; (b) **price a short
+sub-hourly window** (a few hours at the model's native 25 s, or 15-minute output if the archive
+has it) as an M3 addendum, enough to show the trend in `dt` and bound the aliasing; (c) **price a
+full sub-hourly re-pull** of the 72-hour window.
+
+M2's scale-up table puts the chunk pull at ~300 s and 175 MB per tile-hour at the rate this
+machine gets from Nautilus, so (c) is expensive and (b) is not. **Whether the data exists at a
+shorter cadence at all is the first thing to check, and I do not know that** — the OSN surface
+store and the Nautilus chunk store are both hourly. I recommend **(b) if a sub-hourly source
+exists**, because it converts "hourly fields cannot constrain this" from an inference into a
+measurement; **(a) if not**, and the write-up says so.
+
+> **JXP:**  We only have hourly data, so go with (a)  
+
+**M3-Q15 — Do tasks 7-9 proceed as a null result?** The prompt's own instruction is that a
+failure "is the result", written up as a methodological finding (planning §12), and that is what
+task 6's log entry does. Tasks 7-9 (the ten figures, the acceptance audit, the slides) still have
+content — Figures 2b, 3, 6 and 7 now carry *why the budget does not close* rather than an
+efficiency, and the audit and slides are where the finding is stated — but their framing changes,
+and Figure 2's headline (the slope) is explicitly **not quotable**.
+
+Options: (a) **proceed, re-framed** — tasks 7-9 as written, with Figure 2 showing the slopes
+under a "not quoted" banner and the deck leading with the methodological finding; (b) **proceed
+with a reduced figure set** — drop or merge the figures whose only content was the efficiency
+(Figure 2's headline panel, Figure 3's per-`L` efficiency), keeping 1, 2b, 4, 5, 6, 7, 10;
+(c) **stop M3 here**, write the finding up from task 6's JSON and the working figure, and decide
+about M4 separately.
+
+I recommend **(a)**: the figures are how a null result is made legible, and Figure 2b is now the
+most important figure in the milestone rather than a supporting one. But this is a scope and
+framing call, not a technical one, so it is yours.
+
+> **JXP:** (a)
 
 ## Log
 

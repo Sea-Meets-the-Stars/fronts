@@ -72,11 +72,15 @@ TERMS = ('two_F', 'subfilter', 'vertical', 'surface_flux')
 #: terms that need the chunk store (§3.3)
 CHUNK_TERMS = ('vertical', 'surface_flux')
 CHUNK_VARS = ('Theta_k', 'Salt_k', 'W_k', 'oceQnet', 'oceQsw', 'oceFWflx', 'drF')
-#: §3.4 plus the M3 additions (marked by task 8); the store's var order
+#: §3.4 plus the M3 additions (marked by task 8); the store's var order.
+#: ``surface_flux_kpp`` is M3-Q13 (c)'s declared sensitivity (2026-10-10):
+#: the surface-flux term with the flux spread over ``KPPhbl`` rather than the
+#: 1 m top cell.  It is **not** a budget term -- ``residual`` subtracts
+#: ``surface_flux`` only -- and ``TERMS`` is unchanged.
 DERIVED_VARS = ('b', 'G', 'two_F', 'two_F_chain', 'DGDt_semilag', 'DGDt_semilag_o5',
                 'DGDt_euler', 'subfilter', 'vertical', 'vertical_factorised', 'surface_flux',
-                'residual', 'b_z', 'delta', 'sigma_n', 'sigma_s', 'sigma_mag', 'theta_align',
-                'lap2_b', 'front_width', 'KPPhbl', 'valid', 'front')
+                'surface_flux_kpp', 'residual', 'b_z', 'delta', 'sigma_n', 'sigma_s',
+                'sigma_mag', 'theta_align', 'lap2_b', 'front_width', 'KPPhbl', 'valid', 'front')
 
 
 # ---------------------------------------------------------------------------
@@ -302,10 +306,17 @@ def compute_budget(raw_ds, grid_ds, grid, masks, L_cells, dt=DT, chunk_ds=None, 
             b_x, b_y, bz, W, grid_ds, grid, L_cells=L)
         extra['b_z'] = bz
         fl = [inp.midpoint(a, b) for a, b in zip(inp.fluxes(h0), inp.fluxes(h1))]
+        kpp_mid = inp.midpoint(h0['KPPhbl'], h1['KPPhbl'])
         Th = inp.midpoint(h0['Theta'], h1['Theta'])
         Sa = inp.midpoint(h0['Salt'], h1['Salt'])
         terms['surface_flux'] = 2.0 * vt.surface_flux_term(b_x, b_y, *fl, Th, Sa, drF,
                                                            grid_ds, grid, L_cells=L)
+        # M3-Q13 (c), decided 2026-10-10: the same term with the flux spread over the KPP
+        # boundary layer instead of the 1 m top cell -- a declared SENSITIVITY, never the
+        # primary.  It is not a rescaling of the primary: KPPhbl varies in space, so the
+        # gradient of B_sfc changes shape, not just amplitude.
+        extra['surface_flux_kpp'] = 2.0 * vt.surface_flux_term(
+            b_x, b_y, *fl, Th, Sa, drF, grid_ds, grid, L_cells=L, depth=kpp_mid)
     missing = [t for t in CHUNK_TERMS if t not in terms]
 
     # --- the residual, and the reduction rule over every field it is built from

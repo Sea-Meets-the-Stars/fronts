@@ -6774,16 +6774,18 @@ the two gates cannot drift apart.
 
 ### Questions for JXP
 
-1. **The surface-flux depth scale** (the §2 hypothesis above). `drF[0] = 1 m` or `KPPhbl`? It
-   does not change this verdict, but it changes Figure 6 and every statement about the term's
-   size. This is adjacent to M3-Q10..Q12, which task 2 recorded as still open.
-2. **Is a sub-hourly window worth pricing?** The sampling bound in §1 is the hard one at the grid
-   scale. The chunk store's cadence is hourly too, so this would be a new pull — M2's scale-up
-   table puts a 504-hour chunk pull at 42 h, and a shorter sub-hourly window would be cheaper.
-3. **Does M3 proceed to tasks 7-9 as a null result?** The prompt says a null is publishable and
-   that the write-up is the deliverable. Tasks 7-9 (figures, audit, slides) still make sense —
-   the figures now carry a methodological finding rather than an efficiency — but the deck's
-   framing changes, so this is JXP's call.
+Three, written up as **M3-Q13, M3-Q14 and M3-Q15** in `frontogenesis_prompt_4.md`'s `## Q&A`
+section (subsection "Claude, 2026-10-10 (after task 6 — the gate failed)"), each with options and
+a recommendation, in the same form as M3-Q1..Q12:
+
+- **M3-Q13** — the surface-flux term's depth scale: `drF[0] = 1 m` or `KPPhbl`? (The §2
+  hypothesis above. It does not change this verdict; it changes Figure 6 and every statement
+  about the term's size. Recommend (c), report both.)
+- **M3-Q14** — is a sub-hourly window worth pricing, to turn §3's sampling bound from an
+  inference into a measurement? (Recommend (b) if a sub-hourly source exists; whether one does is
+  the first thing to check.)
+- **M3-Q15** — do tasks 7-9 proceed as a null result, and in what form? (Recommend (a), proceed
+  re-framed; Figure 2b is now the milestone's most important figure.)
 
 Scratch (session scratchpad, outside the repo): `t6_sign.py`, `m3_closure.log`,
 `m3_closure2.log`, `suite_m3t6.log`. In `data/` and `figs/` (this task's own products):
@@ -6791,3 +6793,18 @@ Scratch (session scratchpad, outside the repo): `t6_sign.py`, `m3_closure.log`,
 `vertical.py`, `validate.py`, `operators.py`, `semilag.py`, `coarsegrain.py`, `inputs.py`,
 `masking.py`, `series_verify.py`, the derived stores and every M0/M1/M2 store (read-only),
 `deck/`. **No data was re-generated** — the sweep of task 4 stands unchanged. Nothing committed.
+
+### 2026-10-10 — Execution prompt 4, task 7: the ten figures (Opus 5)
+
+*(entry started early; extended below)*
+
+**JXP's answers to M3-Q13..Q15, read first and applied here.**
+- **M3-Q13 (c)** — report both depth scales: `drF[0] = 1 m` stays **primary**, `KPPhbl` is a
+  declared **sensitivity**, as one extra column in the sweep. Implemented before the figures,
+  because task 7 may not recompute physics (it reads the stores and `m3_closure_summary.json`
+  only) and Figures 6 and 10 have to be able to show it.
+- **M3-Q14 (a)** — "We only have hourly data, so go with (a)": the sampling bound stands as a
+  methodological finding and no sub-hourly window is priced. Figure 6's and Figure 2b's captions
+  say so.
+- **M3-Q15 (a)** — proceed with tasks 7-9, re-framed around the null result; Figure 2's slopes
+  carry a "not quoted" banner.
