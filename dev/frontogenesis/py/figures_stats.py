@@ -298,9 +298,18 @@ def fig06_diurnal(data_dir=None, fig_dir=None, summary=None, Ls=(0, 4)):
     ``surface_flux_kpp``, the same term with the flux spread over ``KPPhbl``
     rather than the 1 m top cell — is drawn beside the primary.
 
-    The caption carries the three required caveats verbatim, and the
-    residual is expected to **change sign** over the cycle, which by itself
-    refutes a single-signed "damping" reading.
+    The caption carries the three required caveats verbatim.
+
+    **The prompt's expectation is not met, and the caption says so.**  Task 7
+    anticipated that the residual would *change sign* over the cycle, which
+    would by itself refute a single-signed "damping" reading.  Measured, it
+    does **not**: the composite residual stays **positive** at every local
+    hour (modulated by 34 % of its mean at ``L = 0``, minimum near 17 LST),
+    and the primary ``surface_flux`` term stays **negative** throughout.
+    Only ``vertical`` and the M3-Q13 (c) ``KPPhbl`` variant change sign.  A
+    single-signed residual does not establish damping either -- Figure 2b is
+    the discriminator and it rules that out -- but the expectation is
+    recorded as unmet rather than repeated.
     """
     fig, axs = plt.subplots(1, len(Ls), figsize=(9.0 * len(Ls), 5.8), squeeze=False)
     out = {}
@@ -334,8 +343,13 @@ def fig06_diurnal(data_dir=None, fig_dir=None, summary=None, Ls=(0, 4)):
     fig.suptitle('Figure 6 — the diurnal composite  |  residual, vertical and surface-flux terms '
                  'by local solar hour', fontsize=12)
     fg.caption(fig, fg.FORCING_CAVEAT + ' ' + fg.WIND_CAVEAT + ' ' + fg.WINDOW_CAVEAT
-               + ' The residual changes sign over the cycle, which by itself refutes a '
-                 'single-signed "damping" reading. ' + fg.SAMPLING_CAVEAT, fontsize=7.5)
+               + ' MEASURED, the residual does NOT change sign over the cycle: it stays '
+                 'positive at every local hour (34 % modulation at L = 0, minimum ~17 LST), and '
+                 'surface_flux stays negative; only vertical and the KPPhbl variant change sign. '
+                 'The task-7 expectation of a sign change is therefore unmet — which does not '
+                 'make the residual damping either (Figure 2b rules that out). KPPhbl: minimum '
+                 '15.6 m at 12 LST, maximum 26.5 m at 02 LST, the expected phase. '
+               + fg.SAMPLING_CAVEAT, fontsize=7.5)
     fig.tight_layout(rect=(0, 0.07, 1, 0.93))
     out['png'] = fg.save(fig, 'fig06_diurnal.png', fig_dir=fig_dir)
     return out

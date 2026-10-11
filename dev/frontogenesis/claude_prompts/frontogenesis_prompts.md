@@ -6808,3 +6808,138 @@ Scratch (session scratchpad, outside the repo): `t6_sign.py`, `m3_closure.log`,
   say so.
 - **M3-Q15 (a)** — proceed with tasks 7-9, re-framed around the null result; Figure 2's slopes
   carry a "not quoted" banner.
+
+**Written.** `py/figures.py` (191 lines: style, loaders, the public names), `py/figures_maps.py`
+(244: Figures 1, 3b, 5, 10), `py/figures_stats.py` (398: Figures 2, 2b, 3, 4, 6, 7),
+`py/m3_figs.py` (80, the driver) and `py/tests/test_figures.py` (10 tests) → **ten PNGs in
+`figs/`** and `data/m3_figs_summary.json`. The module was split by family as coding §1.3 and the
+prompt allow, and `figures.py` re-exports so callers import one place. Suite **258 passed +
+3 xfails**, 2 deselected, 233 s. Nothing committed.
+
+### M3-Q13 (c) applied first — the extra sweep column
+
+Task 7 may not recompute physics, so the sensitivity had to exist in the product before the
+figures could draw it. Changes: `vertical.sw_fraction_absorbed` now accepts an array;
+`surface_buoyancy_tendency` and `surface_flux_term` take **`depth=`**, which replaces `drF[0]` as
+the layer the flux is spread over **and carries `f_sw` with it** (0.521 at 1 m, **0.875 at 22 m**
+— the Jerlov IA deep band has a 20 m scale, so it is not 1.0); `budget.compute_budget` adds
+**`surface_flux_kpp`** to `DERIVED_VARS` (25 vars). The depth is floored at `drF[0]`: a boundary
+layer thinner than the top cell cannot concentrate the flux into less than the cell the budget is
+written for. **`TERMS` and `residual` are unchanged** — the sensitivity is reported, never
+substituted.
+
+Adding a variable changes the store schema, so the sweep was rebuilt rather than appended to
+(`write_derived` appends only existing arrays). The four stores were moved aside, `m3_run.py`
+re-ran all 284 budgets in **0.55 h**, and the old stores were kept until a **regression check
+passed: every primary column is bit-identical** to the pre-Q13 sweep at pairs 0, 35 and 70 for
+`two_F`, `DGDt_semilag`, `subfilter`, `vertical`, `surface_flux`, `residual`, `G` and `b`, with
+exactly one variable added. **Task 6's verdict is therefore untouched** — the closure table
+reproduces to the third decimal. 7.87 GB on disk.
+
+**What the sensitivity says** (`front & valid`, 71 pairs; `m3_closure_summary.json` →
+`closure.surface_flux_kpp`):
+
+| L | `surface_flux`/meas | `surface_flux_kpp`/meas | kpp/primary | corr with the rest | optimal multiplier | residual (primary) | residual if kpp | closes? |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 0.355 | 0.030 | 0.085 | +0.077 | **+1.93** | 0.813 | 0.738 | no |
+| 2 | 0.445 | 0.032 | 0.072 | +0.086 | **+2.03** | 0.841 | 0.725 | no |
+| 4 | 0.568 | 0.035 | 0.062 | +0.071 | +1.47 | 0.898 | 0.711 | no |
+| 8 | 0.795 | 0.045 | 0.056 | +0.041 | +0.64 | 1.042 | 0.684 | no |
+
+**The depth-scale hypothesis of task 6 is supported on amplitude and refuted as a fix.** With the
+flux spread over `KPPhbl` the term's optimal multiplier moves from **+0.05 to +0.6-2.0**, i.e. it
+is now roughly the right size rather than 20x too large — which is what the `drF[0]/KPPhbl`
+agreement predicted. But its correlation with the imbalance only rises from +0.01/+0.02 to
++0.04/+0.09, so the budget still does not close: `residual_if_kpp` is 0.68-0.74, essentially the
+catch-all, against the 0.50 tolerance. **M3-Q13's answer is therefore: the mixed-layer depth is
+the better scale for the term's magnitude, and it changes nothing about the gate.** Both are now
+in the product, `drF[0]` primary, as (c) asked.
+
+### The ten figures
+
+All ten render, all ten are in `git status`, none is git-ignored, and `test_figures.py` asserts
+the values drawn equal `m3_closure_summary.json`'s. Every title states its `L` and its mask.
+
+- **Figure 1** (`fig01_maps`) — measured, `2F` and residual on a shared diverging scale at
+  `L = 0, 4` for 13 LST and 01 LST. The prompt's test is "if these do not look alike, nothing
+  else matters": the residual column carries as much structure as either of the other two, which
+  is task 6's verdict in map form.
+- **Figure 2** (`fig02_joint_pdf`) — the joint PDF per `L` with the 1:1 line, OLS / trimmed /
+  orthogonal, binned `E[Y|X]`, the day-3 marker, and the **baseline drawn explicitly at 0.981
+  with its band**, V3b's 0.954-1.003 and the temporal 0.972 ± 0.020 beside it. Every panel
+  carries a red **SLOPES NOT QUOTED — criterion 1 failed at this L** box, and the suptitle says
+  so (M3-Q15 (a)).
+- **Figure 2b** (`fig02b_discriminator`) — the discriminator, and now the milestone's most
+  important figure: the residual against `lap2_b`, against `KPPhbl`, against local hour, and the
+  partial correlations. The crossover between `L = 2` and `L = 4` is visible and **neither
+  partial correlation reaches 0.22**.
+- **Figure 3** (`fig03_slope_vs_L`) — slope vs `L` for the primary, trimmed, chain, order-5 and
+  `edge_cells = 13` variants with all three bands; criterion 2's slope and correlation with the
+  M3-Q2 tolerance drawn; and `rms(subfilter)/rms(2F)` against M1 task 4's hour-0 points. The
+  caption records that **there is no `L = 1` column** and why (`lowpass` refuses an odd `L`).
+- **Figure 3b** (`fig03b_filter_ladder`) — `{b, G, 2F, subfilter}` × `{0, 2, 4, 8}`, with the
+  `L = 0` subfilter panel stamped **IDENTICALLY ZERO**.
+- **Figure 4** (`fig04_alignment`) — the `theta_align` PDF folded to `[0, pi/2]`, plus mean `2F`
+  against `theta`, with M1-Q3's sign convention stated.
+- **Figure 5** (`fig05_sharpening_time`) — `t_sharp = G/(2F)` with the **`dt = 1 h` contour**, and
+  the front-pixel histogram beside it. This is task 6's sampling limit drawn as a map: where
+  `t_sharp < 1 h` the hourly cadence cannot follow the front.
+- **Figure 6** (`fig06_diurnal`) — the diurnal composite with `KPPhbl` overlaid and the M3-Q13
+  sensitivity drawn beside the primary. **The caption carries the three required caveats
+  verbatim** (6-hourly interpolated forcing → a triangle peaking at 13 LST; the 13 → 12 → 8 m
+  afternoon deepening is a wind trend; 72 h is three cycles, indicative not conclusive).
+- **Figure 7** (`fig07_offshore`) — statistics vs coast distance with the 100 km cut marked, and
+  the caption recording that the cut **excluded nothing**: `mask_analysis` already imposes it, so
+  the pool begins at the line (planning §5.6).
+- **Figure 10** (`fig10_term_budget`) — the five terms as maps and as rms bars per `L`, with the
+  catch-all beside the residual and the terms' correlations with `2F`. The bars are where the
+  task-6 finding is legible: the catch-all is *lower* at every `L`.
+
+### One stated expectation that the data does not meet
+
+Task 7 says of Figure 6: "the residual is expected to change sign over the cycle, which by itself
+refutes a single-signed 'damping' reading." **Measured, it does not.** The composite residual is
+**positive at every local hour** (2.63-3.75e-19 at `L = 0`, a 34 % modulation about its mean,
+minimum near 17 LST; 37 % at `L = 4`), and the primary `surface_flux` term is **negative at every
+hour** (22-27 % modulation). Only `vertical` and the `KPPhbl` variant change sign. The first
+caption I wrote repeated the expectation; the figure contradicted it, so the caption now states
+the measurement and records the expectation as unmet. A single-signed residual does **not** make
+it damping either — Figure 2b rules that out — and the caption says that too.
+
+What *does* match: `KPPhbl` has its **minimum 15.6 m at 12 LST and maximum 26.5 m at 02 LST**,
+the phase the prompt specified (minimum ~13 h solar, maximum ~01 h).
+
+### M3-Q14 (a) — recorded, not worked around
+
+JXP: "We only have hourly data, so go with (a)." Task 6's sampling bound therefore stands as a
+finding and no sub-hourly window is priced. It is carried in `figures.SAMPLING_CAVEAT` and
+appears in the captions of Figures 1, 2b, 5 and 6, so a reader of any of those sees that the
+semi-Lagrangian and Eulerian estimates of the same `DG/Dt` differ by 0.67 of measured at
+`L = 0` and that this cannot be tested against a shorter `dt` with the data that exists.
+
+### `tests/test_figures.py` — 10 tests
+
+Offline on a **six-pair, 48×48 synthetic derived store** and a synthetic summary with the real
+schema: every figure runs, writes a PNG over 5 kB and returns a dict; the names and order match
+coding §4.10; Figures 10, 2b and 3 draw **exactly** the summary's numbers (`==`, not `approx`);
+the baseline constants equal `stats.py`'s and are 0.981 / 0.970-0.994, never 1; Figure 6's three
+caveats are present as strings; Figure 3b's `L = 0` panel carries the IDENTICALLY ZERO label; and
+no module claims "diabatic damping". A `needs_grid` test checks the real run: 10/10 ok, the
+rendered numbers equal `m3_closure_summary.json`'s, every PNG on disk and **not** git-ignored
+(`git check-ignore`).
+
+One fix the tests forced: the map figures defaulted to pair 45, which does not exist in a
+six-pair stub, so `figures.resolve_pair` clamps the requested pair to the store's length — a
+no-op on the real 71-pair product, and it lets the tests drive the same functions rather than a
+fork. A second: `fig02` had a leftover second pass over the store for the day-3 marker; it now
+reads that fit from the summary, so there is one source of numbers.
+
+Scratch (session scratchpad, outside the repo): `m3_figs.log`, `m3_figs2.log`, `m3_closure3.log`,
+`suite_m3t7.log`. In `data/` and `figs/` (this task's products): the ten `fig*.png`,
+`m3_figs_summary.json`, the rebuilt `tile330_derived_L{0,2,4,8}.zarr` and the refreshed
+`m3_closure_summary.json` / `m3_closure.png`. Edited outside task 7's own files, to apply
+M3-Q13 (c): `vertical.py` (the `depth` option), `budget.py` (`surface_flux_kpp`),
+`m3_closure.py` + `m3_closure_fig.py` (reporting it). Not touched: `stats.py`, `m3_run.py`,
+`operators.py`, `semilag.py`, `coarsegrain.py`, `inputs.py`, `masking.py`, `validate*.py`,
+`series_verify.py`, `zarr_series.py`, `osn_tiles.py`, `deck/`, the M0/M1/M2 stores (read-only).
+Nothing committed.

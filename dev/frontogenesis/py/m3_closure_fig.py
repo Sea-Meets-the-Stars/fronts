@@ -50,6 +50,11 @@ def _terms(a, res, Ls):
         a.bar(x + (k - 1.5) * w, v, w, label=t, color=TERM_COLOR[t])
     r = [res['per_L'][str(L)]['closure']['residual']['over_measured'] for L in Ls]
     c = [res['per_L'][str(L)]['closure']['catchall']['over_measured'] for L in Ls]
+    k = [res['per_L'][str(L)]['closure'].get('surface_flux_kpp', {}).get('residual_if_kpp')
+         for L in Ls]
+    if all(v is not None for v in k):
+        a.plot(x, k, ':D', color='#e89a9a', label='residual with the KPPhbl flux (M3-Q13 c)',
+               zorder=5)
     a.plot(x, r, 'k-o', label='residual', zorder=5)
     a.plot(x, c, '--s', color='0.5', label='catch-all (no chunk terms)', zorder=5)
     a.axhline(mc.TOL_RESID_RATIO, color='#b22222', ls=':', lw=2,

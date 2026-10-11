@@ -160,8 +160,8 @@ def width_bin(w):
 # loading one L: stream the pairs, keep the front pool
 # ---------------------------------------------------------------------------
 POOL_VARS = ('two_F', 'two_F_chain', 'DGDt_semilag', 'DGDt_semilag_o5', 'DGDt_euler',
-             'subfilter', 'vertical', 'surface_flux', 'residual', 'lap2_b', 'KPPhbl',
-             'front_width', 'G', 'coast_distance_km')
+             'subfilter', 'vertical', 'surface_flux', 'surface_flux_kpp', 'residual',
+             'lap2_b', 'KPPhbl', 'front_width', 'G', 'coast_distance_km')
 
 
 def load_pool(L, edge13, n_analysis, pcts=(FRONT_PCT,) + FRONT_PCT_SENS, say=print):
@@ -319,6 +319,25 @@ def closure(pool, rows, L):
                    'REPORTED, NOT APPLIED -- and it cannot change the verdict, because the term '
                    'is near-orthogonal to the residual (see corr_with_rest): at the optimum the '
                    'residual is unchanged in the fourth decimal.')
+    # M3-Q13 (c), JXP 2026-10-10: the same surface-flux term with the flux spread over
+    # KPPhbl instead of the 1 m top cell, reported beside the primary.  The residual is
+    # NOT redefined -- `residual_if_kpp` is what it would be, for comparison only.
+    if 'surface_flux_kpp' in pool and np.any(np.isfinite(pool['surface_flux_kpp'])):
+        sfk = pool['surface_flux_kpp']
+        res_kpp = res + pool['surface_flux'] - sfk
+        k = _fit(sfk, res + pool['surface_flux'])
+        out['surface_flux_kpp'] = dict(
+            rms_over_measured=_rms(sfk) / r_meas, rms_over_two_F=_rms(sfk) / r_2F,
+            ratio_to_primary=_rms(sfk) / _rms(pool['surface_flux']),
+            corr_with_rest=k['corr'], optimal_multiplier=k['ols'],
+            residual_if_kpp=_rms(res_kpp) / r_meas,
+            residual_primary=_rms(res) / r_meas,
+            explained_if_kpp=_explained(meas, res_kpp),
+            closes_if_kpp=bool(_rms(res_kpp) / r_meas <= TOL_RESID_RATIO),
+            decided='M3-Q13 (c), JXP 2026-10-10: drF[0] primary, KPPhbl a declared sensitivity',
+            note='the flux spread over the KPP boundary layer rather than the 1 m top cell; '
+                 'f_sw follows the depth (0.52 at 1 m, 0.87 at 22 m). Reported, never '
+                 'substituted: TERMS and `residual` are unchanged.')
     out['chunk_terms_help'] = dict(
         rms_ratio=out['residual']['over_measured'] / out['catchall']['over_measured'],
         explained_gain=out['residual']['explained'] - out['catchall']['explained'],

@@ -109,7 +109,27 @@ Figure 2b: partial corr(res, `lap2_b` | `KPPhbl`) **+0.144** vs corr(res, `KPPhb
 M3-Q5 width bins needed `np.digitize(right=True)` for `<=1` to mean `(0, 1]`; re-run, verdict
 unchanged. **Three questions for JXP, open: M3-Q13..Q15** in the `## Q&A` section below — the
 surface-flux depth scale, whether a sub-hourly window is worth pricing, and whether tasks 7-9
-proceed as a null result; log entry "Execution prompt 4, task 6". **Tasks 7-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+proceed as a null result; log entry "Execution prompt 4, task 6". **Task 7 done 2026-10-10** (`py/figures.py` + `figures_maps.py` + `figures_stats.py` +
+`m3_figs.py` + `tests/test_figures.py` 10 tests → **ten PNGs** in `figs/` and
+`data/m3_figs_summary.json`; suite **258 passed + 3 xfails**, 2 deselected, 233 s. JXP's answers
+of 2026-10-10 applied: **M3-Q13 (c)**, **M3-Q14 (a)**, **M3-Q15 (a)**.) **M3-Q13 (c) landed
+first**, because task 7 may not recompute physics: `vertical.surface_buoyancy_tendency` /
+`surface_flux_term` take a **`depth=`** (carrying `f_sw` with it — 0.521 at 1 m, 0.875 at 22 m)
+and `budget` adds **`surface_flux_kpp`** (25 vars). The sweep was rebuilt (0.55 h, 7.87 GB) and a
+regression check confirms **every primary column is bit-identical** to the pre-Q13 sweep, so
+task 6's verdict is untouched. **The sensitivity's answer:** with the flux over `KPPhbl` the
+term's optimal multiplier moves from +0.05 to **+0.6-2.0** — the mixed-layer depth *is* the right
+scale for its magnitude — but its correlation with the imbalance only rises to +0.04/+0.09, so
+`residual_if_kpp` is 0.68-0.74 against the 0.50 tolerance and **the budget still does not close**.
+All ten figures render, are in `git status`, none git-ignored, and `test_figures.py` asserts the
+values drawn equal `m3_closure_summary.json`'s. Figure 2 carries a **SLOPES NOT QUOTED** banner
+per panel; Figure 3b stamps the `L = 0` subfilter panel IDENTICALLY ZERO; Figure 6 carries the
+three required caveats verbatim; Figure 7 records that the 100 km cut excluded nothing.
+**One prompt expectation is unmet and is logged as such:** the residual does **not** change sign
+over the diurnal cycle — it is positive at every local hour (34 % modulation, minimum ~17 LST)
+and `surface_flux` negative at every hour; only `vertical` and the `KPPhbl` variant change sign.
+`KPPhbl` does match its expected phase (minimum 15.6 m at 12 LST, maximum 26.5 m at 02 LST); log
+entry "Execution prompt 4, task 7". **Tasks 8-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
