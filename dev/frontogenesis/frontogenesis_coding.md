@@ -371,6 +371,19 @@ vars : b, G, two_F, DGDt_semilag, DGDt_euler, subfilter, vertical, surface_flux,
 *(decided 2026-10-07, M3-Q5; see prompt 4: the store also carries `front_width = 2 sqrt(G/|lap G|)`,
 the per-pixel width proxy in dx. The other M3 additions to this list are marked by M3 task 8.)*
 
+*(added 2026-10-11, M3 task 8 — the store as built, 25 variables on `(time, j, i)`.)* The list
+above is the §3.4 core; M3 tasks 3-7 added, and `budget.DERIVED_VARS` is the authority:
+`two_F_chain` (M1-Q1's second form), `DGDt_semilag_o5` (M1-Q6's order-5 sensitivity),
+`vertical_factorised` (the uniform-`b_z` diagnostic), `b_z`, `lap2_b` (the `grad^4`-like
+regressor Figure 2b uses), `front_width`, `KPPhbl`, the bool masks `valid` and `front`, the
+static `coast_distance_km`, and **`surface_flux_kpp`** — the same surface-flux term with the
+flux spread over `KPPhbl` instead of the 1 m top cell (decided 2026-10-10, **M3-Q13 (c)**:
+`drF[0]` primary, `KPPhbl` a declared sensitivity; it is **not** a budget term and `residual`
+does not subtract it). Layout: one chunk per pair per variable, `float32` on disk (`float64` in
+the compute path), `time` the pair's first hour encoded as §3.2 and **`time_mid`** a second
+`time`-dimensioned coord 30 min later — the time at which `F`, the strain and the front
+selection are evaluated. `series_verify.verify_derived_series` is the checker.
+
 ### 3.5 `tile330_masks.nc`
 
 ```
@@ -587,6 +600,14 @@ attrs are wrong (M2-Q6 (a), task 5) — so `surface_flux_term` takes them as doc
 1.0, 1.14, 1.30 m`, `Z[0..2] = -0.5, -1.57, -2.79 m` were read from the chunk `grid.zarr` (task 4)
 and are in the store as `drF(k)`, `Z(k)`, `Zl(k_l)`.
 
+*(added 2026-10-11, M3 task 8 — the signatures as built.)* `b_z` gained `*, order=1|2` (the
+second-order sensitivity the store's third level allows); `vertical_term` and
+`vertical_term_factorised` gained `*, L_cells=0`; `surface_flux_term` and
+`surface_buoyancy_tendency` gained `*, L_cells=0, f_sw=None` and, on 2026-10-10,
+**`depth=None`** (M3-Q13 (c): `None` means `drF[0] = 1 m`, the primary; an array spreads the
+flux over that depth and carries `f_sw` with it — 0.521 at 1 m, 0.875 at 22 m). The chunk-store
+reader lives in `py/chunk_store.py` with `vertical.load_chunk_levels` re-exported (M3-Q7).
+
 ### 4.7 `py/budget.py`
 
 ```python
@@ -601,6 +622,14 @@ def closure_report(budget_ds, mask):                    -> dict
 the object on which the Phase-2 exit criterion is evaluated. With the Q13 transfer the residual
 reduces to **numerical diffusion + interior KPP**, not "everything we could not compute".
 
+*(added 2026-10-11, M3 task 8 — as built.)* `compute_budget` gained the keyword-only
+`t0=0, forms=('discrete','chain'), order=3, order_sens=5, front_pct=90.0`;
+`closure_report(budget_ds, mask=None)` takes an optional mask; and the module also provides
+`write_derived`, `measured`, `format_closure`/`print_closure`, plus the discrete helpers
+`staggered_grad`, `laplacian` and `front_width` that §3.4's `lap2_b` and `front_width` need —
+neither `dbof` nor `operators.py` has a Laplacian, and `budget.laplacian` is the flux-form
+`div(grad)`, exact on a quadratic.
+
 ### 4.8 `py/stats.py`
 
 ```python
@@ -611,6 +640,16 @@ def feature_bootstrap(x, y, labels, estimator, n=1000)  -> (lo, hi)
 ```
 **Bootstrap over frontal features and hours, never over pixels** (planning §11). Every slope
 is reported relative to the M1 discrete-null baseline.
+
+*(added 2026-10-11, M3 task 8 — as built.)* The module adds `slope_trimmed(x, y, pct=1.0)`
+(M2 task 3's statistic), `ratio_estimator(x, y, split_sign=True)` (M1 task 6 flag 5),
+`block_ids` / `space_time_block_ids` (32 x 32 cells x hour, with a 3-hour option),
+`block_bootstrap(..., estimator, n, seed)` returning a dict, `mean_y`, `slope_report` and
+`format_report`. `feature_bootstrap` is an alias of `block_bootstrap`: **at M3 the labels are
+blocks, not features** — front objects only exist from M4 (acceptance criterion 4, corrected
+2026-10-07). Estimators that are functions of the per-block sufficient statistics carry a
+`moment_form` and bootstrap by one matrix product; `slope_trimmed` cannot and takes a slower
+general path.
 
 ### 4.9 `py/validate.py` — four gates plus two supporting figures (six PNGs)
 
@@ -701,6 +740,17 @@ marked `@pytest.mark.network` smoke test of the OSN pull.
 | `test_stats.py` | estimators on synthetic data with known slope |
 | `test_validate.py` | the four gates run and report |
 | `test_nan_finding.py` | **`fronts_from_gradb2` on a NaN-containing field** — no such test exists today (planning §10) |
+| `test_inputs.py` *(added 2026-10-11, M3 task 8; written M3 task 1)* | the merge by rename, the `k = 0` identity, the flux-sign guard, `hour_pair`/`midpoint`/`filtered`/`valid`, the V3 pool 262,925 / 26,293 |
+| `test_vertical.py` *(added, M3 task 2)* | `b_z` sign and order; `vertical_term` vs its factorised form; `surface_flux_term` zero for a uniform flux; a 3-D `W` and an upward-positive store refused |
+| `test_budget.py` *(added, M3 task 3)* | the V3 identity through `compute_budget`; loud degradation without `chunk_ds`; the §3.4 schema; `front_width` on tanh fronts; `write_derived` resume/clobber |
+| `test_m3_run.py` *(added, M3 task 4)* | `verify_derived_series` against one defect at a time; the runner's pair arithmetic and resumable closure cache |
+| `test_m3_closure.py` *(added, M3 task 6)* | the pre-declared tolerances are the ones used; a verdict flips at the tolerance; `L = 0` reported, never gated; the optimal-multiplier and partial-correlation diagnostics |
+| `test_figures.py` *(added, M3 task 7)* | every figure runs on a tiny synthetic store and draws **the summary's** numbers; the baseline is 0.981, never 1 |
+
+*(added 2026-10-11, M3 task 8.)* The suite is **258 passed + 3 strict xfails**, 2 network tests
+deselected, ~230 s on the workstation. The three xfails document `fronts` bugs (M1 task 7a) and
+must not XPASS. `@pytest.mark.needs_grid` marks the tests that read the M0-M3 stores; they are
+skipped, not failed, when the stores are absent.
 
 ---
 
@@ -777,6 +827,10 @@ validating the operators, not part of the budget run.
    [0.970, 0.994] llc with `form='discrete'` and the cubic departure velocity (task 6). The
    attenuation is invisible to this null by construction, and V3b (task 6b, a flux-form truth)
    measured its effect on the slope at **−0.006 ± 0.025** — it does not bias the slope.)*
+   *(added 2026-10-11, M3 task 8: that **PASS is on hour 0-1**. Over the 71 pairs of the M3
+   window the same null gives **0.972 ± 0.020** (range 0.902-0.997), and **7 of 71 pairs fail
+   the ±0.05 gate** — M2 task 3. The gate's definition is unchanged; the window spread is
+   carried as the **temporal systematic** beside the baseline, and `stats.TEMPORAL` holds it.)*
 4. `test_interpolation_bias` quantifies the uniform-flow bias; it becomes a permanent error
    bar on every later slope. *(Decided 2026-09-30, M1-Q6: **0.28-1.0% of `G` per hour at order
    3**; order 5 as an M3 sensitivity. V3b's recorded bias 0.975 [0.954, 1.003] is the
@@ -861,6 +915,20 @@ to a stated tolerance, with semi-Lagrangian and Eulerian estimates agreeing, and
 efficiency number is quoted before this passes.** If closure fails, that is the result
 (planning §12).
 
+**M3 NOT closed, 2026-10-11** (prompt 4 task-8 audit; the gate failed at task 6). Criterion 1
+**fails at every gated `L`**: `rms(residual)/rms(measured)` on `front & valid` is
+**0.813 / 0.841 / 0.898 / 1.042** at `L = 0 / 2 / 4 / 8` against the pre-declared 0.50, the
+explained fraction +0.344 → −0.051 against 0.75, the residual's slope on `2F` +0.44 → +0.53
+against ±0.10, and **0 of 71 pairs** reach the tolerance at any `L`. Criteria **2 (at `L >= 4`),
+3 and 5 pass**; criterion 4's slopes are computed but **not quoted**, as the "Do not" list
+requires. **This is planning §12's null result and the conclusion is methodological**: hourly
+surface fields at 2 km cannot close this budget, for two separable reasons the sweep
+distinguishes — at `L = 0-2` the time sampling (the semi-Lagrangian and Eulerian estimates of
+the *same* `DG/Dt` differ by 0.67 and 0.41 of measured), and at `L = 4-8` the surface-flux term,
+which carries 0.57-0.80 of the measured amplitude but correlates +0.01 to +0.02 with the
+imbalance. Nothing was tuned. **Everything after M3 stays blocked (§7)**; M4 does not start on
+this result without JXP's decision.
+
 ### M4 — Fronts and tracking  *(planning Phase 3)*
 
 Tasks: per-hour front finding on the tile; **flow-informed** `track_top_n(n=10, flow=...)`;
@@ -937,6 +1005,11 @@ Distilled from the adversarial review. Re-read before each milestone.
 - [ ] `vertical` and `surface_flux` terms actually present in the budget — if `chunk_ds` is
       missing, `closure_report` says so rather than quietly reverting to a catch-all residual.
 - [ ] Loaded only `k = 0..2` from the chunk store; it holds all 51 levels.
+      *(clarified 2026-10-11, M3 task 8: `k = 0..2` is what is **stored**, not what is
+      **fetched**. The chunk store is chunked over the full depth, so a three-level read still
+      pulls the whole column off the wire — §3.3 records 306 MB compressed per hour against the
+      22 GB of the 72-hour window. The check is on the product, not on the transfer; a
+      server-side subset would be needed to make it a transfer saving.)*
 - [ ] `vertical_term` built from the chunk `W(k_l=1)`, not from `delta` and not from the OSN
       `W(k_l=0)` — which is `dEta/dt`, a free-surface signal, not a flux (planning §2.2).
 - [ ] Remembered that on face 10 `i`/`U`/`dxC` are meridional (`i` southward) and `j`/`V`/`dyC`

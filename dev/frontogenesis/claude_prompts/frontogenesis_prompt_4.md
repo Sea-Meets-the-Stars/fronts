@@ -129,7 +129,24 @@ three required caveats verbatim; Figure 7 records that the 100 km cut excluded n
 over the diurnal cycle — it is positive at every local hour (34 % modulation, minimum ~17 LST)
 and `surface_flux` negative at every hour; only `vertical` and the `KPPhbl` variant change sign.
 `KPPhbl` does match its expected phase (minimum 15.6 m at 12 LST, maximum 26.5 m at 02 LST); log
-entry "Execution prompt 4, task 7". **Tasks 8-9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+entry "Execution prompt 4, task 7". **Task 8 done 2026-10-11 — M3 is NOT CLOSED.** (The acceptance audit; suite **258 passed +
+3 xfails**, 2 deselected, 230 s; network smokes 2 passed; `verify_series`,
+`verify_chunk_series` and `verify_derived_series` at all four `L` **ok** fresh; `m3_run.py` a
+no-op with all **7,596** files sha256-unchanged; 10/10 figures tracked in git.) **Criterion 1 —
+the hard gate — fails at every judged `L`** (`rms(res)/rms(meas)` 0.813 / 0.841 / 0.898 / 1.042
+vs 0.50; explained +0.344 → −0.051 vs 0.75; residual-on-`2F` +0.44 → +0.53 vs ±0.10; **0 of 71
+pairs** pass at any `L`). **Criterion 2 passes at `L >= 4`** (slope 0.891 / 0.939, corr 0.969 /
+0.984; fails at `L = 2` on the slope alone, 0.813). **Criteria 3 and 5 pass**; **criterion 4's
+machinery passes but its slopes are NOT QUOTED.** All three "Do not" rules honoured; every task's
+*Discharges* checked with nothing claimed twice; **the whole carry-forward table walked row by
+row and every row marked**. Marked notes applied (M3-Q8 (a), nothing deleted): coding §3.4,
+§4.6-§4.8, §4.9, §5, §6 M3, §8; planning §4 (x3) and §5.3. **Per coding §7 everything downstream
+stays blocked; M4 does not start without JXP's decision.** The result is planning §12's
+methodological null, with the limiting factor named as **two** separable causes — the time
+sampling at `L = 0-2` and the surface-flux term's near-orthogonality at `L = 4-8`; M3-Q13 (c)'s
+`KPPhbl` sensitivity corrects the term's magnitude and changes nothing about closure. Five module
+sizes over coding §1.3's guidance are recorded with the cut points, for M5. Nothing was tuned;
+log entry "Execution prompt 4, task 8". **Task 9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),

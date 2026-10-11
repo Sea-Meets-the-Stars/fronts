@@ -6943,3 +6943,198 @@ M3-Q13 (c): `vertical.py` (the `depth` option), `budget.py` (`surface_flux_kpp`)
 `operators.py`, `semilag.py`, `coarsegrain.py`, `inputs.py`, `masking.py`, `validate*.py`,
 `series_verify.py`, `zarr_series.py`, `osn_tiles.py`, `deck/`, the M0/M1/M2 stores (read-only).
 Nothing committed.
+
+### 2026-10-11 — Execution prompt 4, task 8: the M3 acceptance audit (Opus 5)
+
+*(entry started early; extended below)*
+
+**Scope.** Task 8 of `frontogenesis_prompt_4.md`: re-run every verification fresh, walk criteria
+1-5 with numbers, check the "Do not" list and every task's *Discharges*, walk the carry-forward
+table row by row, apply the M3-Q8 marked notes to the docs, list what is carried to M4/M5, and
+make the closure decision. **No new questions were open** — M3-Q13..Q15 were answered on
+2026-10-10 and applied in task 7.
+
+## VERDICT: **M3 is NOT closed.** Criterion 1 failed; the result is methodological (planning §12).
+
+### Fresh verification — everything re-run for this audit
+
+| check | result |
+|---|---|
+| full suite, offline | **258 passed, 3 strict xfails, 2 deselected**, 230 s (detached; it exceeds the 300 s per-command rule only marginally, so it is not run in the foreground) |
+| the 3 strict xfails | still **xfail**, none XPASSed — the `fronts` bugs of M1 task 7a are unchanged |
+| network smokes (`-m network`, detached) | **2 passed**, 16 s |
+| `verify_series` (§3.2, 72 h) | **ok** — time, schema, niter, land_nan, KPPhbl |
+| `verify_chunk_series` (§3.3, 72 h) | **ok** — time, schema, niter, drF, land_nan, sign |
+| `verify_derived_series`, `L = 0 / 2 / 4 / 8` | **ok** — 71 pairs each, 25 vars, no gaps, land NaN clean, `n_lost` 0 / 0 / 0 / **31** (bound 34) |
+| `m3_run.py` re-run | **no-op: 0 computed, 284 skipped**, 16 s |
+| sha256 of the four derived stores | all **7,596** files **unchanged** by the no-op |
+| the ten figures | 10/10 rendered, all **tracked in git**, none ignored |
+
+### Criteria 1-5, with numbers
+
+| # | criterion | tolerance (pre-declared 2026-10-07) | measured | verdict |
+|---|---|---|---|---|
+| **1** | **Closure**, `vertical` and `surface_flux` **measured** | on `front & valid`, per `L`: `rms(res)/rms(meas) <= 0.50` (expl ≥ 0.75) **and** \|res on `2F`\| ≤ 0.10; judged at `L >= 2` | 0.813 / 0.841 / 0.898 / **1.042**; expl +0.344 / +0.301 / +0.209 / **−0.051**; slope +0.440 / +0.447 / +0.462 / +0.529. **0 of 71 pairs** pass at any `L` | **FAIL** at `L = 2, 4, 8`; `L = 0` reported, not gated |
+| **2** | Semi-Lagrangian vs Eulerian | slope 0.85-1.15 **and** corr ≥ 0.90, front pixels, `L >= 2` | slope 0.691 / 0.813 / **0.891** / **0.939**; corr 0.758 / 0.913 / **0.969** / **0.984** | **PASS at `L = 4, 8`**; FAIL at `L = 2` (slope 0.813, below 0.85; corr passes); `L = 0` reproduces M1 task 3's 0.73 / 0.74 |
+| **3** | The filter sweep is interpretable — `tau` explicit | the term present and the budget closing at each `L >= 2` | `rms(subfilter)/rms(2F)` = 0 / 0.353 / 0.552 / 0.748, corr with `2F` −0.547 / −0.590 / −0.563, reproducing M1 task 4's hour-0 0.31 / 0.50 / 0.70 over all 71 pairs; `L = 0` **identically zero** by construction | **PASS** on interpretability — the sweep behaves exactly as M1-Q8 (c) left it. The "budget closing at each `L`" half is criterion 1 and fails |
+| **4** | Every slope against the M1 baseline, with block-level intervals | 0.981 [0.970, 0.994]; V3b 0.954-1.003; temporal 0.972 ± 0.020; both forms, order 5, `edge_cells = 13`, p80/p95, per width | machinery complete and exercised: OLS 1.342 / 1.138 / 0.977 / 0.831 with 1-h block CIs and 3-h CIs ~1.5x wider; chain, order-5, 13-cell, p80, p95 all computed; every number relative to 0.981 | **PASS as machinery; the slopes are NOT QUOTED** — criterion 1 failed, so the "Do not" list forbids an efficiency. They sit in `slopes_not_quoted` with `slopes_quotable=False` |
+| **5** | Figures 1, 2, 2b, 3, 3b, 4, 5, 6, 7, 10 | written, not necessarily wired into M5's harness | all ten in `figs/`, tracked, `m3_figs_summary.json` records what each drew, and `test_figures.py` asserts the drawn values equal `m3_closure_summary.json`'s | **PASS** |
+
+**Criterion 1 is the gate, and it fails.** Criteria 2, 3 and 5 pass and criterion 4's machinery
+is complete; none of that changes the verdict, and the prompt is explicit that it should not.
+
+### The "Do not" list
+
+| rule | state |
+|---|---|
+| Do not quote a frontogenesis efficiency before criterion 1 passes | **honoured.** No efficiency anywhere. `m3_closure.py` puts the slopes under `slopes_not_quoted` with a label that says so; Figure 2 stamps every panel **SLOPES NOT QUOTED**; `test_m3_closure.py` asserts `slopes_quotable is False` for every `L` in the real summary |
+| Do not call a slope below 1 "diabatic damping" without Figure 2b | **honoured.** Figure 2b exists and **refutes** the reading: the partial correlations are +0.144 / +0.134 / +0.100 / +0.076 on `lap2_b` and +0.056 / +0.090 / +0.146 / +0.219 on `KPPhbl` — they cross over between `L = 2` and `L = 4` and **neither reaches 0.22**. `test_figures.py` greps the figure modules for the phrase. `kappa_num` is quoted at the feature scale, per width bin, with the V3b shortfall subtracted first |
+| Do not run `tile_find`, label, thin or despur here | **honoured.** Front *pixels* are `G_mid >= p90` on `mask_analysis & finite`; no front objects exist in M3. `fronts.finding` is imported only by `test_nan_finding.py`, which is M1's |
+
+### Discharges — every task's claim checked, nothing claimed twice
+
+| task | *Discharges* | state |
+|---|---|---|
+| 1 `inputs.py` | nothing in the criteria; the precondition for 2-9 | honoured — the only place M3 opens a store |
+| 2 `vertical.py` | the measured terms of criterion 1 **in code** | honoured; proven on data in 4 and 6 |
+| 2b workstation | nothing; precondition for 3-9 | honoured |
+| 3 `budget.py` | criteria 1-3 **in code** | honoured; the numbers are 4's and 6's, not claimed here |
+| 4 the sweep | the **data** for criteria 1-5 | honoured — 4 x 71 pairs, verified |
+| 5 `stats.py` | the **machinery** of criterion 4; "the numbers come in task 6" | honoured — task 5 quotes no closure number; its one real-data run is labelled a machinery check |
+| 6 closure | criteria **1, 2, 3, 4** (the numbers) and the first two "Do not" items | honoured — and 1 fails |
+| 7 figures | criterion 5 | honoured |
+| 8 this audit | closes 1-5 formally; the carry-forward table | done here |
+
+No criterion is discharged twice: 1-3 are *written* in task 3 and *judged* in task 6; 4's
+machinery is task 5's and its numbers task 6's; 5 is task 7's alone.
+
+### The carry-forward cross-check table, row by row
+
+**M2 task 6 items.** **C1** done (task 1; merge by rename, `inputs.open_inputs` the single
+door). **C2** done (tasks 1-2; `assert_flux_sign` refuses an upward-positive store, tested in
+`test_vertical.py` and `test_budget.py`). **C3** done (`inputs.W_k1`; a 3-D `W` raises).
+**C4** done (tasks 2, 6, 7; `forcing_note` propagates to the term attrs, the composites are by
+local hour, Figure 6's caption carries all three caveats verbatim). **C5** done (tasks 1, 4, 6;
+the envelope is why `inputs.valid` needs `isfinite` at `L = 8`, `n_lost` is logged per pair, and
+V4's bar is quoted per width bin). **C6** done (`edge_cells = 7` never shrank; the 13-cell row is
+in task 6's `variants` and Figure 3). **C7** done (tasks 5, 6, 7; `slope_trimmed`,
+`slope_report`'s three bands, Figure 2's baseline/V3b/temporal markers, the day-3 pairs shown
+separately — and they are **better** than the median, not worse). **C8** done (task 4's report
+extends M2's scale-up table; `caffeinate` is macOS-only, so the workstation equivalent — `nohup`
+inside `tmux` — was recorded in task 2b). **C9** done — module sizes recorded below.
+**C10 / O5** — no M3 action: `note_to_lauren_flux_signs.md` is committed (2026-10-07) and
+**still pending JXP's forwarding**; recorded, not actioned.
+
+**C11a** done — planning §4 marked (72/72 exist; 306 MB compressed per hour, 22 GB).
+**C11b** done — planning §2.3/§4 marked, and the measurement is stronger than the caveat: the
+term is **larger at night**. **C11c** done — planning §4 marked: the two sources are bit-identical
+at `k = 0`, so they are two readers of the same *bytes*; the identity is kept as an input
+invariant, which buys alignment, not independence. **C11d** no action — coding §4.6 was already
+marked in M3 task 2. **C11e, C11h, C11j, C11k** record only, no doc edit. **C11f** done — coding
+§4.9 marked: M1 task 6's PASS is hour 0-1; over the window the null is 0.972 ± 0.020 with 7/71
+failing, carried as the temporal systematic. **C11g** done — planning §5.3 marked. **C11i** done
+in task 1 (log record, no doc edit; `edge_cells` did not shrink).
+
+**O1** done (= C11a-c, C11g). **O2** was discharged by the 2026-10-07 restructure. **O3** done —
+`vertical.py` split (the reader moved to `chunk_store.py`), `osn_tiles.py` **left whole** per
+M3-Q7. **O4** — the sweep re-timed the local side (6.4 s per pair per `L`); the chunk link was
+**not** re-timed because no longer window is planned in M3, and M3-Q14 (a) has since closed the
+question. **O6** record only.
+
+**M1 items.** **M1a** done (both forms stored and reported; the chain slope is 1.073 / 1.006 /
+0.927 / 0.820 against the discrete 1.342 / 1.138 / 0.977 / 0.831 — a stated systematic).
+**M1b** done (the V3b band is carried separately, **no upward correction**; the per-width
+shortfall −2/−4/−11 % is in `m3_closure.WIDTH_SHORTFALL` and subtracted before any width-resolved
+statement). **M1c / M1j** done (Figure 2 and Figure 3 draw 0.981 with its band; `test_figures.py`
+asserts it is not 1). **M1d** done (`DGDt_semilag_o5` stored; the order-5 slope differs from
+order-3 by ≤ 0.015 at every `L`, so interpolation order is not a limiting factor — a useful
+negative). **M1e** done (`tau_delta` mandatory; `test_budget.py` pins the difference and shows it
+is only visible on a **divergent** flow). **M1f** done (reproduced: 0.353 / 0.552 / 0.748 against
+M1's 0.31 / 0.50 / 0.70; `L = 0` identically zero and labelled in Figure 3b). **M1g** done
+(`ratio_estimator(split_sign=True)`; at `L = 8` the unsplit ratio reads **0.088** against pos/neg
+0.61/1.05 — the split is load-bearing). **M1h** done. **M1i** done (the Tasks preamble; defaults
+used throughout). **M1k** done (task 6 (e); `kappa_num` at the feature scale). **M1l** done
+(`L = 0` gives 0.691 / 0.758 against M1 task 3's 0.73 / 0.74). **M1m** done — and **the bracket
+holds while the diurnal expectation does not**: `rms(vertical)/rms(2F)` is 0.033-0.046, inside
+M0's 0.4-14 %, but there is almost no day/night contrast (0.018 vs 0.015 at `L = 0`), not the
+"~30 % of `F` by day, ~0 at night" §2.2 expected — the warm layer is 0.01 K, not 0.1-0.3 K
+(M3 task 2). **M1n** no action ((a) masks stay git-ignored; (b) `validate.py` left whole).
+**M1o / M1p** no M3 action — listed for M4/M5 below. **M1q** covered by M1a-M1d.
+
+**Every row is marked. Nothing is dropped.**
+
+### Module sizes against coding §1.3's ~400 lines
+
+`budget.py` **655**, `m3_closure.py` **621**, `series_verify.py` **507**, `vertical.py` **486**,
+`stats.py` **469**, `figures_stats.py` 398, `figures_maps.py` 244, `figures.py` 191,
+`m3_run.py` 336, `m3_figs.py` 80. Existing precedents: `validate.py` 1,087, `validate_figs.py`
+722, `m2_qa.py` 638, `osn_tiles.py` 556, `operators.py` 552, `chunk_store.py` 529.
+
+**Five M3 modules exceed the guidance.** `figures.py` was split as the prompt allows (into
+`figures_maps` + `figures_stats`); the others were not, and the audit records why and where the
+cut would go rather than forcing a split after the gate has already failed: `budget.py` — the
+three discrete helpers (`staggered_grad`, `laplacian`, `front_width`, ~90 lines) into
+`operators.py`, where `laplacian` arguably belongs; `stats.py` — the sufficient-statistics
+machinery (~90 lines) into a private module, public API unmoved; `m3_closure.py` — sections (d)
+and (e) into `m3_closure_slopes.py`; `vertical.py` and `series_verify.py` are within 25 % of the
+guidance and are left. **This is a recorded deviation, not a silent one**, and M5's consolidation
+is the natural place to act on it.
+
+### Carried to M4 / M5
+
+**To M4** (which does **not** start — see the closure decision): the four derived stores and the
+per-pair `m3_closure_L{L}.json`, which M4 reconciles its advected pixel set against (coding §6 M4
+criterion 4); the slopes in `slopes_not_quoted`, which M4's Figure 9 compares to — **and which
+may not be quoted as an efficiency** unless closure is achieved; the three `fronts` bugs and
+their strict xfails (M1 task 7a) and the caller-side NaN recipe; the fact that **prompt 5 still
+names a non-existent `build.tile_find` path** (M1 task 7, open item 1), which will break M4 task 1
+if not fixed first; and the front-pixel rule (`G_mid >= p90` at the midpoint) that M4 must keep
+compatible with its object-based selection.
+
+**To M5**: the captions written into the figure modules (`FORCING_CAVEAT`, `WIND_CAVEAT`,
+`WINDOW_CAVEAT`, `SAMPLING_CAVEAT` in `figures.py`) for standardisation; the one-command harness,
+which M3 deliberately did not build (criterion 5 says so); the module-size deviations above; and
+the V-figures, which stay in `validate_figs.py` until M5 consolidates §4.10's `figV1..figV6`.
+
+**Scale-up for a longer window** (task 4, extending M2's table): the budget is **not** the
+bottleneck — 6.4 s and 26 MB per pair per `L`, so the 504-hour series is **3.58 h and 53 GB** of
+single-threaded compute against the chunk pull's 42 h. The sweep is embarrassingly parallel over
+`L` or pair blocks and used one of 24 cores.
+
+**Still open and not M3's**: the note to Lauren awaits forwarding; the M0 planning deck still
+asserts two overturned claims (M1 task 7, open item 6).
+
+### Closure decision
+
+**M3 is NOT closed** (coding §6 M3 marked accordingly, 2026-10-11). Criterion 1 — the hard gate —
+fails at every judged `L`, so by coding §7 **everything downstream stays blocked**. M4 does not
+start on this result without JXP's decision.
+
+The result is **methodological, and publishable as such** (planning §12, which names two of its
+four null conditions here): hourly surface fields at 2 km cannot constrain the surface
+buoyancy-gradient budget in this regime. The limiting factor is named and is **two** factors that
+the filter sweep separates — at `L = 0-2` the **time sampling** (two defensible estimates of the
+same `DG/Dt` differ by 0.67 and 0.41 of the measured amplitude, as large as the imbalance itself,
+and M3-Q14 (a) records that no shorter cadence exists to test it against); at `L = 4-8` the
+**surface-flux term's near-orthogonality** (0.57-0.80 of the measured amplitude, correlation
++0.01 to +0.02 with the imbalance, so subtracting it at unit weight is what drives the residual
+past 1.0). M3-Q13 (c)'s `KPPhbl` sensitivity fixes the term's *magnitude* — its optimal multiplier
+moves from +0.05 to +0.6-2.0 — and changes **nothing** about closure, which is the cleanest
+evidence that the problem is not a mis-scaled term.
+
+**Nothing was tuned at any point.** The tolerances were fixed by JXP on 2026-10-07, are module
+constants in `m3_closure.py`, and `test_m3_closure.py` asserts they match `budget.py`'s copies so
+the two gates cannot drift.
+
+**Docs updated with marked notes, nothing rewritten and nothing deleted** (M3-Q8 (a)): coding
+§3.4 (the 25-variable store as built, including M3-Q13 (c)'s `surface_flux_kpp` and `time_mid`),
+§4.6-§4.8 (the signatures as built, including `depth=`), §4.9 (M1 task 6's PASS is hour 0-1;
+0.972 ± 0.020 over the window, 7/71 failing), §5 (the six test files M3 added and the 258-test
+count), §6 M3 (**NOT closed**, with the numbers), §8 (`k = 0..2` is what is *stored*, not what is
+*fetched*); planning §4 x3 (the store count and volume; the "noon-peaking" term; "different
+readers") and §5.3 (the displacement envelope).
+
+Scratch (session scratchpad, outside the repo): `audit_verify.py`, `audit_suite.log`,
+`audit_network.log`, two sha256 manifests. **No code was changed by this audit** — it is a
+read-and-verify task; the only edits are the marked notes in `frontogenesis_coding.md` and
+`frontogenesis_planning.md`, and this log entry. Nothing committed.

@@ -307,6 +307,11 @@ stress-divergence.
 `LLC4320_RAW/CHUNKS/monterey_bay`, being extended by Lauren to **hourly for all 72 hours**,
 all **51 levels** (to ~968 m; `drF[0] = 1.0 m`). 11 of the needed stores already exist; 61 are
 new, ~33 GB at ~539 MB per timestep.
+*(corrected 2026-10-11, M3 task 8, M3-Q8 (a) — nothing deleted above. The transfer finished:
+**all 72 hours exist**, so none is "needed" any more. The ~539 MB per timestep was uncompressed;
+measured on the wire the stores are **~306 MB compressed per hour, 22 GB for the 72-hour
+window**. M2's pull of `k = 0..2` took ~300 s per tile-hour at the 0.55 MB/s this link gave,
+37 s at the 4.7 MB/s seen on 2026-10-04.)*
 
 Variables: 3D `Theta, Salt, U, V, W`; 2D `Eta, oceTAUX, oceTAUY, SIarea, **oceQnet**`, with
 **`oceQsw`** and **`oceFWflx`** added to `transfer.variables` for this run.
@@ -321,10 +326,22 @@ inferred. That is true of OSN but false of the chunk store. With this transfer:
   **directly**. `oceQsw` matters specifically because a large fraction of shortwave is
   absorbed *inside* the ~1 m top cell where our `b` lives; net flux alone blurs exactly the
   noon-peaking term Figure 6 is about.
+  *(corrected 2026-10-11, M3 task 8, M3-Q8 (a).* "Noon-peaking" is true only at the **6-hourly**
+  scale of the forcing: the model's surface forcing is 6-hourly and linearly interpolated (kinks
+  at 03/09/15/21 UTC), so the diurnal shortwave is a **triangle** peaking at 13 LST, not resolved
+  insolation (M2 task 6 item 4). Measured over the 72 hours, the surface-flux term is in fact
+  **larger at night than by day** (0.42 vs 0.30 of measured at `L = 0`), because it is dominated
+  by the **non-solar** flux gradient — M3 tasks 2, 4 and 6. Figure 6's caption carries this.*
 
 The surface analysis still runs on OSN (§5.1) — the chunks supply the *extra budget terms*,
 not the primary fields. Keeping the two sources separate also preserves a genuine
 cross-check: OSN and the chunk store are different readers of the same physics.
+*(corrected 2026-10-11, M3 task 8, M3-Q8 (a).* It is **not** a physics cross-check. M2 tasks 4-6
+found the two sources **bit-identical** at `k = 0` / `k_l = 0` for `Theta`, `Salt` and `W`, so
+they are two readers of the same *bytes*, not two independent computations. That identity is
+still worth having — M3 asserts it as an **input invariant** on every hour a budget is computed
+from (`inputs.assert_k0_identity`), where it is a cheap, strong check that the hours are aligned
+and neither store has been rewritten — but it buys alignment, not independence.*
 
 **Volume.** 720 x 720 x 72 h x ~6 fields x 4 bytes ~ **0.9 GB** as float32. Trivial;
 the whole study fits in memory on a laptop.
@@ -420,6 +437,12 @@ assuming it.
    must be quoted at the tail, not the median. *(Confirmed 2026-09-28, M0 task 3, on
    2012-07-02 00:00: ocean median 0.37 cells, p99 1.28, max 3.5; on front pixels
    (`G > p90`) median 0.54, p99 1.64, max 2.5; speed median 0.19, p99 0.64 m s^-1.)*
+   *(corrected 2026-10-11, M3 task 8, M3-Q8 (a): those maxima are **hour 0 on the analysis
+   domain**. Over the full 72-hour window M2 task 3 measured the ocean maximum at **4.05 cells**
+   outside the mask and **2.27** on `mask_analysis`, with front-pixel p99 1.30-1.79 — the wider
+   envelope supersedes the hour-0 figures, and it is why `inputs.valid` requires
+   `isfinite(DGDt)` at `L = 8`, where the order-3 departure support costs up to 31 analysis
+   cells per pair (M3 task 4).)*
 2. **Interpolate `b`, not `G`, and use high order.** Bilinear interpolation of `G` at a
    half-cell offset has error `dx^2 G_xx / 8`, which for a front of width ~1.5 cells is
    ~5.5% of `G` and is **systematically negative at maxima** — it fabricates apparent
