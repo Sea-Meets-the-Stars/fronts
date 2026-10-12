@@ -1,6 +1,6 @@
 # `dev/frontogenesis/deck/` — slide decks
 
-Four decks live here. All are built by script from material already in the repo, so
+Five decks live here. All are built by script from material already in the repo, so
 none can drift from what it claims to summarise.
 
 | Deck | Built by | Summarises |
@@ -9,6 +9,7 @@ none can drift from what it claims to summarise.
 | `Frontogenesis_M0_Acceptance.pptx` | `make_m0_figs.py` + `build_m0_deck.py` | Milestone M0 (12 slides, 2026-09-29) |
 | `Frontogenesis_M1_Acceptance.pptx` | `make_m1_figs.py` + `build_m1_deck.py` (+ `check_m1_deck.py`) | Milestone M1 (19 slides, 2026-09-30, extended 2026-10-01; no text below 20 pt) |
 | `Frontogenesis_M2_Acceptance.pptx` | `make_m2_figs.py` + `build_m2_deck.py` (+ `check_m1_deck.py`) | Milestone M2 (14 slides, 2026-10-04; no text below 20 pt) |
+| `Frontogenesis_M3_Acceptance.pptx` | `make_m3_figs.py` + `build_m3_deck.py` (+ `check_m1_deck.py`) | Milestone M3 — **the gate failed** (21 slides, 2026-10-11; no text below 20 pt) |
 
 ---
 
@@ -446,3 +447,78 @@ Google Slides conversion `Frontogenesis_Planning` (id `1GG-CD82oxCbrmxAelGQ7mRha
 17 slides). Commands: `rclone copy --drive-import-formats pptx <pptx> AIOcean:data/HIINet/Frontogenesis/`
 for the Slides copy, then `rclone copy --drive-skip-gdocs <pptx> ...` for the .pptx.
 
+
+---
+
+## M3 acceptance deck — work log, 2026-10-11
+
+**Task.** `frontogenesis_prompt_4.md` task 9: a small M3 acceptance deck with the M1/M2 rules —
+`deck/`, python-pptx, a figures script plus a builder kept here, **no text below 20 pt** checked
+programmatically, rendered with `soffice --headless` + `pdftoppm` and **every page inspected**;
+title, contents, M3 in one slide, one slide per task, "Carried to M4 / M5", a glossary and "this
+deck".
+
+**M3 did not close**, so the deck's job is different from M0-M2's: it reports a methodological
+null result. That shapes it throughout — the title slide carries a red **NOT CLOSED** card, three
+slides are given to the *diagnosis* rather than to a result, and the deck states on its last
+slide what it deliberately does not contain.
+
+### What was built
+
+```
+deck/
+  make_m3_figs.py                 seven re-plots at slide size from the task-6 / task-7 JSONs
+  build_m3_deck.py                builds the .pptx (helpers copied from build_m2_deck.py)
+  figs_m3/
+    m3_fig_budget.png               the five-term budget per L with the 0.50 tolerance drawn
+    m3_fig_per_pair.png             the residual fraction for all 71 pairs, day-3 marked
+    m3_fig_sampling.png             Eulerian − semi-Lagrangian and order 5 − order 3 vs L
+    m3_fig_discriminator.png        the partial correlations: numerical diffusion or forcing?
+    m3_fig_criteria23.png           criterion 2 vs L, and the subfilter term vs L
+    m3_fig_term_contribution.png    the optimal multiplier per term (+1 / −1 / ~0)
+    m3_fig_sweep.png                the sweep's cost and volume per L
+  Frontogenesis_M3_Acceptance.pptx  21 slides, 0.65 MB
+```
+
+**Re-plots, not crops.** The ten task-7 figures in `../figs/` are drawn for a page; their panel
+labels fall well below 20 pt once a 13.3 × 7.5 in slide is filled. Every deck figure is drawn at
+the width it occupies on the slide with `font.size = 20` and placed at its **natural inch size**,
+so the 20 pt floor holds inside the images too — which `check_m1_deck.py` cannot check for us.
+
+### Slides
+
+1 title · 2 contents · 3 M3 in one slide · 4 task 1 `inputs.py` · 5 task 2 `vertical.py` ·
+6 task 2b the workstation · 7 task 3 `budget.py` · 8 task 4 the sweep · 9 task 5 `stats.py` ·
+**10 task 6 the gate** · **11 not one pair of 71** · **12 why — the terms** · **13 why — the
+cadence** · 14 the discriminator · 15 criteria 2 and 3 · 16 task 7 the ten figures ·
+17 task 8 the audit · 18 carried to M4 / M5 · 19 open questions · 20 glossary · 21 this deck.
+
+### QA
+
+`check_m1_deck.py Frontogenesis_M3_Acceptance.pptx`: **minimum run size 20.0 pt, no offenders,
+no shape off-slide.** The checker's "overflow?" estimates are conservative (a 0.5 em glyph
+width), so the deck was also rendered to 21 PNGs and **every page looked at**. Six real problems
+were found that way and fixed, none of which the checker flagged as different from its false
+positives:
+
+- slide 3 — the stat cards' sub-text and the equation card overflowed; cards resized, subs cut to
+  one line;
+- slides 12, 13, 14 — matplotlib legends sat on top of the data; moved above the axes in
+  `make_m3_figs.py` (and the budget legend too);
+- slides 10, 12, 13 — figures overlapped their subtitles or the footer; heights reduced and
+  placements lowered;
+- slides 8, 11 — two-line cards collided with the footer; text shortened to fit;
+- slide 14 and slide 18 were each doing two jobs and overflowing; **split** into 14 + 15 and
+  18 + 19, taking the deck from 19 slides to 21;
+- several footers wrapped off the bottom of the slide. `footer()` now **asserts** its text is
+  ≤ 84 characters (what an 11.7 in box holds on one line at 20 pt), so the build fails rather
+  than silently producing a clipped footer.
+
+### Rules honoured
+
+Every number is quoted from the task-1..8 log entries in
+`claude_prompts/frontogenesis_prompts.md`; no data store is opened by either script. **No
+frontogenesis efficiency appears anywhere** — criterion 1 failed, so the prompt's "Do not" list
+forbids one, and the slopes are shown only as "NOT QUOTED". **No claim of diabatic damping** —
+Figure 2b is the discriminator and it refutes the reading. No tuned number: the tolerances were
+fixed on 2026-10-07 and the deck says so on the slide that reports them.

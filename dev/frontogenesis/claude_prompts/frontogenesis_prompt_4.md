@@ -146,7 +146,18 @@ methodological null, with the limiting factor named as **two** separable causes 
 sampling at `L = 0-2` and the surface-flux term's near-orthogonality at `L = 4-8`; M3-Q13 (c)'s
 `KPPhbl` sensitivity corrects the term's magnitude and changes nothing about closure. Five module
 sizes over coding §1.3's guidance are recorded with the cut points, for M5. Nothing was tuned;
-log entry "Execution prompt 4, task 8". **Task 9 not started.** The task sequence below (tasks 1-9), the M3 carry-forward
+log entry "Execution prompt 4, task 8". **Task 9 done 2026-10-11** (`deck/make_m3_figs.py` + `deck/build_m3_deck.py` + `deck/figs_m3/`
+→ **`Frontogenesis_M3_Acceptance.pptx`, 21 slides, 0.65 MB**; `deck/README.md` row and work log).
+`check_m1_deck.py`: **minimum run size 20.0 pt, no offenders, no shape off-slide**; rendered with
+`soffice` + `pdftoppm` and **every one of the 21 pages inspected**, which caught six real
+problems the checker could not distinguish from its own false positives — two slides were split
+(19 → 21 slides), four matplotlib legends were moved off the data, and `footer()` now asserts its
+text fits one line so a clipped footer fails the build. The deck reports the **null result**: a
+red NOT CLOSED card on the title slide, three slides given to the diagnosis, and a closing slide
+listing what it deliberately does not contain — no efficiency, no damping claim, no tuned number.
+Figures are **re-plots at slide size**, not crops, so the 20 pt floor holds inside the images
+too; log entry "Execution prompt 4, task 9". **All nine tasks of prompt 4 are complete; M3
+remains NOT CLOSED and everything downstream is blocked (coding §7).** The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
@@ -1014,6 +1025,21 @@ entries only; where a figure's panel labels would be below ~20 pt equivalent, re
 JSON summaries at slide size rather than crop (the M2 precedent). Log the work in
 `deck/README.md` (table row + work log) and update the Status here.
 
+### 10. Interim report
+
+i. The slides you have created are good, but difficult to understand for those not deeply embedded in the project.   Let us create an interim report that is more accessible to a wider audience.  It should:
+
+    - Include enough figures to clearly describe the method and the results.
+    - Define each major term and variable as it appears in the Report
+    - Include a Glossary of terms and variables.
+    - Summarize the main goals of the project.
+    - Summarize the design document
+    - Explain clearly what failing the gate at M3 really means
+    - Use equations wherever possible
+
+Before writing it, ask me a series of questions in the Q&A/Report section below.
+Use Fable if you can.  Log your work.
+
 ### M3 carry-forward cross-check
 
 Every item of M2 task 6's "Carried forward to M3" list and its open items, and every M1
@@ -1105,6 +1131,8 @@ no M3 action say so. Task 8 walks this table and marks each row.
   the midpoint time (above); front *objects* are M4.
 
 ## Q&A
+
+### Report
 
 ### Claude, 2026-10-07 (before task 1)
 

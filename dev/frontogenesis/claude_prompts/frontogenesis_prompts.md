@@ -7138,3 +7138,65 @@ Scratch (session scratchpad, outside the repo): `audit_verify.py`, `audit_suite.
 `audit_network.log`, two sha256 manifests. **No code was changed by this audit** — it is a
 read-and-verify task; the only edits are the marked notes in `frontogenesis_coding.md` and
 `frontogenesis_planning.md`, and this log entry. Nothing committed.
+
+### 2026-10-11 — Execution prompt 4, task 9: the M3 acceptance deck (Opus 5)
+
+**Scope.** Task 9 of `frontogenesis_prompt_4.md`: a small M3 acceptance deck with the M1/M2
+rules. **No new questions were open** — M3-Q13..Q15 were answered 2026-10-10 and applied in
+task 7; task 8 raised none.
+
+**Written.** `deck/make_m3_figs.py` (seven re-plots), `deck/build_m3_deck.py` (the builder),
+`deck/figs_m3/` and **`deck/Frontogenesis_M3_Acceptance.pptx` — 21 slides, 0.65 MB**;
+`deck/README.md` gains a table row and a full work log. No code outside `deck/` was touched and
+no data store was opened.
+
+**The deck reports a null result, and is shaped by that.** M0-M2's decks reported closures; this
+one reports that the hard gate failed. The title slide carries a red **M3 NOT CLOSED 2026-10-11**
+card, three consecutive slides are given to the *diagnosis* rather than to a result (why the
+terms do not explain the residual; what the hourly cadence costs; the discriminator), and the
+final slide states what the deck deliberately does **not** contain: no efficiency, no claim of
+damping, no tuned number.
+
+Slides: 1 title · 2 contents · 3 M3 in one slide (the budget equation, four stat cards, the
+verdict) · 4-9 one per task (1, 2, 2b, 3, 4, 5) · **10 the gate** · **11 not one pair of 71** ·
+**12 why — the terms** · **13 why — the cadence** · 14 the discriminator · 15 criteria 2 and 3 ·
+16 the ten figures · 17 the audit · 18 carried to M4 / M5 · 19 open questions · 20 glossary ·
+21 this deck.
+
+**Re-plots, not crops.** The task-7 figures are drawn for a page and their panel labels fall well
+below 20 pt once a 13.3 × 7.5 in slide is filled, so all seven deck figures are drawn at the
+width they occupy on the slide with `font.size = 20` and placed at their **natural inch size**
+— the 20 pt floor then holds inside the images too, which `check_m1_deck.py` cannot verify for
+us. Every number in them comes from `data/m3_closure_summary.json` and
+`data/m3_figs_summary.json`; every number in the text is quoted from the task-1..8 log entries.
+
+**QA — and what inspecting the pages caught that the checker did not.**
+`check_m1_deck.py`: **minimum run size 20.0 pt, no offenders, no shape off-slide.** Its
+"overflow?" estimates are conservative (a 0.5 em glyph width), so they cannot be read as a
+pass/fail; the deck was rendered with `soffice --headless` + `pdftoppm` to 21 PNGs and **every
+page was looked at**. That found **six real problems**, none distinguishable from the checker's
+false positives:
+
+1. slide 3 — the stat cards' sub-text and the equation card overflowed their cards;
+2. slides 12, 13, 14 — matplotlib legends sat on top of the data they explained (the budget
+   figure's too); all moved above the axes in `make_m3_figs.py`;
+3. slides 10, 12, 13 — figures overlapped their own subtitles or the footer;
+4. slides 8, 11 — two-line cards collided with the footer;
+5. slide 14 and slide 18 were each doing two jobs and overflowing — **split**, taking the deck
+   from 19 slides to 21;
+6. several footers wrapped off the bottom of the slide.
+
+The last one got a guard rather than a fix: `footer()` now **asserts** its text is ≤ 84
+characters (what an 11.7 in box holds on one line at 20 pt), so a future build fails loudly
+instead of silently clipping. The others were fixed by resizing and by shortening text.
+
+**Rules honoured.** No frontogenesis efficiency appears anywhere — the slopes are shown only
+under "NOT QUOTED", as the prompt's "Do not" list requires while criterion 1 fails. No claim of
+diabatic damping: Figure 2b is on its own slide and the caption says it refutes the reading. The
+tolerances are presented as fixed on 2026-10-07 and never changed. M3-Q13 (c), M3-Q14 (a) and
+M3-Q15 (a) are each reflected — the KPPhbl sensitivity on the task-7 slide, the hourly-only
+constraint on the cadence slide, and the re-framing throughout.
+
+Scratch (session scratchpad, outside the repo): the rendered PDF and 21 PNGs, four montage
+sheets. Not touched: everything in `py/`, `figs/` and `data/`; the M0-M2 decks and their
+builders. Nothing committed.
