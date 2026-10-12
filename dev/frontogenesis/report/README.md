@@ -8,9 +8,35 @@
 | `check_report_numbers.py` | Re-reads every JSON-backed number from the task-6 / task-7 summaries and asserts it appears in the report; also enforces the prompt's "Do not" list |
 | `figs/schematic_pipeline.png` | The method as a picture: two stores → buoyancy → one operator set → the filter → the predicted and measured arms → the five-term budget → the residual |
 | `figs/schematic_budget.png` | A front in cross-section, each process colour-matched to its term, with the measured term amplitudes beside it |
+| `make_case_figs.py` | Draws the three §5.1 case-study figures from the case summary |
+| `figs/case_front_maps.png` | The followed front over four hourly snapshots, and the predicted tendency on the same frames |
+| `figs/case_strength.png` | Its strength along the trajectory against the prediction, and the hourly rates |
+| `figs/case_budget.png` | Its five-term budget beside the 71-pair pooled one |
 
 The project had no picture of its own method before these two. That is the one thing a reader
 who is not embedded needs most, and it is why M3-Q20 (b) asked for them.
+
+## The case study (§5.1)
+
+`../py/m3_case.py` follows one strong front — 450 parcels seeded on the front pixels of a
+corridor across a persistent filament at 37 °N, carried by the model's own velocity for a day
+either side of the seed time — and writes `../data/m3_case_summary.json` and
+`../data/m3_case_fields.npz`. It is the only part of the report that touches a data store, and
+it touches it **once**: the figures and the prose read the summary, never the store.
+
+Two checks are in the summary and both must hold. A parcel started at the departure point the
+budget's own backward map gives for a grid point, stepped forward one hour, returns to that
+point to a median 5.3e-4 cells — the integrator is the budget's, run backwards. And the case's
+own Lagrangian rate agrees with the stored measured column at correlation 0.901 and amplitude
+ratio 1.13.
+
+**No front finding.** The prompt's "Do not" list reserves labelling, thinning and despurring for
+M4. The front is a hand-drawn box; the parcels inside it are chosen by the same 90th-percentile
+rule the rest of the report uses. What is followed is water, not an object.
+
+An **unselected control** of 2,500 parcels is carried alongside, because parcels picked for
+being strong now must weaken afterwards whatever the physics does. The report says so and
+quotes both.
 
 ## Building the PDF
 
@@ -43,7 +69,8 @@ Set by JXP's answers to **M3-Q16..Q26** (`../claude_prompts/frontogenesis_prompt
 - **Scope** — M0 → M3 in proportion, then M3 in full; the design document summarised from §1,
   §2, §5.3-§5.4, §11 and §12.
 - **Numbers** — from the task log entries in `../claude_prompts/frontogenesis_prompts.md` and
-  from `../data/m3_closure_summary.json` / `../data/m3_figs_summary.json` **only**. No data
+  from `../data/m3_closure_summary.json`, `../data/m3_figs_summary.json` and
+  `../data/m3_case_summary.json` **only**. No data
   store is opened, by the report or by either script here. `check_report_numbers.py` enforces
   the JSON-backed half; the M0-M2 numbers are log-only and the report's numbers appendix marks
   them as such.

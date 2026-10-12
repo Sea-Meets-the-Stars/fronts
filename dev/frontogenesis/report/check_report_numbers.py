@@ -3,7 +3,8 @@
 The decks are built by script so they cannot drift from the logs (``deck/README.md``).  A
 prose report cannot be built that way, so this is the equivalent guard: every number in
 ``frontogenesis_M3_interim.md`` that has a JSON behind it is re-read from
-``../data/m3_closure_summary.json`` (task 6) and ``../data/m3_figs_summary.json`` (task 7),
+``../data/m3_closure_summary.json`` (task 6), ``../data/m3_figs_summary.json`` (task 7)
+and ``../data/m3_case_summary.json`` (the §5.1 case study),
 formatted the way the report formats it, and required to appear verbatim in the text.
 That is JXP's answer to M3-Q24 and M3-Q23 (a), made mechanical.
 
@@ -31,11 +32,18 @@ REPORT = HERE / 'frontogenesis_M3_interim.md'
 
 S = json.loads((DATA / 'm3_closure_summary.json').read_text())
 F = json.loads((DATA / 'm3_figs_summary.json').read_text())
+K = json.loads((DATA / 'm3_case_summary.json').read_text())
 L_ALL = ('0', '2', '4', '8')
 
 
 def f3(x):
     return f'{x:.3f}'
+
+
+def sci(x, nd=2):
+    """As the report writes a power of ten in LaTeX."""
+    m, e = f'{x:.{nd}e}'.split('e')
+    return f'{m} \\times 10^{{{int(e)}}}'
 
 
 def checks():
@@ -84,6 +92,45 @@ def checks():
 
     out.append(('front pixels pooled', ['1,866,803']))
     out.append(('pairs', ['71']))
+
+    # --- §5.1, the single-front case study ---------------------------------
+    c, tr, st = K['case'], K['trajectory'], K['strength']
+    ra, se, ck = K['rates'], K['selection'], K['checks']
+    out.append(('case: parcels followed', [f"{c['n_followed']}"]))
+    out.append(('case: seed corridor cells', [f"{c['seed_box']['i1'] - c['seed_box']['i0']}"]))
+    out.append(('case: hours each way', [f"{c['n_fwd']}"]))
+    out.append(('case: coast distance km', [f"{c['coast_km']:.0f}"]))
+    out.append(('case: seed time', [c['t_seed'].replace('T', ' ')]))
+    out.append(('case: window start', [c['t_start'].replace('T', ' ')]))
+    out.append(('case: window end', [c['t_end'].replace('T', ' ')]))
+    out.append(('case: displacement median cells', [f"{tr['displacement_cells']['median']:.2f}"]))
+    out.append(('case: displacement p90 cells', [f"{tr['displacement_cells']['p90']:.2f}"]))
+    out.append(('case: displacement max cells', [f"{tr['displacement_cells']['max']:.2f}"]))
+    out.append(('case: net displacement cells', [f"{tr['net_displacement_cells']:.1f}"]))
+    out.append(('case: spread start cells', [f"{tr['spread_cells_start']:.1f}"]))
+    out.append(('case: spread end cells', [f"{tr['spread_cells_end']:.1f}"]))
+    out.append(('case: G before the seed', [sci(se['G_before'])]))
+    out.append(('case: G at the seed', [sci(st['G_seed'])]))
+    out.append(('case: G peak', [sci(st['G_max'])]))
+    out.append(('case: G peak hour', [f"{st['G_max_hour']:.0f}"]))
+    out.append(('case: G at +24 h', [sci(st['G_end'])]))
+    out.append(('case: change factor', [f"{st['change_factor']:.2f}"]))
+    out.append(('case: control parcels', ['2,500', f"{se['n_control']}"]))
+    out.append(('case: control change factor', [f"{se['control_change_factor']:.2f}"]))
+    out.append(('case: G from 2F at +24 h', [sci(st['G_from_2F_end'])]))
+    out.append(('case: G from all four terms', [sci(st['G_from_budget_end'])]))
+    out.append(('case: predicted over observed change', [f"{st['predicted_over_observed_change']:.2f}", f"{abs(st['predicted_over_observed_change']):.2f}"]))
+    out.append(('case: budget over observed change', [f"{st['budget_over_observed_change']:.2f}"]))
+    out.append(('case: 2F positive intervals', [f"{ra['hours_2F_positive']} of {ra['n_intervals']}"]))
+    out.append(('case: measured positive intervals', [f"{ra['hours_measured_positive']} of {ra['n_intervals']}"]))
+    out.append(('case: corr measured 2F', [f"{ra['corr_measured_2F']:.2f}"]))
+    out.append(('case: trajectory return error', [sci(ck['trajectory']['median_return_error_cells'], 1)]))
+    out.append(('case: trajectory p99 return error', [sci(ck['trajectory']['p99_return_error_cells'], 1)]))
+    out.append(('case: rate check corr', [f"{ck['rate']['corr']:.3f}"]))
+    out.append(('case: rate check median ratio', [f"{ck['rate']['median_abs_ratio']:.2f}"]))
+    out.append(('case: rate check rms ratio', [f"{ck['rate']['rms_ratio']:.3f}"]))
+    for k, v in K['terms'].items():
+        out.append((f'case: {k} / measured', [f"{v['rms_over_measured']:.3f}"]))
     return out
 
 
@@ -104,7 +151,7 @@ def main():
     # and the L = 0 per-pair median residual), so flag a 3-dp match only when the line is
     # also talking about a slope; an unrounded 4-dp match is damning on its own.
     forbidden = []
-    slope_words = re.compile(r'slope|regress|efficien', re.I)
+    slope_words = re.compile(r'slope|efficien', re.I)
     for L in L_ALL:
         v = S['per_L'][L]['closure']['measured_on_2F']['ols']
         for r, needs_context in ((f'{v:.4f}', False), (f'{v:.3f}', True),

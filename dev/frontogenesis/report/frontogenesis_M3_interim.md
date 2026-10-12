@@ -10,7 +10,7 @@
 
 The surface buoyancy-gradient budget of the LLC4320 California Current did not close at the tolerance fixed before any number was computed, and milestone M3 — the second of the project's two hard gates — is therefore not passed.
 
-The project asks a narrow question of a 1/48° global ocean simulation: is the observed sharpening of surface buoyancy fronts accounted for by the kinematic frontogenesis rate computed from the model's own velocity and buoyancy fields? The two quantities are the two sides of an exact budget, so their difference is itself the physical content. On one tile off Monterey Bay (grid spacing 1.68–2.07 km), over 72 summer hours giving 71 hourly pairs, we measured the material rate of change of the front strength $G = |\nabla_h b|^2$ by a semi-Lagrangian step, predicted it as $2F$ from the frontogenesis function, and subtracted three further *measured* terms — sub-filter, vertical and surface flux — at four coarse-graining scales $L = 0, 2, 4, 8$ grid cells. The pre-declared criterion was a residual root-mean-square at most 0.50 of the measured tendency's on front pixels at every $L \ge 2$. The measured ratio is 0.813 / 0.841 / 0.898 / 1.042 at $L = 0 / 2 / 4 / 8$. Not one of the 71 hourly pairs reaches the tolerance at any scale.
+The project asks a narrow question of a 1/48° global ocean simulation: is the observed sharpening of surface buoyancy fronts accounted for by the kinematic frontogenesis rate computed from the model's own velocity and buoyancy fields? The two quantities are the two sides of an exact budget, so their difference is itself the physical content. On one tile off Monterey Bay (grid spacing 1.68–2.07 km), over 72 summer hours giving 71 hourly pairs, we measured the material rate of change of the front strength $G = |\nabla_h b|^2$ by a semi-Lagrangian step, predicted it as $2F$ from the frontogenesis function, and subtracted three further *measured* terms — sub-filter, vertical and surface flux — at four coarse-graining scales $L = 0, 2, 4, 8$ grid cells. The pre-declared criterion was a residual root-mean-square at most 0.50 of the measured tendency's on front pixels at every $L \ge 2$. The measured ratio is 0.813 / 0.841 / 0.898 / 1.042 at $L = 0 / 2 / 4 / 8$. Not one of the 71 hourly pairs reaches the tolerance at any scale, and a single strong front followed for 48 hours reproduces the pooled budget term by term.
 
 The result carries three readings, in this order. First, the **finding**: this is the null outcome the design document declared in advance — hourly surface fields at 2 km resolution cannot constrain the surface frontogenesis budget in this regime, and the limiting factor is named. Second, the **diagnosis**: two separable causes, which the filter sweep separates. At the grid scale the limit is the time sampling — two defensible estimates of the *same* tendency from the *same* hourly pair differ by 0.672 of the measured amplitude at $L = 0$, as large as the imbalance itself, and interpolation order is demonstrably not the reason (0.108). At the filtered scales that gap has fallen to 0.183, but the surface-flux term, which carries 0.36–0.80 of the measured amplitude, correlates only $+0.02$ with the imbalance it should explain; subtracting it at unit weight adds its variance to the residual. Rescaling that term by the boundary-layer depth corrects its magnitude and leaves its correlation unchanged. Third, the **stop**: the execution plan blocks everything downstream of M3 on closure, and the next milestone does not begin without the principal investigator's decision. The first reading is a result. The third is a decision that has not been taken.
 
@@ -150,7 +150,47 @@ One tile (tile 330), a 72-hour window from 2 July 2012 00:00 UTC, 71 usable hour
 
 ## 5. M3: the result
 
-### 5.1 The gate
+The gate of §3.5 is judged on 1.87 million pooled front pixels. A pool of that size cannot be seen, and a budget that fails on it fails as a statistic. The section therefore opens with one front — chosen, followed and budgeted on its own — before turning to the aggregate.
+
+### 5.1 One front, followed
+
+A strong, persistent filament was chosen by ranking the region's blocks on how often their pixels are front pixels over all 71 pairs, and taking the strongest of the leaders: a near-zonal front at 37.0–37.1 °N, 123.4–124.9 °W, 161 km offshore. At a seed time of 2012-07-03 06:00 UTC — pair 30, the centre of the window — a narrow corridor across it (11 cells, about 20 km) was taken, and every front pixel in that corridor, under the §3.4 definition unchanged, became a parcel: 450 parcels. They were carried by the model's own velocity 24 hours forward and 24 hours backward, from 2012-07-02 06:00 to 2012-07-04 06:00, and none was lost. No front finding of any kind enters — no labelling, no thinning, no skeletonising; those belong to the next milestone. What is followed is a set of water parcels.
+
+The trajectory is the budget's own. Parcels live on the midpoint-time grid, where pair $t$'s fields sit at $t + 0.5$ h, and are stepped by the model's velocity at the integer hour between two midpoints, through the same midpoint iteration and the same cubic interpolation as the departure map of §3.2, forward instead of backward. Two checks. The integrator alone: a parcel started at the departure point the budget's backward map gives for a grid point, and stepped forward one hour, returns to that grid point to a median $5.3 \times 10^{-4}$ cells (99th percentile $2.9 \times 10^{-3}$); this tests the index conventions and no physics. The rate: differencing $G$ between consecutive midpoint fields along the trajectory, against the budget's own stored measured tendency, gives a correlation of 0.901, a median amplitude ratio of 1.13 and an r.m.s. difference of 0.443 of the measured amplitude. These are two estimates of the same Lagrangian rate on time bases half an hour apart, and the 0.443 is the sampling limit of §6.1 sighted independently — not a new error, but the study's central constraint seen a second way.
+
+The parcels move a median 0.68 cells per hour (90th percentile 1.11, maximum 2.11) and a net 30.8 cells, about 58 km, over the 48 hours. The cloud's spread grows only from 10.2 to 11.5 cells: it stays a front rather than dispersing (Figure 4).
+
+![](figs/case_front_maps.png)
+
+**Figure 4.** The followed front. Top row: $\log_{10} G$ in the region at the seed time, 2012-07-03 06:00 UTC, and at +8, +16 and +24 hours, with the 450 followed parcels in cyan. Bottom row: the predicted tendency $2F$ on the same frames, on a diverging red–blue scale, with the parcels as dark dots. The filament is the bright near-zonal band at 37 °N; the parcels ride it, fold into the meander near 124 °W and stay on it. The $2F$ panels show the strain dipole that straddles the front — positive on one flank, negative on the other — which is why its net effect along a parcel path is so much smaller than its pointwise amplitude.
+
+Along the trajectory the median $G$ is $1.14 \times 10^{-14}$ s$^{-4}$ at −24 h, $7.95 \times 10^{-14}$ at the seed, peaks at $9.19 \times 10^{-14}$ four hours after it, and falls to $1.55 \times 10^{-14}$ at +24 h — a factor 0.19 over the forward day (Figure 5a). Much of that rise and fall is selection. Parcels chosen because their $G$ is large *now* must weaken afterwards whatever the physics does; regression to the mean is symmetric in time and acts on any selected set, and the figure shows exactly that symmetry about the seed. An unselected control of 2,500 parcels from the same box, carried by the same flow, changes by a factor 0.89 over the same 24 hours against the selected set's 0.19. The claims that follow are the ones that do not depend on the selection: the comparison of rates along one path, and the r.m.s. budget.
+
+The prediction fails, and that is the point. Integrating the predicted tendency along the same parcels from the seed time gives $G_0 + \int 2F\,dt = 8.47 \times 10^{-14}$ at +24 h against an observed $1.55 \times 10^{-14}$: the prediction accounts for −0.08 of the observed change — essentially none of it, and of the wrong sign. Hour by hour (Figure 5b), the predicted tendency is positive at 19 of the 24 intervals after the seed while the measured tendency is positive at 3 of 24; they agree in sign at one interval in three, and yet correlate at +0.71. The shape is right; the amplitude and sign are not. Before the seed, when the front is sharpening fastest, the measured tendency and the residual rise together while the predicted tendency stays near zero: whatever sharpens this front is almost entirely not in $2F$. The four measured terms together do reproduce the net change — $G_0 + \int (2F + \tau + V + S)\,dt$ lands at $1.59 \times 10^{-14}$, 0.99 of the observed change — but that is a time integral in which errors cancel, and it is not closure. The hourly budget of this front fails exactly as the pool's does.
+
+![](figs/case_strength.png)
+
+**Figure 5.** Strength and rates along the trajectory. (a) The median $G$ of the followed parcels against hours from the seed, with the inter-quartile range, the unselected control, and the two integrated predictions $G_0 + \int 2F\,dt$ and $G_0 + \int (2F + \tau + V + S)\,dt$. The symmetry about the seed is the selection; the control does not move; the predicted curve is nearly flat where the observed one falls by a factor of five. (b) The hourly rates along the same parcels — measured, predicted $2F$, residual $R$ and surface flux $S$. Before the seed the measured and residual rates rise together while $2F$ stays near zero.
+
+The budget of this one front at the grid scale, $L = 0$, where $\tau$ is zero by construction — r.m.s. of each term as a fraction of the measured tendency's — with the 71-pair pooled values beside it:
+
+| term | this front | all 71 pairs |
+|---|---|---|
+| kinematic $2F$ | 0.502 | 0.521 |
+| sub-filter $\tau$ | 0.000 | 0.000 |
+| vertical $V$ | 0.011 | 0.017 |
+| surface flux $S$ | 0.295 | 0.355 |
+| residual $R$ | **0.737** | **0.813** |
+
+against the pre-declared tolerance of 0.50 on $R$. **One front reproduces the pooled budget term by term** (Figure 6). The aggregate result is therefore not an average washing out a well-behaved individual case, and the case is not a cherry-pick: the budget fails on one of the strongest and most persistent fronts in the region, in the same proportions as on 1.87 million pixels.
+
+![](figs/case_budget.png)
+
+**Figure 6.** The budget of one front. The r.m.s. of each of the five terms as a fraction of the measured tendency's, for the 450 followed parcels beside the 71-pair pooled values at $L = 0$, with the 0.50 tolerance on $R$ drawn. The two sets of bars agree to within a few hundredths, term by term; the residual sits at 0.74 on this front and 0.81 on the pool.
+
+§5.2 asks the same question of every front at once.
+
+### 5.2 The gate
 
 Criterion 1 fails at every gated scale, and not marginally.
 
@@ -161,13 +201,13 @@ Criterion 1 fails at every gated scale, and not marginally.
 | 4 | 0.898 | +0.209 | +0.462 | **fails** |
 | 8 | 1.042 | −0.051 | +0.529 | **fails** |
 
-against 0.50 / 0.75 / ±0.10. Per pair, the median residual ratio is 0.831 / 0.861 / 0.910 / 1.048 with standard deviation 0.068 / 0.069 / 0.074 / 0.097 and a minimum of 0.715 / 0.714 / 0.731 / 0.824 — **0 of 71 pairs** reach 0.50 at any $L$. The seven third-day pairs covering a distinct northern front, declared in advance to be shown separately, are better than the median, not worse. Figure 4 shows one hour: the residual carries as much spatial structure as either side of the comparison.
+against 0.50 / 0.75 / ±0.10. Per pair, the median residual ratio is 0.831 / 0.861 / 0.910 / 1.048 with standard deviation 0.068 / 0.069 / 0.074 / 0.097 and a minimum of 0.715 / 0.714 / 0.731 / 0.824 — **0 of 71 pairs** reach 0.50 at any $L$. The seven third-day pairs covering a distinct northern front, declared in advance to be shown separately, are better than the median, not worse. Figure 7 shows one hour: the residual carries as much spatial structure as either side of the comparison.
 
 ![](../figs/fig01_maps.png)
 
-**Figure 4.** Maps of the measured sharpening rate $D_hG/Dt$ (left), the predicted $2F$ (centre) and the residual $R$ (right) for one hourly pair, at $L = 0$ and $L = 4$, at 13:30 and 01:30 local solar time, on a shared diverging scale. The test is "if these do not look alike, nothing else matters": the two sides share the pattern of the fronts, but the residual column retains structure of the same amplitude — the closure failure in map form.
+**Figure 7.** Maps of the measured sharpening rate $D_hG/Dt$ (left), the predicted $2F$ (centre) and the residual $R$ (right) for one hourly pair, at $L = 0$ and $L = 4$, at 13:30 and 01:30 local solar time, on a shared diverging scale. The test is "if these do not look alike, nothing else matters": the two sides share the pattern of the fronts, but the residual column retains structure of the same amplitude — the closure failure in map form.
 
-### 5.2 The five terms
+### 5.3 The five terms
 
 As a fraction of the measured tendency's r.m.s. on front pixels:
 
@@ -182,17 +222,17 @@ As a fraction of the measured tendency's r.m.s. on front pixels:
 
 The last row is the **catch-all** residual — what the budget would show with no full-depth data at all — and it is *smaller* than the full residual at every $L$. Adding two measured physical terms made the budget worse. That inversion is the diagnostic key of §6.
 
-The sub-filter term reproduces the M1 pilot over all 71 pairs: as a fraction of $2F$ it is 0 / 0.353 / 0.552 / 0.748, correlated with $2F$ at $-0.547$ / $-0.590$ / $-0.563$. It **opposes** the resolved kinematic term and grows with the filter scale without converging; criterion 3 is met. The vertical term is 1.5–1.7 % of the measured tendency, inside the bracket M0 set from surface fields alone, with almost no day–night contrast. Figure 5 shows the fields across the ladder; Figure 6 is the verdict.
+The sub-filter term reproduces the M1 pilot over all 71 pairs: as a fraction of $2F$ it is 0 / 0.353 / 0.552 / 0.748, correlated with $2F$ at $-0.547$ / $-0.590$ / $-0.563$. It **opposes** the resolved kinematic term and grows with the filter scale without converging; criterion 3 is met. The vertical term is 1.5–1.7 % of the measured tendency, inside the bracket M0 set from surface fields alone, with almost no day–night contrast. Figure 8 shows the fields across the ladder; Figure 9 is the verdict.
 
 ![](../figs/fig03b_filter_ladder.png)
 
-**Figure 5.** The filter ladder: buoyancy $b$, front strength $G$, predicted $2F$ and the sub-filter term $\tau$ (rows) at $L = 0, 2, 4, 8$ cells (columns) for one hour. Coarse-graining removes orders of magnitude from $G$ between $L = 0$ and $L = 2$ while leaving $b$ visually unchanged, and the sub-filter term — identically zero at $L = 0$, as stamped — becomes comparable to $2F$ by $L = 8$. The budget must close at each column separately.
+**Figure 8.** The filter ladder: buoyancy $b$, front strength $G$, predicted $2F$ and the sub-filter term $\tau$ (rows) at $L = 0, 2, 4, 8$ cells (columns) for one hour. Coarse-graining removes orders of magnitude from $G$ between $L = 0$ and $L = 2$ while leaving $b$ visually unchanged, and the sub-filter term — identically zero at $L = 0$, as stamped — becomes comparable to $2F$ by $L = 8$. The budget must close at each column separately.
 
 ![](../deck/figs_m3/m3_fig_budget.png)
 
-**Figure 6.** The five-term budget per filter scale: the r.m.s. of each term as a fraction of the measured tendency's, with the pre-declared 0.50 tolerance drawn. The residual sits at 0.81–1.04 at every $L$ and rises with $L$; the surface-flux bar rises with it. The catch-all residual — the budget without the two full-depth terms — is lower at every scale.
+**Figure 9.** The five-term budget per filter scale: the r.m.s. of each term as a fraction of the measured tendency's, with the pre-declared 0.50 tolerance drawn. The residual sits at 0.81–1.04 at every $L$ and rises with $L$; the surface-flux bar rises with it. The catch-all residual — the budget without the two full-depth terms — is lower at every scale.
 
-### 5.3 The other criteria
+### 5.4 The other criteria
 
 **Criterion 2** (semi-Lagrangian against Eulerian, front pixels): slope 0.691 / 0.813 / 0.891 / 0.939, correlation 0.758 / 0.913 / 0.969 / 0.984. It **passes at $L = 4$ and $L = 8$**, fails at $L = 2$ on the slope alone, and at $L = 0$ reproduces M1's one-hour result. **Criteria 3 and 5** pass. **Criterion 4's** machinery — every estimator, interval and sensitivity against the 0.981 baseline — is complete and was exercised; the measured-versus-predicted slopes it produced were computed, are held in the closure summary with a flag marking them unquotable, and are not reported here, because the budget they would be read against did not close. The orthogonal estimator sits four to five baseline-widths above the ordinary one at every $L$, which means both axes carry large and comparable noise — itself an argument against quoting any slope.
 
@@ -215,11 +255,11 @@ Three estimates of the *same* quantity — $D_hG/Dt$ on the same hourly pair, fr
 | 4 | 0.9997 | 0.027 | 0.969 | 0.252 |
 | 8 | 0.9998 | 0.021 | 0.984 | 0.183 |
 
-At $L = 0$ two defensible estimates of the tendency differ by 0.672 of the measured amplitude — comparable to the imbalance itself, 0.813. No term evaluated at the midpoint can explain a difference that large between two readings of the left-hand side. Interpolation order is demonstrably **not** the cause: raising it changes the estimate by 0.108. The hour is too long for the 2 km scale — the semidiurnal tide (0.6 m amplitude in surface elevation on this tile) and the internal-wave band alias into an hourly difference of a quantity quadratic in a gradient. By $L = 8$ the gap has fallen to 0.183 while the catch-all residual is still 0.685, so **at the filtered scales the failure is not sampling** (Figure 7). Only hourly output exists for this simulation, so the inference cannot be tested at a shorter interval.
+At $L = 0$ two defensible estimates of the tendency differ by 0.672 of the measured amplitude — comparable to the imbalance itself, 0.813. No term evaluated at the midpoint can explain a difference that large between two readings of the left-hand side. Interpolation order is demonstrably **not** the cause: raising it changes the estimate by 0.108. The hour is too long for the 2 km scale — the semidiurnal tide (0.6 m amplitude in surface elevation on this tile) and the internal-wave band alias into an hourly difference of a quantity quadratic in a gradient. By $L = 8$ the gap has fallen to 0.183 while the catch-all residual is still 0.685, so **at the filtered scales the failure is not sampling** (Figure 10). Only hourly output exists for this simulation, so the inference cannot be tested at a shorter interval.
 
 ![](../deck/figs_m3/m3_fig_sampling.png)
 
-**Figure 7.** Cause one. The r.m.s. difference between the Eulerian and semi-Lagrangian estimates of the same $D_hG/Dt$ (upper curve) and between the order-5 and order-3 semi-Lagrangian estimates (lower curve), each as a fraction of the measured amplitude, against the filter scale $L$. At $L = 0$ the two estimators disagree by 0.672 — as large as the budget's imbalance — while interpolation order accounts for 0.108; both fall steeply with $L$. The hourly cadence, not the interpolation, bounds what any budget term could explain at the grid scale.
+**Figure 10.** Cause one. The r.m.s. difference between the Eulerian and semi-Lagrangian estimates of the same $D_hG/Dt$ (upper curve) and between the order-5 and order-3 semi-Lagrangian estimates (lower curve), each as a fraction of the measured amplitude, against the filter scale $L$. At $L = 0$ the two estimators disagree by 0.672 — as large as the budget's imbalance — while interpolation order accounts for 0.108; both fall steeply with $L$. The hourly cadence, not the interpolation, bounds what any budget term could explain at the grid scale.
 
 ### 6.2 Cause two: the surface-flux term is near-orthogonal to the imbalance
 
@@ -240,11 +280,11 @@ If the residual were dominated by numerical diffusion it should track the biharm
 | 4 | +0.100 | **+0.146** |
 | 8 | +0.076 | **+0.219** |
 
-The two **cross over** between $L = 2$ and $L = 4$ — consistent with numerics dominating at the grid scale and forcing at the filtered scales — but **neither ever exceeds 0.22**. No diabatic signal can be isolated from this residual at any scale, which is the third of the design's null conditions in its stronger form, and no damping is claimed (Figure 8). The residual's diurnal composite does *not* change sign over the day, contrary to the expectation written into the figure specification: it is positive at every local hour, with a 34 % modulation and a minimum near 17 local solar time. That expectation is recorded as unmet, not smoothed over. The boundary-layer depth itself shows the expected phase — minimum 15.6 m at 12 and maximum 26.5 m at 02 local solar time — so the forcing signal is in the data; it is simply not detectable in the residual. The residual ratio is also flat with distance offshore (0.77–0.89 at $L = 0$).
+The two **cross over** between $L = 2$ and $L = 4$ — consistent with numerics dominating at the grid scale and forcing at the filtered scales — but **neither ever exceeds 0.22**. No diabatic signal can be isolated from this residual at any scale, which is the third of the design's null conditions in its stronger form, and no damping is claimed (Figure 11). The residual's diurnal composite does *not* change sign over the day, contrary to the expectation written into the figure specification: it is positive at every local hour, with a 34 % modulation and a minimum near 17 local solar time. That expectation is recorded as unmet, not smoothed over. The boundary-layer depth itself shows the expected phase — minimum 15.6 m at 12 and maximum 26.5 m at 02 local solar time — so the forcing signal is in the data; it is simply not detectable in the residual. The residual ratio is also flat with distance offshore (0.77–0.89 at $L = 0$).
 
 ![](../deck/figs_m3/m3_fig_discriminator.png)
 
-**Figure 8.** The discriminator. Partial correlations of the residual with $\nabla^4 b$ (a numerical-diffusion signature, controlling for $h_{\rm bl}$) and with the boundary-layer depth $h_{\rm bl}$ (an air–sea-forcing signature, controlling for $\nabla^4 b$), against filter scale. The two cross between $L = 2$ and $L = 4$, the expected ordering, but neither rises above 0.22 at any scale. This is why no slope in this study is called diabatic damping.
+**Figure 11.** The discriminator. Partial correlations of the residual with $\nabla^4 b$ (a numerical-diffusion signature, controlling for $h_{\rm bl}$) and with the boundary-layer depth $h_{\rm bl}$ (an air–sea-forcing signature, controlling for $\nabla^4 b$), against filter scale. The two cross between $L = 2$ and $L = 4$, the expected ordering, but neither rises above 0.22 at any scale. This is why no slope in this study is called diabatic damping.
 
 ---
 
@@ -320,6 +360,11 @@ Units are given for every variable. The grid cell on this tile is 1.68–2.07 km
 | optimal multiplier | the coefficient on a term that minimises the residual: $+1$ correct, $-1$ sign error, ~0 irrelevant |
 | partial correlation | correlation of $R$ with one candidate signature controlling for the other |
 | LST | local solar time (UTC − 8.0 h at the tile's longitude) |
+| seed time | the midpoint time of pair 30, 2012-07-03 06:00 UTC, the centre of the window, from which the case-study parcels are carried in both directions |
+| seed corridor | an 11-cell (about 20 km) strip across the chosen front at the seed time; every front pixel in it, under the §3.4 definition, becomes a parcel |
+| followed parcels | the 450 front pixels of the seed corridor, carried by the model's velocity 24 h forward and 24 h backward by the §3.2 integrator run forward on the midpoint-time grid; no front finding is involved |
+| unselected control | 2,500 parcels from the same box, chosen without regard to $G$ and carried by the same flow; the reference against which regression to the mean is measured |
+| integrated prediction | $G_0 + \int 2F\,dt$ along the followed parcels from the seed time; with the four measured terms, $G_0 + \int (2F + \tau + V + S)\,dt$ |
 
 **Data and code**
 
@@ -331,6 +376,7 @@ Units are given for every variable. The grid cell on this tile is 1.68–2.07 km
 | derived stores | `tile330_derived_L{0,2,4,8}.zarr`: the per-pair budget fields at each $L$ |
 | closure summary | `data/m3_closure_summary.json`: every number of §5–§6 |
 | figure summary | `data/m3_figs_summary.json`: the numbers each diagnostic figure drew |
+| case summary | `data/m3_case_summary.json`: every number of §5.1 |
 | `measured`, `two_F`, `subfilter`, `vertical`, `surface_flux`, `residual` | the five budget columns and the residual: $D_hG/Dt$, $2F$, $\tau$, $V$, $S$, $R$ |
 | `DGDt_semilag`, `DGDt_euler` | the semi-Lagrangian (order 3; `_o5` for order 5) and Eulerian estimates |
 | `surface_flux_kpp` | the depth-scale sensitivity of §6.3 |
@@ -342,7 +388,7 @@ Units are given for every variable. The grid cell on this tile is 1.68–2.07 km
 
 ## Appendix B. Numbers and provenance
 
-Every number in this report is taken from a task log entry in `claude_prompts/frontogenesis_prompts.md` or from the two JSON summaries; nothing was recomputed and no data store was opened. "JSON" names a key in `data/m3_closure_summary.json` under `per_L[L]`, with the group `closure.` left off where it is the first element (so `residual.over_measured` is `per_L[L].closure.residual.over_measured`); "figs" names a key in `data/m3_figs_summary.json`; "log only" marks numbers that exist only in the named log entry and cannot be asserted by a script.
+Every number in this report is taken from a task log entry in `claude_prompts/frontogenesis_prompts.md` or from the three JSON summaries; nothing was recomputed and no data store was opened. "JSON" names a key in `data/m3_closure_summary.json` under `per_L[L]`, with the group `closure.` left off where it is the first element (so `residual.over_measured` is `per_L[L].closure.residual.over_measured`); "figs" names a key in `data/m3_figs_summary.json`; "JSON `m3_case_summary.json`" names the case-study summary of §5.1, `data/m3_case_summary.json`; "log only" marks numbers that exist only in the named log entry and cannot be asserted by a script.
 
 | quantity | value(s) | source |
 |---|---|---|
@@ -391,3 +437,14 @@ Every number in this report is taken from a task log entry in `claude_prompts/fr
 | alternatives ruled out: front percentile p80/p95; 13-cell margin; order 3 vs order 5 | residual ratio within 0.01; within 0.02; corr > 0.995 and a gap of 0.02–0.11 of measured | log only — M3 task 6 |
 | $L = 16$ mask requirement | halo and margin $\ge$ 11 cells | log only — M3-Q3 (prompt 4 Q&A) |
 | 504-hour series cost | 3.58 h, 53 GB compute; 42 h chunk pull | log only — M3 task 4 / task 8 |
+| case front: position; distance offshore | 37.0–37.1 °N, 123.4–124.9 °W; 161 km | JSON `m3_case_summary.json` |
+| case seed: time; pair; corridor; parcels; lost | 2012-07-03 06:00 UTC; pair 30; 11 cells (about 20 km); 450; 0 | JSON `m3_case_summary.json` |
+| case window | 2012-07-02 06:00 to 2012-07-04 06:00 UTC (±24 h) | JSON `m3_case_summary.json` |
+| case integrator round-trip error | median $5.3 \times 10^{-4}$ cells; 99th percentile $2.9 \times 10^{-3}$ | JSON `m3_case_summary.json` |
+| case along-trajectory rate vs stored measured: correlation; median amplitude ratio; r.m.s. gap | 0.901; 1.13; 0.443 | JSON `m3_case_summary.json` |
+| case displacement: per hour median / 90th pct / max; net; cloud spread | 0.68 / 1.11 / 2.11 cells; 30.8 cells (about 58 km); 10.2 to 11.5 cells | JSON `m3_case_summary.json` |
+| case median $G$ at −24 h; seed; peak (about +5 h); +24 h | 1.14 / 7.95 / 9.19 / 1.55 $\times 10^{-14}$ s$^{-4}$ | JSON `m3_case_summary.json` |
+| case strength change over the forward day: followed parcels; unselected control (2,500 parcels) | 0.19; 0.89 | JSON `m3_case_summary.json` `strength.change_factor` |
+| case integrated prediction at +24 h: $2F$ alone; four terms; fraction of observed change | $8.47 \times 10^{-14}$; $1.59 \times 10^{-14}$; −0.08; 0.99 | JSON `m3_case_summary.json` |
+| case hourly tendencies after the seed: $2F$ positive; measured positive; sign agreement; correlation | 19 of 24; 3 of 24; 1 in 3; +0.71 | JSON `m3_case_summary.json` |
+| case budget r.m.s. over measured: $2F$; $\tau$; $V$; $S$; $R$ (pooled $L = 0$ beside) | 0.502 (0.521); 0.000 (0.000); 0.011 (0.017); 0.295 (0.355); 0.737 (0.813) | JSON `m3_case_summary.json`; JSON `term_contribution.*.rms_over_measured` |

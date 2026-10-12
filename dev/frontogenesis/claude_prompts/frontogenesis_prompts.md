@@ -7353,3 +7353,101 @@ accepted** — a trim pass to ~4,500 words is one instruction away, and the obvi
 **Not done.** No commit (Q26). No `fig02` anywhere. No efficiency, no damping claim, nothing
 recomputed, no data store opened, no test run (no code under test changed). The PDF is built to
 the scratchpad, not into the repo — the Markdown is the source of record.
+
+### 2026-10-12 — Execution prompt 4, task 10 part (iii): the single-front case study (Fable 5.1)
+
+**Task.** Prompt 4 task 10 (iii): "show the results of following a single, strong front in the
+region", in §5 **before** the aggregate, with new figures — (1) the front over several hourly
+steps, (2) its strength in time against what the frontogenesis tendency predicted, (3) anything
+else worthwhile. Prose by Fable 5.1; the analysis, the figures and the checking by Opus 5.
+
+**New code.** `py/m3_case.py` (280 lines) follows one front and writes
+`data/m3_case_summary.json` + `data/m3_case_fields.npz`; `report/make_case_figs.py` draws the
+three figures from those alone. The report's provenance rule is preserved by moving the store
+access into one script that runs once: the figures and the prose read the summary, never the
+store.
+
+**No front finding.** The prompt's "Do not" list reserves `tile_find`, labelling, thinning and
+despurring for M4. Nothing here labels an object. The front is a box; the parcels in it are
+chosen by the **same 90th-percentile rule** §3.4 already uses. What is followed is water.
+
+**Choosing the front.** Blocks of 40 cells were ranked by how often their pixels are front pixels
+over all 71 pairs. The leaders were scored on median `G` on front pixels, coast distance and
+latitude; `j 160-200, i 40-120` won — the upwelling filament at 36.8-37.4 N, 140-180 km
+offshore, which is also the feature M2-Q7's `j = 176` transect cuts. Inside it the filament is a
+*narrow band in `i`* (`i` runs north-south on this face): at the seed time the median `G` along
+`i = 78` is 7.7e-14, an order of magnitude above `i = 72` or `i = 84`. The seed corridor is
+`i 74-85`, 11 cells, about 20 km across the front.
+
+**The trajectory is the budget's own**, forward instead of backward: parcels live on the
+midpoint-time grid and are stepped by the model's velocity at the integer hour between two
+midpoints, through the same midpoint iteration and the same cubic interpolation as
+`semilag.departure_index`. **Check:** a parcel started at the departure point `departure_index`
+gives for a grid point, stepped forward one hour, returns to that grid point to a median
+**5.3e-4 cells** (p99 2.9e-3). The index conventions are right. **Second check:** the case's own
+Lagrangian rate against the stored `DGDt_semilag` — corr **0.901**, median amplitude ratio
+**1.13**, rms difference **0.443** of measured. That 0.443 is task 6's sampling limit seen a
+second way, not a new error.
+
+**The result.** 450 parcels, seeded 2012-07-03 06:00 UTC, carried ±24 h; **none lost**; median
+displacement 0.68 cells/h, net 30.8 cells (58 km); the cloud's spread grows only 10.2 → 11.5
+cells, so it stays a front. Median `G` 1.14e-14 (−24 h) → 7.95e-14 (seed) → peak 9.19e-14 (+4 h)
+→ 1.55e-14 (+24 h), a factor **0.19** over the forward day. **Integrating the prediction gives
+8.47e-14 against an observed 1.55e-14 — the predicted tendency accounts for −0.08 of the observed
+change**, and hour by hour it is positive at **19 of 24** intervals while the measured tendency is
+positive at **3 of 24**, agreeing in sign one interval in three yet correlating at **+0.71**: the
+shape is right, the amplitude and sign are not. All four measured terms integrate to 1.59e-14,
+0.99 of the observed change — a time integral in which errors cancel, **not** closure.
+
+**One front reproduces the pooled budget term by term** (r.m.s. over measured, this front vs all
+71 pairs at `L = 0`): `2F` **0.502** / 0.521, `tau` 0 / 0, `vertical` **0.011** / 0.017,
+`surface_flux` **0.295** / 0.355, **residual 0.737 / 0.813** against the 0.50 tolerance. The
+aggregate is not an average washing out a well-behaved individual case.
+
+**Selection bias found, named and controlled — the main methodological trap here.** The first
+design seeded on the box's top 1 % of `G` and followed it forward; `G` fell by a factor 3 from
+*every* start time tried (t0 = 6, 18, 30, 42; 24 h and 36 h), which is the signature of
+regression to the mean, not of frontolysis. Two changes fixed it: the window is now **symmetric**
+about the seed (−24/+24 h), so the artefact shows as a symmetric fall-off on both sides and can
+be seen rather than inferred; and an **unselected control** of 2,500 parcels from the same box is
+carried by the same flow, changing by a factor **0.89** against the selected set's 0.19. The
+report says plainly that much of the rise and fall is selection, and rests its claims on the two
+statistics that do not depend on it — the rate comparison along one path and the r.m.s. budget.
+Also corrected: seeding on the whole display box followed *every* front in it, not one; the seed
+corridor fixed that, and the display box was widened to `j 140-236, i 20-176` because the parcels
+reach `i = 167` by +24 h.
+
+**The report.** New **§5.1 One front, followed** (1,176 words with its captions) at the head of
+§5, the old §5.1-5.3 renumbered to §5.2-5.4, a two-sentence bridge opening §5, and **all eleven
+figures renumbered** (the three new ones are 4, 5, 6; the old 4-8 become 7-11). Verified
+mechanically: 11 images, 11 captions, order and numbering correct, alt text empty on all (pandoc
+duplicates captions otherwise), every in-text reference 1-11 resolves, every path exists.
+Appendix A gained five method entries and the case summary; Appendix B gained eleven rows.
+
+**Checking.** `check_report_numbers.py` now asserts **105** JSON-backed numbers (was 67) across
+three summaries, and it caught a real collision: `1.14` (the case's starting `G`) matched the
+`L = 2` not-quoted slope under the "slope context" rule, because §5.1 legitimately says
+*"regression to the mean"* — `regress` was dropped from the context words, the 4-dp exact match
+staying as the hard guard. Two of Fable's statements were corrected against the data: the peak is
+at **+4 h**, not "about five hours" (`G_max_hour` was added to the summary so the check can
+assert it), and "the strongest, most persistent front in the region" overstated a selection made
+by block ranking — softened to "one of the strongest and most persistent". PDF rebuilt: **26
+pages** (was 22), no missing glyphs, and pages 9-11 inspected — Figures 4, 5 and 6 render full
+width and legibly.
+
+**Also found.** `conda run -n frontogenesis python` on this workstation silently runs
+**ocean14's** interpreter. Everything in this task used the absolute path
+`/home/xavier/miniconda3/envs/frontogenesis/bin/python` instead.
+
+**Suite.** **258 passed + 3 xfails**, 2 deselected, 280 s, with the absolute `frontogenesis`
+interpreter — unchanged from task 9, as expected, since no module under test was edited.
+`m3_case.py` is new and has **no test of its own**: its two internal checks stand in for one
+(the `departure_index` round trip is effectively a unit test of the integrator), but a proper
+`tests/test_m3_case.py` is a gap, recorded here for M5.
+
+**Not done.** No commit — and note that the three new PNGs are **git-ignored** by `.gitignore`'s
+`*.png`, so they need `git add -f` when JXP commits, exactly as the existing `figs/` and the two
+schematics were force-added. `data/m3_case_summary.json` and `.npz` are ignored by
+`data/.gitignore`, which is the project's convention for every summary and needs no action. No
+front objects, no efficiency, no damping claim; the derived stores, `deck/` and the rest of `py/`
+are untouched.
