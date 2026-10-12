@@ -7200,3 +7200,156 @@ constraint on the cadence slide, and the re-framing throughout.
 Scratch (session scratchpad, outside the repo): the rendered PDF and 21 PNGs, four montage
 sheets. Not touched: everything in `py/`, `figs/` and `data/`; the M0-M2 decks and their
 builders. Nothing committed.
+
+### 2026-10-12 — Execution prompt 4, task 10 part (i): questions before the interim report (Fable 5.1)
+
+**Task.** Prompt 4 task 10 (i): an interim report on M3 for a wider audience than the acceptance
+deck serves — figures enough to describe the method, every major term and variable defined where
+it appears, a glossary, the project's goals, a summary of the design document, a clear statement
+of what failing the M3 gate means, and equations wherever possible. The task's own instruction is
+that the questions come first: *"Before writing it, ask me a series of questions in the Q&A/Report
+section below."* This entry covers **only** the questions. The report is not started until JXP
+answers; "Use Fable if you can" was honoured — the block was drafted by Fable 5.1 and reviewed
+and fact-checked by Opus 5 before it was placed.
+
+**What was written.** Eleven questions, **M3-Q16..Q26**, continuing the M3 series after task 6's
+M3-Q13..Q15, in `frontogenesis_prompt_4.md` under `## Q&A` → `### Report`, headed
+`#### Claude, 2026-10-12 (before task 10)`. House form kept from the M3-Q1..Q15 blocks: real
+context with file and section citations, lettered options with their costs, an explicit
+recommendation, and an empty `> **JXP:**` line each. Ordered by how much writing each one blocks —
+the first four fix the reader, the artefact, the scope and the length; the rest fix the contents.
+
+| # | Question | Recommendation |
+|---|---|---|
+| M3-Q16 | Who the "wider audience" is | (c) a two-page plain summary over a technical body |
+| M3-Q17 | Format, location, script-built or not | (a) Markdown in a new `report/`, pandoc PDF one-liner, numbers checked against the JSONs |
+| M3-Q18 | Scope: M3 alone or M0 → M3; how much of planning | (b) M0 → M3 in proportion; planning §1, §2, §5.3-§5.4, §11, §12 |
+| M3-Q19 | Length | (b) ~8 pages / ~4500 words, glossary and numbers table as appendices |
+| M3-Q20 | Figures — reuse, re-plot, or new; and a schematic | (b) reuse eight, plus two new schematics (pipeline, budget cartoon) |
+| M3-Q21 | How blunt about the failure, and what it means | (c) lead in the summary, build in the body; state all three readings |
+| M3-Q22 | Whether the report recommends next steps | (b) list the options with their on-record costs, recommend none |
+| M3-Q23 | Number provenance | (a) inherit the decks' rule — logs and the two JSONs only |
+| M3-Q24 | The "Do not" rules; the NOT-QUOTED slopes | (a) they bind the report; omit Figure 2 and its slopes, one sentence saying why |
+| M3-Q25 | Notation and the glossary's scope | (c) docs' symbols in equations, plain names beside them, code names only in the glossary; merged M0-M3 glossary with units |
+| M3-Q26 | Authorship, status banner, logging, committing | (a) planning-doc authors line, dated status, circulation note, `report/README.md`, commit on JXP's word |
+
+**Two of them are more than formatting.** M3-Q20 records that **no schematic of the method exists
+anywhere in the project** — not in the planning doc, not in `figs/`, not in any of the five decks.
+For a reader who is not embedded, a pipeline picture and a budget cartoon are probably worth more
+than any of the ten task-7 figures. M3-Q24 is the one with a rule behind it: `fig02_joint_pdf.png`
+is the measured-vs-predicted joint PDF, its pooled OLS slopes run 1.34 / 1.14 / 0.98 / 0.83 at
+`L = 0/2/4/8` (`m3_figs_summary.json`, `fig02`), and the deck shows them under a SLOPES NOT QUOTED
+banner. In an accessible document a banner does not stop a reader carrying 0.83 away as an
+efficiency, which is precisely what prompt 4's "Do not" list forbids while criterion 1 fails — so
+the recommendation is to omit the figure and say in one sentence that the slopes exist, are in
+the closure summary, and are not reported because the budget they would be read against did not
+close.
+
+**Fact-checking.** Every claim in the block was verified against the repo before it was placed,
+and five were corrected in the draft: the `gradb2` mismatch is 0.91x not 0.911x; M1 task 4's
+subfilter fractions are 0.31 / 0.50 / 0.70; there are seven V-figures, not six; the planning
+deck's glossary is two slides (the entry count was dropped rather than guessed); and `tau` is used
+for the sharpening time in planning §10's risk table, not in §7. Confirmed as written: planning §3
+Q4 "reports in markdown" and Q3 / Q6 (California Current, summer only); `frontogenesis_report.md`
+as M5's deliverable (coding §6, prompt 6 task 2); the `fig02` slopes above; the sampling table
+0.672 / 0.408 / 0.252 / 0.183 and criterion 2's 0.691 / 0.813 / 0.891 / 0.939 with corr 0.758 /
+0.913 / 0.969 / 0.984 (`m3_closure_summary.json`); every figure's pixel size; and the M3 deck's
+nine-entry glossary on slide 20.
+
+**Not done, deliberately.** No `report/` directory, no figures, no prose — the report waits on the
+answers, since M3-Q16 and M3-Q18 change every section of it. Nothing in `py/`, `figs/`, `data/` or
+`deck/` was touched; the test suite was not run (no code changed); nothing committed. The only
+edits are the Q&A block in `frontogenesis_prompt_4.md` and this log entry.
+
+### 2026-10-12 — Execution prompt 4, task 10 part (ii): the interim report (Fable 5.1)
+
+**Task.** Prompt 4 task 10 (ii): JXP answered M3-Q16..Q26, so write the report. The answers are
+the specification and every one of them is honoured below. Prose by Fable 5.1 as the task asks;
+the two schematics, the number check, the PDF build and the fact-checking by Opus 5.
+
+**What was built.**
+
+```
+report/
+  frontogenesis_M3_interim.md     the report: 8 sections, 2 appendices, 8 figures, 8 tables
+  make_report_figs.py             draws the two schematics (no store opened)
+  check_report_numbers.py         asserts the JSON-backed numbers; enforces the "Do not" list
+  pandoc-header.tex               figure size caps + hyphenation for Appendix B's JSON keys
+  README.md                       what is here, how the PDF is built, the rules it was written under
+  figs/schematic_pipeline.png     the method as a picture
+  figs/schematic_budget.png       a front in cross-section, each process matched to its term
+```
+
+**The answers, applied.** **Q16** — JXP named the reader ("an advanced PhD student focusing on
+Physical Oceanography") rather than picking a letter, so the depth is option (a)'s — the full
+budget derivation, every symbol introduced in words, no code identifiers in the running prose —
+while (c)'s structure is kept as §1, a one-page Summary, which Q21 (c) requires anyway.
+**Q17 (a)** — hand-written Markdown in a new `report/`, LaTeX equations, PDF by pandoc.
+**Q18 (b)** — §4 gives M0, M1 and M2 a paragraph each with their load-bearing numbers; the design
+document is summarised from §1, §2, §5.3-§5.4, §11 and §12 only; M4-M6 get one sentence, so
+"blocked" means something. **Q19 (b)** — see the length note below. **Q20 (b)** — eight figures:
+the two new schematics, `V3_discrete_null`, `fig01_maps`, `fig03b_filter_ladder`,
+`m3_fig_budget`, `m3_fig_sampling`, `m3_fig_discriminator`, each with a real caption and each
+referenced from the text. **Q21 (c)** — the first sentence of §1 is the failure; §7 states the
+three readings in order (finding, diagnosis, stop) and says plainly that the first is a result
+and the third a decision not yet taken. **Q22 (b)** — §8 lists six options with their on-record
+costs and recommends none. **Q23 (a)** — every number from a log entry or the two JSONs; no store
+opened by the report or by either script. **Q24 (a)** — no efficiency, no damping claim,
+`fig02_joint_pdf.png` and its slopes omitted entirely, with one sentence in §5.3 saying they were
+computed, are flagged unquotable in the closure summary, and are not reported because the budget
+they would be read against did not close. **Q25 (c)** — documents' symbols in the equations with a
+plain name at first use; code identifiers only in the glossary and Appendix B; Appendix A is a
+merged M0-M3 glossary of ~45 entries grouped physics / method / data and code, with units on
+every variable. **Q26 (a)** — the authors line, the dated status line and the circulation note are
+the front matter; `report/README.md` exists; **nothing is committed**.
+
+**The project's first picture of its own method.** There was no schematic anywhere — not in the
+planning doc, not in `figs/`, not in any of the five decks. `make_report_figs.py` draws two:
+the pipeline (two stores → buoyancy → one operator set → the top-hat filter → the predicted and
+measured arms → the five-term budget → the residual, with the masking rules in a side box), and a
+front in cross-section with confluence, air-sea fluxes, cell-base vertical advection, sub-filter
+eddies and numerical mixing each colour-matched to its term, the term amplitudes at `L = 2` read
+from the closure summary beside it. Both were rendered and **looked at**, and both were re-laid
+out twice: the first pipeline had overlapping text in the operator box and routed the predicted
+arm's arrow straight through the measured box; the first cartoon had five captions written over
+each other and over the isopycnals.
+
+**Verification.** `check_report_numbers.py` re-reads **67** JSON-backed numbers from
+`m3_closure_summary.json` and `m3_figs_summary.json`, formats them as the report formats them,
+and requires each verbatim; it also fails the build if any of the four not-quoted slopes appears
+(3-dp matches need slope context, because 0.831 is both the `L = 8` slope and the `L = 0`
+per-pair median residual — a collision the first version of the check flagged as a violation) or
+if the report never says the slopes are withheld, and it resolves all eight figure paths. **It
+passes.** The PDF builds with no missing glyphs at **22 pages**, and pages were inspected: that
+caught the `≤`/`≥` and the unicode superscripts in the units column rendering as missing
+characters (converted to LaTeX), two table headers colliding with their neighbours (shortened),
+pandoc emitting a duplicate "Figure 5: Figure 5" line above every real caption (alt text
+cleared), the two multi-panel page figures rendering too small to read (a `\setkeys{Gin}` cap at
+0.78 textheight), and Appendix B's long dotted JSON keys running off the right margin (the
+`closure.` prefix lifted into the appendix preamble).
+
+**Two of Fable's claims were corrected against the sources.** §5.3 said five sensitivities each
+"move the residual ratio by less than 0.02"; task 6's log supports that only for the front
+percentile (0.01) and the 13-cell margin (0.02), and rules out an interpolation-order artefact by
+a different argument (orders 3 and 5 correlate above 0.995 and differ by 0.02-0.11 of measured,
+an order below the residual). Rewritten as four alternatives ruled out, each by the argument the
+log actually makes, and Appendix B's row rewritten to match. Everything else checked out,
+including things not in the brief: the optimal multipliers (+1.44, +0.82, +0.048 at `L = 0`;
++0.59 and +0.009 at `L = 8`), the offshore band 0.77-0.89, the 32 x 32-cell blocks, the 17,165
+blocks, M1's first attempt at 0.758, and "TLS four to five baseline-widths above OLS", which is
+the task-6 log's own phrasing. Fable also corrected **my** brief in two places from the JSON: the
+`KPPhbl` residuals are 0.738 / 0.725 / 0.711 / 0.684, and the diurnal numbers come from
+`fig06` plus the task-7 log.
+
+**Length — the one specification not met.** Q19 (b) asked for ~8 pages and ~4,500 words. The body
+is **5,479 prose words** (about 5,000 excluding the eight captions) and the PDF is **22 pages**,
+of which roughly 4 are figures and 5 are the two appendices, which Q19 excludes. Fable cut it
+from 6,456 words and stopped, on the ground that what remains is content the other answers
+require: the full surface-budget derivation and the discretisation subtlety (Q18), all five M3
+tables, the three readings (Q21) and the options list (Q22). **Recorded as over, not quietly
+accepted** — a trim pass to ~4,500 words is one instruction away, and the obvious candidates are
+§3.4's second paragraph and §5.3's sensitivities.
+
+**Not done.** No commit (Q26). No `fig02` anywhere. No efficiency, no damping claim, nothing
+recomputed, no data store opened, no test run (no code under test changed). The PDF is built to
+the scratchpad, not into the repo — the Markdown is the source of record.

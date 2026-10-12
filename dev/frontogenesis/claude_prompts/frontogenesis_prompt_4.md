@@ -157,7 +157,7 @@ red NOT CLOSED card on the title slide, three slides given to the diagnosis, and
 listing what it deliberately does not contain — no efficiency, no damping claim, no tuned number.
 Figures are **re-plots at slide size**, not crops, so the 20 pt floor holds inside the images
 too; log entry "Execution prompt 4, task 9". **All nine tasks of prompt 4 are complete; M3
-remains NOT CLOSED and everything downstream is blocked (coding §7).** The task sequence below (tasks 1-9), the M3 carry-forward
+remains NOT CLOSED and everything downstream is blocked (coding §7).** **Task 10 part (i) started 2026-10-12** — the interim report's questions are written and **open**: **M3-Q16..Q26** in `## Q&A` → `### Report` (audience, format and location, scope, length, figures and whether to draw the project's first schematic, how blunt the failure is stated and what it is said to mean, whether next steps are recommended, number provenance, whether the NOT-QUOTED slopes appear at all, notation and the glossary, and the front matter). Drafted by Fable 5.1, fact-checked against the repo, each with a recommendation. **The report itself is not started until JXP answers** — M3-Q16 and M3-Q18 change every section of it; log entry "Execution prompt 4, task 10 part (i)". **Task 10 part (ii) done 2026-10-12** — all eleven answered, and the report written: `report/frontogenesis_M3_interim.md` (8 sections, 2 appendices, 8 figures, 8 tables), `report/make_report_figs.py` → the project's **first two schematics** (the pipeline; a front in cross-section with each process matched to its term), `report/check_report_numbers.py` (**67** JSON-backed numbers asserted verbatim, the four not-quoted slopes forbidden, all eight figure paths resolved — **passes**), `report/pandoc-header.tex` and `report/README.md`. PDF builds at **22 pages**, no missing glyphs, every page inspected — which caught six layout defects (missing `≤`/`≥` and superscript glyphs, two colliding table headers, pandoc's duplicate "Figure N" captions, the multi-panel figures too small to read, Appendix B's JSON keys off the right margin). Two of Fable's claims were corrected against the task-6 log (the sensitivity paragraph in §5.3 and its Appendix B row); Fable corrected two of the brief's numbers from the JSON. **Q19's length is the one spec not met and is logged as such**: 5,479 body prose words against ~4,500, 22 pages against ~8 (≈4 of figures, ≈5 of appendices, which Q19 excludes) — a trim pass is one instruction away. Nothing committed (M3-Q26); no efficiency, no damping claim, no store opened; log entry "Execution prompt 4, task 10 part (ii)". The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
@@ -1040,6 +1040,8 @@ i. The slides you have created are good, but difficult to understand for those n
 Before writing it, ask me a series of questions in the Q&A/Report section below.
 Use Fable if you can.  Log your work.
 
+ii. Ok, I have answered your questions in the Q&A/Report section below.  Please read my responses and then move on to write the Report.  use Fable if you can.  Log your work.
+
 ### M3 carry-forward cross-check
 
 Every item of M2 task 6's "Carried forward to M3" list and its open items, and every M1
@@ -1133,6 +1135,235 @@ no M3 action say so. Task 8 walks this table and marks each row.
 ## Q&A
 
 ### Report
+
+#### Claude, 2026-10-12 (before task 10)
+
+Eleven questions before the interim report is written, numbered M3-Q16..Q26 after task 6's
+M3-Q13..Q15. They are ordered by how much writing each one blocks: the first four fix who the
+report is for, what it is, what it covers and how long it is; the rest fix what goes in it. Every
+number below is from the task-6..9 log entries, `data/m3_closure_summary.json` and
+`data/m3_figs_summary.json`; nothing was recomputed. Each question has a recommendation, and the
+report is not started until these are answered — the audience alone changes every section.
+
+##### Questions
+
+**M3-Q16 — Who the "wider audience" is.** The M3 deck (`deck/Frontogenesis_M3_Acceptance.pptx`,
+21 slides) assumes the reader knows `G`, `2F`, `L`, the midpoint rule and the M1 baseline — its
+glossary (slide 20) has nine entries and defines `front & valid` as "`G` above its p90 at the
+midpoint, inside `mask_analysis`", which is only a definition to someone who already knows what
+the midpoint is. "Wider audience" could mean three different readers, and the physics depth
+differs by a factor of several between them. Note that Lauren, the one external reader on
+record (`lauren_comments_on_planning.txt`), reads at the level of planning §5.3 item 2 and
+`front_tracking.follow()` — she is closer to the embedded end than to the prompt's "not deeply
+embedded". Options: (a) **a physical oceanographer who has not read the planning document or the
+code** — the full budget equation and the filter-sweep argument are kept, but every symbol is
+introduced in words, and the code identifiers are dropped from the main text; (b) **a programme
+manager or a scientist from another field** — the budget is stated in one equation and one
+sentence, the method is a schematic, the numbers are the four residual ratios and the 0.50
+tolerance, and the M0-M2 validation is one paragraph; (c) **both, by structure** — a two-page
+plain-language summary (audience b) followed by a technical body (audience a), with the glossary
+serving both. The cost of (c) is length and some repetition; the cost of (a) alone is that a
+funder stops at §2; the cost of (b) alone is that Lauren learns nothing she could check. I
+recommend **(c)**, with the summary written so that it can be lifted out on its own.
+
+> **JXP:**  Write it so that an advanced PhD student focusing on Physical Oceanography could understand it.
+I like your recommendation to include both
+
+**M3-Q17 — Format, location, and whether the report is script-built.** Planning §3 Q4 (decision of
+record) says "reports in markdown", and M5's own deliverable is `frontogenesis_report.md`
+(coding §6 M5), so an interim Markdown report is the thing M5's report later grows from. The
+decks' house rule (`deck/README.md`) is that every artefact is built by script so it cannot drift
+from the logs; a prose report cannot be built that way, but its numbers can be checked that way.
+Equations "wherever possible" is what decides the format: GitHub, VS Code and pandoc all render
+`$...$` / `$$...$$` LaTeX in Markdown, so Markdown loses nothing on equations, and a PDF is one
+`pandoc` call away. Options: (a) **Markdown, hand-written, in a new `report/` directory** —
+`report/frontogenesis_M3_interim.md`, figures referenced from `figs/` and `deck/figs_m3/` or
+drawn by `report/make_report_figs.py` into `report/figs/`, with a small
+`report/check_report_numbers.py` that greps every number in the text and asserts it against the
+two JSON summaries (the deck's no-drift rule, applied to prose); (b) **LaTeX → PDF** — better
+typesetting, a real document for circulation, but a second toolchain in the repo and no diff-able
+source for the M5 report to inherit; (c) **a self-contained HTML page** with MathJax and embedded
+figures — one file to send, but it is neither the planning doc's format nor M5's, and it is the
+hardest to keep in sync. (a) and (b) are not exclusive: (a) plus a committed `pandoc` PDF build
+line is both. I recommend **(a)**, with the PDF build recorded in `report/README.md` as a
+one-liner, and the number check as the only script-enforced part.
+
+> **JXP:** Yes, (a) is the way to go.
+
+**M3-Q18 — Scope: M3 alone, or M0 → M3.** M3's result is not comprehensible without three things
+that are not M3's: M0's finding that the operators must share one stencil (the 0.91x `gradb2`
+mismatch, planning §2.1), M1's discrete null (V3: slope 0.981 [0.970, 0.994], the reason every
+slope is quoted against a baseline and not against 1) and the subfilter term that M1 task 4 showed
+grows with `L` (0.31 / 0.50 / 0.70 of `Fbar`), and M2's two stores (the OSN surface store and the
+hourly full-depth chunk store that made `vertical` and `surface_flux` measured terms rather than
+assumptions). Without them a reader cannot see why the budget has five terms or why the failure is
+not a bug. Options: (a) **M3 only**, with M0-M2 compressed into one paragraph of "what was
+established before M3"; (b) **M0 → M3 in proportion** — one short section per milestone stating
+what it established and its one or two load-bearing numbers, then M3 in full; (c) **the whole
+project** including the planned M4-M6, so the reader sees what is now blocked. For the planning
+document, "summarise the design document" can mean §1, §2, §5.3-§5.4, §11 and §12 (the physics,
+the two hardest method choices, the statistics and the pre-declared null) — or all twelve sections
+including §3's decisions table, §4's data paths, §8-§10's code layout and open items, which are
+of no use to either audience. I recommend **(b)** for the milestones and the five-section subset
+for the planning document, with one sentence on what M4-M6 would have been (so "blocked" means
+something) and nothing more.
+
+> **JXP:** (b)
+
+**M3-Q19 — Length.** The planning document is 950 lines; the M3 log entries for tasks 6-8 alone
+are about 600 lines; the deck is 21 slides. Three anchors: (a) **~4 pages, ~2500 words** — the
+summary of M3-Q16 (c) plus a glossary, four figures; it states the result and the two causes but
+cannot show the method, so "enough figures to clearly describe the method" is not met; (b)
+**~8 pages, ~4500 words** — the two-page summary, one page each for the physics and the method
+(with the schematic), one for M0-M2, two for M3's result and diagnosis, one for what the failure
+means, plus a glossary appendix; seven or eight figures; (c) **~12 pages, ~6000 words** — (b) plus
+the statistics of planning §11, Figure 2b in full, the per-pair figure and the `KPPhbl`
+sensitivity, which is close to a draft of the M5 report rather than an interim note. I recommend
+**(b)**, with the glossary and a numbers table as appendices that do not count against the eight
+pages.
+
+> **JXP:** (b)
+
+**M3-Q20 — Figures: reuse, re-plot, or draw new — and a schematic.** Three sets exist. The ten
+page-sized task-7 figures in `figs/` (`fig01_maps.png` 3300 x 3440 px, `fig03b_filter_ladder.png`
+3360 x 3040, `fig10_term_budget.png` 3800 x 1900, and the seven strip-shaped ones at ~4000 x 1100)
+are drawn for a page and carry every caveat verbatim; the seven slide-sized re-plots in
+`deck/figs_m3/` (~2000 x 1000 px, 20 pt text) are the ones that explain the failure
+(`m3_fig_budget.png` is the five-term rms per `L` with the 0.50 tolerance drawn,
+`m3_fig_sampling.png` the Eulerian − semi-Lagrangian gap vs `L`, `m3_fig_discriminator.png` the
+partial correlations, `m3_fig_per_pair.png` all 71 pairs); and the seven M1 validation figures
+`figs/V1..V6*.png`. **No schematic of the method exists anywhere in the project** — no picture
+of the pipeline (two stores → one operator → filter → semi-Lagrangian step → five terms →
+residual) and no cartoon of the budget showing what each term is physically. For a reader who
+is not embedded that is likely the single most useful figure. Options: (a) **reuse only** — a
+subset of the page figures and the deck re-plots as they are, no new drawing, so every figure
+is already logged and tested; (b) **reuse plus two new schematics** drawn by
+`report/make_report_figs.py` (the pipeline, and the budget with one box per term), which need no
+data; (c) **a new report-specific set** — the schematics plus re-plots of the key results at
+report width from the two JSONs, as the deck did at slide width, so the figure style is uniform.
+My proposed subset for (b): the two schematics; `V3_discrete_null.png` (why the baseline is
+0.981); `fig01_maps.png` (measured beside `2F` beside residual — "if these do not look alike,
+nothing else matters"); `fig03b_filter_ladder.png` (what the filter does); `m3_fig_budget.png`
+(the verdict); `m3_fig_sampling.png` and `m3_fig_discriminator.png` (the two causes); eight in
+all. I recommend **(b)**; (c) only if the mixed page/slide styles read badly in the PDF, which I
+would check before asking again.
+
+> **JXP:** (b)
+
+**M3-Q21 — How blunt, and where, and what the failure is said to mean.** The deck puts a red NOT
+CLOSED card on its title slide. A report can lead with the failure or build to it. Separately,
+the report has to say what "the gate failed" means, and the docs offer three readings that are
+not the same: planning §12's — a **publishable methodological finding** ("hourly surface fields
+at 2 km cannot constrain the frontogenesis budget in this regime, and the limiting factor is
+named"); coding §7's — a **provisional stop** ("everything after M3 is blocked on closure" and M4
+does not start without your decision); and task 6's — a **diagnosis** (two separable causes: the
+time sampling at `L = 0-2`, where two estimates of the same `DG/Dt` differ by 0.672 and 0.41 of
+the measured amplitude, and the surface-flux term's near-orthogonality at `L = 4-8`, correlation
++0.02, optimal multiplier +0.048, unchanged in its correlation by the `KPPhbl` sensitivity).
+Options: (a) **lead with it** — the first sentence of the summary says the budget did not close
+(0.813 / 0.841 / 0.898 / 1.042 against 0.50, 0 of 71 pairs), and the report then explains what
+was being attempted and why it is a finding and not a mistake; (b) **build to it** — goals,
+method, validation, then the result, so a reader meets the failure only after understanding what
+closure would have been; (c) **lead with it in the summary, build to it in the body**. For the
+meaning: state all three readings, in that order — the finding (what we know), the diagnosis (why),
+the stop (what follows) — making clear that the first is a result and the third is a decision
+that has not been taken. I recommend **(c)** and all three readings; the one thing the report must
+not do is let a reader leave thinking the method is broken rather than the data cadence.
+
+> **JXP:** (c)
+
+**M3-Q22 — Whether the report recommends next steps.** M3-Q14 (a) closed the obvious remedy: only
+hourly data exists, so the sampling cause at `L = 0-2` cannot be tested at a shorter `dt`. What
+remains is a short list, each with a cost that is on record: accept the `L >= 4` result as a
+**bound** (criterion 2 passes there, slope 0.891 / 0.939, corr 0.969 / 0.984, and the sampling gap
+has fallen to 0.25 / 0.18 — but criterion 1 still fails, 0.898 / 1.042); **coarser `L`** (16 would
+need a new mask with `edge_cells` and `halo_cells` >= 11, M3-Q3); a **longer window** (the 504-hour
+series: 3.58 h and 53 GB of budget compute, against a 42 h chunk pull — task 4), which sharpens the
+statistics but does not change the cadence; a **different region or season** (planning §3 Q3 and
+Q6 fixed the California Current in summer); resolving the **surface-flux term's formulation**
+(M3-Q13: the `KPPhbl` divisor fixes its magnitude, +0.6-2.0, but not its correlation, +0.04 to
++0.09); or **stopping**. Options: (a) **no recommendations** — the report ends at the finding and
+says in one sentence that the decision about M4 is yours; (b) **options listed, none
+recommended** — a short section with the list above and its costs, so a reader knows what the
+decision is between; (c) **a recommended path**. (c) is a scope decision that the prompt reserves
+to you (M3-Q15 says so), and a recommendation in a circulated document pre-empts it. I recommend
+**(b)**.
+
+> **JXP:** (b)
+
+**M3-Q23 — Number provenance.** The decks' rule (`deck/README.md`, "Rules honoured") is that every
+number is quoted from the task log entries in `claude_prompts/frontogenesis_prompts.md` and no
+data store is opened by the build scripts; the deck's seven re-plots are drawn from the two JSON
+summaries only. The report quotes more numbers than the deck (M0-M2's as well as M3's) and may
+draw new figures. Options: (a) **inherit the rule strictly** — every number from a log entry or
+from `data/m3_closure_summary.json` / `data/m3_figs_summary.json`, new figures from those JSONs
+only, the derived stores never opened, and `check_report_numbers.py` (M3-Q17) asserting the
+JSON-backed ones; (b) **JSONs plus the derived stores** — allows a new map or histogram at report
+width, but re-opens a 7.9 GB store for a document whose job is to explain, and the deck precedent
+was explicitly not to; (c) **free**. The M0-M2 numbers have no JSON behind them (the V3 baseline is
+in `validate.py`'s output and the M1 task-6 log), so for those the log entry is the only source
+and the check script cannot assert them — the report should cite the log entry by title. I
+recommend **(a)**, with the log-only numbers marked as such in the numbers appendix.
+
+> **JXP:** (a)
+
+**M3-Q24 — The "Do not" rules, and whether the NOT-QUOTED slopes appear at all.** Prompt 4's
+"Do not" list binds M3: no frontogenesis efficiency before criterion 1 passes, and no "diabatic
+damping" without Figure 2b. I take both as binding the report too — confirm. The open point is
+Figure 2 (`figs/fig02_joint_pdf.png`): the slopes exist (`slopes_not_quoted`,
+`slopes_quotable = False` in the closure summary; the pooled OLS runs from 1.34 at `L = 0` to
+0.83 at `L = 8` in `m3_figs_summary.json`'s `fig02`), and the deck shows them under a SLOPES NOT
+QUOTED banner. In an accessible document a banner does not stop a reader carrying the number
+away, and a slope of 1.34 or 0.83 is exactly the "efficiency" the rule forbids. Options: (a)
+**omit the figure and the numbers**, with one sentence saying that the measured-vs-predicted
+slopes were computed, are held in the closure summary, and are not reported because the budget
+they would be read against did not close; (b) **show Figure 2 with the banner**, as the deck
+does, on the grounds that hiding it looks like hiding a result; (c) **an appendix only**, figure
+and banner, out of the main narrative. Figure 2b (the discriminator) is different: it is the
+evidence that no damping can be claimed (partial correlations never above 0.22) and belongs in
+the body under M3-Q20's `m3_fig_discriminator.png`. I recommend **(a)**: the report's job is to
+make the null legible, and the one number a non-embedded reader must not take home is a slope.
+
+> **JXP:** (a)
+
+**M3-Q25 — Notation, and the glossary's scope.** The docs use `G`, `F` and `2F`, `DG/Dt` (with
+`D_h`), `L` or `L_cells`, `tau` for the subfilter flux and `t_sharp` for the sharpening time
+(the planning doc's §10 risk table calls that one `tau` too), `KPPhbl`, `lap2_b`,
+`mask_analysis`, `front & valid`, and five budget-term names that are also code column names
+(`measured`, `two_F`, `subfilter`, `vertical`, `surface_flux`). Options: (a) **the docs' exact
+symbols throughout**, code names included — zero translation cost against the logs, but
+`two_F` and `front & valid` in running prose are the embedded-reader problem the prompt names;
+(b) **reader-friendly names with a mapping table** — "front strength" for `G`, "predicted
+sharpening rate" for `2F`, "measured sharpening rate" for `DG/Dt` — readable, but every equation
+then needs the symbol anyway; (c) **the docs' symbols in equations, a plain name beside each at
+first use, code identifiers confined to the glossary and the numbers appendix** — so the body
+reads "the front strength `G = |grad b|^2`" and never "`two_F`". For the glossary: the planning
+deck has a two-slide glossary, the M1 deck two slides, the M2 and M3 decks one each (nine
+entries in M3's); merged and de-duplicated that is roughly 30 terms. Options: M3-only (nine
+entries, which the deck already has) or **merged M0-M3**, every variable with its units (`b` in
+m s^-2, `G` in s^-4, `F` and every budget term in s^-5, `L` in cells with the 1.7-2.1 km cell size
+stated, `KPPhbl` in m) and its first-use section, grouped physics / method / data and code. I
+recommend **(c)** and the merged glossary with units; it is the one part of the report that both
+audiences will actually use.
+
+> **JXP:** (c)
+
+**M3-Q26 — Authorship, status banner, logging and committing.** The planning document's authors
+line is "J. X. Prochaska, with Claude (Opus 5)"; this report will be written by Fable 5.1 as the
+prompt asks. The deck says what it is on its last slide ("built by script from the M3 logs;
+nothing recomputed") and what it does not contain. Options for the report's front matter: (a)
+**an authors line matching the planning document** ("J. X. Prochaska, with Claude (Fable 5.1)"),
+a dated status line ("Interim report, 2026-10-12 — M3 not closed; M4 not started"), and a
+circulation note ("for the collaboration; not for citation") — the last because the report quotes
+pre-declared tolerances and a null result that the M5 write-up will restate; (b) the same without
+the circulation note, if you intend to send it beyond the collaboration as it stands; (c) your
+name only. For the record-keeping: a log entry in `frontogenesis_prompts.md` under `## Logs`
+titled "Execution prompt 4, task 10: interim report (Fable 5.1)", a Status line in this prompt, a
+`report/README.md` in the style of `deck/README.md` (what was built, where the numbers come from,
+how the PDF is made), and the report committed only when you say so, as every other artefact was.
+I recommend **(a)** and that record-keeping.
+
+> **JXP:** (a)
 
 ### Claude, 2026-10-07 (before task 1)
 

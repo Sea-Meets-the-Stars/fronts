@@ -1,0 +1,9 @@
+% Cap every figure to a box that keeps the dense multi-panel ones readable: the wide
+% schematics are limited by width, the near-square map grids by height.
+\setkeys{Gin}{width=0.95\linewidth,height=0.78\textheight,keepaspectratio}
+
+% Appendix B's source column holds long dotted JSON keys in \texttt, which TeX will not
+% break by default and which then run off the right margin.  Allow them to hyphenate.
+\usepackage[htt]{hyphenat}
+\sloppy
+\emergencystretch=3em
