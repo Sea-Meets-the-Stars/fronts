@@ -1,0 +1,3 @@
+# The fronts .gitignore ignores *.png (line 7); the QA and V1-V6 acceptance
+# figures (coding doc §4.9, §6) live here and are meant to be tracked.
+!*.png

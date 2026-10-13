@@ -1,0 +1,491 @@
+# Frontogenesis execution prompt 3 — M2: Data pull
+
+**Milestone:** M2 (`frontogenesis_coding.md` §6).
+**Prerequisite:** M0 complete (static grid on disk). **M2 genuinely does not depend on M1** — it
+pulls raw fields and needs no physics, no operators and no masks. Masks are M1's; the static grid
+is M0's. So M1 and M2 can run in parallel.
+**Goal:** the 72-hour window on disk, in one time-dimensioned store per source, resumably.
+
+**Status 2026-10-04 — M2 closed 2026-10-04** (task-6 log entry: all seven acceptance criteria
+PASS; "Do not" list respected; details below). Tasks 1-7 done; task 7 (slides) done 2026-10-04:
+`deck/Frontogenesis_M2_Acceptance.pptx`, 14 slides, no text below 20 pt (`deck/README.md`).
+**Task 8 (M3 prompts and carry-forward) done 2026-10-07:** `frontogenesis_prompt_4.md`
+restructured to the prompt-2/3 format (Status, `## Tasks` 1-9 with *Discharges*, the M3
+carry-forward cross-check table mapping every M2 task-6 and M1 item, `## Q&A` M3-Q1..Q9, the Log
+convention); one-line pointer in coding §6 M3; log entry "Execution prompt 3, task 8".
+*(Per-task text condensed into bullets 2026-10-04, M2 task 6, no numbers dropped.)*
+
+- **Task 1** (log entry 2026-10-03): `osn_tiles.pull_series` on `zarr_series`'s per-hour atomic
+  append with repair-on-resume, stop-at-gap policy; `series_verify.verify_series`;
+  `tests/test_pull_series.py` 20 offline + 1 network smoke, 22 s for one real hour; suite 104
+  passed + 3 xfailed.
+- **Task 2** (log entry 2026-10-03): `py/m2_pull.py` pulled all **72 hours** into
+  `data/tile330_raw_20120702T00_72h.zarr`, detached, in **27.3 min** (median 22.4 s/hour, range
+  20.7-33.1 s; 0 retries, 0 failures, 0 repairs), **765 MB** on disk (11.1 MB/hour);
+  `verify_series` OK (no gaps, §3.2 schema, land-NaN == `hFac` masks in all 72 hours, `niter`
+  steps 144, `KPPhbl` present); the re-run is a no-op (0 pulled, all 834 files sha256-identical);
+  hours 0-1 identical to M0's 2-hour store, which is kept (M2-Q4).
+- **Task 3** (log entry 2026-10-03): `py/m2_qa.py` → `figs/m2_qa_series.png` — tide 2.0 m range
+  at 12.4 h (M2 0.62 m + K1 0.49 m), `KPPhbl` diurnal amplitude 6.4 m with its maximum at ~01 h
+  local solar, land-NaN fraction constant, `oceTAU*` 922/565 finite-on-land → 0 after re-masking,
+  no frozen field / NaN change / outlier; displacement over 71 pairs: ocean median 0.27-0.44, p99
+  1.05-1.38, window max 4.05 cells (Gulf of California tidal jet, outside `mask_analysis`; 2.27 on
+  the analysis mask); edge support leaves the finite tile for 0 analysis cells at `L ≤ 4` and 7-34
+  per pair at `L = 8` (`edge_cells = 7` kept, `isfinite` required at `L = 8`). M2-Q3 extra step
+  (`py/m2_baseline_stability.py` → `figs/m2_v3_stability.png`, two backward-compatible keywords
+  `store=`/`t0=` in `validate.py`): the V3 null on all 71 pairs reproduces 0.9806 on hour 0-1,
+  gives 0.902-0.997 (mean 0.972, weighted 0.983; 64/71 pass the gate; every CI overlaps the
+  baseline band; 0.971-1.002 with the top 1 % |2F| pixels trimmed) — the baseline is a property of
+  the operators with a leverage-driven tail from a sharp front at the northern tile edge on 07-04;
+  Figure 2's baseline is unchanged. Suite 104 passed + 3 xfailed.
+- **M2-Q7 edge-margin test** (log entry 2026-10-03, `py/m2_q7_edge_margin.py` →
+  `figs/m2_q7_edge_margin.png`): `edge_cells` 7 / 10 / 13 / 16 pass 64 / 69 / 69 / 68 of 71; not
+  tile-edge contamination (crop-invariant to 4e-12; a real 2.2 °C model front at i = 7-11 on day
+  3); **`edge_cells` stays 7**; the 13-cell sensitivity row (0.980 ± 0.012) goes to M3.
+- **Task 4** (log entry 2026-10-03, `py/m2_chunk_recon.py`):
+  `s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/` on Nautilus (credentialed, present here), zarr v3,
+  one store per hour — **72/72 hours present**, 0 missing; `Theta, Salt, U, V, W, Eta, oceQnet,
+  oceQsw, oceFWflx, oceTAU*, SIarea` in all; 51 levels, `W` on `k_p1` (52; `k_p1 = k_l` by
+  continuity); exactly tile 330 (grid bit-identical to `tile330_grid.zarr`); one 51-level object
+  per variable per hour, so a `k = 0..2` read fetches 174 MB/hour (12.5 GB, ~6.3 h at the
+  0.55 MB/s measured here); `drF[0] = 1.0`, `Z[0] = −0.5` confirmed; `k = 0` fields and
+  `W(k_p1=0)` **bit-identical** to OSN (`Eta` in all 72 hours); flux attrs say `+=down` but the
+  data are upward-positive, and the forcing is 6-hourly, linearly interpolated.
+- **Task 5** (log entry 2026-10-03, "task 5"): `vertical.load_chunk_levels` (per-object fetch +
+  validation — decode/size/shape, NaN == `hFacC == 0` at k = 0..2, plausibility,
+  time/iteration/attrs, chunk `Eta` bit-identical to OSN every hour — with per-object retries on
+  `zarr_series`'s resumable atomic append, stop-at-gap) and `series_verify.verify_chunk_series`;
+  `tests/test_load_chunk_levels.py` 23 offline + 1 network; `py/m2_chunk_pull.py` pulled
+  **72/72 hours, 0 missing** into `data/tile330_chunk_20120702T00_72h.zarr` (§3.3: `Theta, Salt
+  (k=0..2)`, `W (k_l=0..2)` = source `k_p1` 0..2, `oceQnet, oceQsw, oceFWflx` **negated to
+  downward-positive** per M2-Q6 (a) with `sign_convention`/`source_sign_convention` attrs,
+  `drF(k)`, OSN `niter` + `mit_iteration`), detached in **7.03 h** (median 299 s/hour, range
+  297-1887 s; 2 timeouts recovered, one 28-min stall from idle sleep), 12.6 GB fetched, **973 MiB**
+  on disk; `verify_chunk_series` OK (land-NaN 0 mismatches over 72 h × 3 levels, stored `oceQsw`
+  ≥ 0 everywhere); **`drF[0] = 1.0`** confirmed (`drF[0..2]` = 1.0, 1.14, 1.30 m); the re-run is
+  a no-op (0 pulled, all 692 files sha256-identical); k = 0 `Theta`/`Salt` and `W(k_l=0)`
+  bit-identical to OSN in all 72 hours. Note to Lauren on the flux attrs drafted
+  (`claude_prompts/note_to_lauren_flux_signs.md`, for JXP to forward).
+- **Task 6** (log entry 2026-10-04): suite **127 passed + 3 strict xfails** (2 network deselected);
+  both network smoke tests pass (OSN 9 s; chunk 37 s for 175 MB — Nautilus ran at ~4.7 MB/s today
+  against 0.55 MB/s on 10-03); `verify_series` and `verify_chunk_series` re-run fresh, both OK;
+  every criterion PASS, "Do not" list checked on disk (`float32`, `U` on `i_g` / `V` on `j_g`, no
+  halo); marked corrections applied to coding §3.3 / §4.6 / §6 M2 and to this prompt; the
+  carried-forward list for M3 is in the log entry. One finding: a plain `xr.merge` of the two
+  whole stores fails on the shared names `Theta`/`Salt`/`W` (2-D vs 3-D) — merge on the shared
+  coords after a rename or a subset.
+
+M0 closed 2026-09-28; M1 closed
+2026-09-30 (prompt 2, task-7 log entry). M1 being closed does not change M2's scope; M2 still needs no physics. It does
+fix the operator defaults M3 will use on this data (`form='discrete'`, cubic departure velocity),
+which is why task 3's QA reuses them.
+
+---
+
+## The window
+
+**2012-07-02 00:00 -> 2012-07-04 23:00 UTC**, 72 consecutive hourly steps.
+
+This window was chosen, not defaulted. The full-depth `monterey_bay` chunk store already holds
+**11 hours inside it**, because someone had already picked 2012-07-03 as a dense 3-hourly day:
+
+- 2 daily 12:00 stores — 07-02 T12 and 07-04 T12
+- 8 from the dense day — 07-03 T00/03/06/09/12/15/18/21
+- 1 extra — 07-04 T00
+
+Starting at the beginning of the 504-hour OSN series would have captured only 3. Do not change the
+window without re-checking that overlap.
+
+*(corrected 2026-10-04, M2 task 6: the count above is the history of the choice. Lauren's 72-hour
+transfer completed 2026-10-01 — **all 72 hourly stores exist**, and the 11 old ones were rewritten
+with the new variables; task 4 and task 5 found 72/72, 0 missing.)*
+
+## Two sources
+
+### A. OSN surface — the primary fields. Start immediately.
+
+- `llc_surf`: `Theta, Salt, U, V, W, Eta` at `k=0`, hourly.
+- `llc_wind`: `KPPhbl, oceTAUX, oceTAUY` (also `k=0`, hourly; coverage 2011-11-01 -> 2012-07-15,
+  so our window sits inside it). `KPPhbl` is the key interpretive variable for the diurnal
+  residual, so it is not optional.
+- Static grid once (already written by M0 as `tile330_grid.zarr`, §3.1): `XC, YC` (as coords,
+  like the hourly stores, so `xr.merge([hour, grid])` works plainly — corrected 2026-09-28, M0
+  task 5), `dxC, dyC, dxG, dyG, rA, rAz, CS, SN, hFacC, Depth` plus `hFacW, hFacS` and the 0-d
+  `drF, Z, Zl`; `face = 10` is a scalar coord in both stores (`expand_dims('face')` /
+  `open_grid(with_face=True)` before any dbof operator).
+  `oceTAUX`/`oceTAUY` come masked with the centred mask; store as-is, re-mask with
+  `hFacW`/`hFacS` at use (M0 task 3).
+
+Write `osn_tiles.pull_series(timestamps, out_zarr, ..., clobber=False)` — schemas in
+`frontogenesis_coding.md` §3.1-§3.2. **This concat step exists nowhere in either repo**: the
+repo's `run_series` writes one NetCDF per timestamp with no time dimension. We write it.
+
+**It must be resumable:** skip timestamps already present in `out_zarr` unless `clobber`. A
+72-step network pull will be interrupted.
+
+### B. Chunk store — the extra budget terms. Gated on Lauren's transfer.
+
+From the hourly full-depth `monterey_bay` transfer (decision Q13): all 51 levels are being
+written, plus `oceQsw` and `oceFWflx` added to `transfer.variables`.
+
+Use **`vertical.load_chunk_levels(window, k_max=2, out_zarr=...)`**. Load only `k = 0..2` and only
+`Theta, Salt, W, oceQnet, oceQsw, oceFWflx` — schema in `frontogenesis_coding.md` §3.3. The store
+holds 51 levels at ~~539 MB per timestep~~ **306 MB compressed per hour (22 GB for the 72)**;
+nothing obliges us to *store* them. *(corrected 2026-10-04, M2 task 6: each variable is one
+51-level zstd object per hour, so a `k = 0..2` read is not level-selective — it fetches the full
+object, 174 MB per hour / 12.5 GB over the window, and keeps ~14 MB per hour; M2 task 4.)*
+
+**Also capture `drF` for `k = 0..2` from the chunk store's 3-D grid** (the chunk `grid.zarr`
+directly, which carries `Z, Zl, Zu, Zp1, drF`; `process_llc4320_3d_grid` is a column filter on
+a grid Dataset — corrected 2026-10-04, M2 task 6). `vertical.py` needs the `k = 1, 2` values; OSN carries only
+the `k = 0` scalar (`drF = 1.0`, already in `tile330_grid.zarr` — corrected 2026-09-28, M0).
+Cross-check `drF[0] = 1.0 m` and `Z[0] = -0.5 m` here. **Load `W` on interfaces `k_l = 0..2`**,
+not just `k_l = 0`: `vertical_term` takes the cell-base `W(k_l=1)` (coding §4.6), because the
+model's linear free surface makes `W(k_l=0) = dEta/dt`, a free-surface signal rather than a
+flux (planning §2.2). *(corrected 2026-10-04, M2 task 6: the source puts `W` on **`k_p1`** (52
+interfaces), not `k_l`; `k_p1 = n` is the top face of cell `n`, i.e. `k_l = n` (continuity to
+7e-12 m/s, task 4), and the store renames it to `k_l` at write. The store's fluxes are
+**downward-positive** (negated from the source's upward-positive data, M2-Q6 (a)); its `niter` is
+the **OSN** iteration, with `mit_iteration = niter − 10368` the source's `selected_iteration`.)*
+
+These three levels are what turn the finite-top-cell vertical term and the surface-flux part of
+the diabatic term from *inferred* into *measured* (planning §2.2-§2.3). That is the single
+biggest improvement to the budget since the first draft, so it is worth waiting for — but see
+"Do not block" below.
+
+## What M2 does *not* write
+
+`tile330_grid.zarr` came from **M0**; `tile330_masks.nc` comes from **M1**. M2 writes neither —
+that separation is exactly what lets M1 and M2 proceed in parallel. If you find yourself needing
+a mask here, you are doing M3's job early.
+
+---
+
+## Tasks
+
+Run **one task per session**, in order, as in M0 and M1, with one log entry per task (see
+**Log**). Code goes in `dev/frontogenesis/py/`, tests in `dev/frontogenesis/py/tests/`
+(offline, except one `@pytest.mark.network` smoke test, coding §5). Data goes in
+`dev/frontogenesis/data/` (git-ignored). The env is `~/miniforge3/envs/frontogenesis/bin/python`,
+and the M1 suite (84 passed + 3 strict xfails) must still pass at the end of every task.
+
+Two halves, as above: **A** (tasks 1-3) needs nobody. **B** (tasks 4-5) depends on Lauren's
+transfer; task 4 finds out how far it has got, and nothing in A waits for it.
+
+**Rules for long pulls.** These come from M1: four agents stalled on long foreground jobs.
+- Never run a multi-hour pull in the foreground. Launch it as a detached script (`nohup ... &`)
+  that writes a progress log, and check the log.
+- Prefix every interactive python/pytest call with `timeout 300`.
+- Because `pull_series` is resumable, an interrupted pull is restarted, not debugged.
+
+### 1. `osn_tiles.pull_series` — resumable concat, tested offline
+
+- Write `pull_series(timestamps, out_zarr, tile=None, endpoint=OSN_ENDPOINT,
+  include_wind=True, clobber=False) -> str` per coding §4.1, on top of the existing
+  `load_hours` / `write_raw` (M0 task 4). The product is the §3.2 schema exactly, including:
+  - `float32` on disk;
+  - one `(1, 720, 720)` chunk per hour per variable;
+  - `time` encoded as `seconds since 2011-09-10`;
+  - `niter(time)`, scalar `face`, and `XC`/`YC` as coords;
+  - `U` on `i_g`, `V` on `j_g` (no pre-interpolation);
+  - no halo applied;
+  - the attrs §3.2 lists.
+- **Resumability, as designed.** Append one hour at a time (`to_zarr(append_dim='time')`), and
+  decide "already present" from the store's own `time` coord, not from a side file.
+  - An hour must be **atomic**: core and wind fields are written together or not at all. A crash
+    mid-write must not leave a half-hour that a re-run then skips.
+  - Out-of-order or duplicated timestamps raise.
+  - `clobber=True` rewrites from scratch.
+  - Retry transient OSN errors (a few attempts with backoff); if an hour still fails, record it
+    and move on, so that one bad hour cannot stall 72.
+- **Verification helper.** `verify_series(out_zarr, timestamps) -> dict` checks:
+  - gaps and duplicates;
+  - the schema against §3.2;
+  - the land-NaN pattern against `hFacC`/`hFacW`/`hFacS` in every hour (the M0 task-3 property);
+  - consecutive `niter` steps of 144;
+  - `KPPhbl` present.
+
+  Task 2 runs it, and so does the audit.
+- `tests/test_pull_series.py`, **offline**: monkeypatch the loaders with synthetic hours, and
+  cover resume after a simulated crash (including a crash mid-hour), the no-op re-run, clobber,
+  the gap report, the duplicate/out-of-order error, and dtype/chunking. Add one
+  `@pytest.mark.network` smoke test that pulls one real hour into a temp store. Register the
+  `network` marker if pytest.ini lacks it.
+
+*Discharges:* criterion 2 (resumability) in code; tested here, proven on real data in task 2.
+
+### 2. Pull the 72 OSN hours
+
+- Write `py/m2_pull.py`, a script that pulls the 72 timestamps
+  (`2012-07-02 00:00:00` … `2012-07-04 23:00:00`, dbof format) into
+  `data/tile330_raw_20120702T00_72h.zarr`. It logs per-hour wall time and failures to
+  `data/m2_pull.log`. Launch it **detached**.
+- Once complete, run `verify_series`, then **re-run `m2_pull.py` and show it is a no-op**:
+  zero hours pulled, the store byte-identical (mtime or checksum of the chunk files).
+- Report: hours present, failures and retries, total volume on disk, total and per-hour wall time
+  (median and range; M0 measured 40-90 s per hour across both stores, network-bound), and the
+  extrapolation to a longer window.
+- Spot-check that hours 0-1 of the new store are **identical** to M0's
+  `tile330_raw_20120702T00_2h.zarr`, which M1's tests use. Do not delete the 2-hour store.
+
+*Discharges:* criteria 1 (72 steps, no gaps, §3.2 schema), 2 (no-op re-run), 3 (`KPPhbl`), and
+the OSN half of 7 (volume and wall time).
+
+### 3. QA of the series
+
+This is a time-series sanity pass, not physics, and is cheap. Write `py/m2_qa.py` →
+`figs/m2_qa_series.png`, covering:
+- tile-mean and percentile time series of `Eta` (the tide should be visible), `KPPhbl` (the
+  diurnal cycle; Figure 6 depends on it), `Theta`, and `|u|`;
+- the land-NaN fraction per hour, which must be constant;
+- `oceTAUX`/`oceTAUY` re-masked with `hFacW`/`hFacS` (M0 task 3), with any finite values on
+  land counted, which should be 0 after re-masking;
+- the **hourly displacement distribution** over all 71 hour pairs, using
+  `semilag.departure_index` with the default `vel_order=3`, against M1's assumptions (median 0.36,
+  p99 1.25, max 2.09 cells on hour 0, task 3). Report the max over the window, and whether any
+  departure leaves the order-3 interpolation support near the tile edges. That would grow the NaN
+  rim beyond `edge_cells = 7`; M1 task 6 found the edge reach at `L = 8` is exactly 7.
+
+Flag anything anomalous, e.g. a frozen field, a missing tide, or a NaN-pattern change. Do **not**
+compute `F`, `G` budgets or slopes; that is M3.
+
+*Discharges:* supports criteria 1 and 3; gives M3 its displacement envelope.
+
+### 4. Chunk-store reconnaissance (source B)
+
+Find out, before writing any loader:
+- where the hourly `monterey_bay` transfer lives (endpoint and path; `dbof`'s chunk-store
+  readers, `process_llc4320_3d_grid`);
+- **which of the 72 hours exist** today (M2 planned for 11);
+- whether `oceQsw` and `oceFWflx` are present (Q13 asked Lauren to add them);
+- that all 51 levels are there;
+- how the store is laid out (chunking per level and per variable), so a `k = 0..2` read touches
+  only those levels. *(Found otherwise — one 51-level object per variable per hour, so the full
+  object is fetched; corrected 2026-10-04, M2 task 6.)*
+
+Read the 3-D grid's `drF`, `Z` and `Zl` for `k = 0..2` and **confirm `drF[0] = 1.0 m` and
+`Z[0] = -0.5 m`**, the OSN values.
+
+**Consistency check** for one hour present in both sources (e.g. 07-03 T00): is chunk `k = 0`
+`Theta`/`Salt`/`U`/`V` identical to OSN's? Is chunk `W(k_l=0)` identical to OSN's `W` (which
+is `dEta/dt`, M0 task 3)? Either answer is a finding. The budget combines the two sources, so
+they had better be the same model output on the same tile.
+
+Write the inventory to the log. Do not bulk-load anything yet.
+
+*Discharges:* criterion 6 (`drF[0]` confirmed), and the hour inventory for criterion 5.
+
+### 5. `vertical.load_chunk_levels` → the §3.3 store
+
+- Write `py/vertical.py` with **only** `load_chunk_levels(window, k_max=2, out_zarr=None)` per
+  coding §4.6. The physics functions in that section are M3's.
+- Use the same resumable, atomic, per-hour append design as `pull_series`. Reuse it; do not copy
+  it. Load **only** `k = 0..2` and `Theta, Salt, W (k_l = 0..2), oceQnet, oceQsw, oceFWflx`, plus
+  `drF(k)`, to the §3.3 schema, `float32` on disk.
+- Run it, detached, for every hour task 4 found. Record the **missing hours explicitly**.
+- Re-run it to show it is a no-op. Add `tests/test_load_chunk_levels.py`, offline, with
+  synthetic stores.
+- **If the transfer is still incomplete,** write what exists and stop. When more hours land,
+  re-running this task is just re-running the script, because it is resumable. M3 does not wait
+  (see "Do not block").
+
+*Discharges:* criteria 5 and 6, and the chunk half of 7.
+
+### 6. M2 acceptance audit
+
+- Run the full suite, offline and with the network smoke test.
+- Re-run `verify_series` on both stores.
+- Go through the criteria one by one with numbers, as the M0 task-5 and M1 task-7 audits did,
+  and list what is carried forward to M3: missing chunk hours, the displacement envelope, any
+  source inconsistency, and the volume and wall-time numbers for scale-up.
+- If every criterion passes, mark **M2 closed** here (Status) and in coding §6 M2. If only the
+  chunk half is incomplete because of the transfer, close the OSN half explicitly and leave the
+  chunk half open, as "Do not block" intends.
+
+### 7. Slides
+
+A small M2 acceptance deck, with the same rules as M1's (`deck/`, python-pptx; a figures script
+plus a builder script kept in `deck/`; **no text below 20pt**, checked programmatically; rendered
+and inspected). It has a title, contents, a one-slide M2 summary, and one slide per task.
+Log the work in `deck/README.md`.
+
+### 8. Carry forward
+
+Carry forward task 6's carry-forward list into the M3 prompts.
+Create a series of prompts that will be used to guide the development of M3.
+
+---
+
+## Acceptance criteria
+
+- 72 timesteps present in the OSN store, **no gaps**; schemas match §3.2-§3.3.
+- Re-running `pull_series` is a **no-op** (resumability actually works, not just coded).
+- `KPPhbl` present — easy to forget, and Figure 6 needs it.
+- ~~Masks written, and consistent with the M0 QA plot.~~ *(Corrected 2026-10-01: masks are M1's,
+  written as `tile330_masks.nc` in M1 task 1; M2 writes none. This item contradicted "What M2
+  does not write". It is replaced by **the land-NaN pattern in every hour matching
+  `hFacC`/`hFacW`/`hFacS`**, as `verify_series` checks, which is what makes M1's masks valid for
+  all 72 hours.)*
+- Chunk store: `k=0..2` + three flux fields + `drF` for as many of the 72 hours as exist, with
+  the missing hours recorded explicitly in the log.
+- `drF[0]` confirmed and recorded.
+- Report the total volume and wall time, so later scale-up decisions are informed.
+
+## Do not block
+
+**Do not hold M3 development on source B.** `budget.compute_budget` runs without `chunk_ds` —
+it simply omits the vertical and surface-flux terms and reverts to a catch-all residual, and
+`closure_report` must say so loudly rather than quietly. Develop M3 against source A, then add
+source B's terms when the transfer completes.
+
+## Do not
+
+- Do not pre-interpolate `U`/`V` onto cell centres on disk. Keep `U` on `i_g`, `V` on `j_g`;
+  staggering is information and the budget needs it.
+- Do not apply the halo mask to the stored raw fields. Store raw, mask at compute time — that
+  way the halo width stays a tunable rather than being baked into the archive.
+- Do not store `float64`. `float32` on disk, `float64` in the compute path.
+
+## Q&A
+
+### Claude, 2026-10-01 (before task 1)
+
+Numbered M2-Qn. **M2-Q1 decides whether task 5 can finish in M2**; the others can be answered
+any time before the task that needs them.
+
+##### Questions
+
+**M2-Q1 — State of Lauren's transfer.** Is the hourly full-depth `monterey_bay` transfer
+running or complete? Does it include `oceQsw` and `oceFWflx` (Q13)? Where does it live (endpoint
+and path)? Task 4 will find out empirically either way, but if you already know, it saves a
+search, and it tells us whether task 5 can close in M2 or stays open into M3.
+
+> **JXP:** . I believe all of the data is traferred.  Please check
+
+> *Claude's finding (task 4, 2026-10-03):* confirmed complete. All 72 hourly stores are in
+> `s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/` (endpoint `https://s3-west.nrp-nautilus.io`),
+> each with all 51 levels and with `oceQsw` and `oceFWflx` (transfer config
+> `run_chunks_monterey_72h.yaml`, llc branch `transfer-monterey-72h`). Task 5 can close in M2.
+
+**M2-Q2 — Local disk for the 72-hour store.** The OSN product should be ~0.75 GB, from M0's
+~10.5 MB per hour on disk; the chunk product for three levels is of the same order. Both go in
+`dev/frontogenesis/data/` (git-ignored), on this machine. Is that the right place, or should
+they live elsewhere (an external disk, or the workstation; there is a "save for workstation"
+commit) and be symlinked?
+
+> **JXP:** . That is fine
+
+**M2-Q3 — Stability of the M1 baseline across the window (optional).** Figure 2's baseline
+(0.981 [0.970, 0.994]) is V3's real-velocity slope from **one** hour pair, 07-02 T00-T01. With 71
+pairs on disk after task 2, re-running `validate.test_discrete_null(velocities='llc')` on, say,
+6 pairs spread over the tidal and diurnal cycle would show whether 0.981 is a property of the
+operators or of that hour. It costs about a minute per pair and uses no new physics. Do it as an
+extra step in task 3, leave it to M3, or skip it? I lean towards task 3: M3's headline is quoted
+against this number.
+
+> **JXP:** Do it as an extra step
+
+**M2-Q4 — The 2-hour M0 store.** M1's tests read `tile330_raw_20120702T00_2h.zarr`. Keep it
+(my default, and task 2 checks that it equals hours 0-1 of the 72-hour store), or repoint the
+tests at the 72-hour store and delete it?
+
+> **JXP:** Keep it.
+
+### Claude, 2026-10-03 (after tasks 3-4, before task 5)
+
+The numbers come from the task-3 and task-4 log entries. **M2-Q5 and M2-Q6 block task 5.** M2-Q7
+can be answered at any time, but it is cheapest to settle before M3.
+
+##### Questions
+
+**M2-Q5 — Where to run task 5's ~6.3-hour chunk download.** The chunk store
+(`s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/` on NRP Nautilus) stores each variable as **one
+51-level object per hour** (3-D chunks `(51, 1, 720, 720)`, zstd). So a `k = 0..2` read cannot be
+level-selective:
+- it fetches **174 MB per hour to keep ~25 MB**, i.e. **12.5 GB over the window** for
+  `Theta, Salt, W, oceQnet, oceQsw, oceFWflx`;
+- from this machine the link measured **0.55 MB/s**, and 16 parallel range GETs were no faster,
+  so it is the link and not the client;
+- that is about **316 s per hour, ~6.3 h** for the 72 hours, against 22 s per hour for OSN.
+
+The task-1/2 design (detached, resumable, atomic per hour) handles a run that long; an
+interruption just means relaunching. Options:
+- (a) run it here, detached (about an afternoon);
+- (b) run it on the workstation, if its link to Nautilus is faster, and copy the ~1.8 GB product
+  (25 MB × 72) back. It needs the repo, the `frontogenesis` env and Nautilus `dbof` credentials
+  there;
+- (c) ask Lauren whether a level-subset copy (`k = 0..2` only) can be written server-side,
+  which would cut the transfer ~7x. That costs her time and adds a dependency.
+
+I lean towards (a), unless you know the workstation's link is much faster. Please test it first:
+`m2_chunk_recon.py` can time one object in ~2 min.
+
+> **JXP:** (a)
+
+**M2-Q6 — Sign convention for the chunk flux fields.** Task 4 found that the attrs on `oceQsw`,
+`oceQnet` and `oceFWflx` say **"+=down"**, but the data are **upward-positive**:
+- `oceQsw` is ≤ 0 at every pixel and hour, about −589 W/m² tile mean at local noon;
+- `oceQnet` is about +115 W/m² at night and about −454 W/m² at noon;
+- `oceFWflx` is about +2.5e-5 kg/m²/s, i.e. net evaporation.
+
+Coding §4.6's `surface_flux_term` was written against the documented sign, so taking the attrs
+at face value would **flip the sign of the diabatic term** in M3. Options:
+- (a) **convert at write time** to the documented downward-positive convention (negate all
+  three). Overwrite the attrs with a correct `sign_convention`, keep the original as
+  `source_sign_convention`, and record the negation in the store's provenance. Coding §3.3 and
+  §4.6 then stay as written, and every reader sees one convention;
+- (b) store the data **as-is**, write a correct `sign_convention = 'positive upward'` attr, and
+  make `surface_flux_term` (M3) do the negation;
+- (c) as (a), but also ask Lauren to correct the attrs upstream in the transfer, so other users
+  of the store are not misled.
+
+I lean towards (a), plus a note to Lauren (c) about the attrs: it fixes the problem once, at the
+boundary, where it is easiest to test.
+
+Separately, and needing no decision: the fluxes are **piecewise linear with kinks every 6 h**
+(03/09/15/21 UTC), consistent with 6-hourly forcing interpolated linearly. M3 and Figure 6 will
+state that the diurnal shortwave shape is a triangle, not resolved insolation.
+
+> **JXP:** (a) plus a note to Lauren (c) about the attrs
+
+**M2-Q7 — Test a wider tile-edge margin (`edge_cells = 13`) before M3?** Task 3 re-ran the
+V3 real-velocity null on all 71 hour pairs: **64 of 71 pass** the gate (1 ± 0.05). The 7
+failures (pairs 36 and 62-67, mostly day 3) trace to one 32-cell block at the **northern tile
+edge**, where a sharp front strip enters the analysis domain. There, the OLS slope is **0.71 at
+rows 7-9, 0.83 at rows 10-12, and 0.98-1.02 beyond row 13**.
+
+The task-3 agent read this as an extreme front, and recommended an edge-band sensitivity test
+(7 vs 13 cells) in M3. My concern is that a slope recovering to 1 with distance from the
+boundary is the signature of **tile-edge contamination**, not physics. If so, `edge_cells = 7`
+is too narrow on the northern edge whenever strong flow carries fronts there, and M3's headline
+would inherit the bias. Options:
+- (a) **test it now:** re-run the 71 pairs with `edge_cells = 13` (and perhaps 10). It is
+  cheap, ~2 s per pair, and needs only the stored data. If the day-3 failures disappear, change
+  the margin in `masking.py`/`tile330_masks.nc` (an M1 artefact, so with a marked note) before
+  M3;
+- (b) leave it to M3 as a sensitivity, as the task-3 agent recommended;
+- (c) accept `edge_cells = 7` and report the 7 failing pairs as a temporal systematic
+  (0.972 ± 0.020; 0.987 ± 0.005 trimmed).
+
+I lean towards (a). It turns an interpretation into a measurement before anything depends on
+it. It could run in parallel with task 5's download.
+
+> **JXP:** (a)
+
+*Claude's finding (M2-Q7, 2026-10-03):* **not tile-edge contamination; `edge_cells` stays 7.**
+- `edge_cells` 7 / 10 / 13 / 16 pass 64 / 69 / 69 / 68 of 71. A wider margin clears pairs 62-67
+  only by excluding the front. Pair 36 fails at every width, and 69-70 start failing at 13-16,
+  driven by interior fronts. The trimmed mean is 0.987 ± 0.005 at every width.
+- Crop test: moving the edge 4-16 cells inward changes values only within 3-5 cells of the new
+  edge, and there they become NaN. Beyond that, changes are ≤ 4e-12 (round-off), and the band
+  slopes at rows 10-19 are unchanged.
+- The departure support stays ≥ 2 cells inside the tile.
+- Raw `Theta` has a real 2.2 °C front across i = 7-11 on day 3.
+- Recommendation: (c), plus the 13-cell sensitivity row in M3. Details are in the log entry
+  "M2-Q7: tile-edge margin test" and `figs/m2_q7_edge_margin.png`.
+
+## Log
+
+Append to `frontogenesis_prompts.md` under `## Logs`, one entry per task, titled
+`### <date> — Execution prompt 3, task N: <title>`. Across the milestone, record: timesteps pulled per source, any gaps or failures, total volume, wall time, and the confirmed
+`drF[0]` / `Z[0]`. If the chunk transfer is incomplete, say exactly which hours are missing.
