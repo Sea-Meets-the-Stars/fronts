@@ -27,6 +27,13 @@ BUILD_DEFAULTS = {
     'ice_mask_props':   False,    # step 4: mask the co-located property fields
     'percentiles':      [25, 75, 90],
     'exclude_roots':    [],       # roots to leave out of co-location
+    'colocate_source':  'zarr',   # step 4 reads fields from: zarr | netcdf
+    'tiles':            [],       # tile co-location: locations to process
+    'tile_properties':  [],       # tile co-location: dbof.tiles.field_registry names
+    'tile_find':        None,     # find fronts on ONE tile instead of the global
+                                  # rect grid: {name, lon/lat or i_rect/j_rect,
+                                  # property, pipeline}.  See prompts/fronts_build.md.
+    'clobber':          False,    # recompute a timestamp whose output exists
 }
 
 

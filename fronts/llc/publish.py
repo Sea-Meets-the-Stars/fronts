@@ -89,7 +89,8 @@ def list_products(local_dir: str, patterns: tuple = PRODUCT_PATTERNS,
     Parameters
     ----------
     local_dir : str
-        Directory holding one timestamp's products.
+        Directory holding one timestamp's products.  Searched recursively, so
+        the per-tile subdirectories a tile co-location writes are included.
     patterns : tuple
         Filename globs to match.
     file_tag : str, optional
@@ -99,12 +100,16 @@ def list_products(local_dir: str, patterns: tuple = PRODUCT_PATTERNS,
     """
     if not os.path.isdir(local_dir):
         return []
-    hits = [f for f in os.listdir(local_dir)
-            if any(fnmatch.fnmatch(f, pat) for pat in patterns)]
-    if file_tag:
-        keep = re.compile(rf'_{re.escape(file_tag)}(?=[_.])')
-        hits = [f for f in hits if keep.search(f)]
-    return sorted(os.path.join(local_dir, f) for f in hits)
+    keep = re.compile(rf'_{re.escape(file_tag)}(?=[_.])') if file_tag else None
+    hits = []
+    for root, _, names in os.walk(local_dir):
+        for f in names:
+            if not any(fnmatch.fnmatch(f, pat) for pat in patterns):
+                continue
+            if keep and not keep.search(f):
+                continue
+            hits.append(os.path.join(root, f))
+    return sorted(hits)
 
 
 def push_timestamp(config_file: str, timestamp: str, version: str,
@@ -126,6 +131,9 @@ def push_timestamp(config_file: str, timestamp: str, version: str,
         directory (see :func:`fronts.llc.io.set_run_layout`).
     subfolder : str
         Folder created under the timestamp prefix.  Defaults to ``'Fronts'``.
+        A product's path relative to the timestamp directory is preserved
+        under it, so a tile's parquet lands in ``Fronts/tile120/`` rather than
+        colliding with another tile's file of the same name.
     patterns : tuple
         Filename globs to upload.  Defaults to :data:`PRODUCT_PATTERNS`.
     run_id : str, optional
@@ -155,7 +163,8 @@ def push_timestamp(config_file: str, timestamp: str, version: str,
 
     written = []
     for path in files:
-        key = f"{prefix}/{os.path.basename(path)}"
+        rel = os.path.relpath(path, local_dir)
+        key = f"{prefix}/{rel}"
         uri = f"s3://{key}"
         if dry_run:
             print(f"  [DRY RUN] {path} -> {uri}")

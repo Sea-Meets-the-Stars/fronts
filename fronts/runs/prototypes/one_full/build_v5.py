@@ -1,20 +1,29 @@
 # Front finding and co-location for LLC4320.
 #
-#   1  gradb2      build the frontal-structure store if needed, export gradb2
+#   1  gradb2      build the frontal-structure store, export the gradb2 channel
 #   2  find        threshold gradb2 -> binary front map
 #   3  group       label the fronts + geometric properties
-#   4  colocate    build the remaining subsets, then co-locate
+#   4  colocate    build the remaining subsets, co-locate straight from zarr
 #   5  push        copy the front products back to S3
 #
-# Steps 1-3 are self-contained: a front-binary map costs one subset and one
-# NetCDF.  Step 4 is the only step that needs the other fields.
+# Steps 1-3 are self-contained: a front-binary map costs one NetCDF.  Step 4 is
+# the only step that needs the other fields.
 #
-# Data production is delegated to the preprocessing repo (dbof.run_all_subsets);
-# this driver finds, groups and co-locates.  Step 1 builds only the subset that
-# owns gradb2, and only for the dates that lack it.
+# Steps 1 and 4 hand store-building to dbof.run_all_subsets, which decides per
+# subset and date: a store that is already complete is skipped, so re-running is
+# a few S3 metadata reads.  The export is always done here, because
+# run_all_subsets has no way to export a single channel.
 #
 # Everything run-specific -- pipeline, run_id, dates, subsets, ice masking --
 # comes from the YAML config.  See prompts/fronts_build.md.
+#
+# Set build.tile_find in the config to run steps 1-3 on ONE 720x720 tile
+# instead of the global rect grid.  Step 1 then computes gradb2 straight from
+# the raw surface tracers for that tile (no global zarr is built, and none
+# exists at hourly cadence anyway); steps 2 and 3 are unchanged, because the
+# finding algorithms are plain 2D array operations with no grid assumptions.
+# Products go to a tile-named subdirectory so they cannot collide with the
+# global run's files, which share the same date folder and filenames.
 #
 # Products are organised by the build that made them; filenames keep the source
 # run_id, so a file always names the dataset it came from:
@@ -69,12 +78,22 @@ def main(flg, config_file: str = DEFAULT_CONFIG):
                                       depth_suffix=cfg['finding_suffix'])
     gradb2_subset  = subset_for_channel(config_file, gradb2_channel)
 
+    tile_find = cfg['tile_find']
+
+    # binary_filename ignores the finding-config label, so a tile run and a
+    # global run with the same run_id would write the same filenames into the
+    # same date folder.  Give the tile its own leaf.
+    run_dir = cfg['run_dir']
+    if tile_find:
+        run_dir = os.path.join(run_dir, tile_find.get('name', 'tile'))
+
     llc_io.set_fronts_path(os.path.join(os.getenv('OS_OGCM'), 'LLC', 'Fronts'))
-    llc_io.set_run_layout(cfg['run_dir'], file_tag=run_id)
+    llc_io.set_run_layout(run_dir, file_tag=run_id)
 
     print(f"pipeline={cfg['pipeline']}  run_id={run_id}  "
           f"dates={len(timestamps)}  gradb2={gradb2_channel} "
-          f"(subset={gradb2_subset})  finding_config={find_cfg}")
+          f"(subset={gradb2_subset})  finding_config={find_cfg}"
+          + (f"  tile={tile_find}" if tile_find else ''))
     print(f"products -> {llc_io.run_root(run_id)}")
 
     # =======================================================================
@@ -115,9 +134,8 @@ def main(flg, config_file: str = DEFAULT_CONFIG):
     # =======================================================================
     # STEP 4 -- remaining subsets, then co-location
     # =======================================================================
-    # Build any zarr stores that are missing, then export every channel the
-    # active subsets produce.  The export runs through export_channels() -- the
-    # same path step 1 uses -- so every product lands in this build's directory.
+    # Build any zarr stores that are missing, then co-locate straight from
+    # them: each field is read one at a time and never written to disk.
     if flg == 4:
         generate_global_dataset(config_file, llc_io.run_root(run_id),
                                 generate_only=True)
@@ -140,20 +158,28 @@ def main(flg, config_file: str = DEFAULT_CONFIG):
 
         # STEP 3 -- label + geometric properties
         if flg == 3:
-            group_fronts(timestamp, find_cfg, run_id)
+            # prop_algorithms.group_fronts wants lat/lon on the same grid as
+            # the binary map.  The global default is the 12960x17280 coords
+            # file; the tile's own XC/YC ride along in its gradb2 NetCDF.
+            coords_file = (
+                llc_io.derived_filename(timestamp, gradb2_channel,
+                                        version=run_id)
+                if tile_find else None)
+            group_fronts(timestamp, find_cfg, run_id,
+                         coords_file=coords_file)
 
-        # STEP 4 -- export the property fields, then co-locate.
-        # skip_missing=True: co-locate whatever exists rather than dying on a
-        # channel that failed to export.
+        # STEP 4 -- co-locate fronts with the property fields.
+        # skip_missing=True: co-locate whatever the stores hold rather than
+        # dying on a channel that was never generated.
         if flg == 4:
-            export_channels(config_file, timestamp, property_names,
-                            version=run_id,
-                            ice_mask=cfg['ice_mask_props'])
             colocate_fronts(timestamp, find_cfg, run_id,
                             property_names=property_names,
                             percentiles=cfg['percentiles'],
                             skip_missing=True,
-                            clobber=True)
+                            clobber=True,
+                            config_file=config_file,
+                            source=cfg['colocate_source'],
+                            ice_mask=cfg['ice_mask_props'])
 
 
 # Command line execution

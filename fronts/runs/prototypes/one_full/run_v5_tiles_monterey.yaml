@@ -1,0 +1,115 @@
+# ---------------------------------------------------------------------------
+# Tile co-location -- Monterey Bay chunk
+#
+# Consumed by colocate_tiles.py, which reads the fronts build_v5 already made
+# and writes into the same V5 tree.  Run build_v5 steps 1-3 first.
+#
+# Fields come from s3://dbof/LLC4320_RAW/CHUNKS/monterey_bay/, which is already the
+# tile's 720x720 extent -- nothing is sliced and no field is written to disk.
+# The tile identity is read from that store's own provenance attrs.
+#
+# Per timestamp:
+#   $OS_OGCM/LLC/Fronts/V5/SURF/{YYYYMMDD_HHMMSS}/tile{idx:03d}/
+#       front_properties_{TS}_V5_bfronts.parquet
+#
+#   python colocate_tiles.py run_v5_tiles_monterey.yaml
+#
+# Dates are the chunk store's snapshots that also have fronts: 17 of
+# 18 in the store.  2012-07-09 12:00 has a chunk but no fronts yet.
+#
+# Properties come from dbof.tiles.field_registry (52 available), NOT
+# subset_definitions -- names are unsuffixed, co-location is at the surface.
+#
+# The 27 listed are the SURF-pipeline properties derivable from the raw model
+# fields a CHUNKS store carries.  Depth-resolved properties (N2, ertel_pv, Ri,
+# vertical_shear, mixed_layer_depth, ...) are absent because a surface front has
+# no depth to co-locate against.  So are the forcing and ice properties
+# (oceTAUX, oceTAUY, wind_stress_curl, ekman_pumping, u_ekman, v_ekman, SIarea):
+# they need channels the raw chunk does not hold, and the tile loader raises
+# rather than skipping a property it cannot compute.
+# ---------------------------------------------------------------------------
+
+pipeline: "SURF"
+
+run:
+  # Must match the build_v5 run that made the fronts: it is the filename tag
+  # used to find the binary and label map under Fronts/V5/SURF/.
+  run_id: "V5"
+  log_dir: "./logs/"
+
+build:
+  # Recompute a timestamp even if its parquet already exists.  This also clears
+  # the per-property checkpoint cache, which is the part that matters: deleting
+  # only the final parquet leaves the fragments behind and they are reused.
+  clobber: true
+
+  # Front-finding config the fronts were made with.
+  finding_config: "D"
+
+  # Extra percentile columns per property.  Percentiles and the median are NOT
+  # combinable across tiles, and a front clipped by the tile edge has
+  # statistics for its clipped part only.
+  percentiles: [25, 75, 90]
+
+  tiles:
+    - name: monterey_bay
+      chunk_name: monterey_bay
+
+  # Properties to co-locate, from dbof.tiles.field_registry.  Every one is a
+  # SURF-pipeline quantity computable from the raw model fields the chunk store
+  # holds (Theta, Salt, U, V, W, Eta) plus the grid, so all 27 resolve without
+  # reaching outside the chunk.  Co-location is at the surface.
+  tile_properties:
+    # raw model fields
+    - Theta
+    - Salt
+    - Eta
+    - U
+    - V
+    - W
+    # thermodynamic
+    - density
+    - buoyancy
+    - turner_angle
+    # squared gradient magnitudes
+    - gradb2
+    - gradtheta2
+    - gradsalt2
+    - gradrho2
+    - gradeta2
+    # kinematics
+    - relative_vorticity
+    - divergence
+    - strain_n
+    - strain_s
+    - strain_mag
+    - okubo_weiss
+    - rossby_number
+    - coriolis_f
+    # frontogenesis
+    - frontogenesis_tendency
+    - frontogenesis_geo
+    - frontogenesis_ageo
+    - ug
+    - vg
+
+data:
+  # ISO 'YYYY-MM-DD HH:MM:SS'.
+  date_iterations:
+    - '2012-06-29 12:00:00'
+    - '2012-06-30 12:00:00'
+    - '2012-07-01 12:00:00'
+    - '2012-07-02 12:00:00'
+    - '2012-07-03 00:00:00'
+    - '2012-07-03 03:00:00'
+    - '2012-07-03 06:00:00'
+    - '2012-07-03 09:00:00'
+    - '2012-07-03 12:00:00'
+    - '2012-07-03 15:00:00'
+    - '2012-07-03 18:00:00'
+    - '2012-07-03 21:00:00'
+    - '2012-07-04 00:00:00'
+    - '2012-07-04 12:00:00'
+    - '2012-07-05 12:00:00'
+    - '2012-07-06 12:00:00'
+    - '2012-07-07 12:00:00'

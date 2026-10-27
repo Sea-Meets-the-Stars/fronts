@@ -3,9 +3,10 @@
 One YAML file per build, at the top of the run directory::
 
     $OS_OGCM/LLC/Fronts/V5/SURF/
-        fronts_meta_V5_SURF_from_globals_for_cutouts_v2_2_01.meta
+        fronts_meta_V5_SURF_from_globals_for_cutouts_v2_2_01_run_v5_100_timesteps.meta
 
-The name alone says which dataset the fronts came from; opening it gives the
+The name alone says which dataset the fronts came from and which config drove
+the run -- two date lists against one dataset stay separate.  Opening it gives the
 rest -- pipeline, S3 store location, front-finding parameters, ice masking,
 date coverage, and the git revision of both repos at the time of the run.
 """
@@ -36,14 +37,19 @@ def _git_revision(package) -> str:
 
 
 def meta_filename(build_version: str, pipeline: str, folder: str,
-                  run_id: str) -> str:
+                  run_id: str, config_stem: str = None) -> str:
     """Build the descriptor's filename.
 
-    ``fronts_meta_{build_version}_{pipeline}_from_{folder}_{run_id}.meta``
+    ``fronts_meta_{build_version}_{pipeline}_from_{folder}_{run_id}_{config}.meta``
+
+    *config_stem* is what separates two runs that differ only in their date
+    list: same build, pipeline, folder and run_id, different config file.
+    Omit it for the shorter name.
     """
     source = folder.strip().strip('/').replace('/', '_')
+    tail = f'_{config_stem}' if config_stem else ''
     return (f'fronts_meta_{build_version}_{pipeline}'
-            f'_from_{source}_{run_id}{META_SUFFIX}')
+            f'_from_{source}_{run_id}{tail}{META_SUFFIX}')
 
 
 def write_run_meta(cfg: dict, config_file: str, out_dir: str = None,
@@ -76,7 +82,8 @@ def write_run_meta(cfg: dict, config_file: str, out_dir: str = None,
     os.makedirs(out_dir, exist_ok=True)
 
     path = os.path.join(out_dir, meta_filename(
-        cfg['build_version'], cfg['pipeline'], folder, cfg['run_id']))
+        cfg['build_version'], cfg['pipeline'], folder, cfg['run_id'],
+        config_stem=os.path.splitext(os.path.basename(config_file))[0]))
 
     dates = cfg['date_iterations']
     doc = {
