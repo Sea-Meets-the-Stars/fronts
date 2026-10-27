@@ -30,7 +30,12 @@ setup_keywords['install_requires'] = [
     'importlib-metadata', 'timm==0.3.2', 'xmitgcm', 'dask', 's3fs',
     'ujson', 'zarr', 'PyQt6', 'pyqtgraph',
     'scikit-learn', 'scikit-image', 'tqdm', 'gsw',
-    'skan', 'pyvista[jupyter]']
+    'skan', 'pyvista[jupyter]',
+    # The web app: Panel/HoloViews for the pages, cartopy for coastlines,
+    # cmocean for the oceanographic colour maps, Pillow for the movie GIF.
+    # matplotlib and cartopy were both already imported at module level in
+    # fronts/viz without being declared here.
+    'panel', 'holoviews', 'matplotlib', 'cartopy', 'cmocean', 'Pillow']
 setup_keywords['zip_safe'] = False
 setup_keywords['use_2to3'] = False
 setup_keywords['packages'] = find_packages()

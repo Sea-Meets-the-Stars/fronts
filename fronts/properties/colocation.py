@@ -4,13 +4,14 @@ Co-locate labeled fronts with mapped property fields and compute per-front stati
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from scipy import ndimage
 
-PropertySource = Union[np.ndarray, Tuple[str, str], str]
+PropertySource = Union[np.ndarray, Callable[[], np.ndarray], Tuple[str, str], str]
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +106,7 @@ def colocate_fronts_with_properties(
     min_npix: int = 1,
     nan_policy: str = 'propagate',
     dilation_radius: int = 0,
+    checkpoint_dir: str = None,
 ) -> pd.DataFrame:
     """Co-locate fronts with mapped property fields.
     Parameters
@@ -125,6 +127,10 @@ def colocate_fronts_with_properties(
     dilation_radius : int, optional
         Number of pixels to dilate each retained front before computing stats.
         Default is 0 (no dilation).
+    checkpoint_dir : str, optional
+        Cache each property's columns as ``{checkpoint_dir}/{prop}.parquet`` and
+        reuse them on a later call, so an interrupted run resumes part-way
+        through the property list.
 
     Returns
     -------
@@ -167,7 +173,7 @@ def colocate_fronts_with_properties(
         raise ValueError("nan_policy must be 'propagate' or 'omit'")
 
     for prop_name, prop_arr in properties.items():
-        if prop_arr.shape != labeled_fronts.shape:
+        if not callable(prop_arr) and prop_arr.shape != labeled_fronts.shape:
             raise ValueError(f"{prop_name} shape does not match labeled_fronts")
 
 
@@ -211,13 +217,29 @@ def colocate_fronts_with_properties(
     # ------------------------------------------------------------------
     result = {'flabel': flabels, 'npix':   npix, }
 
-    for prop_name, prop_arr in properties.items():
-        prop_float = prop_arr.astype(np.float64)
+    ckpt = Path(checkpoint_dir) if checkpoint_dir else None
+    if ckpt:
+        ckpt.mkdir(parents=True, exist_ok=True)
 
+    for prop_name, prop_arr in properties.items():
+        cache = ckpt / f'{prop_name}.parquet' if ckpt else None
+        if cache and cache.is_file():
+            print(f"  {prop_name}: cached")
+            result.update(pd.read_parquet(cache))
+            continue
+
+        if callable(prop_arr):
+            prop_arr = prop_arr()
+        if prop_arr.shape != labeled_fronts.shape:
+            raise ValueError(f"{prop_name} shape does not match labeled_fronts")
+        prop_float = prop_arr.astype(np.float64)
+        del prop_arr
+
+        cols = {}
         for stat in stats:
             col = f'{prop_name}_{stat}'
             if stat == 'count':
-                result[col] = npix.copy()
+                cols[col] = npix.copy()
                 continue
 
             if nan_policy == 'omit':
@@ -237,7 +259,7 @@ def colocate_fronts_with_properties(
                     index=flabels,
                 )
 
-            result[col] = np.asarray(values, dtype=np.float64)
+            cols[col] = np.asarray(values, dtype=np.float64)
 
         # Percentiles — always use nan-aware path
         if percentiles is not None:
@@ -258,7 +280,12 @@ def colocate_fronts_with_properties(
                     out_dtype=np.float64,
                     default=np.nan,
                 )
-                result[col] = np.asarray(values, dtype=np.float64)
+                cols[col] = np.asarray(values, dtype=np.float64)
+
+        del prop_float
+        if cache:
+            pd.DataFrame(cols).to_parquet(cache, index=False)
+        result.update(cols)
 
     return pd.DataFrame(result)
 

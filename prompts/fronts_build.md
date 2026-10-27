@@ -6,14 +6,14 @@ Finds fronts in LLC4320 gradb2, groups them, and co-locates them with physical
 fields. Data production is delegated to the preprocessing repo
 (`dbof.cli.run_all_subsets`); fronts only finds, groups, and co-locates.
 
-## The four steps
+## The five steps
 
 | Step | What it does | Cost |
 |------|--------------|------|
 | **1** | Build the frontal-structure store for any date that lacks gradb2, export **gradb2 only** → `gradb2.nc` | 1 subset, 1 NetCDF |
 | **2** | Threshold gradb2 → binary front map (`*_bfronts.npy`) | cheap, local |
 | **3** | Label the fronts + geometric properties (`label_map`, groups) | cheap, local |
-| **4** | Build + export **every other subset**, then co-locate | expensive |
+| **4** | Build **every other subset**, co-locate straight from the stores | slow, no disk |
 | **5** | Copy the front products back to S3 | network |
 
 Steps 1–3 are self-contained. If all you want is a map of where the fronts are,
@@ -37,6 +37,44 @@ To try a single timestep first, comment out the other dates in the config's
 
 ## Where the zarr stores come from
 
+Steps 1 and 4 both call `run_all_subsets` with `--generate-only`, which decides
+per subset and date: a store that is already complete is skipped, so re-running
+costs a few S3 metadata reads. Step 1 asks for one subset (the one owning
+gradb2, plus `icearea` when masking); step 4 asks for all of `active_subsets`.
+
+Neither lets `run_all_subsets` do the export. It has no `--channels` flag, so
+its export phase writes all 8 SURF channels (21 on DEPTH) when only gradb2 is
+wanted; and it writes to `{netcdf_base}/{run_id}/{date_prefix}/`, which is not
+where this build keeps its products. Step 1 exports gradb2 through
+`export_channels`; step 4 writes no NetCDF at all.
+
+## Co-location reads the stores directly
+
+Step 4 pulls each field from S3 one at a time via `llc_io.read_channel` and
+reduces it to per-front statistics before dropping it. Nothing is staged to
+disk: a global field is ~900 MB, so 100 timesteps x 9 SURF channels would be
+~800 GB, and a DEPTH run with 57 channels would need ~51 GB of RAM if they were
+all held at once.
+
+This is safe because `zarr_to_netcdf` never transformed anything — it cast the
+channel to float32 and added integer `y`/`x` coords. A field read from the store
+is the array the NetCDF would have contained, on the same grid as the label map
+(which descends from `gradb2.nc`, from the same store).
+
+**Checkpoints.** Each property's columns are cached at
+
+```
+{date_prefix}/colocate_ckpt_{run_tag}/{channel}.parquet
+```
+
+so a run killed at channel 40 of 57 resumes there rather than starting the
+timestamp over. The directory is removed once the timestamp's final parquet
+lands, and `publish.PRODUCT_PATTERNS` never matches it.
+
+**Reading NetCDF instead.** `build.colocate_source: netcdf` reads the
+per-property `.nc` files from the timestamp directory, as before. Useful for
+co-locating offline against files already on disk, or for checking the two paths
+agree — run one timestep each way and diff the parquets.
 Both step 1 and step 4 call `run_all_subsets`, and both pass `--generate-only`:
 they build stores, never export from them. Step 1 asks for one subset (the one
 that owns gradb2, plus `icearea` when `ice_mask_find` is on); step 4 asks for
@@ -155,6 +193,7 @@ build:
   finding_suffix: "sfc"      # which depth suffix to find in (DEPTH only)
   ice_mask_find:  false      # step 1 — mask gradb2 BEFORE finding fronts
   ice_mask_props: true       # step 4 — mask the co-located property fields
+  colocate_source: zarr      # step 4 field source: zarr | netcdf
   percentiles:    [25, 75, 90]
   exclude_roots:  []         # roots to skip in co-location
 ```
@@ -232,15 +271,84 @@ The `.nc` exports are deliberately **not** pushed — they are exports of the za
 store sitting in the parent directory. Change `publish.PRODUCT_PATTERNS` if you
 want them.
 
+## Co-locating on a single tile
+
+`fronts.properties.run.colocate_tile` pairs the global fronts with properties
+computed on one 720x720 tile, at the surface. Nothing global is read or written.
+
+Driven by `colocate_tiles.py`, which reads build_v5's fronts and writes into
+the same V5 tree — no version bump, because the fronts are build_v5's fronts.
+
+```bash
+cd fronts/runs/prototypes/one_full
+python colocate_tiles.py run_v5_tiles_monterey.yaml
+python colocate_tiles.py run_v5_tiles_scotia_sea.yaml
+```
+
+Results land in `{date_prefix}/tile{idx:03d}/`. Property names come from
+`dbof.tiles.field_registry` (52 available, unsuffixed), not from
+`subset_definitions`.
+
+**Two field sources.** A tile entry with `chunk_name` reads
+`LLC4320_RAW/CHUNKS/{name}`, which *is* already the tile's 720×720 extent — so
+nothing is sliced and no field is written. The tile identity comes from that
+store's own `resolved_face` / `j_start` / `i_start` attrs, cross-checked against
+the rect lookup. With `lon`/`lat` or `i_rect`/`j_rect` instead, the tile is cut
+out of the global full-depth store via `tile_utils.run`, which caches one small
+NetCDF per property under `fields/` (~2 MB for a 2D field) and follows each
+property's `out_name` (`density` is stored as `sigma0`).
+
+A chunk store cannot go through `tile_utils.run`: it asks for `face_range=[face]`
+of a one-face store and slices positionally with face-global indices
+(`isel(j=slice(3600, 4320))` on a 720-long dim), which returns an empty
+selection rather than an error. Hence the separate path.
+
+Chunk `grid.zarr` is written by the transfer and may lack the comodo `axis`
+attrs xgcm needs; the loader stamps them if absent, so `_build_tile_context`
+finds its X and Y axes.
+
+**Dates must exist in both places** — a chunk store *and* a label map. The
+shipped configs use the intersection: 17 of 18 Monterey snapshots, 20 of 31
+Scotia Sea. Add the rest to the build_v5 configs and re-run steps 1–3 if you
+want them.
+
+**Orientation.** A tile is a window on the same rect grid as the label map, but
+its *data* is face-local, which on some LLC faces is a rotation of that window.
+`labels_for_tile` scatters the labels through the per-pixel `(j_face, i_face)`
+maps rather than slicing, so the pairing is right on every face. Slicing would
+look plausible — both arrays are 720x720 — while pairing every front pixel with
+the wrong value.
+
+**What the numbers mean.** Labels stay global, so rows join to the geometry
+table on `flabel`, and `tile_idx` / `face_idx` are added as columns. A front
+crossing the tile edge is clipped, so `npix` counts only its pixels inside the
+tile:
+
+- `mean`, `std`, `count` recombine across tiles (keep sum, sum-of-squares, n)
+- `median` and percentiles do **not**
+
+For uncontaminated percentiles, filter to fronts whose tile `npix` equals the
+global `npix` from the geometry table. `min_npix` filters on the clipped count,
+so prefer filtering afterwards on the global value. Stencil-based properties
+carry an `edge_margin` NaN rim that `nan_policy='omit'` already drops from the
+statistics; pass `edge_margin=` to keep those cells out of `npix` too.
+
 ## The run descriptor
 
 Step 1 writes one YAML file at the top of the run directory:
 
 ```
-$OS_OGCM/LLC/Fronts/V5/SURF/fronts_meta_V5_SURF_from_globals_for_cutouts_v2_2_01.meta
+$OS_OGCM/LLC/Fronts/V5/SURF/
+    fronts_meta_V5_SURF_from_globals_for_cutouts_v2_2_01_run_v5_100_timesteps.meta
+    fronts_meta_V5_SURF_from_globals_for_chunks_V5_run_v5_chunks.meta
+    fronts_meta_V5_SURF_from_globals_for_chunks_V5_run_v5_SO_chunks.meta
 ```
 
-The name says which dataset the fronts came from without opening anything.
+The name says which dataset the fronts came from and which config drove the run,
+without opening anything. The config stem is what keeps two date lists against
+the same dataset apart — the last two above share build, pipeline, folder and
+run_id.
+
 Inside: pipeline, S3 store URI, subsets, the resolved gradb2 channel, the
 front-finding config, ice-mask flags, date count and range, and the git SHA of
 both repos at the time of the run.
@@ -261,6 +369,130 @@ path = make_run_prefix("dbof/", "globals_for_cutouts/", "v2_2_01",
 print(check_existence.store_channels(fs, path))
 ```
 
+The export needs only the one channel it asks for, so a store missing newer
+channels (`density`, `buoyancy`, ...) still works for gradb2. `run_all_subsets`
+would judge such a store incomplete and rebuild it — another reason step 1 does
+not call it.
+
+## Which sparkle version is in each global store
+
+Two global datasets exist for LLC4320, and they do not agree:
+
+| store | `gradb2` form | used by |
+|---|---|---|
+| `s3://dbof/globals_for_chunks/V5/` | square-before-interp (current) | the tiles |
+| `s3://dbof/globals_for_cutouts/v2_2_01/` | interp-then-square (superseded) | cutouts work |
+
+Measured on the Monterey chunk, 2012-07-04 12:00, in a 197 km box, against a
+tile computed on the fly (which runs today's code by construction):
+
+```
+globals_for_chunks/V5        vs tile      median |rel| 1.95e-04   p95 3.39e-04
+globals_for_cutouts/v2_2_01  vs tile      median |rel| 7.76e-02   p95 7.34e-01
+globals_for_chunks/V5        vs cutouts   median |rel| 8.39e-02   p95 2.77e+00
+```
+
+The two forms differ by an exact identity, per direction:
+
+```
+new - old = 1/4 [(g1 - g2)^2]
+```
+
+where `g1`, `g2` are the gradients on the staggered faces flanking a cell. So
+the difference is non-negative everywhere, and is a map of grid-scale gradient
+curvature: zero in smooth water, bright along filaments. The observed signs
+follow it — `cutouts - tile` is negative, `chunks - cutouts` positive — which is
+what rules out a grid or metric error, since those would be signed both ways.
+
+The artifact is *manufactured near-zeros*, not spikes. At a one-cell extremum
+the flanking slopes are `-a` and `+a`, interpolating them gives zero, and
+squaring locks in a hole. The current form squares first and keeps the real
+value, so it is larger wherever the gradient turns over inside a cell.
+
+### Why the metadata did not catch it
+
+`v2_2_01/run_meta.yaml` records `git_commit: 48f5031`, which *does* contain the
+fix. It is not evidence about what ran:
+
+* `_git_commit_hash()` in `dbof.global_dataset_creation.metadata` shells out to
+  `git rev-parse --short HEAD` with no `cwd` and no reference to
+  `dbof.__file__`. It records the HEAD of whatever repo the shell was standing
+  in, not the version of the package that got imported.
+* the entry is per **subset**, not per subset and date, and is rewritten on any
+  run that does work — so one regenerated date restamps all 100.
+
+The store's own chunk mtimes (`aws s3 ls`) are the only per-date provenance
+available.
+
+### Consequence
+
+Front finding on `globals_for_chunks/V5` is on the current field — steps 1-3
+there need nothing. Anything derived from `globals_for_cutouts/v2_2_01` is on
+the superseded field and needs regenerating.
+
+On one Monterey tile, refinding fronts across the two forms moved 20.3% of front
+pixels (369 fronts and 13,067 px -> 318 and 11,764; 2,650 old-only, 1,347
+new-only). Config D thresholds at a pooled 85th percentile, so changing the
+field moves the threshold with it and the front set shifts everywhere, not only
+where the artifact was. One tile at one timestep in energetic water is not a
+global number.
+
+`fronts/properties/nb/Colocate_Check.ipynb` sections 6-10 hold the diagnosis.
+
+
+## The staggered-point convention on a chunk tile
+
+A chunk's `grid.zarr` carries no comodo attrs, so `fronts.llc.tiles._COMODO`
+supplies them. The shift sign must be **-0.5**:
+
+```python
+'i_g': {'axis': 'X', 'c_grid_axis_shift': -0.5}
+```
+
+The transfer slices `i_g` over the same index range as `i` (`H_I_DIMS = ("i",
+"i_g")`, one `slice(i0, i1)` for both), so `i_g[n]` is the lower face of cell
+`i[n]`. That is what `-0.5` means to xgcm, and it decides which pair
+`grid.interp` averages when it moves a staggered field to cell centres:
+
+| shift | centre `n` interpolates from |
+|---|---|
+| `-0.5` | `i_g[n]`, `i_g[n+1]` |
+| `+0.5` | `i_g[n-1]`, `i_g[n]` |
+
+One full cell apart. Measured against `globals_for_cutouts/v2_2_01` on the
+Monterey chunk, 2012-07-04 12:00, for the `U` channel:
+
+```
+shift -0.5   median |rel| 0.00e+00
+shift +0.5   median |rel| 2.38e-01
+```
+
+and a +/-1 roll scan around the `-0.5` result puts the minimum at `(0, 0)`, so
+no further offset is involved.
+
+### The error is asymmetric, which makes it easy to miss
+
+A field that *lives* on a staggered point and is interpolated **once** lands a
+full cell away: the velocity components, and everything built from them --
+`relative_vorticity`, `divergence`, `strain_n`, `strain_s`, `strain_mag`,
+`okubo_weiss`, `rossby_number`, `ug`, `vg`, `frontogenesis_*`.
+
+A tracer gradient differences *onto* the staggered points and interpolates the
+squares back to centres, so most of the error cancels and only a small metric
+mismatch survives. `gradb2` on the tile agreed with the global store to
+`1.95e-04` with the wrong sign in place -- close enough to read as float32 noise.
+
+Anything that compares a tile against a global store should therefore check a
+velocity-derived field, not a tracer. `U` is the cheapest probe: it is one
+`grid.interp` plus a rotation, so a mismatch there is unambiguous.
+
+`fronts/tests/test_build_v5.py::test_comodo_puts_the_staggered_point_at_the_lower_face`
+pins this behaviourally -- it builds a two-point xgcm grid and asserts centre 0
+interpolates to the mean of `i_g[0]` and `i_g[1]`. A test that instead compares
+the constant against `get_llc_depth_gridfile` cannot catch this: the global grid
+loader and a sliced chunk are different situations, and the global file's `+0.5`
+is not the tile's answer.
+
 `store_channels` returns what the store actually holds; `plan_zarr(fs, path,
 expected)` gives the `FULL` / `MISSING` / `INCOMPLETE` verdict step 1's generate
 pass will act on.
@@ -277,9 +509,10 @@ channels (`density`, `buoyancy`, …) is `INCOMPLETE` to the first question and
 pytest fronts/tests/test_build_v5.py -v
 ```
 
-65 tests, fully offline — no S3, no OSN, no data. They cover the contract with
+88 tests, fully offline — no S3, no OSN, no data. They cover the contract with
 the preprocessing repo, that step 1 builds one subset and exports one channel,
 pipeline resolution, the two ice-mask toggles, the output layout, the S3 push,
-the run descriptor, both naming schemes across all three pipelines, and the
-shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
+the run descriptor, both naming schemes across all three pipelines, lazy
+co-location with checkpoint resume, tile orientation across rotated faces, chunk-store
+tile resolution, and the shipped 100-timestep config. If the preprocessing repo changes shape underneath us,
 these fail fast and name what moved.
