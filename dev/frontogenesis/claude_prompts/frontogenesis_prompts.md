@@ -7451,3 +7451,118 @@ schematics were force-added. `data/m3_case_summary.json` and `.npz` are ignored 
 `data/.gitignore`, which is the project's convention for every summary and needs no action. No
 front objects, no efficiency, no damping claim; the derived stores, `deck/` and the rest of `py/`
 are untouched.
+
+### 2026-10-26 — Execution prompt 5, task 1: find_fronts_series, front finding per hour (Fable 5.1)
+
+**Prerequisite not met, by instruction.** Prompt 5 says "M3 passed (budget closure). Do not
+start otherwise". M3 is **not** closed (task 8's audit, 2026-10-11: criterion 1 fails at every
+gated `L`; coding §7 blocks everything downstream). JXP asked for task 1 anyway, so this entry
+proceeds on that decision and says so. Task 1 is front *finding*; nothing in it depends on
+closure, and nothing here reconciles, quotes a slope or calls anything an efficiency.
+
+**The named path does not exist.** Task 1 wraps "`build_v5.py` step 1 -> `build.tile_find` ->
+`preproc/gradb2.generate_tile_gradb2`". M1 task 7a found, and M3 task 8 carried forward, that
+neither `tile_find` nor `generate_tile_gradb2` is on this branch (re-checked today: `grep` over
+`fronts/`, none). The entry point is `fronts.finding.algorithms.fronts_from_gradb2`, called the
+way `fronts/finding/run.py:52` calls it, with config D's `binary` block **read from
+`finding_config_D.yaml`** at every call: `window 64, threshold 85, thresh_mode 'pool', thin
+False, sharpen True, despur True, Lspur 10, dilate False, min_size 7, connectivity 2`. The
+prompt's "window and percentile differ from `fronts_from_gradb2`'s bare defaults" is right
+(40 / 90 / 'generic' / no sharpen / no despur), and `test_config_is_read_from_the_yaml` keeps the
+module honest against the file rather than a copy of its numbers.
+
+**The three `fronts` defects are still open, so the caller-side recipe of task 7a is applied.**
+The suite's three strict xfails still xfail (no XPASS), so: (1) `n_workers` is passed explicitly
+('pool' mode raises `TypeError` without it); (2) `despur` is run by `tracking.find_fronts` after
+the rest of the chain, in the same place `fronts_from_gradb2` would run it, and **only if a front
+pixel survived** — `skan` raises on an empty skeleton; (3) **`fronts &= isfinite(G)`** afterwards,
+which removes exactly the NaN-island fill of `remove_small_holes` and nothing else.
+`test_enclosed_nan_island_is_not_filled` and `test_empty_field_does_not_raise` cover (2) and (3)
+on the ridge field of `test_nan_finding.py`.
+
+**The mask is NaN, never zero** (task 1's own warning, task 7a's measurement).
+`test_mask_is_applied_as_nan_not_zero` shows the mask-as-NaN result is **bit for bit** the
+NaN-land result and that the same block as zeros gives a different front set.
+
+**What is found, on what.** Config D on the **derived store's midpoint `G`** at `L = 0`
+(`tile330_derived_L0.zarr`, coding §3.4), one label array per pair, 71 of them, keyed by the
+pair's **midpoint time** — because that is the time at which M3's front pixels are selected
+(`G_mid >= p90`), the time the strain and `2F` are evaluated, and the field `front_strength_series`
+will read; finding on the 72 raw hours would put the objects half an hour off every quantity
+they are compared with. `L` is an argument (`m4_find.py --L`), `L = 0` the primary as in the case
+study. The mask is **`mask_analysis`** (the M3 pool: ocean minus the 7-cell halo, >= 100 km
+offshore, inside the 7-cell edge margin; 262,925 cells), chosen so the object selection is
+compatible with the per-pixel rule M3 task 8 carried forward — see M4-Q1 below.
+
+**Labels.** `skimage.measure.label` at config D's connectivity 2, `int32`, 0 = background,
+1..n contiguous, each label one 8-connected component (`test_each_label_is_one_8_connected_component`),
+**never interpolated** (Q14; only the bool mask will be advected, in task 2).
+
+**Timestamps.** The dict keys are already `'%Y-%m-%dT%H_%M_%S'` (underscores, the
+`front_tracking.parse_time` form) — `'2012-07-02T00_30_00'` ... `'2012-07-04T22_30_00'`;
+`to_track_time` / `to_dbof_time` / `from_track_time` are the one place the two formats meet, and
+`test_time_formats_round_trip` pins both (dbof's `'2012-07-02 00:30:00'` converts; `dd/mm/yyyy`
+raises). `labels_at_factory(dict) -> (labels_at, times)` is the `follow()` interface for task 2.
+
+**The run** (`m4_find.py --L 0`, detached under `nohup`, `data/m4_find.log`,
+`data/m4_find_done.json`; the log's first two "start/done" blocks are the 1-pair smoke to the
+session scratchpad, the rest the run): **71 pairs in 551 s**, 7.6 s median per pair at 8
+workers (9.6 s max; the finder's 'pool' threshold is the cost, as task 7a measured). Per pair:
+**248-311 fronts** (median 275), **8,545-9,115 front pixels** (median 8,802), median front
+size 16-21 px, largest 203-437 px, **34-53 fronts >= 50 px and 10-18 >= 100 px** — so "the 10
+largest" of task 2 are >= ~120 px at every pair (the 10th largest is 122 / 121 / 128 px at pairs
+0 / 35 / 70). **0 labelled pixels off the finite masked field** at every pair (asserted in the
+runner and again in a separate read-back). **0.60-0.66 of the labelled pixels are M3's
+`G_mid >= p90` front pixels** (median 0.635): config D's local 85th percentile over a 64-cell
+window and the pool-wide 90th percentile select overlapping but different sets, which is the
+expected relation between a local and a global threshold and is the number criterion 4 will
+have to live with. Eulerian overlap of consecutive label masks (no advection; a floor for task
+2's flow-predicted IoU, not a tracking result): 0.665-0.763, median 0.734.
+
+**Store.** `data/tile330_fronts_D_L0.zarr` — `labels(time, j, i)` int32, one chunk per time,
+`time` the pair's first hour and `time_mid` 30 min later (§3.4's encoding), `XC`/`YC` copied
+from the derived store, attrs with the config values as read, the mask, `n_workers`, the
+finder and the three rules, `n_bad_pixels = 0`, the 71 keys and the time format. 1.7 MB on
+disk (zstd on a sparse int field). Written whole at the end rather than appended per pair: 147
+MB in memory and 9 min of compute do not need the resumable path the derived stores use.
+`open_fronts_series` round-trips it (`test_series_stats_and_store_round_trip`, on a tiny
+synthetic store in `tmp_path`).
+
+**Sensitivity, pair 0, not the primary.** `mask_halo` (ocean minus the halo only; the coastal
+100 km included): 384 fronts / 12,718 px against 311 / 9,115 on `mask_analysis`; on the
+analysis cells themselves the two agree to 9,079 vs 9,115 px (the local percentile window
+reaches 32 cells past the mask edge, so the offshore boundary moves a few fronts). The
+difference is the coastal zone, and it contains **one 1,179-px front** — three times the
+largest front on the analysis mask (375 px). This is the coastal upwelling front; the budget's
+`valid` pool never covered it, and `DGDt` there is not among M3's judged pixels.
+
+**Questions for JXP (answer before task 2).**
+- **M4-Q1 — the finding mask.** (a) `mask_analysis`, as run: the objects live where the
+  per-pixel budget was judged, so criterion 4's reconciliation is against pixels M3 actually
+  evaluated — *recommended*; (b) `mask_halo`: includes the 1,179-px coastal front, the best
+  tracking subject on the tile, but criterion 4 would then reconcile on pixels outside M3's
+  pool; (c) both, with (a) primary. Switching is `--mask halo` and 9 minutes.
+- **M4-Q2 — `front_tracking.py`.** It is on `origin/viz_tools` only (commit e04d4f2, Lauren,
+  2026-08-24: `fronts/front_tracking.py`, 607 lines, with `docs/viz/apps/front_tracking.md`).
+  Task 2 needs `follow`, `score_candidate`, `parse_time`, `Track`. Options: merge or
+  cherry-pick e04d4f2 onto `frontogenesis` (it also touches `viz/apps/*` and
+  `tests/test_viz_apps.py`), or `git show origin/viz_tools:fronts/front_tracking.py` into the
+  package as a single file. Not done here — a repo change outside `dev/frontogenesis/` is yours.
+
+**Tests.** `tests/test_tracking.py`, 11 tests (10 offline on the 160 x 200 ridge with config D
+really running — 'pool' threshold, sharpen, despur, 2 workers — plus one `needs_grid` on pair
+0 of the `L = 0` store with the numbers above as ranges). Full suite with the absolute
+`frontogenesis` interpreter: **269 passed + 3 xfails** (strict, no XPASS), 2 network tests
+deselected, **269 s**. The new file imports the ridge fixtures from `test_nan_finding.py`.
+
+**Docs.** Coding §4.10: a marked note with `find_fronts_series` as built, the store, the runner
+and the `front_tracking.py` location; §5: the `test_tracking.py` row. Nothing rewritten.
+Prompt 5's Status paragraph added. Coding §2.5's note on the non-existent `tile_find` path
+stands as written.
+
+**Not done.** Tasks 2-5 of prompt 5 (nothing advected, scored, tracked or reconciled; no
+figure). No commit; `data/tile330_fronts_D_L0.zarr`, `m4_find.log`, `m4_find.nohup` and
+`m4_find_done.json` are git-ignored by `data/.gitignore` as every product is. Nothing outside
+`dev/frontogenesis/` touched; the `fronts` package is unmodified and its three defects are
+still open with their xfails. Scratch (session scratchpad): `probe.py`, `halo_sens.py`,
+`summarise.py`, `smoke_fronts.zarr`, `suite.log`.

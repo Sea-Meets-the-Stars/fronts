@@ -719,6 +719,19 @@ def front_strength_series(track, G_by_time, two_F_by_time,
       # matched_pixels=True evaluates on the ADVECTED pixel set, not "front at t" vs
       # "front at t+dt" -- front-mean G over a changing pixel set is not material (Q14).
 ```
+*(added 2026-10-26, M4 task 1 — `find_fronts_series` as built, in `py/tracking.py`.)* Signature
+`find_fronts_series(derived_zarr, mask, config='D', *, n_workers=8, pairs=None, log=None)`;
+`derived_zarr` is a §3.4 store (path or Dataset, any `L`), `mask` a bool `(j, i)` (True =
+retained) or the §3.5 Dataset (`mask_analysis` taken), applied as **NaN**. It returns
+`{time_mid in '%Y-%m-%dT%H_%M_%S' -> int32 labels}` in time order, the keys already in the
+`front_tracking.parse_time` format. Per-field `find_fronts(G, mask, config, n_workers)` applies
+the three task-7a caller-side rules (explicit `n_workers`; despur only on a non-empty skeleton;
+`fronts &= isfinite(G)`) and labels at config D's connectivity. `write_fronts_series` /
+`open_fronts_series` persist the dict as `data/tile330_fronts_{config}_L{L}.zarr`
+(`labels(time, j, i)` int32, one chunk per time, `time` / `time_mid` as §3.4); `m4_find.py` is
+the runner. **`fronts/front_tracking.py` is not on this branch** — it lives only on
+`origin/viz_tools` (commit e04d4f2); tasks 2-5 need it merged or imported from there.
+
 `figures.py`: one function per figure, `fig01_maps(...)` ... `fig10_term_budget(...)`, plus
 `figV1..figV6`, each writing a PNG to `dev/frontogenesis/figs/`. `fig02` draws the M1 baseline at
 **0.981 with its band [0.970, 0.994]** (the V3 real-velocity slope, `form='discrete'`), with V3b's
@@ -746,6 +759,7 @@ marked `@pytest.mark.network` smoke test of the OSN pull.
 | `test_m3_run.py` *(added, M3 task 4)* | `verify_derived_series` against one defect at a time; the runner's pair arithmetic and resumable closure cache |
 | `test_m3_closure.py` *(added, M3 task 6)* | the pre-declared tolerances are the ones used; a verdict flips at the tolerance; `L = 0` reported, never gated; the optimal-multiplier and partial-correlation diagnostics |
 | `test_figures.py` *(added, M3 task 7)* | every figure runs on a tiny synthetic store and draws **the summary's** numbers; the baseline is 0.981, never 1 |
+| `test_tracking.py` *(added 2026-10-26, M4 task 1)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
 
 *(added 2026-10-11, M3 task 8.)* The suite is **258 passed + 3 strict xfails**, 2 network tests
 deselected, ~230 s on the workstation. The three xfails document `fronts` bugs (M1 task 7a) and
