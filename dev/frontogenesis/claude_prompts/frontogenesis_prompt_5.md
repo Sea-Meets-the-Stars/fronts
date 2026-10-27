@@ -161,6 +161,7 @@ covered it, so `DGDt` there is not among M3's judged pixels.
 
 >A. Yes, use (a)
 
+
 **M4-Q2 — Where does `front_tracking.py` come from?** Task 2 needs `follow`,
 `score_candidate`, `parse_time` and `Track` from `fronts/front_tracking.py`, which is **not on
 the `frontogenesis` branch**: it exists only on `origin/viz_tools` (commit e04d4f2, Lauren,
