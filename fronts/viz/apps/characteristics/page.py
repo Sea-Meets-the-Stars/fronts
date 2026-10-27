@@ -120,6 +120,7 @@ class CharacteristicsPage:
         self._map_stale = True
         self._bounds = hv.streams.BoundsXY(bounds=None)
         self._last_bounds = None
+        self._zoom_pending = False
         # Record the box here, not inside the frame callback.  Recording it
         # while drawing tied "the region changed" to "the map re-rendered":
         # true in the browser, but it made the state depend on a render
@@ -297,10 +298,22 @@ class CharacteristicsPage:
         self._reflect_dirty()
 
     def _zoom_to_bounds(self, bounds=None):
-        """Put the axes on the box.  Cheap: no data is read."""
-        if not bounds:
+        """Put the axes on the box.  Cheap: no data is read.
+
+        The redraw is deferred to the next tick rather than done inside
+        the stream event that asked for it: swapping the DynamicMap while
+        HoloViews is still delivering that event rebuilt the plot mid
+        iteration.  Bursts coalesce into one redraw.
+        """
+        if not bounds or self._zoom_pending:
             return
-        self.redraw_map(refetch=False)
+        self._zoom_pending = True
+
+        def later():
+            self._zoom_pending = False
+            self.redraw_map(refetch=False)
+
+        pn.state.execute(later, schedule=True)
 
     def _on_bounds(self, bounds):
         """Apply a box as if it had been drawn on the map.

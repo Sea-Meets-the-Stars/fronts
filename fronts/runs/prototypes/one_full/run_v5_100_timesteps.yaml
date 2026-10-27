@@ -9,8 +9,8 @@
 # under $OS_OGCM/LLC/Fronts/V5/SURF/{YYYYMMDD_HHMMSS}/, then copied back to
 # s3://dbof/globals_for_cutouts/v2_2_01/{YYYYMMDD_HHMMSS}/Fronts/  (step 5).
 #
-# The zarr stores already exist, so step 1 finds them complete and skips
-# straight to the export.
+# Step 1 builds frontal_structure.zarr for any date that lacks it, then
+# exports gradb2.  Dates whose store is already complete are skipped.
 #
 # The dates are the 100 timesteps transferred to LLC4320_RAW/SURFACE by
 # llc4320-native-grid-preprocessing/configs/transfer/run_surface_100.yaml.
@@ -73,7 +73,7 @@ active_subsets:
 
 # ---------------------------------------------------------------------------
 # build_v5 knobs.  Every key has a default in
-# fronts.properties.run.BUILD_DEFAULTS, so this block is optional.
+# fronts.runs.config.BUILD_DEFAULTS, so this block is optional.
 # ---------------------------------------------------------------------------
 build:
   # Products land in $OS_OGCM/LLC/Fronts/V5/SURF/ -- the V5 comes from

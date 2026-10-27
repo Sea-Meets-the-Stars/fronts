@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 
 from dbof.cli import generate_global, run_all_subsets, zarr_to_netcdf
+from dbof.global_dataset_creation import check_existence
 from dbof.global_dataset_creation.config import default_output_folder
 from dbof.global_dataset_creation.iterations import (
     date_to_run_id, prefix_to_filename_date,
@@ -32,9 +33,11 @@ from fronts.finding import io as finding_io
 from fronts.llc import io as llc_io
 from fronts.llc import meta as llc_meta
 from fronts.llc import publish as llc_publish
+from fronts.llc import stores as llc_stores
 from fronts.properties import algorithms as prop_algorithms
 from fronts.properties import colocation
 from fronts.properties import run as prun
+from fronts.runs import config as run_config
 from fronts.runs.prototypes.one_full import build_v5
 
 PIPELINES = ("SURF", "OSN", "DEPTH")
@@ -247,14 +250,22 @@ def test_date_helpers_roundtrip():
 # ===========================================================================
 
 class _Spy:
-    """Record calls instead of making them."""
+    """Record calls instead of making them.
 
-    def __init__(self, result=None):
+    Pass *log* and *name* to also append each call to a shared list, so tests
+    can assert the order two different spies were called in.
+    """
+
+    def __init__(self, result=None, log=None, name=None):
         self.calls = []
         self.result = result
+        self.log = log
+        self.name = name
 
     def __call__(self, *args, **kwargs):
         self.calls.append((args, kwargs))
+        if self.log is not None:
+            self.log.append(self.name)
         return self.result
 
     @property
@@ -280,14 +291,28 @@ def _reset_layout():
 def spies(monkeypatch, tmp_path):
     """Neutralise every side-effecting call build_v5 makes."""
     monkeypatch.setenv("OS_OGCM", str(tmp_path / "ogcm"))
+    order = []
     s = {
-        "generate": _Spy(),
-        "export": _Spy(result=[]),
-        "find": _Spy(),
-        "group": _Spy(),
-        "colocate": _Spy(),
-        "push": _Spy(result=[]),
+        "generate": _Spy(log=order, name="generate"),
+        "export": _Spy(result=[], log=order, name="export"),
+        "find": _Spy(log=order, name="find"),
+        "group": _Spy(log=order, name="group"),
+        "colocate": _Spy(log=order, name="colocate"),
+        "push": _Spy(result=[], log=order, name="push"),
+        "order": order,
     }
+
+    # generate_for_channels runs for real, so the tests exercise its subset
+    # loop.  Only its S3 lookup is stubbed -- plan_zarr's verdict per store,
+    # defaulting to "nothing is built yet".  A test wanting existing stores
+    # sets spies["state"].result to check_existence.ZARR_FULL.
+    state = _Spy(result=check_existence.ZARR_MISSING, log=order, name="state")
+    monkeypatch.setattr(llc_stores.check_existence, "plan_zarr", state)
+    monkeypatch.setattr(llc_stores, "create_s3_filesystems",
+                        lambda endpoint: (None, None))
+    s["state"] = state
+
+    monkeypatch.setattr(llc_stores, "generate_global_dataset", s["generate"])
     monkeypatch.setattr(build_v5, "generate_global_dataset", s["generate"])
     monkeypatch.setattr(build_v5, "export_channels", s["export"])
     monkeypatch.setattr(build_v5, "find_gradb2_fronts", s["find"])
@@ -297,22 +322,80 @@ def spies(monkeypatch, tmp_path):
     return s
 
 
-def test_step1_builds_only_the_subset_that_owns_gradb2(spies, surf_cfg):
-    """Step 1 must not build kinematic / frontogenesis / native_fields."""
+def test_step1_builds_only_the_gradb2_subset(spies, surf_cfg):
+    """Step 1 generates the subset that owns gradb2 -- and nothing else."""
     build_v5.main(1, surf_cfg)
     kw = spies["generate"].kwargs
     assert kw["subsets"] == ["frontal_structure"]
+    assert kw["generate_only"] is True          # never exports from here
 
 
-def test_step1_never_exports_through_run_all_subsets(spies, surf_cfg):
-    """generate_only: the store is built there, the channel is exported here.
+def test_step1_generate_writes_into_this_builds_directory(spies, surf_cfg):
+    """netcdf_base matches step 4's, so the two agree on where products live."""
+    build_v5.main(1, surf_cfg)
+    args, _ = spies["generate"].calls[0]
+    assert args[1] == llc_io.run_root("V5test")      # .../Fronts/V5/SURF
 
-    run_all_subsets has no --channels flag, so letting it export would write
-    all 8 SURF channels (21 on DEPTH) when only gradb2 is wanted.
+
+def test_step1_asks_only_about_the_channel_it_reads(spies, surf_cfg):
+    """The whole point: gradb2, not frontal_structure's other 7 channels.
+
+    Asking about the full subset would classify a store written before
+    'density' was added upstream as INCOMPLETE, and generate_global raises on
+    an incomplete store instead of rebuilding it -- abandoning, in the same
+    breath, any date that really was missing.
     """
     build_v5.main(1, surf_cfg)
-    assert spies["generate"].kwargs["generate_only"] is True
-    assert len(spies["export"].calls) == 2          # one per date, in fronts
+    (_fs, store, channels), _kw = spies["state"].calls[0]
+    assert channels == ["gradb2"]
+    assert store.endswith("frontal_structure.zarr")
+
+
+def test_step1_checks_one_date_and_believes_it(spies, surf_cfg):
+    """A run's dates hold the same channels, so one lookup answers for all.
+
+    surf_cfg has two dates; the store is still classified exactly once, on
+    the first of them.
+    """
+    build_v5.main(1, surf_cfg)
+    assert len(spies["state"].calls) == 1
+    first_prefix = run_config.read_build_config(surf_cfg)["date_prefixes"][0]
+    assert f"/{first_prefix}/" in spies["state"].calls[0][0][1]
+
+
+def test_step1_skips_generate_when_the_store_already_has_gradb2(
+        spies, surf_cfg):
+    """An out-of-date store that still holds gradb2 is left alone."""
+    spies["state"].result = check_existence.ZARR_FULL
+
+    build_v5.main(1, surf_cfg)
+
+    assert spies["generate"].calls == []         # run_all_subsets not invoked
+    assert len(spies["export"].calls) == 2       # ...but gradb2 still exported
+
+
+def test_step1_generate_gets_the_config_it_was_given(spies, surf_cfg):
+    """No narrowed copy is written -- generate_global skips complete dates."""
+    build_v5.main(1, surf_cfg)
+    args, _ = spies["generate"].calls[0]
+    assert args[0] == surf_cfg
+
+
+def test_step1_adds_icearea_only_when_masking_gradb2(spies, tmp_path):
+    """The mask is read from icearea.zarr, so that store has to exist too."""
+    build_v5.main(1, _write(tmp_path, "unmasked.yaml", _SURF_YAML))
+    assert [c[0][2] for c in spies["state"].calls] == [["gradb2"]]
+
+    spies["state"].calls.clear()
+    spies["generate"].calls.clear()
+    masked = _write(tmp_path, "masked_gen.yaml",
+                    _SURF_YAML.replace("ice_mask_find: false",
+                                       "ice_mask_find: true"))
+    build_v5.main(1, masked)
+    assert [c[0][2] for c in spies["state"].calls] == [["gradb2"], ["SIarea"]]
+    # One generate call per subset, each scoped to that subset alone.
+    assert [c[1]["subsets"] for c in spies["generate"].calls] == [
+        ["frontal_structure"], ["icearea"]]
 
 
 def test_step1_exports_exactly_one_channel_per_timestamp(spies, surf_cfg):
@@ -359,6 +442,18 @@ def test_step4_writes_no_property_netcdfs(spies, surf_cfg):
     assert kw["config_file"] == surf_cfg
 
 
+def test_step1_generates_before_it_exports(spies, surf_cfg):
+    """Order matters: the store has to exist before export_channels opens it.
+
+    export_channels -> zarr_to_nc -> zarr.open_group(mode='r'), which raises
+    FileNotFoundError on a store that is not there -- and nothing catches it,
+    so an export-first step 1 dies on the first missing date.
+    """
+    build_v5.main(1, surf_cfg)
+    order = spies["order"]
+    assert order.index("generate") < order.index("export")
+
+
 def test_steps_2_and_3_generate_nothing(spies, surf_cfg):
     """Finding and grouping are pure consumers of step 1's output."""
     build_v5.main(2, surf_cfg)
@@ -389,11 +484,11 @@ def test_export_channels_skips_files_that_already_exist(
 
     spy = _Spy()
     monkeypatch.setattr(llc_io, "zarr_to_nc", spy)
-    out = prun.export_channels(surf_cfg, ts, ["gradb2"], version="V5test")
+    out = llc_stores.export_channels(surf_cfg, ts, ["gradb2"], version="V5test")
     assert spy.calls == []                       # skipped
     assert out == [target]
 
-    prun.export_channels(surf_cfg, ts, ["gradb2"], version="V5test",
+    llc_stores.export_channels(surf_cfg, ts, ["gradb2"], version="V5test",
                          clobber=True)
     assert len(spy.calls) == 1                   # clobber forces it
 
@@ -403,34 +498,34 @@ def test_export_channels_skips_files_that_already_exist(
 # ===========================================================================
 
 def test_channel_for_root_resolves_per_pipeline(surf_cfg, depth_cfg):
-    assert prun.channel_for_root(surf_cfg, "gradb2") == "gradb2"
-    assert prun.channel_for_root(depth_cfg, "gradb2") == "gradb2_sfc"
-    assert prun.channel_for_root(depth_cfg, "gradb2",
+    assert run_config.channel_for_root(surf_cfg, "gradb2") == "gradb2"
+    assert run_config.channel_for_root(depth_cfg, "gradb2") == "gradb2_sfc"
+    assert run_config.channel_for_root(depth_cfg, "gradb2",
                                  depth_suffix="z25m") == "gradb2_z25m"
 
 
 def test_channel_for_root_rejects_a_suffix_the_config_does_not_build(depth_cfg):
     with pytest.raises(ValueError, match="finding_suffix"):
-        prun.channel_for_root(depth_cfg, "gradb2", depth_suffix="mld")
+        run_config.channel_for_root(depth_cfg, "gradb2", depth_suffix="mld")
 
 
 def test_channel_for_root_rejects_an_unknown_root(surf_cfg):
     with pytest.raises(ValueError, match="not produced by any active subset"):
-        prun.channel_for_root(surf_cfg, "N2")     # DEPTH-only
+        run_config.channel_for_root(surf_cfg, "N2")     # DEPTH-only
 
 
 def test_subset_for_channel(surf_cfg, depth_cfg):
-    assert prun.subset_for_channel(surf_cfg, "gradb2") == "frontal_structure"
-    assert prun.subset_for_channel(depth_cfg, "gradb2_sfc") == "frontal_structure"
+    assert run_config.subset_for_channel(surf_cfg, "gradb2") == "frontal_structure"
+    assert run_config.subset_for_channel(depth_cfg, "gradb2_sfc") == "frontal_structure"
 
 
 def test_all_property_roots_follows_the_pipeline(surf_cfg, depth_cfg):
     """The root list follows the pipeline, with no overlap between the two."""
-    surf = set(prun.all_property_roots(surf_cfg))
+    surf = set(run_config.all_property_roots(surf_cfg))
     assert {"gradb2", "density", "buoyancy", "rossby_number"} <= surf
     assert not ({"N2", "Ri", "ertel_pv", "KE"} & surf)   # DEPTH-only
 
-    depth = set(prun.all_property_roots(depth_cfg))
+    depth = set(run_config.all_property_roots(depth_cfg))
     assert {"N2", "R_ib", "gradb2"} <= depth
     assert not ({"density", "buoyancy"} & depth)        # SURF-only
 
@@ -442,19 +537,19 @@ def test_all_property_roots_always_expand_cleanly(surf_cfg, depth_cfg):
     raises ValueError on every root the active subsets do not produce.
     """
     for cfg in (surf_cfg, depth_cfg):
-        roots = prun.all_property_roots(cfg)
-        channels = prun.expand_property_roots(roots, cfg)
+        roots = run_config.all_property_roots(cfg)
+        channels = run_config.expand_property_roots(roots, cfg)
         assert len(channels) >= len(roots)
 
 
 def test_exclude_roots_are_dropped(surf_cfg):
-    roots = prun.all_property_roots(surf_cfg, exclude=["density", "buoyancy"])
+    roots = run_config.all_property_roots(surf_cfg, exclude=["density", "buoyancy"])
     assert "density" not in roots and "buoyancy" not in roots
     assert "gradb2" in roots
 
 
 def test_read_build_config_merges_defaults_with_the_yaml(surf_cfg, depth_cfg):
-    cfg = prun.read_build_config(surf_cfg)
+    cfg = run_config.read_build_config(surf_cfg)
     assert cfg["pipeline"] == "SURF"
     assert cfg["run_id"] == "V5test"
     assert cfg["timestamps"] == ["2012-11-09T12_00_00", "2012-11-10T06_00_00"]
@@ -465,8 +560,8 @@ def test_read_build_config_merges_defaults_with_the_yaml(surf_cfg, depth_cfg):
     assert cfg["exclude_roots"] == []             # from BUILD_DEFAULTS
 
     # A config with no build: block still gets every default.
-    d = prun.read_build_config(depth_cfg)
-    assert set(prun.BUILD_DEFAULTS) <= set(d)
+    d = run_config.read_build_config(depth_cfg)
+    assert set(run_config.BUILD_DEFAULTS) <= set(d)
     assert d["depth_suffixes"] == ["sfc", "z25m"]
 
 
@@ -562,7 +657,7 @@ _RUN_CFG = os.path.join(
 
 @pytest.mark.skipif(not os.path.exists(_RUN_CFG), reason="config not present")
 def test_shipped_config_is_coherent():
-    cfg = prun.read_build_config(_RUN_CFG)
+    cfg = run_config.read_build_config(_RUN_CFG)
     assert cfg["pipeline"] == "SURF"
     assert len(cfg["date_iterations"]) == 100
     assert len(set(cfg["date_iterations"])) == 100      # no duplicates
@@ -579,10 +674,10 @@ def test_shipped_config_is_coherent():
     assert raw["output"]["bucket"] == "dbof/"
 
     # Steps 1-3 resolve without touching S3.
-    channel = prun.channel_for_root(_RUN_CFG, cfg["gradb2_root"],
+    channel = run_config.channel_for_root(_RUN_CFG, cfg["gradb2_root"],
                                     depth_suffix=cfg["finding_suffix"])
     assert channel == "gradb2"
-    assert prun.subset_for_channel(_RUN_CFG, channel) == "frontal_structure"
+    assert run_config.subset_for_channel(_RUN_CFG, channel) == "frontal_structure"
 
     # The finding config it names actually exists.
     from fronts.finding import config as find_config
@@ -592,7 +687,7 @@ def test_shipped_config_is_coherent():
 @pytest.mark.skipif(not os.path.exists(_RUN_CFG), reason="config not present")
 def test_shipped_config_dates_match_the_transfer_config():
     """Every date is one of the timesteps sitting in LLC4320_RAW/SURFACE."""
-    cfg = prun.read_build_config(_RUN_CFG)
+    cfg = run_config.read_build_config(_RUN_CFG)
     for date in cfg["date_iterations"]:
         prefix = date_to_run_id(date)               # raises if out of range
         assert len(prefix) == 15 and prefix[8] == "_"
@@ -601,8 +696,8 @@ def test_shipped_config_dates_match_the_transfer_config():
 def test_generate_global_dataset_builds_the_right_command(monkeypatch):
     """The subprocess argv is the contract with run_all_subsets."""
     spy = _Spy()
-    monkeypatch.setattr(prun.subprocess, "run", spy)
-    prun.generate_global_dataset(
+    monkeypatch.setattr(llc_stores.subprocess, "run", spy)
+    llc_stores.generate_global_dataset(
         "cfg.yaml", "/base", subsets=["frontal_structure", "icearea"],
         generate_only=True, ice_mask=True, pipeline="SURF", run_id="V5test")
     cmd = spy.args[0]
@@ -828,7 +923,7 @@ output:
     llc_io.set_fronts_path(str(tmp_path / "Fronts"))
     llc_io.set_run_layout("V5/SURF", file_tag="V5test")
 
-    cfg = prun.read_build_config(cfg_path)
+    cfg = run_config.read_build_config(cfg_path)
     path = llc_meta.write_run_meta(cfg, cfg_path,
                                    extra={"gradb2_channel": "gradb2",
                                           "gradb2_subset": "frontal_structure"})
@@ -898,13 +993,13 @@ def _paths_for(cfg_path, tmp_path):
     from dbof.global_dataset_creation.config import default_output_folder
     from dbof.global_dataset_creation.zarr_dataset_global import make_run_prefix
 
-    cfg = prun.read_build_config(cfg_path)
+    cfg = run_config.read_build_config(cfg_path)
     llc_io.set_fronts_path(str(tmp_path / "Fronts"))
     llc_io.set_run_layout(cfg["run_dir"], file_tag=cfg["run_id"])
 
-    channel = prun.channel_for_root(cfg_path, cfg["gradb2_root"],
+    channel = run_config.channel_for_root(cfg_path, cfg["gradb2_root"],
                                     depth_suffix=cfg["finding_suffix"])
-    subset = prun.subset_for_channel(cfg_path, channel)
+    subset = run_config.subset_for_channel(cfg_path, channel)
     folder = cfg["folder"] or default_output_folder(cfg["pipeline"])
     ts = cfg["timestamps"][0]
     return cfg, {
@@ -988,7 +1083,7 @@ def test_build_version_comes_from_the_driver_not_the_config(tmp_path):
     cfg_path = _write(tmp_path, "claims_otherwise.yaml",
                       _SURF_DOTTED_YAML.replace('build_version: "v2_00"',
                                                 'build_version: "SOMETHING_ELSE"'))
-    cfg = prun.read_build_config(cfg_path, build_version=build_v5.BUILD_VERSION)
+    cfg = run_config.read_build_config(cfg_path, build_version=build_v5.BUILD_VERSION)
     assert build_v5.BUILD_VERSION == "V5"
     assert cfg["run_dir"] == "V5/SURF"
     assert cfg["run_id"] == "v2_00_2"          # the source is still recorded

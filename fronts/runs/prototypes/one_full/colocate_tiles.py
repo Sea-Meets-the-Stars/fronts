@@ -25,7 +25,8 @@ import sys
 
 from fronts.llc import io as llc_io
 from fronts.llc import tiles as llc_tiles
-from fronts.properties.run import colocate_tile, read_build_config
+from fronts.properties.run import colocate_tile
+from fronts.runs.config import read_build_config
 
 DEFAULT_CONFIG = './run_v5_tiles_monterey.yaml'
 

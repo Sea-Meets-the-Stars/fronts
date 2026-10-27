@@ -10,7 +10,7 @@ fields. Data production is delegated to the preprocessing repo
 
 | Step | What it does | Cost |
 |------|--------------|------|
-| **1** | Build the frontal-structure store, export **gradb2 only** → `gradb2.nc` | 1 NetCDF |
+| **1** | Build the frontal-structure store for any date that lacks gradb2, export **gradb2 only** → `gradb2.nc` | 1 subset, 1 NetCDF |
 | **2** | Threshold gradb2 → binary front map (`*_bfronts.npy`) | cheap, local |
 | **3** | Label the fronts + geometric properties (`label_map`, groups) | cheap, local |
 | **4** | Build **every other subset**, co-locate straight from the stores | slow, no disk |
@@ -29,7 +29,8 @@ python build_v5.py 5 run_v5_100_timesteps.yaml   # push to S3
 python build_v5.py 4 run_v5_100_timesteps.yaml   # everything else + co-locate
 ```
 
-Everything is re-runnable: existing `.nc` files and S3 keys are skipped.
+Everything is re-runnable: complete zarr stores, existing `.nc` files and
+existing S3 keys are all skipped.
 
 To try a single timestep first, comment out the other dates in the config's
 `date_iterations` list.
@@ -74,6 +75,74 @@ lands, and `publish.PRODUCT_PATTERNS` never matches it.
 per-property `.nc` files from the timestamp directory, as before. Useful for
 co-locating offline against files already on disk, or for checking the two paths
 agree — run one timestep each way and diff the parquets.
+Both step 1 and step 4 call `run_all_subsets`, and both pass `--generate-only`:
+they build stores, never export from them. Step 1 asks for one subset (the one
+that owns gradb2, plus `icearea` when `ice_mask_find` is on); step 4 asks for
+everything in `active_subsets`.
+
+The export is always done by `export_channels` instead, for two reasons.
+`run_all_subsets` has no `--channels` flag, so its export phase writes all 8
+SURF channels (21 on DEPTH) when only gradb2 is wanted. And it exports to
+`{netcdf_base}/{run_id}/{date_prefix}/`, which is not where this build keeps
+its products — the property files would land where co-location does not look.
+
+### What "skip" means for the generate pass
+
+Step 1 goes through `fronts.llc.stores.generate_for_channels()`, which asks
+`check_existence.plan_zarr()` about **only the channel this step reads** — not
+the subset's full channel list:
+
+| `plan_zarr` verdict (vs. `gradb2` alone) | Meaning | Response |
+|---|---|---|
+| `ZARR_FULL` | gradb2 present, `iteration` marker written | export from it as-is |
+| `ZARR_MISSING` | no store | generate the subset |
+| `ZARR_INCOMPLETE` | store exists but has no gradb2, or was never finished | generate the subset |
+
+The check runs on the config's **first date only**, and its verdict is taken
+for all of them: a run's dates are produced together and hold the same
+channels, so one metadata GET per subset answers the question. (The trade-off:
+a half-finished transfer whose early dates are complete reads as ready, and its
+later dates fail at export instead.) A subset with nothing to build never
+reaches `run_all_subsets` — one line of output, no per-date `SKIP` for all 100.
+Dates that *are* handed over are skipped or built individually by
+`generate_global`'s own pre-flight, as always.
+
+**Why the narrowed question matters.** Asked about the whole subset, a store
+written before `density` and `buoyancy` were added upstream comes back
+`ZARR_INCOMPLETE`, and `generate_global` raises on it *in its pre-flight loop*,
+before generating anything:
+
+```
+ValueError: Existing zarr store is incomplete: s3://...
+  Delete the store and rerun, or pass --clobber to regenerate it in place.
+```
+
+`run_all_subsets` catches that and carries on, so the run still exits 0 and
+gradb2 still exports. But because the raise lands in the planning loop, **one
+stale date abandons the generate pass for every date**, including any that were
+genuinely missing — which then surface much later as `FileNotFoundError` from
+the export. Asking about gradb2 alone keeps a stale store out of the pass
+entirely.
+
+This did not arise in build_v4 because v4 generated every subset itself, in one
+pass, from a single code version: its stores were never out of step with the
+subset definition, and its `.nc`-first plan skipped without consulting zarr at
+all. v5 reads stores the preprocessing repo built at some other time, which is
+what makes drift possible.
+
+The case this cannot rescue: a store that exists, lacks gradb2, *and* is
+incomplete by the subset's full list. `generate_global` will not touch it.
+Delete it and rerun.
+
+### If a store is missing and does not get built
+
+Worth knowing what that failure looks like, because it is not obvious:
+`export_channels` → `zarr_to_nc` → `GlobalZarrDatasetReader` opens the store
+with `zarr.open_group(mode="r")`, which raises `FileNotFoundError` on a path
+that is not there. Nothing catches it, so the run dies on the **first** such
+date and every later date goes unattempted — and the traceback names an S3 key,
+not the missing subset. If step 1 ends this way, the real explanation is in the
+generate log above it.
 
 ## Why this differs from build_v4
 
@@ -129,13 +198,14 @@ build:
   exclude_roots:  []         # roots to skip in co-location
 ```
 
-Every key has a default (`fronts.properties.run.BUILD_DEFAULTS`), so the block
+Every key has a default (`fronts.runs.config.BUILD_DEFAULTS`), so the block
 is optional.
 
 **Ice mask.** Two independent toggles, because you usually want fronts found on
-the *unmasked* field and masking applied only afterwards. `ice_mask_find`
-requires `icearea.zarr` to exist for the same run_id and date — the mask is read
-from it at export time.
+the *unmasked* field and masking applied only afterwards. Either flag needs
+`icearea.zarr` for the same run_id and date — the mask is read from it at export
+time. Turning on `ice_mask_find` makes step 1 build `icearea.zarr` alongside the
+frontal-structure store; `ice_mask_props` relies on step 4's full generate pass.
 
 **Pipeline.** Set `pipeline: SURF | OSN | DEPTH`. Nothing else in the driver
 changes — channel names, subset membership and the S3 folder all follow from it.
@@ -285,7 +355,8 @@ both repos at the time of the run.
 
 ## Checking a store before you run
 
-```
+Cheap, metadata-only — it tells you in
+advance whether the generate pass will skip, build, or raise:
 
 ```python
 from dbof.io.filesystems import create_s3_filesystems
@@ -422,6 +493,15 @@ the constant against `get_llc_depth_gridfile` cannot catch this: the global grid
 loader and a sliced chunk are different situations, and the global file's `+0.5`
 is not the tile's answer.
 
+`store_channels` returns what the store actually holds; `plan_zarr(fs, path,
+expected)` gives the `FULL` / `MISSING` / `INCOMPLETE` verdict step 1's generate
+pass will act on.
+
+Pass the subset's full channel list and you get the preprocessing repo's
+verdict; pass `["gradb2"]` and you get step 1's. They disagree on purpose — the
+export needs only the one channel it asks for, so a store missing newer
+channels (`density`, `buoyancy`, …) is `INCOMPLETE` to the first question and
+`FULL` to the second. Step 1 asks the second.
 
 ## Tests
 

@@ -41,19 +41,21 @@ from fronts.llc import io as llc_io
 from fronts.llc import meta as llc_meta
 from fronts.llc import publish as llc_publish
 
-from fronts.finding.run import find_gradb2_fronts
-from fronts.preproc.gradb2 import generate_tile_gradb2
-from fronts.properties.run import (
+from fronts.llc.stores import (
+    export_channels,
+    generate_for_channels,
+    generate_global_dataset,
+)
+from fronts.runs.config import (
     all_property_roots,
     channel_for_root,
-    colocate_fronts,
     expand_property_roots,
-    export_channels,
-    generate_global_dataset,
-    group_fronts,
     read_build_config,
     subset_for_channel,
 )
+
+from fronts.finding.run import find_gradb2_fronts
+from fronts.properties.run import colocate_fronts, group_fronts
 
 DEFAULT_CONFIG = './run_v5_100_timesteps.yaml'
 
@@ -97,29 +99,18 @@ def main(flg, config_file: str = DEFAULT_CONFIG):
     # =======================================================================
     # STEP 1 -- gradb2
     # =======================================================================
-    # Build the store that owns gradb2, then export that one channel.  The
-    # subset holds 8 channels on SURF and 21 on DEPTH; the rest wait for step 4.
+    # Build any store that doesn't already hold gradb2, then export it.  The
+    # subset holds 8 channels on SURF and 21 on DEPTH; the rest wait for
+    # step 4.  generate_for_channels() asks only about the channels named
+    # here, so a store that predates a channel added upstream counts as ready
+    # rather than being rebuilt -- see its docstring for why that matters.
     if flg == 1:
-        # --- one tile: compute gradb2 directly, no global store ------------
-        if tile_find:
-            generate_tile_gradb2(
-                cfg['date_iterations'], timestamps, tile_find,
-                version=run_id, field=gradb2_channel,
-                clobber=cfg['clobber'])
-            llc_meta.write_run_meta(cfg, config_file,
-                                    extra={'gradb2_channel': gradb2_channel,
-                                           'gradb2_subset': gradb2_subset,
-                                           'tile_find': tile_find})
-            return
-
-        subsets = [gradb2_subset]
+        wanted = {gradb2_subset: [gradb2_channel]}
         if cfg['ice_mask_find']:
-            # The mask is read from icearea.zarr at export time, so it has to
-            # exist for the same run_id and date.
-            subsets.append('icearea')
+            wanted['icearea'] = ['SIarea']   # the mask is read from it
 
-        generate_global_dataset(config_file, llc_io.run_root(run_id),
-                                subsets=subsets, generate_only=True)
+        generate_for_channels(config_file, llc_io.run_root(run_id), wanted,
+                              run_id=run_id)
 
         llc_meta.write_run_meta(cfg, config_file,
                                 extra={'gradb2_channel': gradb2_channel,

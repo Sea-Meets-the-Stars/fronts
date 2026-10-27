@@ -472,6 +472,11 @@ def zarr_to_nc(timestamp: str, config_file: str, subset: str,
 
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
+    # One snapshot per call -- 'YYYYMMDD_HHMMSS'.
+    date_prefix = _format_timestamp(timestamp)
+
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
     zarr_to_netcdf.main(
         os.path.dirname(full_path),
         output_filename=os.path.basename(full_path),
