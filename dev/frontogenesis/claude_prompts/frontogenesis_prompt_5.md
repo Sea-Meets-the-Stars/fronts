@@ -159,6 +159,8 @@ covered it, so `DGDt` there is not among M3's judged pixels.
 - (c) both, (a) primary and (b) a declared sensitivity. Switching is `m4_find.py --mask halo`
   and 9 minutes.
 
+>A. Yes, use (a)
+
 **M4-Q2 — Where does `front_tracking.py` come from?** Task 2 needs `follow`,
 `score_candidate`, `parse_time` and `Track` from `fronts/front_tracking.py`, which is **not on
 the `frontogenesis` branch**: it exists only on `origin/viz_tools` (commit e04d4f2, Lauren,
@@ -170,6 +172,7 @@ the `fronts` package outside `dev/frontogenesis/` is yours to make, so nothing w
   footprint, and task 2 only wraps it.
 - (b) cherry-pick e04d4f2 onto `frontogenesis` (brings the viz-app changes and their tests).
 - (c) merge `origin/viz_tools` into `frontogenesis`.
+>A. I have merged in `viz_tools`.  Please use the files you need from it
 
 #### JXP
 
