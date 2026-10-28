@@ -4,6 +4,7 @@ Offline on the 160 x 200 synthetic ridge of ``test_nan_finding.py`` (config D re
 'pool' threshold, sharpen, despur), plus one ``needs_grid`` test on pair 0 of the L = 0
 derived store with the numbers of the task-1 log entry asserted as ranges.
 """
+import json
 import numpy as np
 import pytest
 import xarray as xr
@@ -194,3 +195,194 @@ def test_pair_0_of_the_L0_store(masks_ds):
     assert 150 <= n_fr <= 500, n_fr
     frac = (fr & ds['front'].isel(time=0).values).sum() / n_px
     assert 0.55 <= frac <= 0.75, frac                    # 0.64 on the p90 front pixels
+
+
+# ===========================================================================
+# Task 2: flow-informed tracking
+# ===========================================================================
+from fronts import front_tracking as ft
+from test_operators import synthetic_cgrid, da, C_DIMS, U_DIMS, V_DIMS
+import semilag as sl
+
+
+def _line_labels(nj, ni, cols, width=1):
+    """Label array with one vertical 1-px front per entry of ``cols`` (label k+1 at column
+    cols[k], rows 20..nj-20)."""
+    lab = np.zeros((nj, ni), np.int32)
+    for k, c in enumerate(cols):
+        lab[20:nj - 20, c:c + width] = k + 1
+    return lab
+
+
+def test_advect_mask_by_integer_and_half_cell_shifts():
+    m = _line_labels(60, 80, [40]) > 0
+    adv = tr.advect_mask_by(m, 2.0, 0.0)                  # arriving parcel came from i - 2
+    assert np.array_equal(adv[:, 2:], m[:, :-2]) and not adv[:, :2].any()
+    adv = tr.advect_mask_by(m, 0.0, -3.0)
+    assert np.array_equal(adv[:-3, :], m[3:, :])
+    half = tr.advect_mask_by(m, 0.5, 0.0)                 # 0.5 on both neighbours: kept, 2 px
+    assert half[:, 40].sum() == m[:, 40].sum() and half[:, 41].sum() == m[:, 40].sum()
+    assert half.sum() == 2 * m.sum()
+    nan = tr.advect_mask_by(m, np.full(m.shape, np.nan), 0.0)
+    assert not nan.any()
+    with pytest.raises(TypeError):
+        tr.advect_mask(_line_labels(60, 80, [40]), None, None, None)   # the label field
+
+
+def test_advect_mask_uniform_flow_is_a_whole_cell_translation():
+    """``U = dxC / dt`` moves the mask by exactly one cell along ``i`` through the real
+    ``departure_index`` (the semilag test's own case)."""
+    g, grid, pos = synthetic_cgrid(dy=2250.0, rotated=False)
+    x, _ = pos('c')
+    shape = x.shape
+    U = da(np.full(shape, 1800.0 / 3600.0), U_DIMS)
+    V = da(np.zeros(shape), V_DIMS)
+    u_c, v_c = sl.centre_velocities(U, V, g, grid)
+    m = np.zeros(shape[-2:], bool)
+    m[10:-10, 15] = True
+    m[12, 20:30] = True
+    adv = tr.advect_mask(m, u_c, v_c, g, dt=3600.0)
+    inner = np.zeros_like(m)
+    inner[4:-4, 4:-4] = True
+    assert np.array_equal(adv[inner], np.roll(m, 1, axis=1)[inner])
+    back = tr.advect_mask(adv, u_c, v_c, g, dt=-3600.0)
+    assert np.array_equal(back[inner], m[inner])
+
+
+def test_iou_dilated_decays_with_offset():
+    a = _line_labels(60, 80, [40]) > 0
+    vals = [tr.iou_dilated(a, np.roll(a, k, axis=1)) for k in range(5)]
+    assert vals[0] == 1.0 and vals[1] == pytest.approx(0.5) and vals[2] == pytest.approx(0.2)
+    assert vals[3] == 0.0 and vals[4] == 0.0
+    assert tr.iou_dilated(a, np.roll(a, 1, axis=1), r=0) == 0.0          # raw IoU of skeletons
+    assert tr.iou_dilated(np.zeros_like(a), np.zeros_like(a)) == 0.0
+
+
+def test_flow_weighted_score_adds_a_term_and_keeps_the_veto():
+    lab = _line_labels(60, 80, [30, 34])
+    ref = ft.describe(lab, 1)
+    cand = ft.describe(lab, 2)
+    rm, cm = lab == 1, lab == 2
+    dist = ft._distance_field(rm)
+    kw = dict(ref_mask=rm, cand_mask=cm, ref_distance=dist)
+    s0, t0 = ft.score_candidate(cand, ref, ref.centre, 2.0, **kw)
+    s1, t1 = tr.flow_weighted_score(cand, ref, ref.centre, 2.0, predicted_mask=None, **kw)
+    assert s1 == s0 and t1 == t0                                        # no mask: identical
+    s2, t2 = tr.flow_weighted_score(cand, ref, ref.centre, 2.0, predicted_mask=cm, **kw)
+    assert t2['flow_iou'] == 0.0 and s2 < s0                            # perfect flow match
+    s3, t3 = tr.flow_weighted_score(cand, ref, ref.centre, 2.0, predicted_mask=rm, **kw)
+    assert t3['flow_iou'] == 1.0 and s3 > s0                            # 4 cells off: no overlap
+    # the weighted mean is the documented one
+    used = sum(ft.WEIGHTS[k] for k in t0)
+    assert s3 == pytest.approx((s0 * used + 1.0) / (used + 1.0))
+    # zero weight: the term is not computed; the veto survives the extra term
+    s4, t4 = tr.flow_weighted_score(cand, ref, ref.centre, 2.0, predicted_mask=cm,
+                                    weights={**ft.WEIGHTS, 'flow_iou': 0.0}, **kw)
+    assert 'flow_iou' not in t4 and s4 == s0
+    far = _line_labels(60, 80, [30, 70])
+    s5, _ = tr.flow_weighted_score(ft.describe(far, 2), ref, ref.centre, 2.0,
+                                   predicted_mask=far == 2, ref_mask=rm, cand_mask=far == 2,
+                                   ref_distance=dist)
+    assert s5 == np.inf
+
+
+class _UniformFlow:
+    """A stand-in for :class:`tracking.Flow`: a rigid shift of ``di`` cells per step."""
+    km_per_px = 1.9
+
+    def __init__(self, di):
+        self.di = di
+
+    def advect(self, mask, s0, s1):
+        return tr.advect_mask_by(mask, float(self.di * (s1 - s0)), 0.0)
+
+
+@pytest.fixture(scope='module')
+def moving_series():
+    """Four steps.  Front A (label 1) moves +6 cells per step -- 3x the 2-cell search radius,
+    so `follow`'s position veto rejects its true continuation; front B (label 2) sits still
+    4 cells from A's start and is what plain `follow` grabs instead.  Front C (label 3) is a
+    far-off bystander."""
+    cols_A = [30, 36, 42, 48]
+    series = {}
+    for s in range(4):
+        series[f'2012-07-02T{s:02d}_30_00'] = _line_labels(100, 120, [cols_A[s], 34, 90])
+    return series, cols_A
+
+
+def test_follow_flow_without_flow_equals_follow(moving_series):
+    series, _ = moving_series
+    labels_at, times = tr.labels_at_factory(series)
+    for label in (2, 3):
+        anchor = ft.anchor_at(labels_at(1), 1, label)
+        plain = ft.follow(labels_at, times, anchor, km_per_px=1.9)
+        mine = tr.follow_flow(labels_at, times, anchor, None, km_per_px=1.9)
+        assert mine.labels == plain.labels and mine.centres == plain.centres
+        for s in plain.links:
+            assert mine.links[s].score == plain.links[s].score
+            assert {k: v for k, v in mine.links[s].terms.items() if not k.startswith('_')} \
+                == plain.links[s].terms
+
+
+def test_flow_informed_walk_follows_the_fluid_where_plain_follow_cannot(moving_series):
+    series, cols_A = moving_series
+    labels_at, times = tr.labels_at_factory(series)
+    anchor = ft.anchor_at(labels_at(0), 0, 1)                        # front A at step 0
+    plain = tr.follow_flow(labels_at, times, anchor, None, km_per_px=1.9)
+    flow = tr.follow_flow(labels_at, times, anchor, _UniformFlow(6.0), km_per_px=1.9)
+    # plain: the true continuation (6 cells away) is vetoed; it links the stationary
+    # neighbour B at step 1 and then stays on it
+    assert plain.labels.get(1) == 2
+    # flow-informed: the advected mask lands on A at every step
+    assert [flow.labels[s] for s in range(4)] == [1, 1, 1, 1]
+    for s in (1, 2, 3):
+        assert flow.links[s].terms['flow_iou'] == 0.0
+        assert flow.links[s].terms['_n_overlap'] == 1
+        assert flow.links[s].terms['_pred_centre'][1] == pytest.approx(cols_A[s], abs=0.01)
+    cmp = tr.compare_tracks([plain], [flow])
+    assert int(cmp.loc[0, 'different']) >= 1
+
+
+def test_track_top_n_and_table(moving_series):
+    series, _ = moving_series
+    tracks = tr.track_top_n(series, n=2, flow=_UniformFlow(6.0), anchor_step=1)
+    assert len(tracks) == 2
+    assert [t.anchor.label for t in tracks] == [1, 2] or [t.anchor.label for t in tracks] == [2, 1]
+    tab = tr.track_table(tracks, list(series))
+    assert set(tab.columns) >= {'anchor_label', 'n_found', 'span_h', 'n_gaps_in_span',
+                                'worst_score', 'n_flow_links', 'n_split_merge'}
+    a = tab.set_index('anchor_label')
+    assert a.loc[1, 'n_found'] == 4 and a.loc[1, 'span_h'] == 3.0 and a.loc[1, 'n_flow_links'] == 3
+    # json round trip
+    back = tr.tracks_from_json(json.loads(json.dumps(tr.tracks_to_json(tracks, list(series)),
+                                                     default=tr._json_default)))
+    assert [t.labels for t in back] == [t.labels for t in tracks]
+    assert back[0].links[0].terms.keys() == tracks[0].links[0].terms.keys()
+
+
+@pytest.mark.needs_grid
+def test_real_flow_sign_and_retention():
+    """Transition 0 of the real stores.  The sign: advecting the pair-0 front mask with
+    ``+d`` overlaps the pair-1 fronts better than with ``-d``, forwards and backwards.  What
+    is NOT asserted, because it is false (task-2 log): that advection beats persistence --
+    at the hourly cadence the fronts move 0.37 cells (median), so the thresholded skeleton
+    is persistence plus rounding, and overlaps slightly less (0.704 vs 0.717)."""
+    import inputs as inp
+    p = tr.fronts_path(0)
+    if not p.exists():
+        pytest.skip(f'{p} not on disk (M4 task 1)')
+    ds, grid_ds, grid, masks = inp.open_inputs()
+    flow = tr.Flow(ds, grid_ds, grid)
+    assert 1.7 < flow.km_per_px < 2.1                      # tile 330: median dxC 1.80, dyC 1.95
+    labels = tr.open_fronts_series(p)
+    keys = list(labels)
+    m0, m1 = labels[keys[0]] > 0, labels[keys[1]] > 0
+    di, dj = flow.displacement(0, +1)
+    adv, wrong = tr.advect_mask_by(m0, di, dj), tr.advect_mask_by(m0, -di, -dj)
+    assert 0.85 * m0.sum() < adv.sum() <= m0.sum()                  # 5% lost to rounding
+    assert np.array_equal(adv, flow.advect(m0, 0, 1))
+    assert tr.iou_dilated(adv, m1) > tr.iou_dilated(wrong, m1)       # the sign
+    assert tr.iou_dilated(adv, m1) > 0.95 * tr.iou_dilated(m0, m1)   # not far off persistence
+    di, dj = flow.displacement(0, -1)
+    back, wrong = tr.advect_mask_by(m1, di, dj), tr.advect_mask_by(m1, -di, -dj)
+    assert tr.iou_dilated(back, m0) > tr.iou_dilated(wrong, m0)

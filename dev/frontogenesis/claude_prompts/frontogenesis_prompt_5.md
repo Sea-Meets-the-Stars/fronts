@@ -26,6 +26,25 @@ finds a 1,179-px front at pair 0 that is the tile's largest by 3x. **Blocker for
 `origin/viz_tools` (commit e04d4f2), not on `frontogenesis`. Log entry "Execution prompt 5,
 task 1".
 
+**Status 2026-10-27 — task 2 done.** M4-Q1 (a) and M4-Q2 (`viz_tools` merged) applied.
+`py/tracking.py` gained `advect_mask` / `advect_mask_by`, `class Flow` (the displacement
+fields of all 70 transitions both ways, `data/tile330_flow.zarr`), `iou_dilated`,
+`flow_weighted_score`, `follow_flow`, `track_top_n`, `track_table`, `compare_tracks` and the
+JSON round trip; `py/m4_track.py` is the runner; `tests/test_tracking.py` is 19 tests (suite
+**277 passed + 3 xfails**, 2 deselected, 262 s). **Flow-informed scoring is in use on 700 of
+700 links** (median `flow_iou` term 0.18). **10 tracks, every one 71/71 steps, 70 h, no
+gaps** (criterion 1 met); plain `follow()` on the same anchors loses two of them (49 and 42
+steps, 12 and 22 gaps, worst scores 1.64 and 2.04). **The flow changed the links on 3 of 10
+tracks — 71 links chosen differently plus 51 the plain walk left as gaps — and at every one
+of the 71 the flow walk chose the larger front (median 159 px against 38 px)**; 7 tracks are
+identical link for link. **102 of 700 links are flagged split/merge** (the predicted mask
+overlaps >= 2 labels). **What the flow is and is not**: the hourly front displacement is
+sub-cell (median 0.35 cells, p99 1.3), so the advected skeleton never beats persistence on
+IoU (0 of 70 transitions; 0.759 vs 0.774 median) while beating the wrong sign on 70 of 70; the
+gain is in the *prediction*, which stays material where `follow()`'s centroid extrapolation is
+flung away by a split or asymmetric growth. Log entry "Execution prompt 5, task 2". Tasks 3-5
+not started.
+
 ---
 
 ## Why tracking has to be flow-informed (decision Q14)

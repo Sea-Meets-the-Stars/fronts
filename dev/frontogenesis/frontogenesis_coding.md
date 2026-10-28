@@ -732,6 +732,27 @@ the three task-7a caller-side rules (explicit `n_workers`; despur only on a non-
 the runner. **`fronts/front_tracking.py` is not on this branch** — it lives only on
 `origin/viz_tools` (commit e04d4f2); tasks 2-5 need it merged or imported from there.
 
+*(added 2026-10-27, M4 task 2 — flow-informed tracking as built, `py/tracking.py`.)*
+`advect_mask(mask_bool, u_c, v_c, grid_ds, dt=3600.0)` is as specified (bool in, `TypeError` on
+an integer field; `departure_index` then `interp_to_departure` of the mask as float at
+**order 1**, threshold `>= 0.5`); `advect_mask_by(mask, di, dj)` is its inner step on a stored
+displacement. `class Flow(raw_ds, grid_ds, grid, store=None)` holds the displacement fields of
+every transition both ways (transition `k` = pair `k -> k+1` with `U`, `V` at hour `k+1`;
+`displacement(k, ±1)`, `advect(mask, step_from, step_to)`, `km_per_px` from the grid,
+`precompute()` -> `data/tile330_flow.zarr`, float32, 4 vars on `(transition, j, i)`).
+`flow_weighted_score(candidate, reference, predicted, radius, predicted_mask=None, weights=None,
+**kw)` wraps `score_candidate`; the extra term is `1 - IoU` on **1-cell dilated** masks
+(`iou_dilated`; config D's fronts are 1 px wide, so a raw IoU of two skeletons one cell apart
+is 0), weight `weights['flow_iou']` (default 1.0, `FLOW_WEIGHTS`). `follow_flow(labels_at,
+times, anchor, flow=None, ...)` is `follow`'s walk with the advected mask as the prediction
+(the position term's distance field is built from it) and the extra term; `flow=None`
+reproduces `follow` link for link (tested). `track_top_n(labels_by_time, times=None, n=10,
+flow=None, *, anchor_step=None, km_per_px=None, ...)` anchors on the `n` largest labels of
+`anchor_step` (default the middle pair). `track_table`, `compare_tracks`, `tracks_to_json` /
+`tracks_from_json`; `m4_track.py` is the runner -> `data/m4_tracks.json`,
+`data/m4_track_summary.json`. `front_tracking.py` is on this branch since JXP merged
+`viz_tools` (M4-Q2) and is not edited.
+
 `figures.py`: one function per figure, `fig01_maps(...)` ... `fig10_term_budget(...)`, plus
 `figV1..figV6`, each writing a PNG to `dev/frontogenesis/figs/`. `fig02` draws the M1 baseline at
 **0.981 with its band [0.970, 0.994]** (the V3 real-velocity slope, `form='discrete'`), with V3b's
@@ -759,7 +780,7 @@ marked `@pytest.mark.network` smoke test of the OSN pull.
 | `test_m3_run.py` *(added, M3 task 4)* | `verify_derived_series` against one defect at a time; the runner's pair arithmetic and resumable closure cache |
 | `test_m3_closure.py` *(added, M3 task 6)* | the pre-declared tolerances are the ones used; a verdict flips at the tolerance; `L = 0` reported, never gated; the optimal-multiplier and partial-correlation diagnostics |
 | `test_figures.py` *(added, M3 task 7)* | every figure runs on a tiny synthetic store and draws **the summary's** numbers; the baseline is 0.981, never 1 |
-| `test_tracking.py` *(added 2026-10-26, M4 task 1)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
+| `test_tracking.py` *(added 2026-10-26, M4 task 1; extended 2026-10-27, task 2: mask advection by integer / half-cell / NaN shifts and by a uniform flow through the real `departure_index`; the dilated IoU's decay; the extra term and the kept veto; `follow_flow(flow=None) == follow`; a front moving 3x the search radius that plain `follow` loses and the flow walk keeps; `track_top_n` and the JSON round trip; `needs_grid`: the real flow's sign and skeleton retention)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
 
 *(added 2026-10-11, M3 task 8.)* The suite is **258 passed + 3 strict xfails**, 2 network tests
 deselected, ~230 s on the workstation. The three xfails document `fronts` bugs (M1 task 7a) and

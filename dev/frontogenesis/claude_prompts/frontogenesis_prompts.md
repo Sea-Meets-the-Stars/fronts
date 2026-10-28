@@ -7566,3 +7566,133 @@ figure). No commit; `data/tile330_fronts_D_L0.zarr`, `m4_find.log`, `m4_find.noh
 `dev/frontogenesis/` touched; the `fronts` package is unmodified and its three defects are
 still open with their xfails. Scratch (session scratchpad): `probe.py`, `halo_sens.py`,
 `summarise.py`, `smoke_fronts.zarr`, `suite.log`.
+
+### 2026-10-27 — Execution prompt 5, task 2: flow-informed tracking (Fable 5.1)
+
+**Answers applied.** M4-Q1 (a): fronts on `mask_analysis`, as task 1 ran them — nothing re-found.
+M4-Q2: JXP merged `viz_tools` into `frontogenesis`, so `fronts/front_tracking.py` (`follow`,
+`score_candidate`, `describe`, `Track`, `parse_time`) is on this branch; it is imported and **not
+edited**. Task 1's three files were committed by JXP ("mo", 4258a7a); the tree was clean at the
+start.
+
+**What was built** (`py/tracking.py`, +330 lines; `py/m4_track.py`; `tests/test_tracking.py`
++8 tests). The §4.10 signatures, as built:
+- `advect_mask(mask_bool, u_c, v_c, grid_ds, dt=3600.0)`: `semilag.departure_index` (the
+  budget's own midpoint-rule trajectory, cubic velocity interpolation) then
+  `semilag.interp_to_departure` of the mask **as a float at order 1**, thresholded `>= 0.5`.
+  Bilinear rather than cubic because the field is 0/1, not `b`: it is monotone, and a half-cell
+  shift of a 1-px skeleton gives 0.5 on both neighbours, which `>= 0.5` keeps — a thin front
+  never vanishes under advection. An integer label field raises `TypeError` (Q14: **the labels
+  are never interpolated**). `advect_mask_by(mask, di, dj)` is the inner step on a stored
+  displacement.
+- `class Flow(raw_ds, grid_ds, grid, store)`: transition `k` joins pair `k` (midpoint `k+0.5` h)
+  to pair `k+1` with `U`, `V` at integer hour `k+1` — the case study's convention;
+  `displacement(k, ±1)` is `departure_index` with `dt = ±3600`; `advect(mask, from, to)`;
+  `km_per_px` from the grid (**1.873**, against `front_tracking`'s 2.3 default, coding §2.5's
+  warning); `precompute()` writes **`data/tile330_flow.zarr`** (4 float32 vars on
+  `(transition, j, i)`, 70 transitions, one chunk each, 137 s), which tasks 3-5 reuse for the
+  advected pixel sets.
+- `flow_weighted_score(candidate, reference, predicted, radius, predicted_mask=None,
+  weights=None, **kw)`: `score_candidate` plus `flow_iou = 1 - IoU(predicted_mask, cand_mask)`,
+  weight `weights['flow_iou']` (`FLOW_WEIGHTS = WEIGHTS + {'flow_iou': 1.0}`, as much as
+  position), folded into the same weighted mean; with no mask or a zero weight it *is*
+  `score_candidate`, and the position veto (`inf`) survives. **The IoU is on 1-cell dilated
+  masks** (`iou_dilated`): config D's fronts are 1 px wide, so the raw IoU of two skeletons one
+  cell apart is 0 — dilated it is 0.5, two cells 0.2, three 0. Additive, as the prompt asks; the
+  `weights` dict is the hook.
+- `follow_flow(labels_at, times, anchor, flow=None, ...)`: `follow`'s walk with three
+  substitutions — the prediction is the advected mask (its centroid replaces the
+  constant-velocity extrapolation), the position term's distance field is built from that
+  advected mask instead of the centroid-shifted reference, and the score has the extra term.
+  Across a gap the prediction keeps being advected. **With `flow=None` it reproduces
+  `front_tracking.follow` link for link** (`test_follow_flow_without_flow_equals_follow`:
+  labels, centres, scores and terms equal). Each link's `terms` carry, under underscore keys,
+  the predicted centroid, the chosen centroid, the predicted pixel count and the number of
+  candidate labels the predicted mask overlaps (`_n_overlap >= 2` = split / merge, for task 4).
+- `track_top_n(labels_by_time, times=None, n=10, flow=None, *, anchor_step=None, km_per_px=None,
+  ...)`: the `n` largest labels at `anchor_step` — **default the middle pair (35, 2012-07-03
+  11:30 UTC)** so a track can run both ways — each followed by `follow_flow`; plain `follow`
+  when `flow=None`. `times` default to the dict's underscore keys (the timestamp trap is task
+  1's converters). `track_table`, `compare_tracks`, `tracks_to_json` / `tracks_from_json`.
+
+**The run** (`m4_track.py`, detached; `data/m4_track.log`, `data/m4_tracks.json` with every
+link's terms, `data/m4_track_summary.json`): flow store 137 s, plain 461 s (46 s per track),
+flow 873 s (87 s per track), **1,481 s** in all.
+
+**Criterion 1 — 10 tracks >= 12 h: met, and not narrowly.** All ten flow-informed tracks are
+found at **71 of 71 steps, span 70 h, 0 gaps**; worst link scores 0.26-0.73 (median per track
+0.08-0.17) against the 2.5 acceptance. Plain `follow()` on the same ten anchors with the same
+`km_per_px`: eight tracks identical in count, but track 1 (label 84, 305 px) found 49 steps with
+12 gaps in a 60-h span and worst score 1.64, and track 5 (label 5, 209 px) found 42 steps with
+22 gaps in 63 h and worst score 2.04.
+
+**Criterion 2 — flow-informed scoring actually in use: yes.** 700 of 700 links (10 tracks x 70
+steps) carry the `flow_iou` term: median 0.179 (IoU 0.82), p90 0.393, max 0.687; the advected
+mask was never empty, so the plain fallback inside `follow_flow` never fired.
+
+**Did the flow change which fronts were linked? Yes, on 3 of 10 tracks — and this is the
+result.** Of the 649 links both walks made, **71 differ** (tracks 0, 1 and 5: 35, 2 and 34),
+and the flow walk made **51 links the plain walk left as gaps** (22 and 29 on tracks 1 and 5);
+0 the other way. Seven tracks are identical link for link. **At every one of the 71 differing
+links the flow walk chose the larger front: median 159 px against 38 px**, flow larger at 71 of
+71. Along the tracks: plain's median front size on tracks 0, 1, 5 is 110 / 122 / **19** px, the
+flow's 178 / 141 / 212, with minima 37 / 14 / 8 against 104 / 44 / 79. The mechanism, seen on
+track 0 (the probe before the run): the 295-px front splits at step 38 into a 110-px and a
+178-px piece; the plain walk takes the small piece, its centroid jumps 25 cells, the
+constant-velocity extrapolation flings the next prediction off the front, and from step 39 it
+sits on 40-61-px specks 40-50 cells to the north (centre `j` 117 at step 70 against the flow
+walk's 165, which is the re-merged 283-px front). That is Q14's sentence made concrete: *a
+front whose centroid moves because it grew asymmetrically is not a front that moved with the
+fluid* — and the flow-predicted mask does not care where the centroid went. Both walks agree
+on the backward half of track 0 (steps 0-13) and diverge first at step 14.
+
+**Split / merge flags: 102 of 700 links** (per track 1-16) have the predicted mask overlapping
+two or more candidate labels; task 4 reports them. The size of `|predicted centroid − chosen
+centroid|` is median 2.18 cells, p90 17.1, max 56.8 — the tail is the splits (the centroid of a
+mask that straddles two pieces against the one piece chosen), which is why task 4 should
+measure tracking quality mask-to-mask, not centroid-to-centroid.
+
+**What the flow is, and is not, at hourly cadence — measured, not assumed.** Over all 70
+transitions (`summary['flow']`): the front pixels' displacement is **median 0.35 cells per
+hour** (0.66 km), p99 1.3 cells. The dilated IoU of the advected pair-`k` front mask with the
+pair-`k+1` fronts is **0.759** (median) against **0.774 for persistence** (no advection) and
+0.732 for the wrong sign: the advected mask beats the wrong sign on **70 of 70** transitions
+and beats persistence on **0 of 70**. Retention of the thresholded skeleton is 0.949 per hour
+(5% lost to rounding), and chained over 6 h it is 0.73 with the IoU gap to persistence growing
+(0.39 vs 0.44 at pair 0). The sign is right, checked three ways: `+d` over `−d` on every
+transition; the uniform-flow test through the real `departure_index`; and the **`G` field
+itself** — on the analysis mask, `corr(log G_{k+1}, log G_k(x − d))` is 0.9617 against 0.9591
+for persistence and 0.9183 for `−d` (pair 0; 0.9811 / 0.9791 / 0.9433 at pair 35), with the
+r.m.s. log difference 0.551 against 0.570. So the model's surface flow does carry `G`, slightly
+better than standing still — but a sub-cell displacement of a 1-px skeleton, thresholded, is
+persistence plus rounding. **The tracking gain is in the prediction, not the advection**: the
+flow walk's prediction is the last-found mask carried by the fluid, which is nearly where it
+was; `follow()`'s is the last-found mask carried by a centroid velocity, which after a split is
+somewhere else. The honest name for what beat `follow()` here is "material persistence".
+
+**Tests** (`tests/test_tracking.py`, now 19): mask advection by integer, half-cell and NaN
+shifts; a whole-cell translation through the real `departure_index` on the synthetic C-grid
+(forward and back); the dilated IoU's decay 1 / 0.5 / 0.2 / 0 / 0; the extra term, the
+documented weighted mean, the zero-weight no-op and the kept veto; `follow_flow(flow=None) ==
+follow`; **a front moving 6 cells per step — 3x the search radius — that plain `follow` vetoes
+and swaps for a stationary neighbour, and the flow walk keeps at every step with `flow_iou = 0`**;
+`track_top_n` and the table; the JSON round trip; `needs_grid`: the real flow's sign and
+retention (and, deliberately, *not* "advection beats persistence", because it does not).
+Full suite with the absolute `frontogenesis` interpreter: **277 passed + 3 xfails** (strict, no
+XPASS), 2 network tests deselected, 262 s.
+
+**Decisions taken here, open to revision.** (i) `flow_iou` weight 1.0 and dilation 1 cell —
+`m4_track.py --flow-weight` re-runs in 15 min; (ii) anchor at the middle pair, the 10 largest
+there — the 10 largest *anywhere* would be a different population; (iii) `MASK_ORDER = 1`; (iv)
+`MAX_DRIFT_MS`, `MIN_RADIUS_PX` and `MAX_SCORE` are `front_tracking`'s, untouched.
+
+**Docs.** Coding §4.10: a marked note with the task-2 signatures as built, the flow store and
+the runner; §5: the `test_tracking.py` row extended. Prompt 5's Status paragraph added.
+
+**Not done.** Tasks 3-5 (no advected-pixel reconciliation, no `tracking_quality` DataFrame —
+its inputs are in every link's terms — no `front_strength_series`, no figure). No commit; the
+flow store, the two JSONs, the log and the nohup are git-ignored under `data/`. Nothing outside
+`dev/frontogenesis/` touched; `front_tracking.py` unmodified. The session scratchpad was lost
+mid-task (the probes `probe2-4.py` and the summariser); every number above is in
+`m4_track_summary.json`, `m4_track.log` or the entry's own probe output, and the `G`-field
+correlations were recomputed inline, not from scratch files.
