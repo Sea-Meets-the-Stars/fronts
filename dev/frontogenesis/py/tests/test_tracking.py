@@ -531,3 +531,79 @@ def test_real_forward_positions_match_the_case_study_integrator():
     assert ok.sum() > 250
     err = np.hypot(*(x - x_case)[ok].T)
     assert np.median(err) < 0.01 and np.percentile(err, 99) < 0.05
+
+
+# ===========================================================================
+# Task 4: tracking quality, split / merge
+# ===========================================================================
+def test_tracking_quality_plain_vs_flow(moving_series, tmp_path):
+    """On the moving series: the flow walk follows front A (difference 0 at every link); the
+    plain walk's link at step 1 is the stationary neighbour, 6 cells from where the fluid put
+    the front."""
+    series, cols_A = moving_series
+    labels_at, times = tr.labels_at_factory(series)
+    flow = _UniformFlow(6.0)
+    anchor = ft.anchor_at(labels_at(0), 0, 1)
+    plain = tr.follow_flow(labels_at, times, anchor, None, km_per_px=1.9)
+    flowed = tr.follow_flow(labels_at, times, anchor, flow, km_per_px=1.9)
+    qf = tr.tracking_quality([flowed], flow, series, name='flow')
+    qp = tr.tracking_quality([plain], flow, series, name='plain')
+    assert len(qf) == 3 and (qf['diff_cells'] < 1e-9).all() and (qf['mask_dist_median'] == 0).all()
+    assert (qf['flow_iou'] == 1.0).all() and not qf['split'].any() and not qf['merge'].any()
+    assert qf['chosen_is_majority'].all() and (qf['chosen_overlap_frac'] == 1.0).all()
+    assert np.allclose(qf['pred_di'], 6.0) and np.allclose(qf['chosen_di'], 6.0)
+    assert (qf['gap'] == 1).all() and (qf['direction'] == 'fwd').all()
+    r1 = qp[qp['step'] == 1].iloc[0]
+    assert r1['label'] == 2 and r1['diff_cells'] == pytest.approx(2.0, abs=0.05)   # B at 34, A at 36
+    assert r1['mask_dist_median'] == pytest.approx(2.0) and r1['flow_iou'] == pytest.approx(0.2)  # 2 cells apart, dilated
+    assert not r1['chosen_is_majority']
+    sp, sf = tr.quality_summary(qp), tr.quality_summary(qf)
+    assert sf['n_links'] == 3 and sf['centroid_diff_cells']['max'] < 1e-9 and sf['n_split_or_merge'] == 0
+    assert sp['frac_chosen_is_majority'] < 1.0 and sp['per_track'][0]['anchor_label'] == 1
+    # the figure runs on these rows and returns what it drew
+    import figures_m4 as f4
+    out = f4.fig_tracking_quality(qf, qp, fig_dir=tmp_path, name='tq_test')
+    assert (tmp_path / 'tq_test.png').exists() and out['n_links_flow'] == 3 and out['n_split_flow'] == 0
+
+
+def test_split_and_merge_flags():
+    """Front 1 at step 0 is one line; at step 1 it is two pieces (labels 1 and 2) 4 cells
+    apart along the line with a 10-row break: the prediction overlaps both -> split.  Run
+    backwards (anchor at step 1 on one piece, step 0 one line) -> the chosen piece advected
+    back overlaps one label; anchor on the whole line at step 0 after a two-piece step...
+    the merge case is the reverse: pieces at step 0, one line at step 1."""
+    nj, ni = 100, 120
+    one = np.zeros((nj, ni), np.int32)
+    one[20:80, 50] = 1
+    two = np.zeros((nj, ni), np.int32)
+    two[20:45, 50] = 1
+    two[55:80, 50] = 2
+    flow = _UniformFlow(0.0)
+    # split: one line, then two pieces
+    series = {'2012-07-02T00_30_00': one, '2012-07-02T01_30_00': two}
+    labels_at, times = tr.labels_at_factory(series)
+    track = tr.follow_flow(labels_at, times, ft.anchor_at(one, 0, 1), flow, km_per_px=1.9)
+    q = tr.tracking_quality([track], flow, series)
+    assert len(q) == 1 and bool(q.loc[0, 'split']) and not bool(q.loc[0, 'merge'])
+    assert q.loc[0, 'n_fwd_overlap'] == 2 and sorted(q.loc[0, 'fwd_overlap_labels']) == [1, 2]
+    assert 0.4 < q.loc[0, 'chosen_overlap_frac'] < 0.6
+    # merge: two pieces, then one line (anchor on piece 1 at step 0)
+    series = {'2012-07-02T00_30_00': two, '2012-07-02T01_30_00': one}
+    labels_at, times = tr.labels_at_factory(series)
+    track = tr.follow_flow(labels_at, times, ft.anchor_at(two, 0, 1), flow, km_per_px=1.9)
+    q = tr.tracking_quality([track], flow, series)
+    assert len(q) == 1 and bool(q.loc[0, 'merge']) and not bool(q.loc[0, 'split'])
+    assert q.loc[0, 'n_bwd_overlap'] == 2
+    s = tr.quality_summary(q)
+    assert s['n_merge'] == 1 and s['n_split'] == 0 and s['per_track'][0]['merge_steps'] == [1]
+    # a one-pixel touch is not a topology event
+    touch = two.copy()
+    touch[45:55, 50] = 0
+    touch[44, 50] = 0
+    touch[30, 50] = 2                     # one pixel of label 2 inside piece 1's span
+    series = {'2012-07-02T00_30_00': one, '2012-07-02T01_30_00': touch}
+    labels_at, times = tr.labels_at_factory(series)
+    track = tr.follow_flow(labels_at, times, ft.anchor_at(one, 0, 1), flow, km_per_px=1.9)
+    q = tr.tracking_quality([track], flow, series)
+    assert bool(q.loc[0, 'split'])        # the real second piece still counts ...
+    assert q.loc[0, 'n_fwd_overlap'] == 2  # ... and the one-pixel touch does not add a third

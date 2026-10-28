@@ -70,6 +70,25 @@ On the band, `2F` tracks the matched rate at corr 0.95 and amplitude ratio 1.01 
 quoted as an efficiency** (M3 carry-forward). Log entry "Execution prompt 5, task 3"; M4-Q3 /
 M4-Q4 in the Q&A. Tasks 4-5 not started.
 
+**Status 2026-10-28 — task 4 done; criterion 3 met.** M4-Q3 (a) and M4-Q4 (a) applied (the
+report's §7 carries the marked limitation, §8 the option; `check_report_numbers.py` passes).
+`py/tracking.py` gained `tracking_quality` and `quality_summary`; `py/figures_m4.py`
+(`fig_tracking_quality`) and `py/m4_quality.py` are new; `tests/test_tracking.py` is 28 tests
+(suite **286 passed + 3 xfails**, 2 deselected, 268 s). **Figure written:**
+`figs/fig_tq_tracking_quality.png`. On the 700 flow-informed links: the prompt's quantity,
+`|follow()-chosen − flow-predicted|` centroid shift, is **median 2.18 cells (4.1 km), p90 17.1**,
+above the 2-cell search radius on 53 % of links — but its tail is topology: **168 of 700 links
+(24 %) are flagged, 93 splits and 85 merges**, and the shift is 1.6 cells median on the unflagged
+links against 15.5 on the flagged. Mask to mask, **the chosen label's pixels sit within 1 cell of
+the advected prediction (90th percentile per link) on 72 % of links and within 2 on 85 %**, the
+per-link median distance is 0 on 94 %, the dilated IoU is 0.82 median, and the chosen label is
+the prediction's majority overlap on **99.0 %** — the tracks follow the fluid at the label level,
+and Phase 3 is interpretable on that measure. Plain `follow()` on the same anchors (649 links):
+nearly the same distributions, except five links across 5-13 h gaps that jump **207-493 cells**
+onto 32-px specks 7-15 cells from the tile corner — a `front_tracking.follow` defect found here
+(an empty shifted reference mask makes the position term the distance to the array origin), not
+fixed, described in the log. Log entry "Execution prompt 5, task 4". Task 5 not started.
+
 ---
 
 ## Why tracking has to be flow-informed (decision Q14)
@@ -242,6 +261,8 @@ the matched rate on the store's own time base. Against the tolerance fixed befor
 Either way the log keeps all four; this decides what Figures 8-9 and `front_strength_series`
 use (and `dilation_radius` for the primary strength).
 
+>A. Let's use (a)
+
 **M4-Q4 — The Phase-2 implication.** The same artefact sits inside `DGDt_semilag` on ridge
 cells: its departure value is interpolated, its arrival value is a cell, so on a 1-px ridge it is
 biased positive (+0.6 to +1 % of `G` per hour on a translated ridge where the truth is 0), and
@@ -251,6 +272,8 @@ and 54 % of M3's `G >= p90` pool. M3 judged closure on the p90 pool (26,293 pixe
 M3 interim report's limitations** (§7) and coding §8, no re-run — *recommended now*, since the
 size on the p90 pool is not yet measured; (b) measure it on the p90 pool (one day: the band-vs-
 ridge split of `DGDt_semilag` per pair) before the next report revision; (c) nothing until M5.
+
+>A. Let's use (a)
 
 #### JXP
 

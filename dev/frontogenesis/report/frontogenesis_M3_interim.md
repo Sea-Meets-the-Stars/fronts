@@ -294,6 +294,8 @@ The two **cross over** between $L = 2$ and $L = 4$ — consistent with numerics 
 
 **The diagnosis.** Two separable causes (§6), separated by the filter sweep. They are not one cause seen twice: the sampling gap falls monotonically with $L$ while the surface-flux variance grows with it.
 
+*(added 2026-10-28, after M4 task 3; M4-Q4 (a).)* **A limitation found downstream, recorded here rather than worked around.** The measured side interpolates $G$ at the *departure* point and reads it at the *arrival* cell (§3.2). On a front one cell wide that asymmetry has a sign: the interpolated value sits below a ridge maximum, so $D_hG/Dt$ is biased positive on ridge cells. M4's object-level reconciliation quantified it: on a synthetic Gaussian ridge of width 0.8 to 1 cell translated rigidly by 0.35 to 0.5 cell per hour with no growth, the stored construction reads $+0.6$ to $+1\,\%$ of the ridge maximum per hour where the truth is zero, and on the tracked 1-px front skeletons the stored rate is positive on 64 % of pixels against 50 % of all analysed pixels and 54 % of this report's $G \ge p_{90}$ pool. The pool used here is 2.9 times larger than the skeleton set and dilutes the effect; its size on that pool has not been measured, and it is listed in §8 as an option. It does not alter the finding of §6: the bias is one-signed and of order 1 % per hour, while the imbalance is of order the signal.
+
 **The stop.** The execution plan places M3 on the critical path with everything after it blocked on closure. Milestone M4 would have found and tracked front *objects* and reconciled each front's strength history against the integral of $2F$ along its advected pixel set; M5 would have consolidated the figures and written the report; M6 would have extended the budget to depth. None of these begins on this result without the principal investigator's decision. The stop is procedural and provisional; the finding is not.
 
 ---
@@ -312,6 +314,8 @@ The report recommends none of these; the decision belongs to the principal inves
 Only hourly output exists, so the one experiment that would turn cause one from an inference into a measurement — the same budget at a shorter interval — is not available.
 
 ---
+
+*(added 2026-10-28, M4-Q4 (a).)* **Measure the ridge-cell bias on the $p_{90}$ pool.** One day: split $D_hG/Dt$ on the pool by distance from the local ridge of $G$ and compare with a one-cell band, per pair, as M4 task 3 did for the tracked fronts.
 
 ## Appendix A. Glossary
 

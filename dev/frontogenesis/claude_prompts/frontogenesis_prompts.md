@@ -7814,3 +7814,92 @@ run's `done:` block in `m4_recon.log` (12:18 UTC, the pre-registered constructio
 precedes the four-construction run. Nothing outside `dev/frontogenesis/` touched. Scratch
 (session scratchpad): `probe5.py` (the five-track variant probe), `probe6.py` (the synthetic
 ridge and the real sharpness), `summarise3.py`.
+
+### 2026-10-28 — Execution prompt 5, task 4: tracking quality and split / merge detection (Fable 5.1)
+
+**Answers applied.** M4-Q3 (a): the band-1 + centred construction is criterion 4's and tasks
+4-5's — nothing in task 4 depends on it, and task 5 will use `dilation_radius=1`. M4-Q4 (a): a
+marked limitation paragraph in the M3 interim report's §7 (the ridge-cell bias of
+`DGDt_semilag`, with the task-3 numbers and why it does not alter §6's finding) and a marked
+option in §8 (measure it on the `p90` pool); `report/check_report_numbers.py` still passes; the
+coding §8 pitfall line was task 3's. Task 3's files were committed by JXP ("3", ca51635).
+
+**What was built** (`py/tracking.py` +150 lines; `py/figures_m4.py`, new; `py/m4_quality.py`,
+new; `tests/test_tracking.py` +2 tests, 28 in all).
+- `tracking_quality(tracks, flow, labels_by_time, *, km_per_px=None, name=None)` -> one row per
+  link (every found step but the anchor). The prediction is **rebuilt** from the stored flow —
+  the previous found mask advected across the gap, chained — rather than read from the link's
+  `_pred_centre`, so one function judges the plain tracks (whose walk never saw the flow) and
+  the flow-informed ones alike. Per row: the chosen and flow-predicted centroid displacements
+  and their difference `diff_cells` / `diff_km` (the prompt's quantity); `mask_dist_median` /
+  `mask_dist_p90`, the distance from the chosen label's pixels to the nearest pixel of the
+  prediction (the median and the 90th percentile over the label's pixels), and `flow_iou`, the
+  dilated IoU — the mask-to-mask measures, because task 2 showed the centroid one has a tail
+  that is topology; **`split`** = the prediction overlaps >= 2 labels at the step, **`merge`** =
+  the chosen label advected *back* overlaps >= 2 labels at the previous step, a label counting
+  at >= `SPLIT_MIN_PIXELS = 5` overlapping pixels so a one-pixel touch of a neighbour is not a
+  topology event (tested); the labels involved; `chosen_is_majority` and
+  `chosen_overlap_frac`; the link's score, gap and direction. `quality_summary(df)` -> the
+  distributions pooled and per track, with the flagged / unflagged split of the centroid
+  difference.
+- `figures_m4.fig_tracking_quality(q_flow, q_plain)` -> `figs/fig_tq_tracking_quality.png`:
+  (a) the prompt's histogram, both walks; (b) the per-link p90 mask distance; (c) a strip per
+  flow-informed track over the 71 steps, shade = p90 mask distance, ▲ split, ▼ merge; (d) the
+  dilated IoU. Counts on log axes in (a) and (b) — both are a spike with a long tail — and the
+  numbers drawn are returned and written to the JSON. Style, caption and `save` are
+  `figures.py`'s; two series, grey and the project blue, never cycled.
+- `m4_quality.py` -> `data/m4_quality.json` (every row of both sets, the two summaries, the
+  figure's numbers), 221 s.
+
+**Criterion 3 — the distributions, flow-informed tracks (700 links).**
+- The prompt's quantity, `|follow()-chosen − flow-predicted|` centroid shift: **median 2.18
+  cells (4.08 km), p90 17.1, max 56.8**; above the 2-cell hourly search radius on **53.3 %** of
+  links, above 5 cells on 25.1 %. Taken at face value that says "disagree often". It does not
+  survive the split: on the **532 unflagged links the median is 1.63 cells**, inside the radius;
+  on the **168 flagged ones, 15.5** — the centroid of a predicted mask that straddles two pieces
+  is not where any front is, which task 2 anticipated.
+- Mask to mask: the per-link **90th-percentile** distance of the chosen label's pixels from the
+  prediction is **1.00 cell median, 3.4 at p90**; it is **<= 1 cell on 71.9 % of links and <= 2
+  on 84.7 %**; the per-link *median* distance is exactly 0 on 94 % of links and <= 1 on 98.6 %;
+  the dilated IoU is **0.82** median (p10 0.56). The chosen label is the prediction's majority
+  overlap on **99.0 %** of links (693 of 700), carrying a median 100 % of the predicted overlap.
+  **The tracks follow the fluid at the label level; Phase 3 is interpretable on this measure.**
+- **Split / merge: 168 of 700 links (24 %) — 93 splits and 85 merges**, per track 1-15 splits
+  (track 9, label 218: 1 split, 0 merges, the cleanest; track 4, label 187: 15 and 18) — the
+  prompt's "over 72 hours it will certainly happen", counted. Steps are in the JSON and on the
+  strip; none was dropped. The reconciliation (task 3) already showed the flagged links no worse
+  than the rest.
+- A limit of the diagnostic, stated: it is per link, against the *previous found* mask, so a
+  walk that follows the wrong piece *consistently* looks fine to it. The plain-vs-flow comparison
+  of task 2 (71 links chosen differently, the plain walk on 38-px specks) is the cross-check for
+  that, not this.
+
+**Plain `follow()` on the same anchors (649 links): the same, except where it is not.** Centroid
+shift median 2.26 cells, p90 17.4; p90 mask distance <= 1 cell on 69 %; IoU 0.81; 79 splits, 70
+merges; majority overlap on 96.9 %. The difference is **five links across 5-13 h gaps that jump
+207-493 cells** (tracks 1 and 5 — the two the plain walk lost in task 2), every one onto a
+**32-px speck 7-15 cells from the tile corner**. That is a defect in `front_tracking.follow`,
+found and reproduced here: after a gap long enough for the constant-velocity extrapolation to
+push the reference off the tile, `_shift` returns an **empty** mask, and `_distance_field` of an
+empty mask (`distance_transform_edt` of an all-True array) is the distance to the **array
+origin** — so the position term is smallest for whatever sits nearest the corner, and the
+shape terms pick the best-looking speck there. The flow walk is immune (its prediction is
+advected, never empty; its fallback to `_shift` never fired — gap max 1). **Not fixed** —
+`fronts` is unmodified, as with task 7a's three — the fix is one line in `follow`: if `moved` is
+empty, veto every candidate (keep the gap) or shift by the last displacement instead.
+
+**Tests.** +2: on the moving series the flow walk's links differ from the fluid by 0 cells with
+IoU 1 and no flags, the plain walk's neighbour link by 2 cells with IoU 0.2 (two skeletons two
+cells apart, dilated) and not the majority; split and merge each way with the labels involved,
+and a one-pixel touch not counted; the figure runs on those rows into `tmp_path` and returns
+what it drew. Suite with the absolute `frontogenesis` interpreter: **286 passed + 3 xfails**
+(strict), 2 deselected, 268 s.
+
+**Docs.** Coding §4.10: the task-4 signatures and the figure as built; §5: the test row
+extended. Report §7 / §8: the M4-Q4 (a) notes. Prompt 5: the Status paragraph.
+
+**Not done.** Task 5 (`front_strength_series`, Figures 8 and 9, the bootstrap over fronts and
+hours). No commit; `m4_quality.json`, `.log`, the figure's PNG (git-ignored by `*.png` —
+`git add -f`, as every `figs/` PNG before it) are the new products. Nothing outside
+`dev/frontogenesis/` touched; `front_tracking.py` unmodified. Scratch: none beyond the
+summarisers.

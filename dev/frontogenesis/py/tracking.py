@@ -948,3 +948,134 @@ def reconcile_summary(df, rms_tol=RECON_RMS_TOL, corr_min=RECON_CORR_MIN) -> dic
         out['per_track'][int(lab)] = s
     out['n_tracks_passing'] = int(sum(v['passes'] for v in out['per_track'].values()))
     return out
+
+
+# ===========================================================================
+# Task 4 (2026-10-28): tracking quality and split / merge detection
+# ===========================================================================
+# Prompt 5 task 4 / criterion 3: the distribution of (follow()-chosen displacement minus the
+# flow-predicted displacement), and split / merge flags.  Both are free: every link already
+# has its chosen mask, its previous mask and the flow.  The prediction is rebuilt here from
+# the stored flow rather than read from the link's `_pred_centre`, so the same function
+# judges the PLAIN tracks (whose walk never saw the flow) and the flow-informed ones.
+#
+# Two measures of "did the link follow the fluid", because task 2 showed the centroid one
+# has a tail that is topology, not motion:
+#   centroid  -- |(c_s - c_p) - (centroid(P) - c_p)| = |c_s - centroid(P)|, the prompt's
+#                literal quantity (P = the previous mask advected to step s);
+#   mask      -- the median distance from the chosen label's pixels to the nearest pixel of
+#                P (and its p90), plus the dilated IoU: what `follow` itself scores on.
+# Split / merge, both directions: a SPLIT is P overlapping >= 2 labels at step s (the front
+# broke into pieces the fluid still connects); a MERGE is the chosen label advected BACK to
+# step p overlapping >= 2 labels there (two fronts became one).  A label counts when the
+# overlap is >= SPLIT_MIN_PIXELS, so a one-pixel touch of a neighbour is not a topology event.
+SPLIT_MIN_PIXELS = 5
+RADIUS_CELLS = ft.MIN_RADIUS_PX        # follow's hourly search radius: the natural yardstick
+
+
+def _overlap_labels(mask, labels, min_pixels=SPLIT_MIN_PIXELS):
+    """Labels of ``labels`` that ``mask`` overlaps by >= ``min_pixels``, with the counts,
+    largest first."""
+    v, c = np.unique(labels[mask], return_counts=True)
+    keep = (v > 0) & (c >= min_pixels)
+    order = np.argsort(-c[keep], kind='stable')
+    return [(int(a), int(b)) for a, b in zip(v[keep][order], c[keep][order])]
+
+
+def _previous_found(track, s):
+    """The found step nearest to ``s`` on the anchor's side (the walk's reference)."""
+    steps = track.steps()
+    a = track.anchor.step
+    if s > a:
+        return max(p for p in steps if p < s)
+    return min(p for p in steps if p > s)
+
+
+def _advect_chain(flow, mask, s_from, s_to):
+    step = 1 if s_to > s_from else -1
+    for k in range(s_from, s_to, step):
+        mask = flow.advect(mask, k, k + step)
+    return mask
+
+
+def tracking_quality(tracks, flow, labels_by_time, *, km_per_px=None, name=None) -> pd.DataFrame:
+    """Coding §4.10 / prompt 5 task 4: one row per link (every found step but the anchor):
+    the chosen and flow-predicted centroid displacements and their difference (cells and km),
+    the mask-based distance and dilated IoU to the prediction, the split and merge flags with
+    the labels involved, the link's score and the gap it bridged."""
+    keys = list(labels_by_time)
+    km = flow.km_per_px if km_per_px is None else float(km_per_px)
+    rows = []
+    for k, tr_ in enumerate(tracks):
+        for s in tr_.steps():
+            if s == tr_.anchor.step:
+                continue
+            p = _previous_found(tr_, s)
+            lab_s, lab_p = labels_by_time[keys[s]], labels_by_time[keys[p]]
+            M_s, M_p = lab_s == tr_.labels[s], lab_p == tr_.labels[p]
+            P = _advect_chain(flow, M_p, p, s)
+            c_s, c_p = np.array(ft.centroid(M_s)), np.array(ft.centroid(M_p))
+            c_P = np.array(ft.centroid(P)) if P.any() else np.full(2, np.nan)
+            chosen, pred = c_s - c_p, c_P - c_p
+            diff = chosen - pred
+            dist = ft._distance_field(P)[M_s] if P.any() else np.full(int(M_s.sum()), np.nan)
+            fwd = _overlap_labels(P, lab_s)
+            B = _advect_chain(flow, M_s, s, p)
+            bwd = _overlap_labels(B, lab_p)
+            n_hit = sum(c for _, c in fwd)
+            link = tr_.links[s]
+            rows.append(dict(
+                set=name, track=k, anchor_label=tr_.anchor.label, step=int(s), prev_step=int(p),
+                gap=int(abs(s - p)), direction='fwd' if s > tr_.anchor.step else 'bwd',
+                label=int(tr_.labels[s]), prev_label=int(tr_.labels[p]),
+                size=int(M_s.sum()), prev_size=int(M_p.sum()), n_pred=int(P.sum()),
+                chosen_dj=float(chosen[0]), chosen_di=float(chosen[1]),
+                pred_dj=float(pred[0]), pred_di=float(pred[1]),
+                diff_cells=float(np.hypot(*diff)), diff_km=float(np.hypot(*diff) * km),
+                chosen_cells=float(np.hypot(*chosen)), pred_cells=float(np.hypot(*pred)),
+                mask_dist_median=float(np.nanmedian(dist)) if dist.size else np.nan,
+                mask_dist_p90=float(np.nanpercentile(dist, 90)) if dist.size else np.nan,
+                flow_iou=iou_dilated(P, M_s),
+                n_fwd_overlap=len(fwd), n_bwd_overlap=len(bwd),
+                split=len(fwd) >= 2, merge=len(bwd) >= 2,
+                fwd_overlap_labels=[a for a, _ in fwd], bwd_overlap_labels=[a for a, _ in bwd],
+                chosen_is_majority=bool(fwd and fwd[0][0] == tr_.labels[s]),
+                chosen_overlap_frac=float(dict(fwd).get(tr_.labels[s], 0) / n_hit) if n_hit else 0.0,
+                score=float(link.score)))
+    return pd.DataFrame(rows)
+
+
+def quality_summary(df, radius=RADIUS_CELLS) -> dict:
+    """The distributions criterion 3 reports, pooled and per track."""
+    def dist(x):
+        x = np.asarray(x, 'float64')
+        x = x[np.isfinite(x)]
+        return dict(n=int(x.size), median=float(np.median(x)), p90=float(np.percentile(x, 90)),
+                    max=float(x.max())) if x.size else dict(n=0)
+    out = dict(n_links=int(len(df)), n_tracks=int(df['track'].nunique()), radius_cells=float(radius),
+               centroid_diff_cells=dist(df['diff_cells']), centroid_diff_km=dist(df['diff_km']),
+               frac_diff_gt_radius=float(np.mean(df['diff_cells'] > radius)),
+               frac_diff_gt_5=float(np.mean(df['diff_cells'] > 5.0)),
+               mask_dist_median=dist(df['mask_dist_median']), mask_dist_p90=dist(df['mask_dist_p90']),
+               frac_mask_dist_le_1=float(np.mean(df['mask_dist_median'] <= 1.0)),
+               flow_iou=dist(df['flow_iou']),
+               n_split=int(df['split'].sum()), n_merge=int(df['merge'].sum()),
+               n_split_or_merge=int((df['split'] | df['merge']).sum()),
+               frac_chosen_is_majority=float(np.mean(df['chosen_is_majority'])),
+               chosen_overlap_frac=dist(df['chosen_overlap_frac']),
+               n_gaps_bridged=int((df['gap'] > 1).sum()),
+               # the centroid tail is topology: the same difference on the links without a flag
+               centroid_diff_no_flag=dist(df.loc[~(df['split'] | df['merge']), 'diff_cells']),
+               centroid_diff_flagged=dist(df.loc[df['split'] | df['merge'], 'diff_cells']),
+               per_track={})
+    for k, g in df.groupby('track', sort=True):
+        out['per_track'][int(k)] = dict(
+            anchor_label=int(g['anchor_label'].iloc[0]), n=int(len(g)),
+            diff_median=float(g['diff_cells'].median()), diff_max=float(g['diff_cells'].max()),
+            mask_dist_median=float(g['mask_dist_median'].median()),
+            flow_iou_median=float(g['flow_iou'].median()),
+            n_split=int(g['split'].sum()), n_merge=int(g['merge'].sum()),
+            split_steps=[int(s) for s in g.loc[g['split'], 'step']],
+            merge_steps=[int(s) for s in g.loc[g['merge'], 'step']],
+            frac_chosen_is_majority=float(g['chosen_is_majority'].mean()))
+    return out

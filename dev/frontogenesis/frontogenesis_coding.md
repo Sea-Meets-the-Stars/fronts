@@ -776,6 +776,21 @@ log); `m4_recon.py` runs the four combinations, the pre-registered one first as 
 0.901 on the same two estimates, whose time bases are half an hour apart). `m4_recon.py` is the
 runner -> `data/m4_recon.json`.
 
+*(added 2026-10-28, M4 task 4 — tracking quality as built, `py/tracking.py` and
+`py/figures_m4.py`.)* `tracking_quality(tracks, flow, labels_by_time, *, km_per_px=None,
+name=None)` -> one row per link (every found step but the anchor): the prediction is the
+previous found mask advected by the stored flow across the gap (rebuilt, not read from the
+link, so the same function judges the plain tracks); `diff_cells` / `diff_km` is the prompt's
+`|chosen − flow-predicted|` centroid displacement; `mask_dist_median` / `_p90` the distance from
+the chosen label's pixels to the nearest predicted pixel and `flow_iou` the dilated IoU (the
+mask-to-mask measures, since the centroid one's tail is topology); `split` = the prediction
+overlaps >= 2 labels at the step, `merge` = the chosen label advected back overlaps >= 2 labels
+at the previous step, a label counting at >= `SPLIT_MIN_PIXELS = 5` overlapping pixels;
+`chosen_is_majority` / `chosen_overlap_frac`. `quality_summary(df)` -> the distributions
+pooled and per track. `figures_m4.fig_tracking_quality(q_flow, q_plain)` ->
+`figs/fig_tq_tracking_quality.png` (the prompt's histogram, the mask-based one, a per-track
+strip with ▲ split ▼ merge, the IoU); `m4_quality.py` is the runner -> `data/m4_quality.json`.
+
 `figures.py`: one function per figure, `fig01_maps(...)` ... `fig10_term_budget(...)`, plus
 `figV1..figV6`, each writing a PNG to `dev/frontogenesis/figs/`. `fig02` draws the M1 baseline at
 **0.981 with its band [0.970, 0.994]** (the V3 real-velocity slope, `form='discrete'`), with V3b's
@@ -803,7 +818,7 @@ marked `@pytest.mark.network` smoke test of the OSN pull.
 | `test_m3_run.py` *(added, M3 task 4)* | `verify_derived_series` against one defect at a time; the runner's pair arithmetic and resumable closure cache |
 | `test_m3_closure.py` *(added, M3 task 6)* | the pre-declared tolerances are the ones used; a verdict flips at the tolerance; `L = 0` reported, never gated; the optimal-multiplier and partial-correlation diagnostics |
 | `test_figures.py` *(added, M3 task 7)* | every figure runs on a tiny synthetic store and draws **the summary's** numbers; the baseline is 0.981, never 1 |
-| `test_tracking.py` *(added 2026-10-26, M4 task 1; extended 2026-10-27, task 2: mask advection by integer / half-cell / NaN shifts and by a uniform flow through the real `departure_index`; the dilated IoU's decay; the extra term and the kept veto; `follow_flow(flow=None) == follow`; a front moving 3x the search radius that plain `follow` loses and the flow walk keeps; `track_top_n` and the JSON round trip; `needs_grid`: the real flow's sign and skeleton retention; extended 2026-10-28, task 3: the forward map inverts the arrival map and drops NaN parcels; on a synthetic growing, translating ridge the matched rate equals the stored material rate exactly while the endpoint-label rate carries the set's growth; `reconcile_track` / `reconcile_summary` and the tolerance flip; `needs_grid`: `forward_positions` vs `m3_case.step_forward` on 300 real front pixels)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
+| `test_tracking.py` *(added 2026-10-26, M4 task 1; extended 2026-10-27, task 2: mask advection by integer / half-cell / NaN shifts and by a uniform flow through the real `departure_index`; the dilated IoU's decay; the extra term and the kept veto; `follow_flow(flow=None) == follow`; a front moving 3x the search radius that plain `follow` loses and the flow walk keeps; `track_top_n` and the JSON round trip; `needs_grid`: the real flow's sign and skeleton retention; extended 2026-10-28, task 3: the forward map inverts the arrival map and drops NaN parcels; on a synthetic growing, translating ridge the matched rate equals the stored material rate exactly while the endpoint-label rate carries the set's growth; `reconcile_track` / `reconcile_summary` and the tolerance flip; `needs_grid`: `forward_positions` vs `m3_case.step_forward` on 300 real front pixels; extended 2026-10-28, task 4: on the moving series the flow walk's links differ from the fluid by 0 and the plain walk's neighbour link by 2 cells; split and merge flags each way, and a one-pixel touch is not a topology event; the figure runs)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
 
 *(added 2026-10-11, M3 task 8.)* The suite is **258 passed + 3 strict xfails**, 2 network tests
 deselected, ~230 s on the workstation. The three xfails document `fronts` bugs (M1 task 7a) and
