@@ -1079,3 +1079,250 @@ def quality_summary(df, radius=RADIUS_CELLS) -> dict:
             merge_steps=[int(s) for s in g.loc[g['merge'], 'step']],
             frac_chosen_is_majority=float(g['chosen_is_majority'].mean()))
     return out
+
+
+# ===========================================================================
+# Task 5 (2026-10-28): front strength along a track, and the population statistics
+# ===========================================================================
+# Primary strength (prompt 5 task 5): the front-mean G through
+# `colocate_fronts_with_properties(nan_policy='omit', dilation_radius=BAND)` -- the same
+# quantity as the per-pixel measure, on the band M4-Q3 (a) fixed.  The observed strength
+# series comes two ways and the figure overlays both: the LABEL mean at every step (the object
+# as found) and the MATERIAL curve, the anchor's label mean carried by the matched rate of
+# task 3 (`r_matched`, band 1, centred), which is what "d(front-mean G)/dt" means once the
+# pixel set is allowed to change.  The F-predicted curve integrates the parcel-averaged 2F
+# from the anchor outward on the same time base; the Phase-2 curve integrates `r_store`,
+# and the budget curve the four measured terms.
+# Secondary strength: the cross-front buoyancy step and width from `curtains`: the skeleton's
+# main axis, its normals, a transect every TRANSECT_EVERY axis pixels (kept where it crosses
+# the front once), b sampled cubically along it; delta_b = |b(side A) - b(side B)|, width =
+# the distance over which b rises from 25 % to 75 % of that step.  New work, as the prompt
+# says, and reported as such.
+from fronts.properties.colocation import colocate_fronts_with_properties
+from fronts.viz import curtains
+
+BAND = 1                       # M4-Q3 (a): the band the strength is measured on
+TRANSECT_HALF_WIDTH = 6        # cells each side of the axis (width proxy 2.1 cells)
+TRANSECT_EVERY = 4             # one transect per this many axis pixels
+MIN_TRANSECTS = 3
+
+
+def label_mean(labels, label, fields_at_t: dict, band=BAND, stats=('mean', 'median')) -> dict:
+    """The primary strength: ``colocate_fronts_with_properties`` on the one label, dilated by
+    ``band``, NaN omitted -> ``{'npix': n, '<prop>_mean': ..., '<prop>_median': ...}``.  Note
+    ``npix`` is colocate's: the label's own pixel count, before dilation; and its
+    ``dilation_radius`` is a Euclidean radius (``dist <= r``), so ``band=1`` is the
+    4-connected band, without the diagonal corners of task 3's 3 x 3 one."""
+    one = np.where(np.asarray(labels) == int(label), int(label), 0).astype('int32')
+    df = colocate_fronts_with_properties(one, {k: np.asarray(v, 'float64') for k, v in fields_at_t.items()},
+                                         stats=list(stats), nan_policy='omit', dilation_radius=int(band))
+    if len(df) != 1:
+        return dict(npix=0, **{f'{k}_{s}': np.nan for k in fields_at_t for s in stats})
+    row = df.iloc[0]
+    return dict(npix=int(row['npix']), **{f'{k}_{s}': float(row[f'{k}_{s}'])
+                                          for k in fields_at_t for s in stats})
+
+
+def cross_front(mask, b, *, km_per_px, half_width=TRANSECT_HALF_WIDTH, every=TRANSECT_EVERY,
+                b_order=3) -> dict:
+    """The secondary strength of one skeleton mask: the main axis (`curtains.extract_main_axis`),
+    normals (`path_metrics`), one transect per ``every`` axis pixels (`perpendicular_path`),
+    kept where it crosses the front exactly once (`transect_front_crossings`); ``b`` sampled
+    along each.  Returns the medians over the transects of ``delta_b`` (|b_A - b_B|, the two
+    ends) and ``width_km`` (the 25-75 % rise distance of b across the step), and the counts."""
+    mask = np.asarray(mask, bool)
+    out = dict(n_axis=0, n_transects=0, delta_b=np.nan, width_km=np.nan, width_cells=np.nan)
+    if mask.sum() < 2 * half_width:
+        return out
+    try:
+        path = curtains.extract_main_axis(mask)
+    except ValueError:
+        return out
+    if path.shape[0] < 3:
+        return out
+    pm = curtains.path_metrics(path, smooth=True, smooth_window=5)
+    normals = pm['normals']
+    crossings = curtains.transect_front_crossings(path, normals, mask, half_width)
+    idx = [i for i in range(0, path.shape[0], every) if crossings[i] == 1]
+    out['n_axis'] = int(path.shape[0])
+    if len(idx) < MIN_TRANSECTS:
+        return out
+    steps = np.arange(-half_width, half_width + 1, dtype='float64')
+    d_b, widths = [], []
+    for i in idx:
+        perp = curtains.perpendicular_path(path, normals, i, half_width)
+        prof = sample_at(b, perp, b_order)
+        if not np.isfinite(prof).all():
+            continue
+        lo, hi = prof[0], prof[-1]
+        if hi < lo:                                   # orient so b rises along the transect
+            prof, lo, hi = prof[::-1], hi, lo
+        step = hi - lo
+        if step <= 0:
+            continue
+        f = (prof - lo) / step
+        # the 25 % and 75 % crossings (first crossing from each end, linear between samples)
+        def cross(level):
+            k = np.argmax(f >= level)
+            if k == 0:
+                return steps[0]
+            return steps[k - 1] + (level - f[k - 1]) / (f[k] - f[k - 1]) * (steps[k] - steps[k - 1])
+        w = cross(0.75) - cross(0.25)
+        if w > 0:
+            d_b.append(step)
+            widths.append(w)
+    if len(widths) >= MIN_TRANSECTS:
+        out.update(n_transects=len(widths), delta_b=float(np.median(d_b)),
+                   width_cells=float(np.median(widths)), width_km=float(np.median(widths) * km_per_px))
+    return out
+
+
+def _integrate_from_anchor(steps, anchor, rate, dt):
+    """Trapezoid integral of a per-step rate outward from ``anchor``: 0 there, cumulative
+    each way; NaN rates are carried as 0 with the gap counted by the caller."""
+    r = {s: (0.0 if not np.isfinite(v) else float(v)) for s, v in zip(steps, rate)}
+    out = {anchor: 0.0}
+    fwd = [s for s in steps if s > anchor]
+    prev = anchor
+    for s in fwd:
+        out[s] = out[prev] + 0.5 * (r.get(prev, 0.0) + r.get(s, 0.0)) * dt * (s - prev)
+        prev = s
+    bwd = [s for s in steps if s < anchor][::-1]
+    prev = anchor
+    for s in bwd:
+        out[s] = out[prev] - 0.5 * (r.get(prev, 0.0) + r.get(s, 0.0)) * dt * (prev - s)
+        prev = s
+    return np.array([out[s] for s in steps])
+
+
+def front_strength_series(track, labels_by_time, flow, fields, *, matched_pixels=True, band=BAND,
+                          centred=True, dt=DT, km_per_px=None, secondary=True, log=None) -> pd.DataFrame:
+    """Coding §4.10 as built (``G_by_time`` / ``two_F_by_time`` are ``fields``).  One row per
+    found step: the label mean of G and 2F on the band (primary, via colocate), the matched
+    rates and terms of task 3 (when ``matched_pixels``), the curves integrated from the anchor
+    -- ``G_matched`` (material), ``G_pred`` (2F), ``G_store`` (Phase-2's rate), ``G_budget``
+    (the four measured terms) -- the secondary cross-front step and width, and the split /
+    merge flags.  ``matched_pixels=False`` gives the label means only: a mean over a changing
+    pixel set, kept for the contrast and never for the reconciliation."""
+    keys = list(labels_by_time)
+    km = flow.km_per_px if km_per_px is None else float(km_per_px)
+    steps = track.steps()
+    rows = []
+    for s in steps:
+        lab = labels_by_time[keys[s]]
+        lm = label_mean(lab, track.labels[s], {'G': fields.get('G', s), 'two_F': fields.get('two_F', s)},
+                        band=band)
+        # colocate's `npix` is the UNDILATED count and its radius-1 band is Euclidean, i.e.
+        # 4-connected (no diagonal corners); the matched rates of task 3 use the 8-connected
+        # 3 x 3 band.  `G_band8` is the plain mean on that band, so the two can be compared.
+        m8 = ndimage.binary_dilation(lab == track.labels[s], np.ones((3, 3), bool), iterations=int(band))
+        g8 = fields.get('G', s)[m8]
+        row = dict(step=int(s), label=int(track.labels[s]), npix=lm['npix'],
+                   G_label=lm['G_mean'], G_label_median=lm['G_median'], two_F_label=lm['two_F_mean'],
+                   G_band8=float(np.nanmean(g8)) if np.isfinite(g8).any() else np.nan,
+                   time=keys[s])
+        link = track.links.get(s)
+        row['split_merge'] = bool(link is not None and link.terms.get('_n_overlap', 0) >= 2)
+        if secondary:
+            row.update(cross_front(lab == track.labels[s], fields.get('b', s), km_per_px=km))
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    df['anchor_step'], df['anchor_label'] = track.anchor.step, track.anchor.label
+    if matched_pixels:
+        rec = reconcile_track(track, labels_by_time, flow, fields, dt=dt, centred=centred, band=band)
+        cols = ['step', 'r_matched', 'r_store', 'r_forward', 'n_parcels', 'n_lost'] + list(BUDGET_TERMS)
+        df = df.merge(rec[cols], on='step', how='left')
+        G0 = float(df.loc[df['step'] == track.anchor.step, 'G_label'].iloc[0])
+        budget = df[['two_F', 'subfilter', 'vertical', 'surface_flux']].sum(axis=1, min_count=1)
+        for name, rate in (('G_matched', df['r_matched']), ('G_pred', df['two_F']),
+                           ('G_store', df['r_store']), ('G_budget', budget)):
+            df[name] = G0 + _integrate_from_anchor(df['step'].to_numpy(), track.anchor.step,
+                                                   rate.to_numpy(dtype='float64'), dt)
+        df['n_rate_missing'] = int(df['r_matched'].isna().sum())
+    if log is not None:
+        log(f'strength: track label {track.anchor.label}: {len(df)} steps, G_label '
+            f'{df["G_label"].iloc[0]:.2e} .. {df["G_label"].iloc[-1]:.2e}, width median '
+            f'{df["width_km"].median():.1f} km' if secondary else f'strength: {len(df)} steps')
+    return df
+
+
+# ---------------------------------------------------------------------------
+# the population: fractions, lifetimes, and the bootstrap over fronts and hours
+# ---------------------------------------------------------------------------
+BOOT_BLOCK_H = 6               # hours per block when resampling a track's hours
+N_BOOT = 1000
+
+
+def bootstrap_fronts_hours(values, tracks, steps, stat=np.nanmean, *, n=N_BOOT, block_h=BOOT_BLOCK_H,
+                           seed=0, ci=(2.5, 97.5)) -> dict:
+    """Criterion 5's bootstrap: resample FRONTS (tracks) with replacement, and within each
+    drawn front resample its hours in contiguous ``block_h``-hour blocks with replacement;
+    ``stat`` of the pooled resample.  Returns ``{'value', 'lo', 'hi', 'se', 'n_boot', 'n_fronts',
+    'n'}``.  Neither hours nor fronts are independent: a single-level bootstrap over hours
+    would understate the interval (M3's block lesson), one over fronts alone would ignore the
+    hour-to-hour noise inside a 70-h track."""
+    v, t, s = (np.asarray(a) for a in (values, tracks, steps))
+    ok = np.isfinite(v.astype('float64'))
+    v, t, s = v[ok], t[ok], s[ok]
+    ids = np.unique(t)
+    by_track = {}
+    for k in ids:
+        m = t == k
+        blocks = (s[m] // block_h)
+        by_track[k] = [v[m][blocks == b] for b in np.unique(blocks)]
+    rng = np.random.default_rng(seed)
+    vals = np.empty(int(n))
+    for r in range(int(n)):
+        draw = rng.choice(ids, size=ids.size, replace=True)
+        parts = []
+        for k in draw:
+            bl = by_track[k]
+            parts.extend(bl[j] for j in rng.integers(0, len(bl), size=len(bl)))
+        vals[r] = stat(np.concatenate(parts))
+    lo, hi = (float(x) for x in np.nanpercentile(vals, ci))
+    return dict(value=float(stat(v)), lo=lo, hi=hi, se=float(np.nanstd(vals)), n_boot=int(n),
+                n_fronts=int(ids.size), n=int(v.size), block_h=int(block_h))
+
+
+def population_summary(series: dict, dt=DT) -> dict:
+    """``series`` = ``{track index: front_strength_series DataFrame}`` -> per front: the
+    frontogenetic fraction of hours by the matched rate and by 2F, their sign agreement, the
+    lifetime (span of found steps, h), the mean 2F and mean matched rate, the net change of G
+    (label and material) against the integrals of 2F and of the Phase-2 rate, the medians of
+    the secondary metrics; pooled: the same fractions with the fronts-and-hours bootstrap."""
+    rows = []
+    for k, df in series.items():
+        d = df.dropna(subset=['r_matched'])
+        rows.append(dict(
+            track=int(k), anchor_label=int(df['anchor_label'].iloc[0]), n_hours=int(len(d)),
+            lifetime_h=float((df['step'].max() - df['step'].min()) * dt / 3600.0),
+            frac_frontogenetic_matched=float(np.mean(d['r_matched'] > 0)),
+            frac_frontogenetic_2F=float(np.mean(d['two_F'] > 0)),
+            frac_frontogenetic_store=float(np.mean(d['r_store'] > 0)),
+            sign_agreement=float(np.mean(np.sign(d['r_matched']) == np.sign(d['two_F']))),
+            mean_2F=float(d['two_F'].mean()), mean_r_matched=float(d['r_matched'].mean()),
+            mean_r_store=float(d['r_store'].mean()),
+            corr_matched_2F=float(np.corrcoef(d['r_matched'], d['two_F'])[0, 1]) if len(d) > 2 else np.nan,
+            G_label_start=float(df['G_label'].iloc[0]), G_label_end=float(df['G_label'].iloc[-1]),
+            G_label_anchor=float(df.loc[df['step'] == df['anchor_step'].iloc[0], 'G_label'].iloc[0]),
+            dG_label=float(df['G_label'].iloc[-1] - df['G_label'].iloc[0]),
+            dG_matched=float(df['G_matched'].iloc[-1] - df['G_matched'].iloc[0]),
+            dG_pred_2F=float(df['G_pred'].iloc[-1] - df['G_pred'].iloc[0]),
+            dG_store=float(df['G_store'].iloc[-1] - df['G_store'].iloc[0]),
+            dG_budget=float(df['G_budget'].iloc[-1] - df['G_budget'].iloc[0]),
+            delta_b_median=float(df['delta_b'].median()) if 'delta_b' in df else np.nan,
+            width_km_median=float(df['width_km'].median()) if 'width_km' in df else np.nan,
+            n_split_merge=int(df['split_merge'].sum())))
+    per = pd.DataFrame(rows)
+    allr = pd.concat([df.assign(track=k) for k, df in series.items()], ignore_index=True)
+    allr = allr.dropna(subset=['r_matched'])
+    pooled = {}
+    for name, col in (('frac_frontogenetic_matched', allr['r_matched'] > 0),
+                      ('frac_frontogenetic_2F', allr['two_F'] > 0),
+                      ('frac_frontogenetic_store', allr['r_store'] > 0),
+                      ('sign_agreement', np.sign(allr['r_matched']) == np.sign(allr['two_F']))):
+        pooled[name] = bootstrap_fronts_hours(col.to_numpy(dtype='float64'), allr['track'], allr['step'])
+    pooled['n_links'] = int(len(allr))
+    return dict(per_front=per.to_dict('records'), pooled=pooled,
+                n_fronts=int(len(per)), lifetime_h=dict(min=float(per['lifetime_h'].min()),
+                                                       max=float(per['lifetime_h'].max())))

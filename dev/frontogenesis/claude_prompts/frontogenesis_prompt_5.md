@@ -89,6 +89,29 @@ onto 32-px specks 7-15 cells from the tile corner — a `front_tracking.follow` 
 (an empty shifted reference mask makes the position term the distance to the array origin), not
 fixed, described in the log. Log entry "Execution prompt 5, task 4". Task 5 not started.
 
+**Status 2026-10-28 — task 5 done; all five tasks of prompt 5 complete.** `py/tracking.py`
+gained `label_mean` (the primary strength through `colocate_fronts_with_properties`,
+`nan_policy='omit'`, `dilation_radius=1`), `cross_front` (the secondary `delta b` and width
+through `curtains`), `front_strength_series`, `bootstrap_fronts_hours` and
+`population_summary`; `figures_m4.py` gained `fig08_front_case` and `fig09_population`;
+`m4_strength.py` is the runner (729 s) -> `data/m4_strength.json`; `tests/test_tracking.py` is
+32 tests (suite **290 passed + 3 xfails**, 2 deselected). **Figures 8 and 9 written**
+(`figs/fig08_front_case.png`, `figs/fig09_population.png`), with the tracking-quality
+diagnostic of task 4: criterion 5 met. **Population (690 links, bootstrap over fronts and 6-h
+blocks of hours):** the fraction of hours that are frontogenetic is **0.64 [0.50, 0.77] by the
+matched rate** and **0.81 [0.75, 0.88] by `2F`**, sign agreement **0.78 [0.67, 0.87]**; per
+front 0.26-0.91 and 0.70-0.99. Over the 70-h window `∫2F dt` is positive for all 10 fronts, the
+material `ΔG` for 7, and the two agree in sign for 7; the label-mean `ΔG` (a changing pixel
+set) disagrees with the material one in sign for 4 of 10. Every track spans the 70-h window,
+so "lifetime vs mean `F`" is a line of points and the figure says so. Secondary: width
+**4.5 km** median (3.0-5.9), `delta b` **1.6e-3 m s⁻²** (0.8-3.0e-3), anticorrelated with the
+strength on every front. On the band, `2F` and the matched rate correlate at **0.95** with
+amplitude ratio 1.01 — recorded, **not quoted as an efficiency** (M3 not closed), as on every
+figure. **The M4 criteria:** 1 met (10 tracks, 70 h each); 2 met (700/700 links scored with
+the flow term); 3 met (task 4); 4 **met on the band-1 + centred construction JXP chose in
+M4-Q3 (a)** (corr 0.953, r.m.s. ratio 0.415 against 0.8 / 0.5) and failed as pre-registered;
+5 met. Log entry "Execution prompt 5, task 5" closes with the prompt's five-item log.
+
 ---
 
 ## Why tracking has to be flow-informed (decision Q14)

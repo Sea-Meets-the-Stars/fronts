@@ -7903,3 +7903,119 @@ hours). No commit; `m4_quality.json`, `.log`, the figure's PNG (git-ignored by `
 `git add -f`, as every `figs/` PNG before it) are the new products. Nothing outside
 `dev/frontogenesis/` touched; `front_tracking.py` unmodified. Scratch: none beyond the
 summarisers.
+
+### 2026-10-28 — Execution prompt 5, task 5: front strength, Figures 8 and 9 (Fable 5.1)
+
+**Answers applied.** None new (the Q&A ends at M4-Q4); M4-Q3 (a) sets the band and the centred
+rates used throughout. Task 4's files were committed by JXP ("4", 7884a06).
+
+**What was built** (`py/tracking.py` +260 lines; `py/figures_m4.py` +230; `py/m4_strength.py`;
+`tests/test_tracking.py` +4 tests, 32 in all).
+- **Primary strength**, as the prompt specifies: `label_mean` = `colocate_fronts_with_properties`
+  on the one label with **`nan_policy='omit'`** and `dilation_radius=1`. Two things about that
+  function worth knowing: its `npix` is the label's own count *before* dilation, and its
+  `dilation_radius` is Euclidean (`dist <= r`), so radius 1 is the **4-connected** band —
+  without the diagonal corners of task 3's 3 x 3 one. The two band means differ: colocate's is
+  **1.127x** task 3's (median over 710 steps, p5-p95 1.08-1.17), because the corner cells it
+  omits are the weakest. Both are in every row (`G_label`, `G_band8`); the rates stay task 3's.
+- `front_strength_series(track, labels_by_time, flow, fields, *, matched_pixels=True, band=1,
+  centred=True)` (coding §4.10's `G_by_time` / `two_F_by_time` are `fields`): per found step the
+  label mean of `G` and `2F`; with `matched_pixels=True` the task-3 rates on the parcels and
+  four curves integrated from the anchor outward by the trapezoid rule — `G_matched` (the
+  anchor's label mean carried by the matched rate: the material strength), `G_pred` (by `2F`),
+  `G_store` (by the Phase-2 rate), `G_budget` (by the four measured terms); the split/merge
+  flag. `matched_pixels=False` gives the label means alone — a mean over a changing pixel set,
+  kept for the contrast and never for the reconciliation.
+- **Secondary strength**, new work: `cross_front(mask, b, km_per_px)` — `curtains.
+  extract_main_axis` on the skeleton, `path_metrics` (smoothed tangents) for the normals, a
+  transect every 4 axis pixels where `transect_front_crossings` is exactly 1,
+  `perpendicular_path` over ±6 cells, `b` sampled cubically; `delta_b` = the step between the
+  transect ends, `width_km` = the 25-75 % rise distance of `b` across it; medians over the
+  transects (3 or more required). On a synthetic erf front the step is recovered to 2 % and
+  the width (1.349 σ) to 10 % (tested).
+- `bootstrap_fronts_hours(values, tracks, steps, stat, n=1000, block_h=6)`: criterion 5's
+  bootstrap — fronts with replacement, then each drawn front's hours in 6-h blocks with
+  replacement; `population_summary(series)` per front and pooled.
+- `figures_m4.fig08_front_case` and `fig09_population`; `m4_strength.py` -> `data/m4_strength.json`
+  (every track's series, the summary, the figures' numbers), **729 s**.
+
+**Figure 8** (`figs/fig08_front_case.png`): track 0, anchor label 81 (307 px, the largest at pair
+35). Five maps of log10 `G` in a fixed crop (27-29 N, 128-123.5 W) at steps 0, 17, 35, 53, 70
+with the tracked label outlined — the front is a 150-km filament whose eastern end curls
+through the window; then the strength curves, the hourly rates on the matched parcels, and the
+secondary `delta b` and width. Numbers: label mean 6.98e-14 (start) -> 6.43e-14 (anchor) ->
+7.54e-14 (end); the material curve ends at 7.04e-14, the `2F` curve at 8.65e-14, the Phase-2 curve
+at 9.59e-14, the four-term budget curve at 2.74e-13 (it leaves the axes — the surface-flux term,
+M3's finding, seen on one front); `2F > 0` on 81 % of hours, the matched rate on 58 %;
+corr 0.938 between them; 9 split/merge hours; `delta b` 2.6e-3 m s⁻², width 4.9 km. The label
+mean jumps by factors of two at the splits while the material curve does not: the figure shows
+the prompt's point about changing pixel sets.
+
+**Figure 9** (`figs/fig09_population.png`), 10 fronts, **690 links**. (a) The frontogenetic
+fraction of hours per front — by the matched rate 0.26 (label 100) to 0.91 (label 202), by `2F`
+0.70 to 0.99; pooled with the fronts-and-hours bootstrap: **matched 0.642 [0.500, 0.772], `2F`
+0.809 [0.745, 0.878]**, the stored rate 0.812 [0.700, 0.907]; **sign agreement 0.778 [0.673,
+0.865]**. The prediction says "frontogenetic" more often than the matched strength does, on 9
+of 10 fronts. (b) Lifetime vs mean `2F`, as asked: every track spans the 70-h window (71/71
+steps), so the ten points lie on one line and the panel says so — lifetime is the window, not
+a property of the front; a longer series or a strength threshold would be needed to make it
+one. (c) Net change over the window: `∫2F dt` is positive for **10 of 10** fronts, the material
+`ΔG` for **7**, the two agree in sign for **7**; the label-mean `ΔG` disagrees in sign with the
+material one for 4 of 10 (labels 5, 96, 161 fall as objects while their water sharpens; 100
+the reverse). Label 84 dominates: material +2.7e-13 against `∫2F dt` +2.8e-13 (ratio 0.96), its
+label mean rising 5.5x over the window. (d) Every link, matched rate against `2F` with decile
+means and the 1:1 line — **no slope drawn or quoted**.
+
+**Recorded, not quoted as an efficiency** (M3 carry-forward). Pooled over the 690 links the
+matched rate and `2F` correlate at **0.951** with r.m.s. amplitude ratio 1.008; per front corr
+0.47 (label 5) to 0.97. Per front the ratio of material `ΔG` to `∫2F dt` is 0.35, 0.96, 0.51,
+−0.84, 0.86, −0.11, 0.72, −0.45, 0.36, 1.10 — the hourly rates agree far better than the
+70-h integrals, which is M3's time-sampling finding at object level: errors that average out
+hour to hour do not cancel in the integral. What this means is the report's question, not
+this entry's.
+
+**Secondary metrics, all 710 steps:** width **4.45 km** median (p10-p90 3.0-5.9; 2.4 cells),
+`delta b` **1.56e-3 m s⁻²** (0.8-3.0e-3), from a median 35 transects per step, defined at every
+step. Within a track the width is anticorrelated with the strength on all 10 fronts (−0.20 to
+−0.77) and `delta b` correlated (0.19 to 0.88): a front that strengthens narrows, as it should.
+
+**Tests.** +4: colocate's band and count semantics against a direct 4-connected band mean with
+a NaN omitted; the erf front's step and width; the strength curves exact on the linear-growth
+ridge (the fixture's `2F` is half the rate, so the predicted curve climbs half as fast; the
+trapezoid to a step with no rate), `matched_pixels=False` without the rate columns, `G_band8`
+within 5 % of the label mean; the bootstrap's value, interval and size, `population_summary`
+and both figures on three copies of the synthetic track (Figure 8 falls back to index
+coordinates on a store without `XC`). Suite with the absolute `frontogenesis` interpreter:
+**290 passed + 3 xfails** (strict), 2 deselected, 266 s.
+
+**Docs.** Coding §4.10: the task-5 signatures as built; §5: the test row; §6 M4: a marked
+status note with the five criteria. Prompt 5: the Status paragraph.
+
+**Not done.** No commit; `m4_strength.json`, `.log`, the two PNGs (git-ignored by `*.png`,
+`git add -f` as before) are the new products. Nothing outside `dev/frontogenesis/` touched.
+M5's consolidation (`figures.py` and `figures_m4.py` into one, captions standardised, the
+one-command regeneration) is not started. Scratch: `redraw.py` (the figures from the JSON).
+
+**Prompt 5's log, the five items, all tasks done.**
+1. **Tracks and durations:** 10 tracks, the 10 largest fronts at pair 35 (121-307 px), each
+   found at **71 of 71 steps, 70 h**, no gaps (task 2).
+2. **Tracking quality:** the `follow()`-chosen minus flow-predicted centroid shift is 2.18
+   cells median, p90 17.1 — 1.63 cells on the 532 unflagged links and 15.5 on the flagged ones;
+   mask to mask, the chosen label's pixels are within 1 cell of the advected prediction on 72 %
+   of links (p90 per link) and within 2 on 85 %, and the chosen label is the prediction's
+   majority overlap on 99.0 % (task 4). The tracks follow the fluid at the label level.
+3. **Splits and merges:** **168 of 700 links flagged — 93 splits, 85 merges**, 1-18 per track,
+   none dropped (task 4); the reconciliation is no worse on them (task 3).
+4. **Reconciliation tolerance:** pre-declared r.m.s. ratio <= 0.5 and corr >= 0.8 pooled;
+   **achieved 0.415 and 0.953** on the band-1 + centred construction JXP chose (M4-Q3 (a)),
+   5/10 tracks individually; **failed as pre-registered** (1.12 / −0.09) on the 1-px skeleton
+   with a forward difference, a registration artefact quantified and recorded, with its mirror
+   in `DGDt_semilag` noted in the M3 report (M4-Q4 (a)) (task 3).
+5. **Did flow-informed scoring change the links?** Yes, on 3 of 10 tracks: **71 links chosen
+   differently and 51 the plain walk left as gaps**, 0 the other way; at every differing link
+   the flow walk chose the larger front (159 px against 38 px median). Seven tracks are
+   identical. The mechanism is a split followed by `follow()`'s centroid extrapolation, and the
+   fix was not the advection (sub-cell at hourly cadence, never beating persistence on IoU) but
+   the material prediction. Plain `follow()` also loses its position veto across long gaps
+   (task 4), which the flow walk never triggered. That is the direct answer to Lauren's
+   question (tasks 2 and 4).

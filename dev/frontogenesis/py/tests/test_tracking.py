@@ -607,3 +607,109 @@ def test_split_and_merge_flags():
     q = tr.tracking_quality([track], flow, series)
     assert bool(q.loc[0, 'split'])        # the real second piece still counts ...
     assert q.loc[0, 'n_fwd_overlap'] == 2  # ... and the one-pixel touch does not add a third
+
+
+# ===========================================================================
+# Task 5: strength, cross-front metrics, the population and Figures 8-9
+# ===========================================================================
+from scipy import special as _special
+
+
+def test_label_mean_is_the_band_mean_with_nan_omitted():
+    lab = _line_labels(60, 80, [40])
+    G = np.random.default_rng(1).random((60, 80)) + 1.0
+    G[25, 41] = np.nan                                       # a NaN inside the band
+    lm = tr.label_mean(lab, 1, {'G': G}, band=1)
+    from scipy import ndimage
+    band = ndimage.binary_dilation(lab == 1, ndimage.generate_binary_structure(2, 1))   # radius 1 = 4-conn
+    assert lm['npix'] == int((lab == 1).sum())                 # colocate counts the undilated label
+    assert lm['G_mean'] == pytest.approx(np.nanmean(G[band]), rel=1e-9)
+    assert lm['G_median'] == pytest.approx(np.nanmedian(G[band]), rel=1e-9)
+    assert tr.label_mean(lab, 7, {'G': G})['npix'] == 0      # an absent label
+
+
+def test_cross_front_recovers_a_known_erf_front():
+    """``b = b0 erf((i - 40) / (sqrt 2 sigma))``: the step is 2 b0 (erf(±6/..) ≈ ±1 at the
+    transect ends) and the 25-75 % width is 1.349 sigma."""
+    nj, ni = 80, 100
+    jj, ii = np.mgrid[0:nj, 0:ni].astype('f8')
+    sigma, b0 = 1.5, 2e-3
+    b = b0 * _special.erf((ii - 40.0) / (np.sqrt(2) * sigma))
+    mask = np.zeros((nj, ni), bool)
+    mask[10:70, 40] = True
+    out = tr.cross_front(mask, b, km_per_px=1.9)
+    assert out['n_transects'] >= 10 and out['n_axis'] == 60
+    assert out['delta_b'] == pytest.approx(2 * b0, rel=0.02)
+    assert out['width_cells'] == pytest.approx(1.349 * sigma, rel=0.1)
+    assert out['width_km'] == pytest.approx(out['width_cells'] * 1.9)
+    # too small a mask, or a flat field, gives NaN rather than an error
+    assert np.isnan(tr.cross_front(mask[:, :] & (jj < 15), b, km_per_px=1.9)['width_km'])
+    assert np.isnan(tr.cross_front(mask, np.ones((nj, ni)), km_per_px=1.9)['width_km'])
+
+
+@pytest.fixture(scope='module')
+def strength_case(growing_front):
+    gf = growing_front
+    ds = gf['ds'].copy()
+    nj, ni = _ShiftFlow.shape
+    jj, ii = np.mgrid[0:nj, 0:ni].astype('f8')
+    ds['b'] = (('time', 'j', 'i'), np.stack([2e-3 * _special.erf((ii - 40.0 - 3 * t) / (np.sqrt(2) * 1.5))
+                                             for t in range(3)]))
+    flow = _ShiftFlow(3.0)
+    fields = tr.DerivedFields(ds)
+    labels = gf['labels']
+    anchor = ft.anchor_at(labels['2012-07-02T01_30_00'], 1, 1)
+    track = ft.Track(anchor=anchor, labels={0: 1, 1: 1, 2: 1},
+                     centres={s: (50.0, 40.0 + 3 * s) for s in range(3)},
+                     links={s: ft.Link(s, 1, 0.1, {'_n_overlap': 1}) for s in range(3)})
+    return dict(track=track, labels=labels, flow=flow, fields=fields, g=gf['g'])
+
+
+def test_front_strength_series_curves(strength_case):
+    sc = strength_case
+    df = tr.front_strength_series(sc['track'], sc['labels'], sc['flow'], sc['fields'])
+    assert list(df['step']) == [0, 1, 2] and (df['npix'] > 0).all()
+    # the primary is colocate's band mean
+    lm = tr.label_mean(sc['labels']['2012-07-02T01_30_00'], 1,
+                       {'G': sc['fields'].get('G', 1), 'two_F': sc['fields'].get('two_F', 1)})
+    assert df.loc[1, 'G_label'] == lm['G_mean'] and df.loc[1, 'two_F_label'] == lm['two_F_mean']
+    # centred rates exist only at step 1; the curves start at the anchor's label mean
+    assert df['r_matched'].notna().tolist() == [False, True, False]
+    assert df.loc[1, 'G_matched'] == df.loc[1, 'G_label'] == df.loc[1, 'G_pred']
+    # linear growth, exact rates; the fixture's 2F is HALF the rate, so the predicted curve
+    # climbs half as fast as the material one; the trapezoid to a step with no rate uses
+    # half the anchor's rate
+    assert df.loc[1, 'two_F'] == pytest.approx(0.5 * df.loc[1, 'r_matched'], rel=1e-9)
+    dGm, dGp = df.loc[2, 'G_matched'] - df.loc[1, 'G_matched'], df.loc[2, 'G_pred'] - df.loc[1, 'G_pred']
+    assert dGm == pytest.approx(0.5 * df.loc[1, 'r_matched'] * 3600, rel=1e-9)
+    assert dGp == pytest.approx(0.5 * dGm, rel=1e-9)
+    assert df['G_band8'].notna().all() and df.loc[1, 'G_band8'] == pytest.approx(df.loc[1, 'G_label'], rel=0.05)
+    assert df['width_km'].notna().all() and df['delta_b'].notna().all()
+    assert df.loc[1, 'width_cells'] == pytest.approx(1.349 * 1.5, rel=0.1)
+    plain = tr.front_strength_series(sc['track'], sc['labels'], sc['flow'], sc['fields'], matched_pixels=False)
+    assert 'G_matched' not in plain and 'r_matched' not in plain and len(plain) == 3
+
+
+def test_bootstrap_fronts_hours_and_population(strength_case, tmp_path):
+    rng = np.random.default_rng(0)
+    v = rng.normal(size=600)
+    tracks = np.repeat(np.arange(5), 120)
+    steps = np.tile(np.arange(120), 5)
+    out = tr.bootstrap_fronts_hours(v > 0, tracks, steps, n=200, block_h=6)
+    assert out['value'] == pytest.approx(np.mean(v > 0))
+    assert out['lo'] <= out['value'] <= out['hi'] and out['n_fronts'] == 5 and out['n'] == 600
+    assert 0.0 < out['se'] < 0.1
+    # the population summary and Figure 9 on three copies of the synthetic track
+    sc = strength_case
+    df = tr.front_strength_series(sc['track'], sc['labels'], sc['flow'], sc['fields'])
+    series = {k: df.copy() for k in range(3)}
+    s = tr.population_summary(series)
+    assert s['n_fronts'] == 3 and s['pooled']['n_links'] == 3
+    per = pd.DataFrame(s['per_front'])
+    assert per['lifetime_h'].tolist() == [2.0, 2.0, 2.0] and (per['frac_frontogenetic_matched'] == 1.0).all()
+    assert per.loc[0, 'dG_pred_2F'] == pytest.approx(0.5 * per.loc[0, 'dG_matched'], rel=1e-9)   # 2F is half the rate here
+    import figures_m4 as f4
+    o9 = f4.fig09_population(s, series, fig_dir=tmp_path, name='fig09_test')
+    assert (tmp_path / 'fig09_test.png').exists() and o9['n_fronts'] == 3
+    o8 = f4.fig08_front_case(sc['track'], df, sc['labels'], sc['fields'], fig_dir=tmp_path, name='fig08_test')
+    assert (tmp_path / 'fig08_test.png').exists() and o8['track_label'] == 1 and len(o8['steps_mapped']) == 5
