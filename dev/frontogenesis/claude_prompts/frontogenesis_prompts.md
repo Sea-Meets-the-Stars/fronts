@@ -7696,3 +7696,121 @@ flow store, the two JSONs, the log and the nohup are git-ignored under `data/`. 
 mid-task (the probes `probe2-4.py` and the summariser); every number above is in
 `m4_track_summary.json`, `m4_track.log` or the entry's own probe output, and the `G`-field
 correlations were recomputed inline, not from scratch files.
+
+### 2026-10-28 — Execution prompt 5, task 3: the reconciliation on Lagrangian-matched pixels (Fable 5.1)
+
+**Answers applied.** None new were needed: the Q&A holds M4-Q1 (a) and M4-Q2 (merged), both
+already in force. Task 2's files were committed by JXP ("xx", 70c6602); the tree was clean.
+
+**What was built** (`py/tracking.py`, +270 lines; `py/m4_recon.py`; `tests/test_tracking.py`
++7 tests, 26 in all).
+- `forward_positions(pos, di, dj, n_iter=8)`: the arrival point of a parcel departing from
+  ``pos``, from the flow store's *arrival* displacement fields — the fixed point of `x = pos +
+  d(x)` with `d` sampled cubically at `x` (contraction `|grad d|` ~0.1 per iteration; 8 reach
+  round-off). This is the forward form of the budget's backward map on the stored fields, and
+  it was checked two ways before any link was reconciled: against the case study's own forward
+  integrator on the raw velocities (`m3_case.step_forward`, transition 30, 2,000 front pixels)
+  it agrees to **5.9e-4 cells median, 4.1e-3 p99** — the case study's own 5.3e-4 — and the
+  departure of the arrival point returns the start to 3.9e-13 cells median.
+- `DerivedFields` (per-pair fields cached); `matched_link(step, label_t, label_tp1,
+  labels_by_time, flow, fields, *, centred=False, band=0)` -> one row; `reconcile_track` ->
+  DataFrame (one row per found step with a successor, gaps included with `r_label` NaN, the
+  task-2 split/merge flag copied); `reconcile_summary` -> the pooled and per-track statistics
+  against the **pre-declared tolerance** `RECON_RMS_TOL = 0.5`, `RECON_CORR_MIN = 0.8` (module
+  constants, set from the case study's 0.443 / 0.901 on the same two estimates, *before* the
+  run), and three contrasts that are never gated.
+- The quantity: every front pixel of the label at `t` is a parcel at its cell centre, carried
+  to `t+1` by the same flow the tracker uses; `r_matched = [mean G_{t+1}(x') − mean G_t(x)]/dt`
+  over the parcels that stay finite; `r_store = mean 0.5 [DGDt_t(x) + DGDt_{t+1}(x')]` over
+  the same parcels — §5.1's construction applied to every link. Contrasts: `r_mask` (the
+  thresholded advected mask as the set), `r_label` (the endpoint labels, the prompt's "Do
+  not"; `set_evolution = r_label − r_matched` is the term the prompt warns about), and the
+  budget terms averaged on the parcels (for task 5).
+
+**The pre-registered construction FAILS criterion 4.** `m4_recon.py`, 10 tracks, **700 links,
+131,425 parcels, 0 lost** (median 184 per link, displacement 0.32 cells median). Pooled:
+**corr −0.093, r.m.s. ratio 1.12, amplitude ratio 0.38, sign agreement 0.50**; **0 of 10**
+tracks pass (per-track corr −0.23 to 0.86, r.m.s. 0.74-1.32). The two rates disagree in the
+crudest way: `r_store` is positive on **91 %** of links (median +3.0e-19 s⁻⁵), `r_matched` on
+**41 %** (median −3.0e-20). Not a coding error — the forward map is checked above, no parcel is
+lost, and the synthetic test (a translating ridge with linear growth, parcels on nodes) is
+exact to 1e-9 for every construction.
+
+**Why — a registration artefact on 1-px ridges, found by elimination and then reproduced.**
+(1) The store's rate on the tracked skeleton pixels is positive on **64 %** of pixels (pairs
+0-70 by 10), against **54 %** on M3's `G >= p90` pool and **50 %** on all valid pixels: the
+skeleton *selects* cells where `DGDt_semilag > 0`. (2) A *backward* one-sided matched rate (cell
+value at `t`, interpolated value at `t−1` — the store's own asymmetry) agrees with the store
+at corr 0.79-0.93 and sign agreement 0.83-1.00 on five tracks, both positive on ~96 % of
+links; the forward one (cell at `t`, interpolated at `t+1`) does not. The two estimates carry
+opposite artefacts. (3) Reproduced on a synthetic Gaussian ridge translated rigidly by 0.35-0.5
+cell with **no growth** (truth 0): on ridge cells the forward one-sided rate reads **−1.6 to
+−5.6 % of the peak per hour** for `sigma` 0.8-1.0 cells (−0.2 % at 1.5), the store-like rate
+**+0.6 to +1.0 %**, the centred rate 0.000; on a 1-cell band all three are within 0.8 %. (4)
+The real fronts are that sharp: `G(ridge) / G(weakest 4-neighbour)` **2.25** (`sigma` ≈ 0.8
+cells on the weak side; 0.93 on the strong side — the skeleton sits off-centre of a wider
+ridge), width proxy `2 sqrt(G/|lap G|)` **2.1 cells**. With `G` ~5e-14 the forward bias is
+−(2-7)e-19 s⁻⁵ per link — the size of `r_matched`'s r.m.s. (6.7e-19). The pre-registered
+construction measures the interpolation of a ridge, not the front: selection at the cell
+maximum at `t` is the regression-to-the-mean trap of §5.1, acting per link.
+
+**Two corrections, both physical, neither tuned, run as declared variants** (`centred=True`:
+parcels of step `t` sampled at `t−1` and `t+1`, both interpolated, so the artefact cancels to
+first order, the selection at `t` is symmetric in time, and the rate is centred on pair `t`'s
+midpoint — the **same time base** as `DGDt_t`, taken at the cells, no half-hour averaging;
+`band=1`: the label dilated by one cell, ridge plus flanks, where the artefact has the opposite
+sign — what `colocate_fronts_with_properties(dilation_radius=1)` measures). All four were run
+(1,276 s), the pre-registered first:
+
+| construction | links | corr | r.m.s. ratio | amplitude | sign | pooled verdict | tracks |
+|---|---|---|---|---|---|---|---|
+| skeleton, forward (pre-registered) | 700 | −0.093 | 1.123 | 0.383 | 0.499 | **FAIL** | 0/10 |
+| skeleton, centred | 690 | 0.822 | 0.695 | 0.405 | 0.775 | FAIL (r.m.s.) | 0/10 |
+| band 1, forward | 700 | 0.925 | 0.440 | 0.706 | 0.793 | **PASS** | 4/10 |
+| band 1, centred | 690 | **0.953** | **0.415** | 0.675 | 0.807 | **PASS** | 5/10 |
+
+Band 1 + centred per track: corr 0.73-0.97 (0.97, 0.95, 0.87, 0.97, 0.94, 0.73, 0.97, 0.95,
+0.91, 0.95), r.m.s. 0.38-0.80; the 100 split/merge-flagged links are no worse (corr 0.917,
+r.m.s. 0.483) than the rest (0.958, 0.403), so a split does not break the material matching.
+The store's amplitude on the band (r.m.s. 8.4e-19) is **0.38x** its amplitude on the skeleton
+(2.2e-18): the skeleton inflates the stored rate as (1)-(3) predict. The forward rate inside
+the band-centred run agrees with the centred one at corr 0.966 / r.m.s. 0.25 — on a band the
+one-sidedness barely matters; on the skeleton (0.44 / 1.01) it is everything.
+
+**The contrasts, with numbers.** The endpoint-label rate (the prompt's "Do not") is *not* a
+material derivative: its set-evolution term is **5.2-7.0x** the matched rate in r.m.s. and its
+correlation with the store is 0.04-0.06 under every construction. The thresholded advected
+mask is a poor pixel set for a *rate* (corr −0.35 vs the store on the skeleton, 0.68 on the
+band): the 2.6 % of pixels rounding removes are not random. The parcels are the right object;
+the mask stays what it is — task 2's prediction.
+
+**Also recorded, not quoted as an efficiency** (M3 carry-forward: no slope is an efficiency
+without closure). On the band, the parcel-averaged `2F` against the matched front-mean rate:
+corr **0.951**, r.m.s. 0.333, amplitude ratio 1.008 (centred; 0.939 / 0.381 / 1.03 forward),
+sign agreement 0.78 — closer than the store's own `DGDt` (0.953 / 0.415 / 0.675). The
+front-mean over ~700 parcels averages the per-pixel sampling noise that defeated M3's per-pixel
+gate; what it means is task 5's and the report's question, with `vertical`, `surface_flux` and
+`residual` already averaged on the same parcels in every row.
+
+**Tests.** +7: the forward map inverts the arrival map to 1e-8 and drops NaN parcels; on a
+3-step synthetic ridge translating 3 cells per step with linear growth, `r_matched == r_store`
+to 1e-9 for all four `(centred, band)` combinations, the mask variant equal, the endpoint-label
+rate off by more than 10 % (the set grew 20 rows), a gap row defined, a centred link without a
+predecessor `None`; `reconcile_track` / `reconcile_summary` and the tolerance flip;
+`needs_grid`: `forward_positions` vs `m3_case.step_forward` on 300 real pixels. Suite with the
+absolute `frontogenesis` interpreter: **284 passed + 3 xfails** (strict), 2 deselected, 260 s.
+
+**Docs.** Coding §4.10: the task-3 signatures as built with the `centred` / `band` note; §5:
+the test row extended; §8: a pitfall line. Prompt 5: the Status paragraph and **M4-Q3** (which
+construction stands — band 1 + centred recommended) and **M4-Q4** (the Phase-2 implication:
+`DGDt_semilag` is biased positive on ridge cells; a marked limitation in the M3 report
+recommended now, a measurement on the p90 pool offered) in the Q&A.
+
+**Not done.** Tasks 4-5 (no `tracking_quality` DataFrame, though its inputs are in every link;
+no `front_strength_series`; no figure). Criterion 4 is **not declared met**: it fails as
+pre-registered and passes on the corrected construction, and which one stands is JXP's call
+(M4-Q3). No commit; `m4_recon.json`, `.log`, `.nohup` are git-ignored under `data/`; the first
+run's `done:` block in `m4_recon.log` (12:18 UTC, the pre-registered construction alone, 284 s)
+precedes the four-construction run. Nothing outside `dev/frontogenesis/` touched. Scratch
+(session scratchpad): `probe5.py` (the five-track variant probe), `probe6.py` (the synthetic
+ridge and the real sharpness), `summarise3.py`.

@@ -6,6 +6,7 @@ derived store with the numbers of the task-1 log entry asserted as ranges.
 """
 import json
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 import yaml
@@ -386,3 +387,147 @@ def test_real_flow_sign_and_retention():
     di, dj = flow.displacement(0, -1)
     back, wrong = tr.advect_mask_by(m1, di, dj), tr.advect_mask_by(m1, -di, -dj)
     assert tr.iou_dilated(back, m0) > tr.iou_dilated(wrong, m0)
+
+
+# ===========================================================================
+# Task 3: the reconciliation on Lagrangian-matched pixels
+# ===========================================================================
+def test_forward_positions_is_the_inverse_of_the_arrival_map():
+    """``x = pos + d(x)`` solved: the departure of the arrival point is the parcel's start."""
+    nj, ni = 90, 120
+    jj, ii = np.mgrid[0:nj, 0:ni].astype('f8')
+    di = 1.5 + 0.8 * np.sin(jj / 11.0) * np.cos(ii / 13.0)
+    dj = -0.7 + 0.5 * np.cos(ii / 9.0)
+    rng = np.random.default_rng(3)
+    pos = np.stack([rng.uniform(15, nj - 15, 200), rng.uniform(15, ni - 15, 200)], axis=1)
+    x = tr.forward_positions(pos, di, dj)
+    back = x - np.stack([tr.sample_at(dj, x), tr.sample_at(di, x)], axis=1)
+    assert np.abs(back - pos).max() < 1e-8
+    # a NaN displacement drops the parcel
+    di2 = di.copy()
+    di2[:, 60:] = np.nan
+    x2 = tr.forward_positions(pos, di2, dj)
+    assert np.isnan(x2[pos[:, 1] > 62]).all() and np.isfinite(x2[pos[:, 1] < 50]).all()
+
+
+class _ShiftFlow(_UniformFlow):
+    """Uniform ``di`` cells per step, with the displacement fields spelled out."""
+    shape = (100, 120)
+
+    def displacement(self, k, direction=+1):
+        return (np.full(self.shape, float(self.di * direction)), np.zeros(self.shape))
+
+
+@pytest.fixture(scope='module')
+def growing_front():
+    """Three steps.  A ridge in ``G`` at column 40 moves 3 cells per step with the flow and
+    grows LINEARLY in time (``G_t = (1 + g t) R(x - 3t)``), so the material rate of the
+    parcel starting at cell ``x`` is ``g R(x) / dt`` at every step -- the store holds exactly
+    that, indexed at the parcel's cell at each step.  The label at step 1 is LONGER than at
+    step 0 (it grew 20 rows at one end).  Forward and centred differences are both exact on
+    this field, parcels land on cells, and the cubic sample is exact at nodes."""
+    nj, ni = _ShiftFlow.shape
+    jj, ii = np.mgrid[0:nj, 0:ni].astype('f8')
+    g = 0.10
+    R = (1.0 + 0.3 * np.sin(jj / 7.0)) * np.exp(-((ii - 40.0) / 2.5) ** 2) + 0.05
+    G = [(1.0 + g * t) * np.roll(R, 3 * t, axis=1) for t in range(3)]
+    D = [g * np.roll(R, 3 * t, axis=1) / 3600.0 for t in range(3)]
+    labs = []
+    for t, rows in enumerate(((20, 60), (20, 80), (20, 80))):
+        lab = np.zeros((nj, ni), np.int32)
+        lab[rows[0]:rows[1], 40 + 3 * t] = 1
+        labs.append(lab)
+    t = ['2012-07-02T00_30_00', '2012-07-02T01_30_00', '2012-07-02T02_30_00']
+    ds = xr.Dataset({'G': (('time', 'j', 'i'), np.stack(G)),
+                     'DGDt_semilag': (('time', 'j', 'i'), np.stack(D)),
+                     **{k: (('time', 'j', 'i'), np.zeros((3, nj, ni))) for k in tr.BUDGET_TERMS}},
+                    coords={'time': np.array(['2012-07-02T00:00', '2012-07-02T01:00',
+                                              '2012-07-02T02:00'], dtype='datetime64[ns]')})
+    ds['two_F'][:] = 0.5 * np.stack(D)
+    return dict(labels=dict(zip(t, labs)), ds=ds, g=g)
+
+
+@pytest.mark.parametrize('centred,band', [(False, 0), (True, 0), (False, 1), (True, 1)])
+def test_matched_link_measures_the_material_rate_and_the_label_rate_does_not(growing_front,
+                                                                              centred, band):
+    gf = growing_front
+    flow = _ShiftFlow(3.0)
+    fields = tr.DerivedFields(gf['ds'])
+    step = 1 if centred else 0
+    row = tr.matched_link(step, 1, 1, gf['labels'], flow, fields, dt=3600.0,
+                          centred=centred, band=band)
+    n0 = (60 + 2 if centred else 40 + 2) * 3 if band else (60 if centred else 40)  # 3x3 dilation: +1 row each end
+    assert row['n_parcels'] == n0 and row['n_lost'] == 0 and row['disp_median_cells'] == 3.0
+    assert row['centred'] == centred and row['band'] == band
+    assert row['r_matched'] == pytest.approx(row['r_store'], rel=1e-9)         # criterion 4
+    assert row['r_forward'] == pytest.approx(row['r_store'], rel=1e-9)         # linear growth
+    assert row['two_F'] == pytest.approx(0.5 * row['r_store'], rel=1e-9)
+    if centred:
+        assert row['G_mean_tp1_matched'] - row['G_mean_tm1_matched'] == pytest.approx(
+            2 * gf['g'] * row['G_mean_t'] / (1 + gf['g']), rel=1e-9)
+    else:
+        assert row['G_mean_tp1_matched'] == pytest.approx(1.10 * row['G_mean_t'], rel=1e-9)
+        # the thresholded-mask variant: an integer shift keeps every pixel
+        assert row['n_mask'] == n0 and row['r_mask'] == pytest.approx(row['r_matched'], rel=1e-9)
+        # the endpoint-label rate carries the set's growth (20 new rows, a different mean)
+        assert row['n_label_tp1'] == (62 * 3 if band else 60)
+        assert abs(row['set_evolution']) > 0.1 * abs(row['r_matched'])
+        assert row['r_label'] != pytest.approx(row['r_matched'], rel=1e-3)
+    # a gap at t+1: the matched rate is still defined, the label rate is not
+    row2 = tr.matched_link(step, 1, None, gf['labels'], flow, fields, centred=centred, band=band)
+    assert row2['r_matched'] == row['r_matched'] and np.isnan(row2['r_label'])
+    # a centred link needs a predecessor
+    assert tr.matched_link(0, 1, 1, gf['labels'], flow, fields, centred=True) is None
+
+
+def test_reconcile_track_and_summary(growing_front):
+    gf = growing_front
+    flow = _ShiftFlow(3.0)
+    fields = tr.DerivedFields(gf['ds'])
+    anchor = ft.anchor_at(gf['labels']['2012-07-02T00_30_00'], 0, 1)
+    track = ft.Track(anchor=anchor, labels={0: 1, 1: 1, 2: 1},
+                     centres={0: anchor.centre, 1: (50, 43), 2: (50, 46)},
+                     links={0: ft.Link(0, 1, 0.0, {}), 1: ft.Link(1, 1, 0.2, {'_n_overlap': 2}),
+                            2: ft.Link(2, 1, 0.1, {'_n_overlap': 1})})
+    df = tr.reconcile_track(track, gf['labels'], flow, fields)
+    assert len(df) == 2 and bool(df.loc[0, 'split_merge']) and df.loc[0, 'anchor_label'] == 1
+    dfc = tr.reconcile_track(track, gf['labels'], flow, fields, centred=True, band=1)
+    assert len(dfc) == 1 and dfc.loc[0, 'step'] == 1 and dfc.loc[0, 'band'] == 1
+    assert tr.reconcile_summary(dfc)['construction'] == {'centred': True, 'band': 1}
+    df = df.iloc[:1]
+    # a pooled summary needs >= 3 links: three copies with scatter stand in
+    df3 = pd.concat([df] * 3, ignore_index=True)
+    df3['r_store'] = df3['r_store'] * np.array([1.0, 2.0, 3.0])
+    df3['r_matched'] = df3['r_store'] * np.array([1.1, 0.9, 1.0])
+    s = tr.reconcile_summary(df3)
+    assert s['n_links'] == 3 and s['matched_vs_store']['rms_ratio'] < 0.1 and s['passes']
+    assert s['per_track'][1]['passes'] and s['n_tracks_passing'] == 1
+    assert s['tolerance']['rms_ratio_max'] == tr.RECON_RMS_TOL
+    df3['r_matched'] = df3['r_store'] * np.array([2.0, -1.0, 0.5])
+    assert not tr.reconcile_summary(df3)['passes']
+
+
+@pytest.mark.needs_grid
+def test_real_forward_positions_match_the_case_study_integrator():
+    """The stored-displacement inversion against ``m3_case.step_forward`` (the budget's own
+    forward integrator on the raw velocities), transition 30, 300 front pixels."""
+    import inputs as inp
+    import m3_case
+    p = tr.fronts_path(0)
+    if not p.exists():
+        pytest.skip(f'{p} not on disk (M4 task 1)')
+    ds, grid_ds, grid, masks = inp.open_inputs()
+    flow = tr.Flow(ds, grid_ds, grid)
+    labels = tr.open_fronts_series(p)
+    lab = labels[list(labels)[30]]
+    jj, ii = np.nonzero(lab > 0)
+    pos = np.stack([jj, ii], axis=1).astype('f8')[::30][:300]
+    di, dj = flow.displacement(30, +1)
+    x = tr.forward_positions(pos, di, dj)
+    h = ds.isel(time=31).load()
+    ui, vj = m3_case.index_velocity(h['U'], h['V'], grid_ds, grid)
+    x_case, _ = m3_case.step_forward(pos, ui, vj)
+    ok = np.isfinite(x).all(axis=1) & np.isfinite(x_case).all(axis=1)
+    assert ok.sum() > 250
+    err = np.hypot(*(x - x_case)[ok].T)
+    assert np.median(err) < 0.01 and np.percentile(err, 99) < 0.05

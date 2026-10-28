@@ -753,6 +753,29 @@ flow=None, *, anchor_step=None, km_per_px=None, ...)` anchors on the `n` largest
 `data/m4_track_summary.json`. `front_tracking.py` is on this branch since JXP merged
 `viz_tools` (M4-Q2) and is not edited.
 
+*(added 2026-10-28, M4 task 3 — the reconciliation as built, `py/tracking.py`.)*
+`forward_positions(pos, di, dj, n_iter=8)` inverts the stored arrival map (`x = pos + d(x)`,
+cubic sampling of `d`; the forward form of `departure_index`, checked against
+`m3_case.step_forward` to 5.9e-4 cells median). `DerivedFields(derived_zarr)` caches per-pair
+fields. `matched_link(step, label_t, label_tp1, labels_by_time, flow, fields)` -> one row:
+every front pixel of the label at `step` is a parcel carried to `step + 1`; `r_matched = [mean
+G_{t+1}(x') - mean G_t(x)] / dt` on the parcels that stay finite; `r_store = mean 0.5 (DGDt_t(x)
++ DGDt_{t+1}(x'))` on the same parcels (the §5.1 case-study construction); the budget terms
+averaged the same way; and two contrasts never gated — `r_mask` (the thresholded advected mask
+as the set) and `r_label` (the endpoint labels; `set_evolution = r_label - r_matched`).
+`reconcile_track(track, labels_by_time, flow, fields, *, centred=False, band=0)` -> DataFrame
+(one row per link, a gap still yields a row with `r_label` NaN; `split_merge` from the link's
+`_n_overlap`). `centred=True` samples the parcels of step `t` at `t-1` and `t+1` (both
+interpolated, the rate centred on pair `t`'s midpoint, the store's `DGDt_t` then taken at the
+cells — the same time base); `band=r` dilates the label by `r` cells first (what
+`colocate_fronts_with_properties(dilation_radius=r)` measures). Both exist because the
+pre-registered construction (`False, 0`) carries a registration artefact on 1-px ridges (task-3
+log); `m4_recon.py` runs the four combinations, the pre-registered one first as the verdict;
+`reconcile_summary(df)` -> criterion 4 pooled and per track against the **pre-declared**
+`RECON_RMS_TOL = 0.5`, `RECON_CORR_MIN = 0.8` (module constants; basis: the case study's 0.443 /
+0.901 on the same two estimates, whose time bases are half an hour apart). `m4_recon.py` is the
+runner -> `data/m4_recon.json`.
+
 `figures.py`: one function per figure, `fig01_maps(...)` ... `fig10_term_budget(...)`, plus
 `figV1..figV6`, each writing a PNG to `dev/frontogenesis/figs/`. `fig02` draws the M1 baseline at
 **0.981 with its band [0.970, 0.994]** (the V3 real-velocity slope, `form='discrete'`), with V3b's
@@ -780,7 +803,7 @@ marked `@pytest.mark.network` smoke test of the OSN pull.
 | `test_m3_run.py` *(added, M3 task 4)* | `verify_derived_series` against one defect at a time; the runner's pair arithmetic and resumable closure cache |
 | `test_m3_closure.py` *(added, M3 task 6)* | the pre-declared tolerances are the ones used; a verdict flips at the tolerance; `L = 0` reported, never gated; the optimal-multiplier and partial-correlation diagnostics |
 | `test_figures.py` *(added, M3 task 7)* | every figure runs on a tiny synthetic store and draws **the summary's** numbers; the baseline is 0.981, never 1 |
-| `test_tracking.py` *(added 2026-10-26, M4 task 1; extended 2026-10-27, task 2: mask advection by integer / half-cell / NaN shifts and by a uniform flow through the real `departure_index`; the dilated IoU's decay; the extra term and the kept veto; `follow_flow(flow=None) == follow`; a front moving 3x the search radius that plain `follow` loses and the flow walk keeps; `track_top_n` and the JSON round trip; `needs_grid`: the real flow's sign and skeleton retention)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
+| `test_tracking.py` *(added 2026-10-26, M4 task 1; extended 2026-10-27, task 2: mask advection by integer / half-cell / NaN shifts and by a uniform flow through the real `departure_index`; the dilated IoU's decay; the extra term and the kept veto; `follow_flow(flow=None) == follow`; a front moving 3x the search radius that plain `follow` loses and the flow walk keeps; `track_top_n` and the JSON round trip; `needs_grid`: the real flow's sign and skeleton retention; extended 2026-10-28, task 3: the forward map inverts the arrival map and drops NaN parcels; on a synthetic growing, translating ridge the matched rate equals the stored material rate exactly while the endpoint-label rate carries the set's growth; `reconcile_track` / `reconcile_summary` and the tolerance flip; `needs_grid`: `forward_positions` vs `m3_case.step_forward` on 300 real front pixels)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
 
 *(added 2026-10-11, M3 task 8.)* The suite is **258 passed + 3 strict xfails**, 2 network tests
 deselected, ~230 s on the workstation. The three xfails document `fronts` bugs (M1 task 7a) and
@@ -1023,6 +1046,11 @@ Distilled from the adversarial review. Re-read before each milestone.
 - [ ] Land halo applied **before** any differencing, not after.
 - [ ] Used `calculate_fields.buoyancy_of_field` (JMD95), **not** `utils/physical_calculations.buoyancy_of_field` (legacy: g in km/s^2, rho_ref=1025), and not TEOS-10.
 - [ ] Bootstrapped over **features**, not pixels.
+- [ ] *(added 2026-10-28, M4 task 3)* Measured a front's strength over its **width** (the label
+  dilated by 1 cell), not on the 1-px skeleton, and differenced it **centred in time**: a parcel
+  sampled at its cell at `t` (the ridge maximum) and interpolated at `t+1` is biased low by
+  2-6 % of `G` per hour on a rigidly translated ridge; `DGDt_semilag` on ridge cells has the
+  mirror (+0.6-1 %) bias.
 - [ ] Quoted every slope **against the M1 discrete-null baseline**, never against 1.
 - [ ] Did not call a slope < 1 "diabatic damping" without Figure 2b separating numerical
       diffusion from air-sea forcing.

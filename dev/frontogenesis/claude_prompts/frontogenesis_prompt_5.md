@@ -45,6 +45,31 @@ gain is in the *prediction*, which stays material where `follow()`'s centroid ex
 flung away by a split or asymmetric growth. Log entry "Execution prompt 5, task 2". Tasks 3-5
 not started.
 
+**Status 2026-10-28 — task 3 done; criterion 4 FAILS as pre-registered and PASSES on the
+corrected construction — JXP decides which stands (M4-Q3).** `py/tracking.py` gained
+`forward_positions`, `DerivedFields`, `matched_link`, `reconcile_track`, `reconcile_summary`
+with the pre-declared tolerance (`RECON_RMS_TOL = 0.5`, `RECON_CORR_MIN = 0.8`, from the case
+study's 0.443 / 0.901); `py/m4_recon.py` runs four constructions; `tests/test_tracking.py` is
+26 tests (suite **284 passed + 3 xfails**, 2 deselected, 260 s). **The pre-registered
+construction** (every pixel of the label at `t` a parcel, carried forward one hour, `d(front-mean
+G)/dt` against the stored `DGDt_semilag` on the same parcels) **fails**: pooled over 700 links of
+the 10 tracks, corr **−0.09**, r.m.s. ratio **1.12**, 0/10 tracks. **Why — a registration
+artefact, not physics**: config D's fronts are 1-px ridges (ridge/weakest-neighbour `G` 2.25,
+width proxy 2.1 cells); a parcel sampled at its cell at `t` sits on the cell maximum and,
+interpolated at a fractional position at `t+1`, below the new one, a −2 to −6 % of `G` per hour
+bias on a rigidly translated ridge where the truth is 0; the store's rate has the mirror (+0.6 to
++1 %) bias on ridge cells and is positive on 64 % of skeleton pixels against 50 % of all valid
+pixels. **Corrected construction** — the label dilated by 1 cell (ridge + flanks, what
+`colocate_fronts_with_properties(dilation_radius=1)` measures) and a time-centred difference on
+the store's own time base: corr **0.953**, r.m.s. ratio **0.415**, amplitude 0.68, sign agreement
+0.81 — **passes the pre-declared tolerance pooled** (5/10 tracks pass individually; per-track
+r.m.s. 0.38-0.80). The band alone passes too (0.925 / 0.44); centring alone does not (0.82 /
+0.70). Demonstrated, not assumed: the endpoint-label rate's set-evolution term is **5-7x** the
+material rate (the prompt's "Do not"), and the thresholded advected mask is worse than parcels.
+On the band, `2F` tracks the matched rate at corr 0.95 and amplitude ratio 1.01 — recorded, **not
+quoted as an efficiency** (M3 carry-forward). Log entry "Execution prompt 5, task 3"; M4-Q3 /
+M4-Q4 in the Q&A. Tasks 4-5 not started.
+
 ---
 
 ## Why tracking has to be flow-informed (decision Q14)
@@ -193,6 +218,39 @@ the `fronts` package outside `dev/frontogenesis/` is yours to make, so nothing w
 - (b) cherry-pick e04d4f2 onto `frontogenesis` (brings the viz-app changes and their tests).
 - (c) merge `origin/viz_tools` into `frontogenesis`.
 >A. I have merged in `viz_tools`.  Please use the files you need from it
+
+#### Claude, 2026-10-28 (after task 3)
+
+Two questions before task 4. Every number is from the task-3 log entry and
+`data/m4_recon.json`.
+
+**M4-Q3 — Which construction is criterion 4 judged on, and carried into tasks 4-5?** The
+pre-registered one (the label's own 1-px pixels, a one-sided forward difference) fails (corr
+−0.09, r.m.s. ratio 1.12) because of a registration artefact that the task-3 log quantifies on a
+synthetic ridge and on the real fronts. Two changes remove it, each physically motivated and
+neither tuned on the result: measuring the front over its width (the label dilated by 1 cell,
+`colocate_fronts_with_properties(dilation_radius=1)`), and a time-centred difference that puts
+the matched rate on the store's own time base. Against the tolerance fixed before the run
+(r.m.s. ratio <= 0.5, corr >= 0.8, pooled):
+- (a) **band 1 + centred**: corr 0.953, r.m.s. 0.415 — passes; 5/10 tracks pass individually.
+  **Recommended** — both artefacts removed, and the 3-px band *is* the front's width (proxy 2.1
+  cells). The per-track tolerance was never pre-declared; the pooled one was.
+- (b) band 1, forward: corr 0.925, r.m.s. 0.44 — passes; 4/10 tracks.
+- (c) keep the pre-registered construction and record criterion 4 as failed — defensible only if
+  you regard the 1-px skeleton as *the* front; the log shows that choice measures the
+  interpolation of a ridge, not the front.
+Either way the log keeps all four; this decides what Figures 8-9 and `front_strength_series`
+use (and `dilation_radius` for the primary strength).
+
+**M4-Q4 — The Phase-2 implication.** The same artefact sits inside `DGDt_semilag` on ridge
+cells: its departure value is interpolated, its arrival value is a cell, so on a 1-px ridge it is
+biased positive (+0.6 to +1 % of `G` per hour on a translated ridge where the truth is 0), and
+on the tracked skeleton pixels it is positive on 64 % of pixels against 50 % of all valid pixels
+and 54 % of M3's `G >= p90` pool. M3 judged closure on the p90 pool (26,293 pixels per pair,
+2.9x the skeleton), where the bias is diluted but not absent. Options: (a) **a marked note in the
+M3 interim report's limitations** (§7) and coding §8, no re-run — *recommended now*, since the
+size on the p90 pool is not yet measured; (b) measure it on the p90 pool (one day: the band-vs-
+ridge split of `DGDt_semilag` per pair) before the next report revision; (c) nothing until M5.
 
 #### JXP
 

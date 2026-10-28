@@ -694,3 +694,257 @@ def tracks_from_json(obj) -> list:
         tr.anchor_size = int(a.get('size', 0))
         tracks.append(tr)
     return tracks
+
+
+# ===========================================================================
+# Task 3 (2026-10-28): the reconciliation on Lagrangian-matched pixels
+# ===========================================================================
+# Front-mean G is a mean over a CHANGING pixel set -- fronts lengthen, split and merge -- so
+# d/dt of "mean G over the label at t+1" minus "mean G over the label at t" carries a term
+# from the set's own evolution and is not a material derivative (prompt 5 task 3; Q14).
+#
+# The matched quantity: every front pixel of the label at step t is a PARCEL at its cell
+# centre; it is carried to step t+1 by the same flow the tracker uses (`Flow`, the budget's
+# own midpoint-rule trajectory), and G at step t+1 is sampled at the parcel's arrival point
+# (cubic).  The per-front measured rate is then
+#       r_matched = [ mean_p G_{t+1}(x'_p) - mean_p G_t(x_p) ] / dt
+# over the parcels that stay finite, and it is compared with the Phase-2 per-pixel rate
+# averaged over the SAME parcels,
+#       r_store   = mean_p 0.5 [ DGDt_t(x_p) + DGDt_{t+1}(x'_p) ],
+# the two straddling pairs' `DGDt_semilag` (each centred on its own pair's midpoint; their
+# mean is centred on the integer hour between the two steps, where r_matched is centred).
+# This is the M3 case study's construction (§5.1 of the interim report) applied to every
+# link of every track, and its known limit applies: the two are estimates of one Lagrangian
+# rate on time bases half an hour apart (the store differences hour endpoints, the matched
+# rate differences consecutive midpoint fields), which gave corr 0.901 and an r.m.s. gap of
+# 0.443 of the stored rate on 450 parcels.  The tolerance is pre-declared from that:
+RECON_RMS_TOL = 0.5      # rms(r_matched - r_store) / rms(r_store), pooled over every link
+RECON_CORR_MIN = 0.8     # corr(r_matched, r_store), pooled
+# Two other rates are computed for CONTRAST, never for the criterion: `r_mask`, the same
+# difference on the thresholded advected MASK (task 2's object; 5% of pixels lost to
+# rounding per hour), and `r_label`, the endpoint-label difference the prompt's "Do not"
+# forbids as a criterion -- its gap to r_matched IS the set-evolution term.
+BUDGET_TERMS = ('two_F', 'subfilter', 'vertical', 'surface_flux', 'residual')
+
+from scipy.ndimage import map_coordinates
+
+
+def sample_at(field, pos, order=3):
+    """``field`` (2-D ``(j, i)``) at fractional positions ``pos`` ``(n, 2) = (j, i)``,
+    cubic, NaN outside the array or where the support holds a NaN (the case study's
+    ``m3_case.sample``, copied so this module does not import a script)."""
+    field = np.asarray(field, 'float64')
+    j, i = pos[:, 0], pos[:, 1]
+    out = map_coordinates(np.nan_to_num(field, nan=0.0), [j, i], order=order,
+                          mode='constant', cval=np.nan)
+    bad = map_coordinates((~np.isfinite(field)).astype('f8'), [j, i], order=1,
+                          mode='constant', cval=1.0)
+    out[bad > 1e-6] = np.nan
+    inside = ((j >= 0) & (j <= field.shape[0] - 1) & (i >= 0) & (i <= field.shape[1] - 1))
+    out[~inside] = np.nan
+    return out
+
+
+def forward_positions(pos, di, dj, n_iter=8, order=3):
+    """Arrival positions ``x`` of parcels departing from ``pos`` ``(n, 2) = (j, i)``, from the
+    ARRIVAL displacement fields ``(di, dj)`` of :class:`Flow` (``departure = arrival - d``):
+    the fixed point of ``x = pos + d(x)``, started at ``pos + d(pos)`` and iterated with
+    ``d`` sampled at ``x`` (cubic); the contraction rate is ``|grad d|`` (~0.1 per
+    iteration on the tile), so 8 iterations reach round-off.  NaN where the displacement is.  The forward form of the
+    budget's backward map, checked against the case study's own forward integrator in
+    ``m4_recon.py``."""
+    pos = np.asarray(pos, 'float64')
+    x = pos.copy()
+    for _ in range(int(n_iter) + 1):
+        d = np.stack([sample_at(dj, x, order), sample_at(di, x, order)], axis=1)
+        x = pos + d
+    return x
+
+
+class DerivedFields:
+    """Per-pair fields of a §3.4 store as float64 arrays, loaded on demand and cached:
+    ``get('G', t)``."""
+
+    def __init__(self, derived_zarr, names=('G', 'DGDt_semilag') + BUDGET_TERMS):
+        self.ds = _open(derived_zarr)
+        self.names, self._cache = tuple(names), {}
+
+    def get(self, name, t):
+        key = (name, int(t))
+        if key not in self._cache:
+            self._cache[key] = np.asarray(self.ds[name].isel(time=int(t)).values, 'float64')
+        return self._cache[key]
+
+
+def _mean(a):
+    a = np.asarray(a, 'float64')
+    return float(np.mean(a)) if a.size else np.nan
+
+
+# The pre-registered construction is the one-sided forward difference on the label's own
+# pixels (`centred=False, band=0`).  Its first run (2026-10-28, task-3 log) failed, and the
+# diagnosis is a registration artefact: config D's fronts are 1-px ridges of G, so a parcel
+# sampled at its cell at t sits on the cell maximum, and sampled at a fractional position at
+# t+1 (cubic) it sits below the new ridge's maximum -- a negative bias of the size of the
+# signal.  The store's own `DGDt_semilag` has the MIRROR bias on ridge cells (cell value at
+# t+1 minus an interpolated departure value at t: positive).  Two options remove it, both
+# kept as arguments and reported as variants, never silently swapped in:
+#   centred=True  -- parcels at t sampled at t-1 (backward) and t+1 (forward); both samples
+#                    are interpolated, so the artefact cancels to first order, the selection
+#                    at t is symmetric in time (the case study's lesson), and the rate is
+#                    centred on pair t's midpoint -- the SAME time base as `DGDt_t`, which is
+#                    then taken at the parcels' cells (no half-hour averaging);
+#   band=r        -- the pixel set is the label dilated by r cells (8-connected): ridge plus
+#                    flanks, where the artefact has the opposite sign, so a mean over the
+#                    band cancels it to first order in both estimates.  This is what
+#                    `colocate_fronts_with_properties(dilation_radius=r)` measures.
+
+
+def matched_link(step, label_t, label_tp1, labels_by_time, flow, fields, dt=DT,
+                 terms=BUDGET_TERMS, *, centred=False, band=0):
+    """One link of a track at ``step``: the matched rate, the stored rate on the same
+    parcels, the budget terms on them, and the two contrast rates.  One dict (a row), or
+    ``None`` when ``centred`` needs a step that does not exist."""
+    keys = list(labels_by_time)
+    n_steps = len(keys)
+    if step + 1 >= n_steps or (centred and step == 0):
+        return None
+    lab0, lab1 = labels_by_time[keys[step]], labels_by_time[keys[step + 1]]
+    S0 = lab0 == int(label_t)
+    if band:
+        S0 = ndimage.binary_dilation(S0, np.ones((3, 3), bool), iterations=int(band))
+    jj, ii = np.nonzero(S0)
+    pos = np.stack([jj, ii], axis=1).astype('float64')
+    di, dj = flow.displacement(step, +1)
+    x1 = forward_positions(pos, di, dj)
+    G0, G1 = fields.get('G', step), fields.get('G', step + 1)
+    g0, g1 = G0[jj, ii], sample_at(G1, x1)
+    D0, D1 = fields.get('DGDt_semilag', step), fields.get('DGDt_semilag', step + 1)
+    d0, d1 = D0[jj, ii], sample_at(D1, x1)
+    alive = np.isfinite(g0) & np.isfinite(g1) & np.isfinite(d0) & np.isfinite(d1)
+    if centred:
+        dib, djb = flow.displacement(step - 1, -1)
+        xm = forward_positions(pos, dib, djb)
+        gm = sample_at(fields.get('G', step - 1), xm)
+        alive &= np.isfinite(gm)
+    n, n_alive = int(S0.sum()), int(alive.sum())
+    row = dict(step=int(step), label_t=int(label_t),
+               label_tp1=None if label_tp1 is None else int(label_tp1),
+               centred=bool(centred), band=int(band),
+               n_parcels=n, n_alive=n_alive, n_lost=n - n_alive,
+               disp_median_cells=float(np.nanmedian(np.hypot(*(x1 - pos)[alive].T)))
+               if n_alive else np.nan,
+               G_mean_t=_mean(g0[alive]), G_mean_tp1_matched=_mean(g1[alive]),
+               G_mean_tm1_matched=_mean(gm[alive]) if centred else np.nan,
+               r_store_t=_mean(d0[alive]) if n_alive else np.nan,
+               r_store_tp1=_mean(d1[alive]) if n_alive else np.nan)
+    if not n_alive:
+        row.update(r_matched=np.nan, r_store=np.nan, r_forward=np.nan)
+    elif centred:
+        row.update(r_matched=(_mean(g1[alive]) - _mean(gm[alive])) / (2 * dt),
+                   r_store=_mean(d0[alive]),
+                   r_forward=(_mean(g1[alive]) - _mean(g0[alive])) / dt)
+    else:
+        row.update(r_matched=(_mean(g1[alive]) - _mean(g0[alive])) / dt,
+                   r_store=_mean(0.5 * (d0[alive] + d1[alive])),
+                   r_forward=(_mean(g1[alive]) - _mean(g0[alive])) / dt)
+    for name in terms:
+        T0 = fields.get(name, step)
+        t0 = T0[jj, ii]
+        if centred:
+            ok = alive & np.isfinite(t0)
+            row[name] = _mean(t0[ok]) if ok.any() else np.nan
+        else:
+            t1 = sample_at(fields.get(name, step + 1), x1)
+            ok = alive & np.isfinite(t0) & np.isfinite(t1)
+            row[name] = _mean(0.5 * (t0[ok] + t1[ok])) if ok.any() else np.nan
+    # contrast 1: the thresholded advected mask (task 2's prediction) as the pixel set
+    adv = flow.advect(S0, step, step + 1)
+    ga = G1[adv]
+    ga = ga[np.isfinite(ga)]
+    row.update(n_mask=int(adv.sum()),
+               r_mask=(_mean(ga) - _mean(g0[np.isfinite(g0)])) / dt if ga.size else np.nan)
+    # contrast 2: the endpoint labels -- NOT material (the prompt's "Do not")
+    if label_tp1 is not None:
+        S1 = lab1 == int(label_tp1)
+        if band:
+            S1 = ndimage.binary_dilation(S1, np.ones((3, 3), bool), iterations=int(band))
+        gl = G1[S1]
+        gl = gl[np.isfinite(gl)]
+        row.update(n_label_tp1=int(S1.sum()),
+                   r_label=(_mean(gl) - _mean(g0[np.isfinite(g0)])) / dt if gl.size else np.nan)
+    else:
+        row.update(n_label_tp1=0, r_label=np.nan)
+    row['set_evolution'] = row['r_label'] - row['r_matched']
+    return row
+
+
+def reconcile_track(track, labels_by_time, flow, fields, dt=DT, terms=BUDGET_TERMS, *,
+                    centred=False, band=0):
+    """Every found step of ``track`` that has a successor -> a DataFrame of
+    :func:`matched_link` rows, with the split / merge flag of the link copied from the
+    track (``_n_overlap >= 2``, task 2).  A gap (step found, step + 1 not) still yields a
+    row: the parcels exist and the matched rate is defined; only ``r_label`` is NaN."""
+    rows = []
+    for s in track.steps():
+        nxt = track.labels.get(s + 1)
+        row = matched_link(s, track.labels[s], nxt, labels_by_time, flow, fields, dt, terms,
+                           centred=centred, band=band)
+        if row is None:
+            continue
+        link = track.links.get(s + 1)
+        row['split_merge'] = bool(link is not None and link.terms.get('_n_overlap', 0) >= 2)
+        row['anchor_label'] = track.anchor.label
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _stats(x, y):
+    """``x`` against ``y`` (the reference): corr, r.m.s. gap over r.m.s. of ``y``, the
+    amplitude ratio, n."""
+    x, y = np.asarray(x, 'float64'), np.asarray(y, 'float64')
+    ok = np.isfinite(x) & np.isfinite(y)
+    x, y = x[ok], y[ok]
+    if x.size < 3:
+        return dict(n=int(x.size), corr=np.nan, rms_ratio=np.nan, amp_ratio=np.nan)
+    return dict(n=int(x.size), corr=float(np.corrcoef(x, y)[0, 1]),
+                rms_ratio=float(np.sqrt(np.mean((x - y) ** 2)) / np.sqrt(np.mean(y ** 2))),
+                amp_ratio=float(np.sqrt(np.mean(x ** 2)) / np.sqrt(np.mean(y ** 2))),
+                sign_agree=float(np.mean(np.sign(x) == np.sign(y))))
+
+
+def reconcile_summary(df, rms_tol=RECON_RMS_TOL, corr_min=RECON_CORR_MIN) -> dict:
+    """Criterion 4, pooled over every link of every track and per track: ``r_matched``
+    against ``r_store`` with the pre-declared tolerance; the two contrasts reported with the
+    same statistics, never gated."""
+    out = dict(construction=dict(centred=bool(df['centred'].iloc[0]) if 'centred' in df else False,
+                                 band=int(df['band'].iloc[0]) if 'band' in df else 0),
+               tolerance=dict(rms_ratio_max=rms_tol, corr_min=corr_min,
+                              basis='M3 task 10 (iii): the same two estimates on 450 parcels '
+                                    'gave corr 0.901, rms gap 0.443 -- the half-hour time-base '
+                                    'offset of the two Lagrangian rates'),
+               n_links=int(len(df)), n_tracks=int(df['anchor_label'].nunique()),
+               n_split_merge=int(df['split_merge'].sum()),
+               parcels=dict(total=int(df['n_parcels'].sum()), lost=int(df['n_lost'].sum()),
+                            lost_fraction=float(df['n_lost'].sum() / max(df['n_parcels'].sum(), 1))),
+               matched_vs_store=_stats(df['r_matched'], df['r_store']),
+               mask_vs_store=_stats(df['r_mask'], df['r_store']),
+               label_vs_store=_stats(df['r_label'], df['r_store']),
+               label_vs_matched=_stats(df['r_label'], df['r_matched']),
+               set_evolution_over_matched=float(
+                   np.sqrt(np.nanmean(df['set_evolution'] ** 2))
+                   / np.sqrt(np.nanmean(df['r_matched'] ** 2))),
+               two_F_vs_matched=_stats(df['two_F'], df['r_matched']),
+               per_track={})
+    m = out['matched_vs_store']
+    out['passes'] = bool(np.isfinite(m['rms_ratio']) and m['rms_ratio'] <= rms_tol
+                         and m['corr'] >= corr_min)
+    for lab, g in df.groupby('anchor_label', sort=False):
+        s = _stats(g['r_matched'], g['r_store'])
+        s.update(label_vs_matched=_stats(g['r_label'], g['r_matched']),
+                 n_split_merge=int(g['split_merge'].sum()),
+                 passes=bool(np.isfinite(s['rms_ratio']) and s['rms_ratio'] <= rms_tol
+                             and s['corr'] >= corr_min))
+        out['per_track'][int(lab)] = s
+    out['n_tracks_passing'] = int(sum(v['passes'] for v in out['per_track'].values()))
+    return out
