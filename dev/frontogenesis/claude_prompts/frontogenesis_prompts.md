@@ -8078,3 +8078,159 @@ decks excluded). Tasks 1 and 3 can start on the recommendations; task 2 waits on
 figures redraw in 77 s (`m3_figs_summary.json`); the five M4 runners total 71 min (551 + 1,481 +
 1,276 + 221 + 729 s from their logs); `validate.py`'s `__main__` writes all six V-figures;
 `report/README.md` already records the pandoc build. Nothing else touched; nothing committed.
+
+### 2026-10-31 — Execution prompt 4, task 11 part (i): digging in on M3 — can the vet report's tests be run? (Fable 5.1)
+
+**Task.** JXP: read `claude_outputs/frontogenesis_M3_vet_idea_report.md` (26 Oct; reviews
+`report/frontogenesis_M3_interim.md`), and say in the Q&A/Digging section of prompt 4 whether
+any of its suggested tests can be run. A discussion, not a run: **no code written, nothing
+computed, no store touched.** The discussion is in `claude_prompts/frontogenesis_prompt_4.md`
+`## Q&A / ### Digging`, with four questions M3-Q27..Q30 awaiting JXP.
+
+**What the vet report asks.** Verdict "proceed with changes"; strongest objection: the null has
+no independent noise floor (the 0.672 / 0.408 semi-Lagrangian-vs-Eulerian gap is comparable to
+the 0.50 tolerance; the discrete null 0.981 checks only the operator), so "the data cannot do
+it" and "this analysis cannot do it" are indistinguishable. Five ranked changes: (1) a
+noise-floor test (offline passive tracer or synthetic front) plus a time-shuffled control;
+(2) downgrade the sampling claim to a hypothesis; (3) recompute `V` from the second cell;
+(4) split `S` into turbulent / shortwave and see if `R` falls; (5) selection and pooling —
+another selection variable or time, 12-24 h blocks, a second tile or season.
+
+**What was checked, in the stores and the source (not from memory).**
+- `tile330_derived_L{0,2,4,8}.zarr`: 71 pairs, every term per pair incl. `DGDt_euler`,
+  `DGDt_semilag_o5`, `two_F_chain`, `vertical_factorised`, `surface_flux_kpp`, `sigma_mag`,
+  `theta_align`, `front_width`, `KPPhbl`, `lap2_b`, `valid`, `front`.
+- `tile330_chunk_20120702T00_72h.zarr`: `Theta`/`Salt` at `k = 0, 1, 2`, `W` at `k_l = 0, 1, 2`,
+  `drF` 1.00 / 1.14 / 1.30 m, the three fluxes — so the second-cell `V` needs no new data.
+- `tile330_raw_…`: `KPPhbl`, `U`, `V`, `Eta` — the tracer driver's velocities are on disk.
+- `fvadvect.fv_advect` (OS7MP flux-form C-grid step, `dt_sub = 100 s`, land fill): V3b's
+  truth, used so far on ≤ 128² synthetic grids and single hours; the full-tile 72-h driver is
+  what would be new.
+- `vertical.surface_buoyancy_tendency` forms `Q_top = (oceQnet − oceQsw) + f_sw oceQsw` plus
+  the freshwater term in one expression (`depth=` keyword for the `h_bl` form); the split is
+  ~20 lines. `vertical.b_z(order=2)` is already three-level; `vertical_tendency` takes arrays.
+- `m3_closure.load_pool` selects on `G` at the midpoint, builds `hours=1` and `hours=3` block
+  labels via `stats.space_time_block_ids(hours=)`; 12 / 24 h labels are two lines; a
+  shuffled / lagged / rolled control reuses the loader (~45 s per `L`).
+- `m3_case.py`: `seed_rule` on `G ≥ p90` at `t0 = 30`; seeding at another time or on
+  persistence is a parameter change.
+- Nautilus chunks: `monterey_bay` is the only hourly full-depth chunk; `dbof`'s `gulf_stream`
+  config is 3-hourly over four days of March 2012, `southern_ocean` exists; a second region
+  with `V` and `S` is a new transfer (the Monterey 72 h took 42 h of pull at 0.55 MB/s).
+- Wall times from the record: pooled statistics 41-47 s per `L`; four-`L` sweep 1,807-1,975 s.
+- From `m3_closure_summary.json`: `rms_two_F / rms_measured` 0.52 (`L = 0`) and 0.65 (`L = 8`);
+  `measured_on_2F.corr` +0.70 / +0.67 / +0.62 / +0.54; `residual.slope_on_2F`
+  0.44 / 0.45 / 0.46 / 0.53; `chunk_terms_help.rms_ratio` 1.10 / 1.16 / 1.26 / 1.52.
+
+**Verdict per suggestion** (the Q&A entry has the detail and a table).
+- **1a shuffled control: runnable now**, ~100 lines, ~10 min; random permutation, a 24-h lag
+  (keeps the diurnal phase of `V`, `S`), and a spatial roll. Back-of-envelope for independent
+  fields: residual ratio `sqrt(1 + 0.52²)` ≈ 1.13 at `L = 0`, ≈ 1.19 at `L = 8`, against the
+  observed 0.813 / 1.042 — flagged as an estimate the control replaces, not a result.
+- **1b offline tracer on the real hourly flow, full pipeline: runnable**, ~150-line driver,
+  ~10-20 min advection + ~30 min sweep (`m3_run --no-chunk` into the `noChunk` stores) + the
+  closure; the tracer's true budget is exactly `2F + tau + OS7MP dissipation`, so its residual
+  is the pipeline's own floor. Decides "data" vs "analysis" at `L = 0`; cannot test the
+  flow's own sub-hourly evolution (no sub-hourly fields, M3-Q14).
+- **1c forced synthetic front:** partly exists (M1 task 4 closure 4-9 % at `dt = 3600`,
+  V3 / V3b); extending it is a day and does not answer the objection.
+- **2:** wording for M5, conditional on 1b.
+- **3 `V` from the second cell: runnable in minutes** at the smoke hours; cannot move the
+  verdict (1.5-1.7 %); a term that moves with the cell is §2.4's prediction, not a refutation —
+  the informative outcome is whether its diurnal phase survives.
+- **4 split `S`, free multipliers: runnable**, half a day + a sweep column; the one test that
+  could change §6.2's sentence (cancellation between components of different phase).
+- **5a / 5b: runnable now**, 20 lines / 2 lines. **5c / 5d surface-only second tile or
+  season:** an OSN pull of hours plus `--no-chunk`, three-term budget, enough for the `L = 0`
+  headline (subtracting `V`, `S` worsens the residual at every `L`). **Five-term second
+  region: not without a transfer.** **Sub-hourly truth: not possible.**
+
+**Questions posed.** M3-Q27 which tests and order (recommend: the cheap set as one task —
+1a, 5a, 5b, 4, 3 at the smoke hours — then the tracer as a second task); M3-Q28 where the
+results live (recommend a short `report/frontogenesis_M3_digging.md`, numbers checked, the
+interim frozen per M5-Q2); M3-Q29 the tracer's initial field and boundaries (recommend the
+model's `b` at hour 0, the 7-cell margin clamped); M3-Q30 a second tile (recommend
+surface-only from OSN after 1a/1b; a full-depth second chunk only if M5 claims generality).
+
+**Files.** Modified: `claude_prompts/frontogenesis_prompt_4.md` (the Digging entry), this log.
+Created: none. Nothing run, nothing committed.
+
+### 2026-10-31 — Execution prompt 4, task 11 part (ii): the M3-digging execution prompt (Fable 5.1)
+
+**Task.** JXP answered M3-Q27..Q30 (prompt 4 `## Q&A` → `### Digging`): **(c)** both test sets,
+the cheap controls first and the tracer second; **(a)** a short digging note
+`report/frontogenesis_M3_digging.md`, **referenced from the interim report**; **(a)** the
+tracer starts from the model's own fields at hour 0 with the edge margin clamped; **(a)** a
+surface-only second tile from OSN. The instruction: write a new prompt doc,
+`claude_prompts/frontogenesis_prompt_M3_digging.md`, to guide the tests in the order
+recommended, with any further questions in its own Q&A. **Written; nothing executed, no code,
+no store touched, nothing committed.**
+
+**The prompt** (532 lines, ~5,700 words), in the series' form — header with milestone,
+prerequisites and goal; "What JXP decided"; "What exists, and what each test needs" (a
+test-by-reuse-by-need table); the environment and house rules (absolute interpreter, detached
+runs, `git add -f`, the suite count of 290 + 3 xfails); six tasks; acceptance criteria;
+a "Do not" list; Q&A; the log convention. The six tasks, in execution order:
+
+1. **The plumbing** — a `tag` on `budget.derived_path` / `m3_run` / `m3_closure` (defaults
+   unchanged, the product never rewritten); `inputs.open_inputs(chunk=None)` as a chunk-less
+   open with the identity and sign checks skipped *and recorded*; the `face = 10` assertion
+   replaced by a raw/grid/masks agreement check; `local_solar_hour`'s offset from the tile's
+   median longitude; `m3_closure.closure()` tolerant of absent chunk terms. Regression: pair 0
+   at `L = 0` bit-identical through the new flags; `check_report_numbers.py` passes against a
+   re-run summary written to a scratch path.
+2. **The controls** (`py/m3_controls.py` → `m3_controls_summary.json`, `figs/m3_controls.png`):
+   20 random pair permutations, the 24-h (and 48-h) lag that keeps the diurnal phase, spatial
+   rolls ≥ 64 cells; the real value with 32-cell / 3-h block-bootstrap intervals beside each
+   control's distribution; the independent-field reference `sqrt(1 + (rms 2F/rms meas)²)`
+   written beside; three other selections (`G_prev`, `sigma_mag` p90, `persist`); 12 / 24-h
+   block labels; the case re-seeded twice (`t0 − 12 h`; persistence) into
+   `m3_case_controls.json`. Pre-declared "skill": below the permutation's 5th percentile and
+   below the 24-h lag by more than the real half-width — a reference, not a gate.
+3. **The term tests** (`py/m3_term_tests.py` → `m3_term_tests_summary.json`): `S` split into
+   non-solar / shortwave / freshwater by zeroing the other fluxes in `surface_flux_term`, the
+   identity to the stored term asserted per pair (1e-10 relative), a three-multiplier fit of the
+   imbalance with bootstrap intervals, both depth forms; pre-declared "cancellation" (rms gain
+   beyond the half-width and multipliers in [0.5, 2]). `V` from the second cell (`W_k2`
+   accessor, `b_k1`/`b_k2`, `drF[1]`) and the order-2 `b_z` sensitivity on the three smoke pairs
+   + pair 30; a sensitivity, no threshold, both readings (the vet's and §2.4's) stated.
+4. **The offline tracer** (`py/m3_tracer.py` → `tile330_tracer_20120702T00_72h.zarr`, then
+   `m3_run --chunk none --tag tile330tracer`, `m3_closure --tag`): `Theta` and `Salt` advected
+   from hour 0 by `fvadvect.fv_step_arrays` (OS7MP, `dt_sub = 100 s`), velocity linear in time
+   between hours (a piecewise-constant column is M3D-Q3), the 7-cell margin clamped to the
+   model, the raw store's layout with `U V W Eta KPPhbl oceTAU*` copied; four required checks
+   (hour 0→1 equals `fv_advect`; conservation; the `G` percentiles against the model's; the
+   store's invariants); the pre-declared three-way reading at `L = 0` (`≥ 0.50` analysis-limited,
+   `≤ 0.25` data-limited) and at `L = 8` (M3D-Q1); the tracer's slopes quotable **only** as the
+   pipeline's calibration, labelled, against V3b's 0.975 [0.954, 1.003].
+5. **The second tile** (`py/m3_tile2.py`): resolve, grid, orientation QA (the V3 llc null on the
+   new tile's hour 0 within [0.95, 1.05] before anything else runs), masks with the no-land
+   case handled, the 72-h pull detached, `--chunk none` sweep and closure judged against the
+   product's **two-term catch-all**; no chunk pull.
+6. **The digging note** (`report/frontogenesis_M3_digging.md`, ~2,000 words, four figures,
+   numbers appendix; `report/check_digging_numbers.py`): the interim's audience and rules; a
+   closing table answering the vet report's §6 items one by one; **one marked paragraph at the
+   end of the interim's §8** naming the note and the outcomes, the verdict unchanged in words,
+   `check_report_numbers.py` still passing; prompt 6 task 2's allowed sources extended by a
+   marked edit.
+
+**Checked against the record while writing** (not assumed): tiles 329 / 331 / 306 / 354 resolve
+offline with `rect_ij_to_tile` — 329 is face 7 (`j` 3600:4320, `i` 2880:3600), 354 is face 10
+(`i` 2160:2880); tile 330 spans lon −128 to −113, lat 26.7 to 38.3 (`tile330_grid.zarr`); the
+machine has 24 cores, 755 GB RAM, 8.4 TB free; `m3_closure.closure()` assumes `vertical` and
+`surface_flux` present (hence task 1's tolerance); `inputs.open_inputs` requires the chunk
+store today; `m3_run --no-chunk` strips the merge rather than opening without it; the smoke
+pairs of prompt 4 task 2 are 0 / 9 / 21 (16 / 01 / 13 LST). The product's two-term catch-all
+ratios and the order-5 gaps are quoted from `m3_closure_summary.json` (`catchall.over_measured`,
+`measured_coherence.rms_o5_minus_o3`).
+
+**Questions posed** (`## Q&A` of the new prompt, M3D-Q1..Q5, each with a recommendation):
+the tracer's reading thresholds (recommend the three-way 0.50 / 0.25); which tile (recommend
+329, 354 the fallback if the orientation QA fails); a piecewise-constant-velocity second tracer
+column (recommend yes); a separate number checker for the note (recommend yes); the second
+tile's window (recommend the same 72 h). Tasks 1-3 can start now; task 4's interpretation
+waits on Q1; task 5 waits on Q2.
+
+**Files.** Created `claude_prompts/frontogenesis_prompt_M3_digging.md`. Modified
+`claude_prompts/frontogenesis_prompt_4.md` (the task 11 status sentences in the header
+paragraph) and this log. Nothing run, nothing committed.

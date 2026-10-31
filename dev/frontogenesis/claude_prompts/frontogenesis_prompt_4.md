@@ -157,7 +157,7 @@ red NOT CLOSED card on the title slide, three slides given to the diagnosis, and
 listing what it deliberately does not contain — no efficiency, no damping claim, no tuned number.
 Figures are **re-plots at slide size**, not crops, so the 20 pt floor holds inside the images
 too; log entry "Execution prompt 4, task 9". **All nine tasks of prompt 4 are complete; M3
-remains NOT CLOSED and everything downstream is blocked (coding §7).** **Task 10 part (i) started 2026-10-12** — the interim report's questions are written and **open**: **M3-Q16..Q26** in `## Q&A` → `### Report` (audience, format and location, scope, length, figures and whether to draw the project's first schematic, how blunt the failure is stated and what it is said to mean, whether next steps are recommended, number provenance, whether the NOT-QUOTED slopes appear at all, notation and the glossary, and the front matter). Drafted by Fable 5.1, fact-checked against the repo, each with a recommendation. **The report itself is not started until JXP answers** — M3-Q16 and M3-Q18 change every section of it; log entry "Execution prompt 4, task 10 part (i)". **Task 10 part (ii) done 2026-10-12** — all eleven answered, and the report written: `report/frontogenesis_M3_interim.md` (8 sections, 2 appendices, 8 figures, 8 tables), `report/make_report_figs.py` → the project's **first two schematics** (the pipeline; a front in cross-section with each process matched to its term), `report/check_report_numbers.py` (**67** JSON-backed numbers asserted verbatim, the four not-quoted slopes forbidden, all eight figure paths resolved — **passes**), `report/pandoc-header.tex` and `report/README.md`. PDF builds at **22 pages**, no missing glyphs, every page inspected — which caught six layout defects (missing `≤`/`≥` and superscript glyphs, two colliding table headers, pandoc's duplicate "Figure N" captions, the multi-panel figures too small to read, Appendix B's JSON keys off the right margin). Two of Fable's claims were corrected against the task-6 log (the sensitivity paragraph in §5.3 and its Appendix B row); Fable corrected two of the brief's numbers from the JSON. **Q19's length is the one spec not met and is logged as such**: 5,479 body prose words against ~4,500, 22 pages against ~8 (≈4 of figures, ≈5 of appendices, which Q19 excludes) — a trim pass is one instruction away. Nothing committed (M3-Q26); no efficiency, no damping claim, no store opened; log entry "Execution prompt 4, task 10 part (ii)". **Task 10 part (iii) done 2026-10-12** — a single-front case study added as **§5.1**, before the aggregate. New `py/m3_case.py` follows **450 parcels** seeded on the front pixels of a 11-cell corridor across the persistent filament at **37 N, 161 km offshore** (chosen by block-ranked front-pixel persistence), carried **±24 h** by the budget's own trajectory run forwards; **no front finding** — the 90th-percentile rule unchanged, nothing labelled. Checks: the forward step inverts `departure_index` to **5.3e-4 cells**; the case's Lagrangian rate matches the stored `DGDt_semilag` at corr **0.901** / ratio 1.13 (its 0.443 rms gap *is* task 6's sampling limit). **Result:** `G` 1.14e-14 → 7.95e-14 (seed) → 1.55e-14, factor **0.19**, while **`2F` accounts for −0.08 of the observed change** and is positive at **19/24** intervals where measured is positive at **3/24** (corr +0.71). **One front reproduces the pooled budget term by term** — residual **0.737** vs the pool's 0.813, against the 0.50 tolerance. **Selection bias found, named and controlled**: the first design decayed by ×3 from every start time (regression to the mean), so the window was made symmetric and a 2,500-parcel **unselected control** added (×0.89 vs ×0.19). Three new figures (`report/make_case_figs.py`), **all eleven renumbered and verified**; `check_report_numbers.py` now asserts **105** numbers over three summaries and caught `1.14` colliding with a not-quoted slope via the words "regression to the mean". PDF **26 pages**, no missing glyphs, new pages inspected; suite **258 passed + 3 xfails**, 2 deselected, 280 s. Nothing committed — the three new PNGs are git-ignored and need `git add -f`, as `figs/` and the schematics were; log entry "Execution prompt 4, task 10 part (iii)". The task sequence below (tasks 1-9), the M3 carry-forward
+remains NOT CLOSED and everything downstream is blocked (coding §7).** **Task 10 part (i) started 2026-10-12** — the interim report's questions are written and **open**: **M3-Q16..Q26** in `## Q&A` → `### Report` (audience, format and location, scope, length, figures and whether to draw the project's first schematic, how blunt the failure is stated and what it is said to mean, whether next steps are recommended, number provenance, whether the NOT-QUOTED slopes appear at all, notation and the glossary, and the front matter). Drafted by Fable 5.1, fact-checked against the repo, each with a recommendation. **The report itself is not started until JXP answers** — M3-Q16 and M3-Q18 change every section of it; log entry "Execution prompt 4, task 10 part (i)". **Task 10 part (ii) done 2026-10-12** — all eleven answered, and the report written: `report/frontogenesis_M3_interim.md` (8 sections, 2 appendices, 8 figures, 8 tables), `report/make_report_figs.py` → the project's **first two schematics** (the pipeline; a front in cross-section with each process matched to its term), `report/check_report_numbers.py` (**67** JSON-backed numbers asserted verbatim, the four not-quoted slopes forbidden, all eight figure paths resolved — **passes**), `report/pandoc-header.tex` and `report/README.md`. PDF builds at **22 pages**, no missing glyphs, every page inspected — which caught six layout defects (missing `≤`/`≥` and superscript glyphs, two colliding table headers, pandoc's duplicate "Figure N" captions, the multi-panel figures too small to read, Appendix B's JSON keys off the right margin). Two of Fable's claims were corrected against the task-6 log (the sensitivity paragraph in §5.3 and its Appendix B row); Fable corrected two of the brief's numbers from the JSON. **Q19's length is the one spec not met and is logged as such**: 5,479 body prose words against ~4,500, 22 pages against ~8 (≈4 of figures, ≈5 of appendices, which Q19 excludes) — a trim pass is one instruction away. Nothing committed (M3-Q26); no efficiency, no damping claim, no store opened; log entry "Execution prompt 4, task 10 part (ii)". **Task 10 part (iii) done 2026-10-12** — a single-front case study added as **§5.1**, before the aggregate. New `py/m3_case.py` follows **450 parcels** seeded on the front pixels of a 11-cell corridor across the persistent filament at **37 N, 161 km offshore** (chosen by block-ranked front-pixel persistence), carried **±24 h** by the budget's own trajectory run forwards; **no front finding** — the 90th-percentile rule unchanged, nothing labelled. Checks: the forward step inverts `departure_index` to **5.3e-4 cells**; the case's Lagrangian rate matches the stored `DGDt_semilag` at corr **0.901** / ratio 1.13 (its 0.443 rms gap *is* task 6's sampling limit). **Result:** `G` 1.14e-14 → 7.95e-14 (seed) → 1.55e-14, factor **0.19**, while **`2F` accounts for −0.08 of the observed change** and is positive at **19/24** intervals where measured is positive at **3/24** (corr +0.71). **One front reproduces the pooled budget term by term** — residual **0.737** vs the pool's 0.813, against the 0.50 tolerance. **Selection bias found, named and controlled**: the first design decayed by ×3 from every start time (regression to the mean), so the window was made symmetric and a 2,500-parcel **unselected control** added (×0.89 vs ×0.19). Three new figures (`report/make_case_figs.py`), **all eleven renumbered and verified**; `check_report_numbers.py` now asserts **105** numbers over three summaries and caught `1.14` colliding with a not-quoted slope via the words "regression to the mean". PDF **26 pages**, no missing glyphs, new pages inspected; suite **258 passed + 3 xfails**, 2 deselected, 280 s. Nothing committed — the three new PNGs are git-ignored and need `git add -f`, as `figs/` and the schematics were; log entry "Execution prompt 4, task 10 part (iii)". **Task 11 part (i) done 2026-10-31** — the vet-idea report (`claude_outputs/frontogenesis_M3_vet_idea_report.md`, 26 Oct) read and each of its suggested tests matched against the stores and the source: every one is runnable here from `data/` except a sub-hourly truth (no such fields, M3-Q14) and a five-term budget on a second region or season (a new Nautilus transfer); discussion and **M3-Q27..Q30** in `## Q&A` → `### Digging`; log entry "Execution prompt 4, task 11 part (i)". **Task 11 part (ii) done 2026-10-31** — all four answered ((c) both test sets, cheap first; (a) a digging note referenced from the interim; (a) the model's fields at hour 0, margin clamped; (a) a surface-only second tile) and the execution prompt written: `claude_prompts/frontogenesis_prompt_M3_digging.md` (six tasks — plumbing, controls, term tests, the offline tracer, a second tile, the digging note — with pre-declared readings, acceptance criteria, a "Do not" list and **M3D-Q1..Q5**); nothing run, nothing committed; log entry "Execution prompt 4, task 11 part (ii)". The task sequence below (tasks 1-9), the M3 carry-forward
 cross-check table and the M3-Q1..Q9 questions were written by M2 task 8 (prompts 3, task 8; log
 entry "Execution prompt 3, task 8"). **M3-Q6 is needed before task 1, M3-Q7 before task 2,
 M3-Q3 and M3-Q4 before task 3, M3-Q1 / Q2 / Q5 / Q9 before task 6 (they are pre-declared there),
@@ -1046,6 +1046,20 @@ iii.  This is an excellent first draft.  I wish, however, to add an important as
 You will need to create new figures to show this.  They should: (1) show the front in the region over several hourly time steps, (2) show its front strength in time and compare it to what the frontogenesis tendency predicted, and (3) any other figures you consider worthwhile.
 Use Fable if you can.  Log your work.
 
+### 11. Digging in on M3
+
+i. Read the file, `frontogenesis_M3_vet_idea_report.md` in `claude_outputs/`.  
+You will see a few suggestions to examine the results on M3.   Let me know 
+if it is possible for me to run any of these tests.  Discuss that with me
+in the Q&A/Digging section below.
+Use Fable if you can.  Log your work.
+
+ii. I have answered your questions.  Please generate a new prompt doc for these additional
+tests named `frontogenesis_prompt_M3_digging.md` to guide the tests.  I will then 
+execute them in the order you suggest.  If you have any additional questions, put
+them in this new prompt doc under Q&A.  
+Use Fable if you can.  Log your work.
+
 ### M3 carry-forward cross-check
 
 Every item of M2 task 6's "Carried forward to M3" list and its open items, and every M1
@@ -1137,6 +1151,233 @@ no M3 action say so. Task 8 walks this table and marks each row.
   the midpoint time (above); front *objects* are M4.
 
 ## Q&A
+
+### Digging
+
+#### Claude, 2026-10-31 (task 11 (i) — can the vet report's tests be run?)
+
+`claude_outputs/frontogenesis_M3_vet_idea_report.md` (26 Oct) says "proceed with changes" and
+ranks five of them (§6), with one objection above the rest (§3): the null has **no independent
+noise floor**, so "the data cannot do it" and "this analysis cannot do it" are not yet told
+apart. Below, each suggestion is matched against what is on disk and in the code *today*,
+without running anything. The short answer: **every suggested test except one can be run on
+this workstation from the stores already in `data/`, most of them in an afternoon each**; the
+one that cannot be run at all is a sub-hourly truth (there are no sub-hourly fields — M3-Q14),
+and two sub-items (a second *region* or *season* with the full five-term budget) need a new
+full-depth transfer from Nautilus. Nothing in the vet report requires new physics code; it
+requires drivers around `m3_closure.load_pool`, `fvadvect.fv_advect`, `vertical.py` and
+`m3_case.py`.
+
+What was checked (not assumed): the three stores' contents — `tile330_derived_L{0,2,4,8}.zarr`
+hold every term per pair (`DGDt_semilag`, `DGDt_euler`, `DGDt_semilag_o5`, `two_F`,
+`two_F_chain`, `subfilter`, `vertical`, `vertical_factorised`, `surface_flux`,
+`surface_flux_kpp`, `residual`, `b_z`, `lap2_b`, `front_width`, `KPPhbl`, `sigma_mag`,
+`theta_align`, `valid`, `front`, …); `tile330_chunk_20120702T00_72h.zarr` holds `Theta`/`Salt`
+at **k = 0, 1, 2** and `W` at **k_l = 0, 1, 2** (`drF` 1.00 / 1.14 / 1.30 m) with the three
+fluxes; `tile330_raw_…` holds `KPPhbl`, `U`, `V`, `Eta`. The function signatures quoted below
+were read in the source. Wall times are from `data/m3_run.log` and
+`m3_closure_summary.json` (`wall_s` 41-47 s per `L` for the pooled statistics; the four-`L`
+sweep 1,807-1,975 s).
+
+##### The suggestions, one by one
+
+**1. The noise floor (vet §3, §6 item 1) — three distinct tests hide in this one item.**
+
+*(1a) A time-shuffled control.* **Runnable now, cheapest of all.** The derived stores are
+per-pair; `m3_closure.load_pool` already walks them pair by pair and pools front pixels with
+their pair index. A control is: keep the *measured* column and the front mask of pair `n`, take
+the *predicted* columns (`two_F`, `subfilter`, `vertical`, `surface_flux`) from pair `m ≠ n`,
+recompute the residual ratio, the explained fraction and the residual's slope and correlation
+on `2F`. Two permutations are needed, not one: a random permutation (kills everything) and a
+fixed **24-h lag** (keeps the local solar hour, so `V` and `S` keep their diurnal phase, and
+only the flow is decorrelated); a spatial roll by a random offset ≫ the 32-cell block is the
+third, free, "no skill" baseline. Code: `py/m3_controls.py`, ~80-120 lines reusing
+`load_pool`; wall ~45 s per `L` per control; one afternoon including tests and a JSON. What it
+settles: the red team's "0.81-1.04 is what random noise of the same variance would give" (vet
+§7) gets a number. **A back-of-envelope already says they are wrong** — for independent fields
+the residual ratio would be `sqrt(1 + (rms 2F / rms measured)^2)` = **~1.13 at `L = 0`** and
+**~1.19 at `L = 8`** (`rms_two_F / rms_measured` = 0.52 and 0.65 in the JSON), against the
+observed 0.813 and 1.042; and the measured side correlates **+0.70 / +0.67 / +0.62 / +0.54**
+with `2F` (`measured_on_2F.corr`), which a shuffle sends to ~0. The shuffle replaces this
+estimate with the measured one, under the real selection and the real block structure, and it
+also shows how much of the 0.44-0.53 residual slope on `2F` is selection. This is an estimate
+and not a result until the control is run.
+
+*(1b) An offline passive tracer advected with the model's hourly velocities, the full budget run
+on it.* **Runnable, the substantive test, about two days.** The pieces exist:
+`fvadvect.fv_advect(b, U, V, grid_ds, dt, scheme='os7mp', dt_sub=100 s)` is the flux-form
+OS7MP step on the C-grid with the model's face transports and land fill — V3b's truth
+(M1 task 6b), so far used on ≤ 128² synthetic grids and single hours. What has to be written
+(~150 lines, `py/m3_tracer.py`): a driver that takes the OSN hourly `U`, `V`, interpolates them
+linearly in time at the 100 s sub-step, advects a tracer for the 72 h on the 720² tile, writes
+the hourly tracer into a store with the raw store's schema (`Theta`-shaped, so `inputs` reads
+it unchanged), then `m3_run.py --no-chunk` on it (writes `tile330_derived_noChunk_L{L}.zarr`,
+by design unable to overwrite the product) and `m3_closure` on that. Cost: 36 sub-steps/h ×
+72 h ≈ 2,600 steps of a 720² limited stencil, of order 10-20 min; the sweep ~30 min; the
+closure ~3 min. Two design choices to make (M3-Q29): the initial tracer (the model's own `b`
+at hour 0 is the realistic choice; a `tanh` front laid on the real flow is the cleaner one) and
+the open boundaries (the tile is not closed — clamp the 7-cell edge margin to the model's `b`
+each sub-step, the margin is masked out of every statistic anyway). For the tracer the true
+budget is **exactly** `DG/Dt = 2F + tau + (OS7MP dissipation)`, no `V`, no `S`, so the residual
+the pipeline reports on it *is* its own floor: the hourly semi-Lagrangian sampling of a tracer
+that evolved on a within-hour-smooth flow, plus the scheme's dissipation at the grid scale.
+What it settles, and what it cannot: if the tracer residual at `L = 0` is near the 0.672
+estimator gap, the limit is the analysis (hourly *tracer* sampling), not the model; if it is
+small, the 0.672 is the model's sub-hourly evolution of `b` and the velocities — "the data".
+Either way the conclusion is earned rather than inferred. What it **cannot** test is the
+flow's own sub-hourly evolution (the interpolated velocities are smooth within the hour): that
+needs sub-hourly fields, which do not exist (M3-Q14 (a)), and the write-up must say so.
+
+*(1c) A synthetic front with known forcing.* **Partly exists already.** M1 task 4's synthetic
+closure (the `Gbar` budget on analytic flows: 4-9 % rms at `dt = 3600`, 2-3 % at `dt = 900`)
+and the V3 / V3b nulls (0.981; 0.954-1.003) *are* known-answer tests, but single-step and on
+analytic flows, which is why the vet report does not credit them. Adding a prescribed
+diabatic `S` (an imposed heating gradient with the Jerlov profile) to `synthetic.py` is a day,
+and would show the pipeline recovers a known `S` — but it does not answer §3; (1b) does.
+Recommend (1a) and (1b); (1c) only if M5 wants a figure of the pipeline recovering a forced
+front.
+
+**2. Downgrade the sampling claim to a hypothesis (vet §6 item 2).** A wording change, not a
+run — and (1b) is the run that decides whether it is restored: the tracer's residual at
+`L = 0` against `L = 8` is the direct test of "sampling at the grid scale, something else at
+the filtered scales". The interim report is not rewritten (M5-Q2's recommendation); the
+wording goes into the M5 report, conditional on (1b).
+
+**3. `V` against a different top cell (vet §6 item 3).** **Runnable in minutes at the smoke
+hours, or as one sweep column (~30 min, as M3-Q13 (c) was).** The chunk store has the three
+levels and `W` at all three interfaces; `vertical.b_z(order=2)` is already the quadratic
+through `k = 0, 1, 2`, and `vertical_tendency(b, b_k1, W_k1, drF)` takes arrays, so the tilting
+term at the base of the *second* cell is the same call with the `(k = 1, k = 2, k_l = 2)`
+triple and `drF[1]`, dotted with the gradient of the second cell's `b`. Two cautions before it
+is run. First, the vet report itself notes `V` is 1.5-1.7 % of the amplitude, so nothing here
+can move the verdict. Second, "if it moves, it is a grid artefact" is not the right reading:
+§2.4 of the interim says the term *is* a discretisation term — the flux through the base of a
+fixed 1 m box — so a term that changes with the box is the prediction, not a refutation; the
+informative outcome is whether its **diurnal phase and sign** survive the change of cell.
+Recommend the per-hour diagnostic at the four smoke hours, written up as a sensitivity; not a
+sweep column.
+
+**4. Split `S` into its components (vet §6 item 4).** **Runnable, half a day plus a sweep
+column.** `vertical.surface_buoyancy_tendency` forms `Q_top = (oceQnet − oceQsw) + f_sw oceQsw`
+and the freshwater part in one expression; returning the three parts (non-solar heat,
+shortwave with the Jerlov fraction, freshwater) is a 20-line change — or three calls with the
+other two fluxes zeroed, which `_check_flux_sign` accepts. Then three `surface_flux_term`
+columns per `L` (the `h_bl` form too: `depth=KPPhbl` is a keyword). The test is a
+three-parameter regression of the imbalance `measured − 2F − tau − V` on the three components
+with free multipliers: if the residual falls and the multipliers are O(1), the +0.02
+correlation of the summed term was a cancellation between components of different phase
+(task 2 found the non-solar gradient dominates the magnitude, and the shortwave is a 6-hourly
+triangle); if it does not, the orthogonality is real and §6.2 stands as written. Cheap, and
+the one test here that could change a sentence of the diagnosis.
+
+**5. Selection and pooling (vet §6 item 5) — four sub-items, three of them free.**
+
+*(5a) Select front pixels on a different variable or time.* **Runnable now, ~20 lines.**
+`load_pool` selects on `G` at the midpoint; the stores hold `sigma_mag` (strain),
+`theta_align`, `front_width`, and `G` of every other pair, so selecting on the **previous
+pair's `G`** (breaks selection-on-the-outcome), on strain, or on a persistence count is a
+change in the selection dictionary and 45 s per `L`. For the followed front, `m3_case.py`'s
+`seed_rule` seeds on `G ≥ p90` at `t0 = 30`; seeding on `G` at `t0 − 12 h`, or on the pixels
+that are `front` in ≥ k of the surrounding hours, is a parameter change and minutes of
+compute, and directly tests the red team's regression-to-the-mean reading (the unselected
+control, 0.89 against 0.19, already argues it is not the whole story).
+
+*(5b) 12-24 h time blocks.* **Runnable now, two lines.** `stats.space_time_block_ids(…, hours=)`
+exists; `load_pool` builds `hours=1` and `hours=3` labels; adding 12 and 24 is adding two
+labels. With 71 pairs, 24-h blocks give 3 time-blocks × ~500 spatial blocks — enough for the
+bootstrap, and the intervals will widen, which is the point.
+
+*(5c) A second tile.* **Surface-only: runnable in hours. Full budget: a new transfer.** The
+OSN `llc_surf`/`llc_wind` stores cover every tile; M2 task 1's `pull_series` fetches a 72-h
+window in a few hours at the rate measured (9 s per hour in the smoke test), and
+`m3_run.py --no-chunk` then gives the **three-term** budget (measured, `2F`, `tau`) with `V`
+and `S` loudly absent. That is enough for the headline: the failure at `L = 0` is a two-term
+statement (`chunk_terms_help.rms_ratio` is 1.10-1.52 — subtracting `V` and `S` makes the
+residual *worse* at every `L`), and a second tile tests whether 0.81 is Monterey's number or
+the model's. The **five-term** budget needs an hourly full-depth chunk: the only one on
+Nautilus is `monterey_bay` (`dbof`'s `gulf_stream` and `southern_ocean` chunk configs exist but
+`gulf_stream` is 3-hourly over four days of March 2012, no use for hourly pairs), so a second
+region with `V` and `S` is a new transfer — 72 h took 42 h of wall at the 0.55 MB/s this
+machine gets, or a day at the 4.7 MB/s seen once (M2 task 5).
+
+*(5d) A second season.* Same split: surface-only is a pull of hours; the full budget is a
+transfer. Note that a winter window would also change the regime (deeper `h_bl`, weaker
+diurnal `V`), which is a different study rather than a replication.
+
+**6. The red team's "positive at every local hour" and the +0.44 to +0.53 slope (vet §6,
+closing paragraph).** Both numbers are already in the JSON (`composites.by_local_hour`,
+`residual.slope_on_2F` = 0.44 / 0.45 / 0.46 / 0.53); what they lack is a reference, and (1a)
+provides it — a shuffled control with a residual slope on `2F` near zero and a flat composite
+would make "systematic bias" a measurement rather than a reading. No separate run.
+
+##### What this adds up to
+
+| Vet item | Runnable here? | New data? | Code | Wall | Could change the verdict? |
+|---|---|---|---|---|---|
+| 1a shuffled / lagged / rolled controls | **yes** | no | ~100 lines | ~10 min | no — gives the no-skill reference |
+| 1b offline tracer, full pipeline | **yes** | no | ~150 lines | ~1 h compute, ~2 days work | no — but decides "data" vs "analysis" at `L = 0` |
+| 1c forced synthetic front | yes (extends M1 task 4) | no | ~1 day | minutes | no |
+| 2 wording | n/a | — | — | — | — |
+| 3 `V` from the second cell | **yes** | no | ~40 lines | minutes (smoke hours) | no (1.5-1.7 %) |
+| 4 split `S`, free multipliers | **yes** | no | ~60 lines + a sweep column | ~30 min | could change §6.2's sentence, not the verdict |
+| 5a selection on another variable / time | **yes** | no | ~20 lines | minutes | tests the selection bias |
+| 5b 12-24 h blocks | **yes** | no | 2 lines | minutes | widens intervals only |
+| 5c/5d second tile or season, surface-only | yes | OSN pull, hours | reuse | ~1 h sweep | tests generality of the `L = 0` failure |
+| 5c/5d second region or season, five terms | **not without a transfer** | Nautilus, 1-2 days | reuse | ~1 h sweep | tests generality of `V`, `S` |
+| sub-hourly truth | **no** | does not exist | — | — | — |
+
+The **vet report's strongest objection is answerable with what is on disk**: (1a) gives
+"no skill" a number in an afternoon, and (1b) gives the pipeline a known-answer case on the
+real flow in about two days. Neither can make the budget close; both decide what the null
+*means*, which is the thing M5 has to write. The three free pooling checks (5a, 5b, 4) are
+worth doing in the same session because they share `load_pool` and a JSON. A second tile
+surface-only is cheap and would turn "on one tile" into "on two"; a second full-depth region
+is Lauren's and `dbof`'s to transfer, not something to decide here.
+
+##### Questions
+
+**M3-Q27 — Which tests, in what order.** Options: (a) **the cheap set first as one task** —
+(1a), (5a), (5b), (4), (3) at the smoke hours: one `py/m3_controls.py`, one
+`data/m3_controls_summary.json`, one log entry, about two days including tests; (b) **(1b)
+first** — the tracer is the test the vet report wants most, and its outcome frames everything
+else; (c) **both, as two tasks**, the cheap set then the tracer; (d) **none** — accept the
+vet's "proceed with changes" as wording changes for M5 only. I recommend **(c)**: the cheap set
+costs almost nothing and gives (1b) its reference numbers; the tracer then has something to be
+compared with.
+
+> **JXP:** (c)
+
+**M3-Q28 — Where the results live.** The interim report is not rewritten (M5-Q2's
+recommendation, pending). Options: (a) **a short digging note**, `report/frontogenesis_M3_digging.md`,
+numbers checked against the new JSON by `check_report_numbers.py`, which M5's report then
+absorbs; (b) **an appendix to the interim**; (c) **the M5 report only**, with the log as the
+record until then. I recommend **(a)**: it keeps the interim frozen and gives the vet reviewers
+a document to re-read.
+
+> **JXP:** (a) is fine, but be sure to reference it from the Interim report
+
+**M3-Q29 — The tracer test's design (only if (1b) runs).** Two choices. The initial tracer:
+(a) **the model's own `b` at hour 0** — the realistic spectrum and front population, so the
+tracer's `L`-dependence is comparable to the real sweep's; (b) a `tanh` front laid across the
+real flow — cleaner, one feature, no selection ambiguity; (c) both. The boundaries: the tile is
+open, so the 7-cell edge margin is clamped to the model's `b` at every sub-step (it is outside
+`mask_analysis` already); the alternative, a one-way inflow condition, is more code for no
+statistic that uses it. I recommend **(a)** with the clamp, and (b) only if (a)'s result is
+ambiguous.
+
+> **JXP:** Ok, let's start with (a)
+
+**M3-Q30 — A second tile.** Options: (a) **a surface-only second tile now** (any tile from
+OSN; three-term budget; `m3_run --no-chunk`; a few hours of pull and an hour of sweep) —
+I would choose a tile with a different regime (open-ocean California Current, no coast in
+the analysis mask) so "flat with distance offshore" gets a second reading; (b) **ask Lauren
+for a second hourly full-depth chunk** (a transfer of a day or two on her side, 42 h of pull on
+this one), for the five-term budget; (c) **neither** — one tile is what M3 was scoped to, and
+generality is M5's "limitations" paragraph. I recommend **(a)**, after (1a)/(1b), and (b) only
+if M5 is to claim the surface-flux orthogonality is general rather than Monterey's.
+
+> **JXP:** (a) is fine.
+
 
 ### Report
 
