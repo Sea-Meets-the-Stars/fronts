@@ -8019,3 +8019,62 @@ one-command regeneration) is not started. Scratch: `redraw.py` (the figures from
    the material prediction. Plain `follow()` also loses its position veto across long gaps
    (task 4), which the flow walk never triggered. That is the direct answer to Lauren's
    question (tasks 2 and 4).
+
+### 2026-10-28 — Execution prompt 6, review before task 1 (Fable 5.1)
+
+**Task.** JXP: "Before I begin executing the tasks in `frontogenesis_prompt_6.md`, review them
+and update them as needed according to the work to date." No task executed; the prompt was
+revised in place with every change marked *(revised 2026-10-28: …)* or *(added 2026-10-28)*,
+the original wording left to `git log`, and three questions posed.
+
+**What no longer fitted, and what was changed.**
+- **Prerequisites** said "M3 passed; M4 complete". M3 is not closed (criterion 1 failed at every
+  judged `L`, prompt 4 task 8) and M4 ran on JXP's instruction without closure. The header now
+  states both, with the four residual ratios and the M4 criteria as judged, and says that the
+  planning §12 null result is what M5 writes up.
+- **Task 1** described `figures.py` as something to write and Figure 2 as carrying a reportable
+  slope. `figures.py` (+ `figures_maps.py`, `figures_stats.py`, `FIGURES`, `m3_figs.py`, ten tests),
+  `figures_m4.py` (8, 9, the tracking-quality diagnostic) and `validate_figs.py` (V1–V6) exist;
+  Figure 2 draws the baseline and bands as the prompt asks and its slopes under a SLOPES NOT
+  QUOTED banner (M3-Q15 (a)). The task now says what consolidation is: one registry of every
+  figure with a uniform call signature and returned dict; `make_figs.py` with `--only`,
+  `--report`, `--recompute` (default from the products, `m3_figs.py` kept as provenance); one
+  footer helper for `L` / mask / config / caveats; `L` and `mask` keys on every entry with a test;
+  the pinned-order test updated; no numbers change. A "What exists" inventory table was added
+  above the tasks (figure, module, driver, inputs, caption state), with the deck re-plots and the
+  milestone QA figures marked out of scope.
+- **Task 2** had a "slope, every estimator, against the baseline" section and a per-front section
+  with no content. The location (`report/frontogenesis_report.md`), the lineage (grows from the
+  interim), and the binding rules (M3-Q16..Q26 unless changed; the five M4 JSONs added to the
+  allowed sources; the number check extended; the interim not rewritten) were added. Item 3 now
+  states what is always reported (the three baselines, criterion 2's slopes, the existence and
+  withholding of criterion 4's) and refers the four withheld numbers to M5-Q1. Item 5 lists M4's
+  results to report, criterion 4 both ways. Item 6 gains the M3 and M4 limitations (the cadence,
+  the surface-flux orthogonality, the ridge-cell registration bias of M4-Q4, Figure 6's unmet
+  expectation, degenerate lifetimes, the two unfixed `fronts` defects, the coastal front outside
+  both masks). Item 7 gives the §12 verdict condition by condition: 1 met, 2 not judged (slope
+  withheld), 3 met, 4 not met (the null passes).
+- **Task 3**: the env is already exported (`env/`, task 2b); the README's required contents were
+  listed — interpreter path and the `conda run` trap, the `fronts` branch state and the two
+  defects' workarounds, every runner M0–M5 in order with the wall times **as logged** (the 42-h
+  chunk pull and the OSN pull not re-run), the three never-import modules, the ~10 GB `data/`
+  and the `git add -f` rule for PNGs.
+- **Acceptance / Do not / Log**: the suite and the number check added to acceptance; the
+  residual's name corrected (the chunk terms were available, and the hourly sampling error is
+  added to "numerics + KPP"); three new "Do not"s (M4's 0.951 / 1.008 and per-front ratios and
+  criterion 2's slopes never as an efficiency; criterion 4 never "met" without "failed as
+  pre-registered" in the same sentence; the three documents not rewritten); the
+  confirmed / overturned list extended through M1–M4 from the log entries, with the planning
+  risk of a 25–80 % interpolation bias recorded as measured at 0.28–1.0 % of `G` per hour (V4).
+
+**Questions for JXP** (`## Q&A` of prompt 6): **M5-Q1** whether the withheld slopes appear in the
+M5 report (recommended: carry M3-Q24 (a) over, no); **M5-Q2** whether the M5 report supersedes
+the interim as a new document, extends it in place, or is an addendum (recommended: a new
+superseding document, the interim untouched); **M5-Q3** the scope of the one command
+(recommended: products by default, `--recompute` for the stores, `--report` for `report/figs/`,
+decks excluded). Tasks 1 and 3 can start on the recommendations; task 2 waits on Q1 and Q2.
+
+**Checked against the sources, not assumed:** `data/` is 9.5 GB (the draft said ~40); the ten M3
+figures redraw in 77 s (`m3_figs_summary.json`); the five M4 runners total 71 min (551 + 1,481 +
+1,276 + 221 + 729 s from their logs); `validate.py`'s `__main__` writes all six V-figures;
+`report/README.md` already records the pandoc build. Nothing else touched; nothing committed.
