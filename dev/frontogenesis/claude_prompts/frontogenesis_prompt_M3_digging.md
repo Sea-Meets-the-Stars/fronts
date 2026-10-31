@@ -14,9 +14,26 @@ than argument, on the stores already on disk, without touching the M3 product or
 checked against the stores and the source on 2026-10-31 (prompt 4 task 11 (i), logged); the
 wall times are from `data/m3_run.log` and `data/m3_closure_summary.json`, not estimates, except
 where a line says "estimate". Five questions, **M3D-Q1..Q5**, are in `## Q&A` at the end.
-**Tasks 1-3 can start now on the recommendations; task 4's closure is not *interpreted* until
-M3D-Q1 is answered (the run itself can start); task 5 waits on M3D-Q2.** The Status paragraph
-convention of prompts 4-6 applies: one per task, added here when it is done.
+~~**Tasks 1-3 can start now on the recommendations; task 4's closure is not *interpreted* until
+M3D-Q1 is answered (the run itself can start); task 5 waits on M3D-Q2.**~~ *(revised
+2026-10-31, before task 1: **all five answered** — M3D-Q1 (a) the three-way reading, Q2 (a) tile
+329, Q3 (a) both velocity columns, Q4 (a) a separate checker, Q5 (a) the same 72 h — so every
+task can run as written; the decisions are marked where each task cites its question.)* The
+Status paragraph convention of prompts 4-6 applies: one per task, added here when it is done.
+
+**Status 2026-10-31 — task 1 done** (Fable 5.1). `budget.derived_path(L, tag=)`;
+`inputs.open_inputs(chunk=None)` with the two invariants skipped *and recorded*; the stores'
+scalar `face` read and required to agree (grid and masks included), `TILE_FACE` a reference
+only; `utc_offset_for_lon` to the nearest half hour (tile 330 stays at −8.0 exactly);
+`m3_run.py --raw/--chunk none/--grid/--masks/--tag`, `--clobber` refused on the product;
+`m3_closure.py --tag/--grid/--masks`, `closure()` tolerant of absent chunk terms (the catch-all
+is then the residual, said so); `series_verify` verifies a chunk-less store. **Regression:**
+pair 0 at `L = 0` through `--tag` equals the product on all 25 variables (NaN-aware, same
+dtypes); the closure re-run on the product matches `m3_closure_summary.json` on **10,895 of
+10,895** numeric leaves; `check_report_numbers.py` OK; nothing in `data/` changed. Suite **300
+passed + 3 xfails** (was 290), 2 deselected, 270 s. Found along the way: `m3_run --no-chunk` had
+never been runnable (`hour_pair` raised on the stripped dataset) — fixed by the same change.
+Log entry "Execution prompt M3-digging, task 1".
 
 ---
 
@@ -28,6 +45,11 @@ convention of prompts 4-6 applies: one per task, added here when it is done.
 | M3-Q28 | **(a)** a short digging note, `report/frontogenesis_M3_digging.md`, **referenced from the interim report** | task 6; one marked paragraph in the interim's §8 |
 | M3-Q29 | **(a)** the tracer starts from the model's own fields at hour 0, the edge margin clamped | task 4's design is fixed |
 | M3-Q30 | **(a)** a surface-only second tile from OSN | task 5; the tile is M3D-Q2 |
+| M3D-Q1 | **(a)** the three-way tracer reading, 0.50 / 0.25 *(decided 2026-10-31)* | task 4 |
+| M3D-Q2 | **(a)** tile 329, west, face 7; 354 the fallback *(decided 2026-10-31)* | task 5 |
+| M3D-Q3 | **(a)** both velocity columns, linear and piecewise constant *(decided 2026-10-31)* | task 4 |
+| M3D-Q4 | **(a)** a separate `check_digging_numbers.py` *(decided 2026-10-31)* | task 6 |
+| M3D-Q5 | **(a)** the same 72 h window for the second tile *(decided 2026-10-31)* | task 5 |
 
 ## What exists, and what each test needs
 
@@ -278,7 +300,8 @@ are advected for 72 h by the model's hourly `U`, `V`:
 - the velocity at each sub-step is **linear in time between the hourly snapshots** (the face
   transports `uT`, `vT` and the Courant rates interpolated, which is the same thing); a
   second column with the velocity **piecewise constant over each hour** (the hour's midpoint
-  velocity, as the budget's semi-Lagrangian step sees it) is M3D-Q3;
+  velocity, as the budget's semi-Lagrangian step sees it) is M3D-Q3 — **decided (a), both
+  columns, 2026-10-31**: `--vel linear` and `--vel piecewise`, two stores, two sweeps;
 - after every sub-step the cells **outside `mask_edge`** (the 7-cell margin, already excluded
   from every statistic) are reset to the model's own `Theta`, `Salt` interpolated in time —
   the clamp of M3-Q29. Record the clamp width and the number of clamped cells in the attrs;
@@ -316,7 +339,8 @@ numbers *would be* if the model's `b` evolved only by resolved advection.
 4. *The pipeline's invariants* on the tracer store: `verify_series` passes; `open_inputs
    (chunk=None)` opens it; `n_lost` at `L = 8` is logged as for the product.
 
-**The pre-declared reading (M3D-Q1; interpret only after it is answered).** With `r_tr(L)`
+**The pre-declared reading (M3D-Q1 — decided (a), 2026-10-31; the thresholds below are
+fixed).** With `r_tr(L)`
 the tracer's residual ratio on its own `front & valid`:
 - at `L = 0`, `r_tr ≥ 0.50` reads "the hourly cadence limits the **analysis** at the grid scale
   even on a within-hour-smooth flow"; `r_tr ≤ 0.25` reads "the limit is the model's own
@@ -351,8 +375,10 @@ only**; the slopes, labelled as calibration, if criterion 1 passed on the tracer
 `py/m3_tile2.py` (resolve, grid, masks, pull, verify) → `data/tile{N}_grid.zarr`,
 `tile{N}_masks.nc`, `tile{N}_raw_20120702T00_72h.zarr`; then `m3_run.py --raw … --grid … --masks
 … --chunk none --tag tile{N}` → `tile{N}_derived_L{L}.zarr`; `m3_closure.py --tag tile{N}` →
-`data/m3_closure_tile{N}_summary.json`; `figs/m3_tile2.png`. The tile is **M3D-Q2**; the window
-is the same 72 h (M3D-Q5) so the local-hour composites line up.
+`data/m3_closure_tile{N}_summary.json`; `figs/m3_tile2.png`. The tile is **M3D-Q2 — decided
+(a), tile 329, 2026-10-31**, so `N = 329` below, face 7, no land; tile 354 is the fallback only
+if the orientation QA fails for more than a one-line fix. The window is the same 72 h (M3D-Q5,
+decided (a)) so the local-hour composites line up.
 
 Steps, in order, each logged with a number:
 1. **Resolve** with `osn_tiles.tile_spec(i_rect, j_rect)` and print the `TileInfo`; pull the
@@ -391,7 +417,8 @@ regime does to the `L = 0` failure and to the diagnosis's cause one.
 
 ### 6. The digging note, and its reference from the interim (M3-Q28 (a))
 
-`report/frontogenesis_M3_digging.md` + `report/check_digging_numbers.py` (M3D-Q4) + figures
+`report/frontogenesis_M3_digging.md` + `report/check_digging_numbers.py` (M3D-Q4, decided (a):
+a separate checker, the interim's frozen) + figures
 copied or referenced from `figs/`; one marked paragraph in the interim report; one marked
 edit in prompt 6.
 
@@ -480,7 +507,7 @@ between → both; and `r_tr(8) ≤ 0.25` → "the filtered-scale failure is not 
 I recommend **(a)**: a three-way reading is what the vet report's objection needs, and the
 numbers are the record's own.
 
-> **JXP:**
+> **JXP:** Yes, use (a)
 
 **M3D-Q2 — Which tile (task 5).** Resolved offline: **tile 329** (west; face 7; lon −143 to
 −128, lat 26.7 to 38.3; open NE Pacific, **no land**) and **tile 354** (north; face 10; lat
@@ -491,7 +518,7 @@ change that task 5's orientation QA must pass; (b) **354** — the same face and
 no QA risk, a second coastal regime; (c) both, 329 first. I recommend **(a)**, with (b) the
 fallback if the orientation QA fails for a reason that is not a one-line fix.
 
-> **JXP:**
+> **JXP:** (a) is fine.
 
 **M3D-Q3 — A piecewise-constant-velocity column for the tracer (task 4).** The driver can
 also advect with the hour's midpoint velocity held constant over the hour — exactly the flow
@@ -501,14 +528,14 @@ interpolation from everything else. Options: (a) **yes, both columns**; (b) line
 I recommend **(a)**: it is cheap, and without it the tracer's residual at `L = 0` conflates two
 things the reading in M3D-Q1 wants separated.
 
-> **JXP:**
+> **JXP:** Yes, use (a)
 
 **M3D-Q4 — The number checker (task 6).** Options: (a) **a separate `check_digging_numbers.py`**
 for the note, the interim's checker frozen with the interim; (b) extend
 `check_report_numbers.py` to both documents. I recommend **(a)**: the interim's checker is
 part of the interim's record, and the note's rules (the tracer's labelled slope) differ.
 
-> **JXP:**
+> **JXP:** Yes, use (a)
 
 **M3D-Q5 — The second tile's window (task 5).** Options: (a) **the same 72 h**, 2012-07-02 00
 to 07-04 23 UTC, so the local-hour composites and the day-3 pairs line up; (b) a different
@@ -516,7 +543,7 @@ to 07-04 23 UTC, so the local-hour composites and the day-3 pairs line up; (b) a
 the question is whether the `L = 0` failure is Monterey's, and one variable at a time answers
 it; (b) would need its own `DAY3_PAIRS` and loses the diurnal alignment.
 
-> **JXP:**
+> **JXP:** (a) is fine.
 
 ## Log
 

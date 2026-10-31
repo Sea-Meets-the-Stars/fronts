@@ -379,16 +379,26 @@ DERIVED_ATTRS = ('L_cells', 'front_pct', 'edge_cells', 'order', 'order_sens', 'm
 N_LOST_MAX_L8 = 34
 
 
-def _derived_vars():
+#: the §3.4 variables that exist only when the chunk store was present
+DERIVED_CHUNK_VARS = ('vertical', 'vertical_factorised', 'surface_flux', 'surface_flux_kpp', 'b_z')
+
+
+def _derived_vars(ds=None):
+    """The variables a derived store must hold: all of ``budget.DERIVED_VARS``,
+    minus the chunk-dependent ones when the store says its chunk terms are
+    absent (``attrs['chunk_terms']``; M3-digging task 1)."""
     import budget as bg
-    return tuple(bg.DERIVED_VARS)
+    want = tuple(bg.DERIVED_VARS)
+    if ds is not None and str(ds.attrs.get('chunk_terms', 'present')).startswith('ABSENT'):
+        want = tuple(v for v in want if v not in DERIVED_CHUNK_VARS)
+    return want
 
 
 def _check_derived_schema(ds: xr.Dataset, L: int) -> dict:
     """The §3.4 (+ M3 additions) contract: every variable, its dims, its
     dtype (``float32`` on disk, ``bool`` for the two masks), one chunk per
     pair, the coords, the time encoding and the root attrs."""
-    want = _derived_vars()
+    want = _derived_vars(ds)
     missing = [v for v in want if v not in ds.data_vars]
     extra = [v for v in ds.data_vars if v not in want + DERIVED_STATIC]
     bad_dims = {v: tuple(ds[v].dims) for v in want if v in ds
@@ -420,7 +430,7 @@ def _check_derived_hours(ds: xr.Dataset, land: np.ndarray, L: int, n_analysis: i
     differenced field is NaN beyond it too), ``time_mid`` is ``time`` plus
     30 min, ``valid`` is inside the analysis mask, and ``n_lost`` obeys M2
     task 3's envelope (0 at ``L <= 4``, ``<= 34`` at ``L = 8``)."""
-    want = _derived_vars()
+    want = _derived_vars(ds)
     land_bad, lost, mid_bad, front_out = {}, [], [], []
     n_valid = []
     for t in range(ds.sizes['time']):

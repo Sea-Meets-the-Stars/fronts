@@ -42,7 +42,11 @@ GRID_ZARR = DATA_DIR / 'tile330_grid.zarr'                      # §3.1 (M0 task
 MASKS_NC = DATA_DIR / 'tile330_masks.nc'                        # §3.5 (M1 task 1)
 
 DT = sl.DT                                                      # 3600 s, hourly snapshots
-TILE_FACE = 10
+TILE_FACE = 10                  # tile 330's face -- a reference only; the stores' own scalar
+                                # ``face`` is read and required to AGREE, not to be 10
+                                # (M3-digging task 1, 2026-10-31)
+#: the §3.3 variables a chunk-less open leaves out (``open_inputs(chunk=None)``)
+CHUNK_ONLY_VARS = ('Theta_k', 'Salt_k', 'W_k', 'oceQnet', 'oceQsw', 'oceFWflx', 'drF')
 RENAME = {'Theta': 'Theta_k', 'Salt': 'Salt_k', 'W': 'W_k'}     # M3-Q6: merge by rename
 # (OSN var, chunk var, its level dim): the k = 0 identity pairs
 IDENTITY = (('Theta', 'Theta_k', 'k'), ('Salt', 'Salt_k', 'k'), ('W', 'W_k', 'k_l'))
@@ -51,8 +55,20 @@ OSN_VARS = ot.CORE_VARS + ot.WIND_VARS                          # the nine §3.2
 MERGED_VARS = OSN_VARS + tuple(RENAME.values()) + FLUX_VARS + ('drF',)   # 16
 MERGED_DIMS = ('time', 'j', 'i', 'i_g', 'j_g', 'k', 'k_l')
 SHARED_COORDS = ('time', 'niter', 'j', 'i', 'XC', 'YC')
-# local solar time for Figure 6: tile centre lon -120.5 -> UTC - 8.0 h (M2 task 3)
+# local solar time for Figure 6: tile centre lon -120.5 -> UTC - 8.0 h (M2 task 3).  Since
+# M3-digging task 1 the offset is derived from the tile's median XC to the nearest half hour
+# (``utc_offset_for_lon``), which gives tile 330 exactly this value; it is written into
+# ``ds.attrs['utc_offset_h']`` by ``open_inputs`` and into every derived store by ``budget``.
 LON_TILE, UTC_OFFSET_H = -120.5, -8.0
+
+
+def utc_offset_for_lon(lon) -> float:
+    """Solar offset from UTC [h] for a longitude, to the **nearest half hour**:
+    ``-120.5 -> -8.0`` (tile 330, M2 task 3's value, unchanged), ``-135.5 ->
+    -9.0`` (tile 329).  Half-hour resolution is what the local-hour composites
+    bin at; a finer offset would move tile 330's pairs across hour boundaries
+    and change the product's composites, which must not happen."""
+    return float(np.round(float(lon) / 15.0 * 2.0) / 2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -68,23 +84,32 @@ def _equal(a, b):
         return bool(np.array_equal(a, b))
 
 
-def assert_shared_coords(osn, chunk):
+def assert_shared_coords(osn, chunk=None):
     """``time`` (3600 s steps), ``niter``, ``j``, ``i``, ``XC``, ``YC`` equal in
-    both stores, scalar ``face = 10`` in both (M2 task 6 verified them)."""
+    both stores, and a scalar ``face`` coord that **agrees** between them
+    (M2 task 6 verified them on tile 330, where it is 10; since M3-digging
+    task 1 the value is read, not asserted).  With ``chunk=None`` only the
+    OSN store's own checks run.  Returns the face."""
+    stores = (('OSN', osn),) + ((('chunk', chunk),) if chunk is not None else ())
     for c in SHARED_COORDS:
-        for name, d in (('OSN', osn), ('chunk', chunk)):
+        for name, d in stores:
             if c not in d.coords:
                 raise KeyError(f'{name} store has no coord {c!r}')
-        if not _equal(osn[c].values, chunk[c].values):
+        if chunk is not None and not _equal(osn[c].values, chunk[c].values):
             raise ValueError(f'coord {c!r} differs between the OSN and chunk stores')
     t = osn['time'].values
     if t.size > 1:
         steps = np.diff(t).astype('timedelta64[s]').astype('int64')
         if not np.all(steps == int(DT)):
             raise ValueError(f'time steps are not {DT:g} s: {np.unique(steps)}')
-    for name, d in (('OSN', osn), ('chunk', chunk)):
-        if 'face' not in d.coords or d['face'].ndim != 0 or int(d['face']) != TILE_FACE:
-            raise ValueError(f'{name} store: face is not the scalar {TILE_FACE}')
+    faces = {}
+    for name, d in stores:
+        if 'face' not in d.coords or d['face'].ndim != 0:
+            raise ValueError(f'{name} store: face is not a scalar coord')
+        faces[name] = int(d['face'])
+    if len(set(faces.values())) != 1:
+        raise ValueError(f'face differs between the stores: {faces}')
+    return faces['OSN']
 
 
 def _hours_of(ds, hours):
@@ -174,53 +199,97 @@ def open_inputs(raw=RAW_ZARR, chunk=CHUNK_ZARR, grid=GRID_ZARR, masks=MASKS_NC, 
     checked by :func:`hour_pair` as they are loaded); ``'all'`` checks every
     hour.  The shared-coord assertions always run on everything opened.
     """
-    osn, ch = _open(raw), _open(chunk)
+    osn = _open(raw)
+    ch = None if chunk is None else _open(chunk)
     if hours is not None:
-        osn, ch = osn.isel(time=hours), ch.isel(time=hours)
-    assert_shared_coords(osn, ch)
-    missing = [v for v in OSN_VARS if v not in osn] + [v for v in list(RENAME) + list(FLUX_VARS) + ['drF']
-                                                         if v not in ch]
+        osn = osn.isel(time=hours)
+        ch = None if ch is None else ch.isel(time=hours)
+    face = assert_shared_coords(osn, ch)
+    missing = [v for v in OSN_VARS if v not in osn]
+    if ch is not None:
+        missing += [v for v in list(RENAME) + list(FLUX_VARS) + ['drF'] if v not in ch]
     if missing:
         raise KeyError(f'variables missing from the stores: {missing}')
     # the OSN store carries k = 0 and k_l = 0 as SCALAR coords (its fields are the surface
     # level); the chunk store has the 3-level k / k_l index dims.  The scalar would collide
     # with the index, and the surface level is k = 0 of the merged dims anyway: drop it.
     osn = osn.drop_vars([c for c in ('k', 'k_l') if c in osn.coords and osn[c].ndim == 0])
-    ch = ch.rename(RENAME)
-    # compat='override': the shared coords were just asserted equal (no second load);
-    # join='exact': an index mismatch is an error, never a silent outer join with NaN
-    ds = xr.merge([osn, ch], compat='override', join='exact', combine_attrs='drop_conflicts')
-    if sorted(ds.data_vars) != sorted(MERGED_VARS):
-        raise ValueError(f'merged vars {sorted(ds.data_vars)} != {sorted(MERGED_VARS)}')
-    if set(ds.dims) != set(MERGED_DIMS):
-        raise ValueError(f'merged dims {tuple(ds.dims)} != {MERGED_DIMS}')
-    n = ds.sizes['time']
+    n = osn.sizes['time']
     if isinstance(check_hours, str) and check_hours == 'all':
         idx = list(range(n))
     elif check_hours is None:
         idx = list(range(n)) if hours is not None else [0]
     else:
         idx = [int(h) for h in check_hours]
-    assert_flux_sign(ds, idx)
-    assert_k0_identity(ds, idx)
+    if ch is not None:
+        ch = ch.rename(RENAME)
+        # compat='override': the shared coords were just asserted equal (no second load);
+        # join='exact': an index mismatch is an error, never a silent outer join with NaN
+        ds = xr.merge([osn, ch], compat='override', join='exact', combine_attrs='drop_conflicts')
+        if sorted(ds.data_vars) != sorted(MERGED_VARS):
+            raise ValueError(f'merged vars {sorted(ds.data_vars)} != {sorted(MERGED_VARS)}')
+        if set(ds.dims) != set(MERGED_DIMS):
+            raise ValueError(f'merged dims {tuple(ds.dims)} != {MERGED_DIMS}')
+        assert_flux_sign(ds, idx)
+        assert_k0_identity(ds, idx)
+        ds.attrs.update(
+            merge='xr.merge([osn, chunk.rename(Theta->Theta_k, Salt->Salt_k, W->W_k)]) (M3-Q6, rename)',
+            chunk='present',
+            source_chunk='in-memory' if isinstance(chunk, xr.Dataset) else str(chunk),
+            k0_identity_checked=idx,
+            k0_identity_policy=('chunk k=0 / k_l=0 bit-identical to OSN; checked on open for the '
+                                'hours listed, and again by inputs.hour_pair on every hour it loads'),
+            flux_sign_guard='sign_convention = positive downward and stored oceQsw >= 0 on the '
+                            'hours checked')
+    else:
+        # M3-digging task 1: the surface store alone.  The vertical and surface-flux terms
+        # will be ABSENT from any budget computed from this (budget.py rule 1); the two
+        # invariants have nothing to check and are recorded as skipped, not as passed.
+        ds = osn
+        if sorted(ds.data_vars) != sorted(OSN_VARS):
+            raise ValueError(f'surface-store vars {sorted(ds.data_vars)} != {sorted(OSN_VARS)}')
+        ds.attrs.update(
+            merge='none: the surface store alone (open_inputs(chunk=None), M3-digging task 1)',
+            chunk='absent', source_chunk='none',
+            k0_identity_checked=[],
+            k0_identity_policy='NOT CHECKED: no chunk store was opened',
+            flux_sign_guard='NOT CHECKED: no fluxes were opened; surface_flux_term cannot run')
     ds.attrs.update(
-        merge='xr.merge([osn, chunk.rename(Theta->Theta_k, Salt->Salt_k, W->W_k)]) (M3-Q6, rename)',
         source_osn='in-memory' if isinstance(raw, xr.Dataset) else str(raw),
-        source_chunk='in-memory' if isinstance(chunk, xr.Dataset) else str(chunk),
-        k0_identity_checked=idx,
-        k0_identity_policy=('chunk k=0 / k_l=0 bit-identical to OSN; checked on open for the hours '
-                            'listed, and again by inputs.hour_pair on every hour it loads'),
-        flux_sign_guard='sign_convention = positive downward and stored oceQsw >= 0 on the hours checked')
+        face=int(face),
+        utc_offset_h=utc_offset_for_lon(np.nanmedian(np.asarray(ds['XC'].values, 'float64'))))
     grid_ds = _open_grid(grid)
     xgrid = ot.build_xgcm(grid_ds)
     masks_ds = _open_masks(masks)
-    # the grid and the masks describe this tile: same XC, same (j, i) shape
+    # the grid and the masks describe this tile: same XC, same (j, i) shape, same face
     if not _equal(grid_ds['XC'].squeeze().values, ds['XC'].values):
         raise ValueError('grid XC differs from the stores\' XC -- not the same tile')
     if tuple(masks_ds['mask_analysis'].shape) != (ds.sizes['j'], ds.sizes['i']):
         raise ValueError(f'mask_analysis shape {masks_ds["mask_analysis"].shape} != '
                          f'{(ds.sizes["j"], ds.sizes["i"])}')
+    for name, f in (('grid', _face_of(grid_ds)), ('masks', _face_of(masks_ds))):
+        if f is not None and int(f) != int(face):
+            raise ValueError(f'{name} face {int(f)} != the stores\' face {int(face)} -- not the '
+                             'same tile')
     return ds, grid_ds, xgrid, masks_ds
+
+
+def _face_of(ds):
+    """The scalar face a grid or masks Dataset carries (its ``face`` coord
+    with one value, or its ``face_index`` attr), or ``None`` if it carries
+    neither (the synthetic grids)."""
+    if 'face' in ds.coords and ds['face'].size == 1:
+        v = np.asarray(ds['face'].values).reshape(-1)[0]
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+    if 'face_index' in ds.attrs:
+        try:
+            return int(ds.attrs['face_index'])
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -328,8 +397,10 @@ def time_mid(ds, t0):
 
 
 def local_solar_hour(t, utc_offset_h=UTC_OFFSET_H):
-    """Hours since local solar midnight for a UTC ``datetime64`` (or array),
-    ``lon -120.5 -> UTC - 8.0 h``: ``KPPhbl`` max ~01 h, min ~13 h (M2 task 3)."""
+    """Hours since local solar midnight for a UTC ``datetime64`` (or array).
+    The default offset is tile 330's, ``lon -120.5 -> UTC - 8.0 h`` (``KPPhbl``
+    max ~01 h, min ~13 h, M2 task 3); another tile passes its own
+    ``ds.attrs['utc_offset_h']`` (:func:`utc_offset_for_lon`)."""
     t = np.asarray(t, dtype='datetime64[ns]')
     sec = (t - t.astype('datetime64[D]')) / np.timedelta64(1, 's')
     return (sec / 3600.0 + utc_offset_h) % 24.0
@@ -347,8 +418,9 @@ def hour_pair(ds, t0):
     out = []
     for t in (t0, t0 + 1):
         h = ds.isel(time=t).load()
-        assert_flux_sign(h)
-        assert_k0_identity(h)
+        if 'Theta_k' in h:                   # the chunk invariants, when there is a chunk
+            assert_flux_sign(h)
+            assert_k0_identity(h)
         h = h.expand_dims('face').astype('float64')   # data vars only; coords keep their dtype
         if 'face' not in h.dims or h.sizes['face'] != 1:
             raise AssertionError('expand_dims(face) did not give a length-1 face dim')

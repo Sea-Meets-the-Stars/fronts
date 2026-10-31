@@ -227,7 +227,7 @@ def test_store_and_closure_paths_keep_no_chunk_separate():
 
 def test_closure_cache_roundtrip_and_corruption(tmp_path, monkeypatch):
     monkeypatch.setattr(mr, 'DATA_DIR', tmp_path)
-    monkeypatch.setattr(mr, 'closure_path', lambda L, nc=False: tmp_path / f'c_L{L}.json')
+    monkeypatch.setattr(mr, 'closure_path', lambda L, nc=False, tag=None: tmp_path / f'c_L{L}.json')
     assert mr.load_closure(0) == {}
     mr.save_closure(0, {'0': {'closed': True}})
     assert mr.load_closure(0) == {'0': {'closed': True}}
@@ -250,11 +250,74 @@ def test_no_chunk_strips_the_chunk_variables(synth):
 
 def test_present_pairs_reads_the_store(two_pairs, monkeypatch):
     out, _ = two_pairs
-    monkeypatch.setattr(mr, 'store_path', lambda L, nc=False: out)
+    monkeypatch.setattr(mr, 'store_path', lambda L, nc=False, tag=None: out)
     assert mr.present_pairs(0, TS) == {0, 1}
     assert mr.present_pairs(0, TS + ['2012-07-02 02:00:00']) == {0, 1}
-    monkeypatch.setattr(mr, 'store_path', lambda L, nc=False: out.parent / 'absent.zarr')
+    monkeypatch.setattr(mr, 'store_path', lambda L, nc=False, tag=None: out.parent / 'absent.zarr')
     assert mr.present_pairs(0, TS) == set()
+
+
+# ---------------------------------------------------------------------------
+# M3-digging task 1: the tag, the chunk-less inputs, the refused clobber
+# ---------------------------------------------------------------------------
+def test_tag_names_every_product_of_a_run_and_defaults_do_not_move():
+    """A tagged run can never collide with the product; no tag is the product."""
+    assert str(mr.store_path(4, tag='tile330tracer')).endswith('tile330tracer_derived_L4.zarr')
+    assert str(mr.closure_path(4, tag='tile330tracer')).endswith('m3_closure_tile330tracer_L4.json')
+    assert mr.log_path('x').name == 'm3_run_x.log' and mr.done_path('x').name == 'm3_run_x_done.json'
+    assert mr.log_path().name == 'm3_run.log' and mr.done_path().name == 'm3_run_done.json'
+    assert mr.store_path(4) == bg.derived_path(4) and mr.closure_path(4).name == 'm3_closure_L4.json'
+    assert mr.store_path(4, tag='t') != mr.store_path(4) != mr.store_path(4, True)
+    assert str(bg.derived_path(2, tag='tile329')).endswith('tile329_derived_L2.zarr')
+    assert bg.derived_path(2, out='/x/y.zarr') == '/x/y.zarr'            # out still wins
+
+
+def test_clobber_on_the_product_is_refused_and_a_tag_or_no_chunk_allows_it(capsys):
+    with pytest.raises(SystemExit):
+        mr.main(['--clobber', '--dry-run'])
+    assert 'refused' in capsys.readouterr().err
+    assert mr.main(['--clobber', '--dry-run', '--tag', 'scratch']) == 0
+    assert mr.main(['--clobber', '--dry-run', '--no-chunk']) == 0
+    with pytest.raises(SystemExit):
+        mr.main(['--dry-run', '--tag', 'bad name'])
+
+
+def test_dry_run_reports_the_inputs_and_a_chunk_none(capsys):
+    assert mr.main(['--dry-run', '--chunk', 'none', '--tag', 'tile329',
+                    '--raw', '/nowhere/raw.zarr']) == 0
+    out = capsys.readouterr().out
+    assert 'tile329_derived_L0.zarr' in out and 'm3_closure_tile329_L0.json' in out
+    assert 'surface store alone' in out and 'chunk none' in out
+    assert '/nowhere/raw.zarr (ABSENT)' in out
+
+
+def test_a_chunk_less_dataset_budgets_with_the_terms_absent_and_carries_its_tile_attrs(synth):
+    """What ``--chunk none`` feeds the sweep: the surface vars only.  The
+    chunk terms are absent (not zero), and the tile's ``utc_offset_h`` and
+    ``face`` from ``inputs.open_inputs`` reach the derived store's attrs."""
+    c, _ = synth
+    ds = c['ds'].copy()
+    ds.attrs.update(chunk='absent', utc_offset_h=-9.0, face=7)
+    bd = bg.compute_budget(ds, c['g'], c['grid'], c['masks'], 0)
+    assert 'vertical' not in bd and 'surface_flux' not in bd and 'b_z' not in bd
+    assert bd.attrs['chunk_terms'].startswith('ABSENT')
+    assert list(bd.attrs['terms_missing']) == ['vertical', 'surface_flux']
+    assert bd.attrs['utc_offset_h'] == -9.0 and bd.attrs['face'] == 7
+    import inputs as inp
+    assert abs(bd.attrs['local_solar_hour']
+               - float(inp.local_solar_hour(bd['time_mid'].values[0], -9.0))) < 1e-9
+    assert bg.closure_report(bd)['closed'] is None
+    # the product's default: no attrs -> tile 330's offset and face
+    bd0 = bg.compute_budget(c['ds'], c['g'], c['grid'], c['masks'], 0)
+    assert bd0.attrs['utc_offset_h'] == -8.0 and bd0.attrs['face'] == 10
+
+
+def test_inputs_of_maps_chunk_none_to_None():
+    import argparse
+    a = argparse.Namespace(raw='r', chunk='NONE', grid='g', masks='m')
+    assert mr._inputs_of(a)['chunk'] is None
+    a.chunk = 'c.zarr'
+    assert str(mr._inputs_of(a)['chunk']) == 'c.zarr'
 
 
 def test_L_contract_is_the_M3_Q3_set():

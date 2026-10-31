@@ -190,6 +190,56 @@ def test_shared_coord_mismatch_raises(stores):
 
 
 # ---------------------------------------------------------------------------
+# M3-digging task 1: the chunk-less open, the face read not assumed, the offset
+# ---------------------------------------------------------------------------
+def test_chunk_none_opens_the_surface_store_alone_and_says_so(stores):
+    ds, g, grid, masks = inp.open_inputs(stores['raw'], None, stores['grid'], stores['masks'])
+    assert sorted(ds.data_vars) == sorted(inp.OSN_VARS) and len(ds.data_vars) == 9
+    assert not any(v in ds for v in inp.CHUNK_ONLY_VARS)
+    assert ds.attrs['chunk'] == 'absent' and ds.attrs['k0_identity_checked'] == []
+    assert 'NOT CHECKED' in ds.attrs['k0_identity_policy']
+    assert 'NOT CHECKED' in ds.attrs['flux_sign_guard']
+    assert ds.attrs['face'] == 10 and 'k' not in [c for c in ds.coords if ds[c].ndim == 0]
+    h0, h1 = inp.hour_pair(ds, 0)                       # the invariants are skipped, not failed
+    assert 'face' in h0.dims and h0['Theta'].dtype == 'float64'
+    b, U, V = inp.filtered(h0, 0)
+    assert b.dims == ('face', 'j', 'i')
+    with pytest.raises(KeyError):                       # no fluxes to read
+        inp.fluxes(ds)
+    with pytest.raises(KeyError):
+        inp.W_k1(ds)
+
+
+def test_face_is_read_and_must_agree_not_be_ten(stores):
+    """Both stores on face 7 open (a second tile, M3D-Q2); a grid on another
+    face than the stores is refused."""
+    osn, chunk = xr.open_zarr(stores['raw']), xr.open_zarr(stores['chunk'])
+    g7 = stores['grid'].assign_coords(face=('face', [7]))
+    ds, *_ = inp.open_inputs(osn.assign_coords(face=7), chunk.assign_coords(face=7), g7,
+                             stores['masks'])
+    assert ds.attrs['face'] == 7
+    ds, *_ = inp.open_inputs(osn.assign_coords(face=7), None, g7, stores['masks'])
+    assert ds.attrs['face'] == 7
+    with pytest.raises(ValueError, match='face'):
+        inp.open_inputs(osn, chunk, g7, stores['masks'])
+    with pytest.raises(ValueError, match='face'):
+        inp.open_inputs(osn.assign_coords(face=7), None, stores['grid'], stores['masks'])
+    assert inp.assert_shared_coords(osn.assign_coords(face=7), None) == 7
+    assert inp._face_of(stores['grid']) == 10 and inp._face_of(stores['masks']) is None
+
+
+def test_utc_offset_to_the_half_hour_keeps_tile_330_at_minus_8(stores):
+    assert inp.utc_offset_for_lon(-120.5) == inp.UTC_OFFSET_H == -8.0     # the product's value
+    assert inp.utc_offset_for_lon(-135.5) == -9.0                          # tile 329
+    assert inp.utc_offset_for_lon(-123.0) == -8.0 and inp.utc_offset_for_lon(-116.0) == -7.5
+    ds, *_ = open_(stores)
+    assert ds.attrs['utc_offset_h'] == inp.utc_offset_for_lon(np.nanmedian(ds['XC'].values))
+    t = np.datetime64('2012-07-02T00:30:00')
+    assert abs(inp.local_solar_hour(t) - 16.5) < 1e-9
+    assert abs(inp.local_solar_hour(t, -9.0) - 15.5) < 1e-9
+
+
+# ---------------------------------------------------------------------------
 # the k = 0 invariant
 # ---------------------------------------------------------------------------
 def _rolled_chunk(stores, hours):

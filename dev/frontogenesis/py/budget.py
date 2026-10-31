@@ -392,7 +392,10 @@ def _pack(fields, valid, front, thr, grid_ds, masks, ds, h0, **meta):
         order=meta['order'], order_sens=meta['order_sens'], front_pct=meta['front_pct'],
         edge_cells=EDGE_CELLS, front_percentile_pool='valid, at the midpoint time',
         time_mid=str(meta['t_mid'])[:19],
-        local_solar_hour=float(inp.local_solar_hour(meta['t_mid'])),
+        local_solar_hour=float(inp.local_solar_hour(
+            meta['t_mid'], float(ds.attrs.get('utc_offset_h', inp.UTC_OFFSET_H)))),
+        utc_offset_h=float(ds.attrs.get('utc_offset_h', inp.UTC_OFFSET_H)),
+        face=int(ds.attrs.get('face', inp.TILE_FACE)),
         measured='DGDt_semilag',
         budget='measured - 2F - subfilter - vertical - surface_flux ~ numerical + interior KPP',
         terms_present=[t for t in TERMS if t in fields], terms_missing=meta['missing'],
@@ -590,8 +593,16 @@ def print_closure(rep):
 # ---------------------------------------------------------------------------
 # the derived store
 # ---------------------------------------------------------------------------
-def derived_path(L, out=None):
-    return DATA_DIR / f'tile330_derived_L{int(L)}.zarr' if out is None else out
+def derived_path(L, out=None, tag=None):
+    """The derived store for ``L``: ``out`` if given; else
+    ``data/{tag}_derived_L{L}.zarr`` for a tagged run (M3-digging task 1:
+    the tracer, a second tile); else the **product**,
+    ``data/tile330_derived_L{L}.zarr``."""
+    if out is not None:
+        return out
+    if tag:
+        return DATA_DIR / f'{tag}_derived_L{int(L)}.zarr'
+    return DATA_DIR / f'tile330_derived_L{int(L)}.zarr'
 
 
 def _encoding(ds):
@@ -645,7 +656,8 @@ def write_derived(budget_ds, L, out=None, clobber: bool = False, log=None):
         present = zs.present_times(out)
     attrs = dict(ds.attrs)
     attrs.update(times=[str(x)[:19] for x in np.append(present, t)],
-                 n_pairs=int(present.size + 1), vars=list(DERIVED_VARS),
+                 n_pairs=int(present.size + 1),
+                 vars=[v for v in DERIVED_VARS if v in ds.data_vars],
                  schema='§3.4 + the M3 additions (b_z, two_F_chain, DGDt_semilag_o5, '
                         'vertical_factorised, lap2_b, front_width, valid, front, KPPhbl, '
                         'coast_distance_km)')

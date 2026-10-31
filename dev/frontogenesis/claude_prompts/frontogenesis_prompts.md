@@ -8234,3 +8234,76 @@ waits on Q1; task 5 waits on Q2.
 **Files.** Created `claude_prompts/frontogenesis_prompt_M3_digging.md`. Modified
 `claude_prompts/frontogenesis_prompt_4.md` (the task 11 status sentences in the header
 paragraph) and this log. Nothing run, nothing committed.
+
+### 2026-10-31 — Execution prompt M3-digging, task 1: the plumbing — a `tag`, a chunk-less open, a `face` read not assumed (Fable 5.1)
+
+**Task.** Generalise the three hard-coded facts tasks 2-5 need, without changing a number: the
+store paths, the requirement for a chunk store, and `face = 10`. JXP's answers to M3D-Q1..Q5
+(all (a), the recommendations) were read first and marked in the prompt where each task cites
+its question; no task needed a change of substance.
+
+**What changed, each in one place.**
+- `budget.derived_path(L, out=None, tag=None)`: `out` wins; a tag gives
+  `data/{tag}_derived_L{L}.zarr`; neither gives the product. `write_derived`'s `vars` attr now
+  lists the variables actually written (it claimed all 25 even on a chunk-less store);
+  `_pack` writes `utc_offset_h` and `face` into every derived store's attrs and computes
+  `local_solar_hour` with the dataset's own offset.
+- `inputs.open_inputs(chunk=None)`: the surface store alone — the nine OSN vars, the k = 0
+  identity and the flux-sign guard **skipped and recorded** (`attrs['chunk'] = 'absent'`,
+  `k0_identity_checked = []`, both policies say "NOT CHECKED"); `hour_pair` runs the two
+  invariants only when the chunk variables are present (before this, `hour_pair` on a stripped
+  dataset would have raised `KeyError` on `oceQnet` — `m3_run --no-chunk` had never actually
+  been run; it works now). `assert_shared_coords(osn, chunk=None)` requires a scalar `face`
+  that **agrees** between the stores and returns it; `open_inputs` records `attrs['face']` and
+  refuses a grid or masks file whose face differs (`_face_of`: the grid's `face` coord or the
+  masks' `face_index` attr; `None` on the synthetic grids). `TILE_FACE = 10` stays as a
+  documented reference and a default, no longer asserted. `utc_offset_for_lon(lon)` gives the
+  solar offset to the **nearest half hour** — `-120.5 -> -8.0`, exactly M2 task 3's value for
+  tile 330 (a finer rule would move pairs across hour bins and change the product's
+  composites), `-135.5 -> -9.0` for tile 329; `open_inputs` writes it from the median `XC`.
+- `m3_run.py`: `--raw`, `--chunk` (a path or `none`), `--grid`, `--masks`, `--tag`;
+  `store_path` / `closure_path` / `log_path` / `done_path` take the tag
+  (`{tag}_derived_L{L}.zarr`, `m3_closure_{tag}_L{L}.json`, `m3_run_{tag}.log`,
+  `m3_run_{tag}_done.json`); `sweep(..., inputs=, tag=)`; the done-file records the tag and the
+  four input paths; **`--clobber` without `--tag` (and without `--no-chunk`) is refused** at
+  argument parsing, with the prompt's "Do not" quoted; a tag with a slash, space or dot is
+  refused. `--no-chunk` is unchanged.
+- `m3_closure.py`: `--tag`, `--grid`, `--masks`; `out_json(tag)` / `out_png(tag)`;
+  `load_pool(..., path=)` pools the fields the store has, computes the per-pair catch-all over
+  the chunk terms present, and takes the local-hour offset from the store's `utc_offset_h`
+  attr (default tile 330's); `closure()` reports `terms_present` / `terms_absent`, builds
+  `terms` and `term_contribution` over the present terms, makes the catch-all the residual
+  itself with a note saying so when there are no chunk terms, and writes `depth_scale_check`
+  and `chunk_terms_help` as `skipped` with a reason (the tail — per-pair distributions, day 3,
+  the verdict — is `_finish`, shared by both paths); `composites` and `format_verdict` tolerate
+  absent terms (`absent` printed in the table); `m3_closure_fig._terms` draws NaN for an absent
+  term. `series_verify._derived_vars(ds)` drops the five chunk-dependent variables when the
+  store's `chunk_terms` attr says ABSENT, so a chunk-less store verifies.
+
+**Regression — the product is bit-identical through the new flags.**
+(i) `m3_run.py --L 0 --pairs 0:1 --tag regress1` (7.2 s): **all 25 variables of pair 0 equal
+the product's** (`np.array_equal`, NaN-aware, same dtypes, same `time` / `time_mid`); the only
+attr differences are the two new keys `face` and `utc_offset_h`; the cached closure report for
+the pair equals the product's `m3_closure_L0.json['0']`. The scratch store, JSON, log and
+done-file were deleted. (ii) `m3_closure.py --out <scratch> --no-fig` on the product: **10,895
+numeric leaves compared with `m3_closure_summary.json`, 0 differ** (`created` and `wall_s`
+excluded); the re-run adds only `terms_present` / `terms_absent` per `L` and the `tag` / `grid`
+/ `masks` provenance keys. `data/m3_closure_summary.json` was not touched;
+`report/check_report_numbers.py` → **OK** (exit 0). (iii) Suite: **300 passed + 3 strict
+xfails**, 2 network deselected, 270 s (was 290 + 3): ten new tests — `test_inputs` (the
+chunk-less open and its recorded skips; the face read-and-agree on face 7 with a grid on
+another face refused; the half-hour offset rule), `test_m3_run` (the tag names every product
+of a run and the defaults do not move; `--clobber` refused on the product and allowed with a
+tag or `--no-chunk`; the dry run reports `--chunk none` and the inputs; `_inputs_of`; a
+chunk-less dataset budgets with the terms absent and carries `utc_offset_h` / `face` to the
+store attrs, the default giving -8.0 / 10), `test_m3_closure` (a pool without the chunk terms
+is its own catch-all, the depth checks skipped, the verdict logic unchanged, `format_verdict`
+prints `absent`; the output paths follow the tag). One new test was first written on
+`test_inputs`' 16-cell synthetic grid, whose `XC` coords xgcm's padded operators reject — a
+fixture limitation, not a plumbing one — and was moved onto `test_m3_run`'s budget fixture.
+
+**Files.** Modified `py/budget.py`, `py/inputs.py`, `py/m3_run.py`, `py/m3_closure.py`,
+`py/m3_closure_fig.py`, `py/series_verify.py`, `py/tests/test_inputs.py`,
+`py/tests/test_m3_run.py`, `py/tests/test_m3_closure.py`,
+`claude_prompts/frontogenesis_prompt_M3_digging.md` (the decisions marked; the Status
+paragraph), this log. No store or JSON in `data/` changed. Nothing committed.

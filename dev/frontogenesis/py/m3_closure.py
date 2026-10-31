@@ -56,6 +56,17 @@ from osn_tiles import DATA_DIR                                 # noqa: E402
 FIG_DIR = HERE.parent / 'figs'
 OUT_JSON = DATA_DIR / 'm3_closure_summary.json'
 OUT_PNG = FIG_DIR / 'm3_closure.png'
+CHUNK_TERMS = bg.CHUNK_TERMS                   # vertical, surface_flux: absent on a chunk-less run
+
+
+def out_json(tag=None):
+    """``m3_closure_summary.json`` for the product; ``m3_closure_{tag}_summary.json``
+    for a tagged run (M3-digging task 1)."""
+    return DATA_DIR / f'm3_closure_{tag}_summary.json' if tag else OUT_JSON
+
+
+def out_png(tag=None):
+    return FIG_DIR / f'm3_closure_{tag}.png' if tag else OUT_PNG
 
 # ---------------------------------------------------------------------------
 # THE PRE-DECLARATION.  Decided 2026-10-07 (M3-Q1/Q2/Q4/Q5/Q9), before the
@@ -164,7 +175,7 @@ POOL_VARS = ('two_F', 'two_F_chain', 'DGDt_semilag', 'DGDt_semilag_o5', 'DGDt_eu
              'lap2_b', 'KPPhbl', 'front_width', 'G', 'coast_distance_km')
 
 
-def load_pool(L, edge13, n_analysis, pcts=(FRONT_PCT,) + FRONT_PCT_SENS, say=print):
+def load_pool(L, edge13, n_analysis, pcts=(FRONT_PCT,) + FRONT_PCT_SENS, say=print, path=None):
     """One pass over a derived store.
 
     Returns ``(per_pair, pools)``.  ``per_pair`` is the pair-by-pair table
@@ -174,12 +185,20 @@ def load_pool(L, edge13, n_analysis, pcts=(FRONT_PCT,) + FRONT_PCT_SENS, say=pri
     sensitivities, the ``edge_cells = 13`` pool, and ``valid`` itself --
     each with every field of :data:`POOL_VARS` plus the block labels, the
     pair index and the local solar hour.
+
+    ``path``: the store to read (default the product's for ``L``).  A store
+    without the chunk terms (M3-digging task 1) pools the fields it has;
+    the per-pair catch-all is then the residual itself.  The local solar
+    hour uses the store's own ``utc_offset_h`` attr when it has one.
     """
-    path = bg.derived_path(L)
+    path = bg.derived_path(L) if path is None else Path(path)
     ds = xr.open_zarr(path)
     n = ds.sizes['time']
+    pool_vars = tuple(k for k in POOL_VARS if k in ds)
+    terms_here = tuple(t for t in TERMS if t in ds)
+    offset = float(ds.attrs.get('utc_offset_h', inp.UTC_OFFSET_H))
     sel_names = [f'p{p:g}' for p in pcts] + ['edge13_p90', 'valid']
-    pools = {s: {k: [] for k in POOL_VARS + ('block', 'block3', 'pair', 'lst')}
+    pools = {s: {k: [] for k in pool_vars + ('block', 'block3', 'pair', 'lst')}
              for s in sel_names}
     rows = []
     dist = np.asarray(ds['coast_distance_km'].values, 'float64')
@@ -189,8 +208,8 @@ def load_pool(L, edge13, n_analysis, pcts=(FRONT_PCT,) + FRONT_PCT_SENS, say=pri
         front = np.asarray(h['front'].values, bool)
         G = np.asarray(h['G'].values, 'float64')
         arrays = {k: (dist if k == 'coast_distance_km'
-                      else np.asarray(h[k].values, 'float64')) for k in POOL_VARS}
-        lst = float(inp.local_solar_hour(h['time_mid'].values))
+                      else np.asarray(h[k].values, 'float64')) for k in pool_vars}
+        lst = float(inp.local_solar_hour(h['time_mid'].values, offset))
         blk = st.space_time_block_ids(valid.shape, p, hours=1)
         blk3 = st.space_time_block_ids(valid.shape, p, hours=3)
         sels = {}
@@ -202,7 +221,7 @@ def load_pool(L, edge13, n_analysis, pcts=(FRONT_PCT,) + FRONT_PCT_SENS, say=pri
         sels['valid'] = valid
         for name, m in sels.items():
             d = pools[name]
-            for k in POOL_VARS:
+            for k in pool_vars:
                 d[k].append(arrays[k][m])
             d['block'].append(blk[m])
             d['block3'].append(blk3[m])
@@ -211,7 +230,7 @@ def load_pool(L, edge13, n_analysis, pcts=(FRONT_PCT,) + FRONT_PCT_SENS, say=pri
         # the per-pair row, on the gate's pool
         f = sels[f'p{FRONT_PCT:g}']
         meas, F2, res = arrays['DGDt_semilag'][f], arrays['two_F'][f], arrays['residual'][f]
-        catch = res + arrays['vertical'][f] + arrays['surface_flux'][f]
+        catch = res + sum((arrays[t][f] for t in CHUNK_TERMS if t in arrays), 0.0)
         row = dict(pair=p, lst=lst, n_front=int(f.sum()), n_valid=int(valid.sum()),
                    n_lost=int(n_analysis - valid.sum()),
                    rms_measured=_rms(meas), rms_two_F=_rms(F2),
@@ -223,7 +242,7 @@ def load_pool(L, edge13, n_analysis, pcts=(FRONT_PCT,) + FRONT_PCT_SENS, say=pri
                    meas_on_2F=_fit(F2, meas)['ols'],
                    euler_slope=_fit(arrays['DGDt_semilag'][f], arrays['DGDt_euler'][f])['ols'],
                    euler_corr=_fit(arrays['DGDt_semilag'][f], arrays['DGDt_euler'][f])['corr'])
-        for t in TERMS:
+        for t in terms_here:
             row[f'{t}_over_meas'] = _rms(arrays[t][f]) / row['rms_measured']
             row[f'{t}_over_2F'] = _rms(arrays[t][f]) / row['rms_two_F']
         row['subfilter_corr_2F'] = _fit(F2, arrays['subfilter'][f])['corr']
@@ -245,21 +264,27 @@ def closure(pool, rows, L):
     the verdict against M3-Q1 -- pooled over the 71 pairs and summarised per
     pair."""
     meas, F2, res = pool['DGDt_semilag'], pool['two_F'], pool['residual']
-    catch = res + pool['vertical'] + pool['surface_flux']
+    present = [t for t in TERMS if t in pool]
+    chunk_here = [t for t in CHUNK_TERMS if t in pool]
+    catch = res + sum((pool[t] for t in chunk_here), 0.0)
     r_meas, r_2F = _rms(meas), _rms(F2)
     out = dict(L=int(L), n=int(meas.size), n_pairs=len(rows),
                rms_measured=r_meas, rms_two_F=r_2F,
+               terms_present=present,
+               terms_absent=[t for t in TERMS if t not in pool],
                terms={t: dict(rms=_rms(pool[t]), over_measured=_rms(pool[t]) / r_meas,
                               over_two_F=_rms(pool[t]) / r_2F,
-                              corr_with_2F=_fit(F2, pool[t])['corr']) for t in TERMS},
+                              corr_with_2F=_fit(F2, pool[t])['corr']) for t in present},
                residual=dict(rms=_rms(res), over_measured=_rms(res) / r_meas,
                              over_two_F=_rms(res) / r_2F, explained=_explained(meas, res),
                              slope_on_2F=_fit(F2, res)['ols'], corr_on_2F=_fit(F2, res)['corr']),
                catchall=dict(rms=_rms(catch), over_measured=_rms(catch) / r_meas,
                              explained=_explained(meas, catch),
                              slope_on_2F=_fit(F2, catch)['ols'],
-                             note='residual + vertical + surface_flux: what the residual would '
-                                  'be with no chunk store (the Q13 comparison)'),
+                             note=('residual + vertical + surface_flux: what the residual would '
+                                   'be with no chunk store (the Q13 comparison)' if chunk_here else
+                                   'IDENTICAL TO THE RESIDUAL: this store has no chunk terms, '
+                                   'so its residual IS the catch-all (M3-digging task 1)')),
                measured_on_2F=_fit(F2, meas))
     # Does each term explain the residual it is supposed to?  The multiplier
     # that would MINIMISE the residual is +1 for a correct term, -1 for one
@@ -267,8 +292,8 @@ def closure(pool, rows, L):
     # uncorrelated with what is left -- which is a different finding, and the
     # one the Q13 decision turns on.
     out['term_contribution'] = {}
-    for t in TERMS:
-        rest = meas - sum(pool[u] for u in TERMS if u != t)      # the residual without this term
+    for t in present:
+        rest = meas - sum(pool[u] for u in present if u != t)    # the residual without this term
         k = _fit(pool[t], rest)
         out['term_contribution'][t] = dict(
             optimal_multiplier=k['ols'], corr_with_rest=k['corr'],
@@ -304,6 +329,12 @@ def closure(pool, rows, L):
     # best-scaled version of the term leaves the residual where it was,
     # because the term is orthogonal to it.
     kpp = pool['KPPhbl']
+    if 'surface_flux' not in present:
+        out['depth_scale_check'] = dict(
+            skipped='no surface_flux term in this store (chunk-less run, M3-digging task 1)')
+        out['chunk_terms_help'] = dict(
+            skipped='no chunk terms in this store: the residual is the catch-all')
+        return _finish(out, rows, L)
     sf = out['term_contribution']['surface_flux']
     out['depth_scale_check'] = dict(
         optimal_multiplier=sf['optimal_multiplier'],
@@ -343,6 +374,12 @@ def closure(pool, rows, L):
         explained_gain=out['residual']['explained'] - out['catchall']['explained'],
         note='rms_ratio < 1 means subtracting the measured vertical and surface-flux terms '
              'REDUCES the residual; > 1 means it makes it worse')
+    return _finish(out, rows, L)
+
+
+def _finish(out, rows, L):
+    """The per-pair distributions, the day-3 subset and the verdict -- the
+    tail of :func:`closure`, shared by the full and the chunk-less paths."""
     per = {k: _dist([r[k] for r in rows]) for k in
            ('resid_over_meas', 'catchall_over_meas', 'explained', 'resid_on_2F', 'meas_on_2F')}
     out['per_pair'] = per
@@ -429,9 +466,10 @@ def composites(pool):
     res, meas = pool['residual'], pool['DGDt_semilag']
     out = dict()
     hrs = np.floor(pool['lst']).astype(int) % 24
+    present = [t for t in TERMS if t in pool]
     out['by_local_hour'] = {int(h): dict(
         n=int((hrs == h).sum()), resid_over_meas=_rms(res[hrs == h]) / _rms(meas[hrs == h]),
-        **{f'{t}_over_meas': _rms(pool[t][hrs == h]) / _rms(meas[hrs == h]) for t in TERMS})
+        **{f'{t}_over_meas': _rms(pool[t][hrs == h]) / _rms(meas[hrs == h]) for t in present})
         for h in np.unique(hrs)}
     d = pool['coast_distance_km']
     edges = [0, 100, 150, 200, 300, np.inf]
@@ -522,16 +560,22 @@ def slopes(pools, L, n_boot=N_BOOT, say=print):
 # ---------------------------------------------------------------------------
 # the driver
 # ---------------------------------------------------------------------------
-def run(Ls=REPORT_L, n_boot=N_BOOT, say=print) -> dict:
-    g = ot.open_grid(inp.GRID_ZARR, with_face=True)
+def run(Ls=REPORT_L, n_boot=N_BOOT, say=print, *, tag=None, grid=None, masks=None) -> dict:
+    """The closure on the product (no ``tag``) or on a tagged run's stores
+    (M3-digging task 1), with the grid and masks of that tile."""
+    g = ot.open_grid(inp.GRID_ZARR if grid is None else grid, with_face=True)
     edge13 = mk.analysis_mask(g, edge_cells=13)
-    n_analysis = int(inp._open_masks(inp.MASKS_NC)['mask_analysis'].values.sum())
+    n_analysis = int(inp._open_masks(inp.MASKS_NC if masks is None else masks)
+                     ['mask_analysis'].values.sum())
     out = dict(declared=DECLARED, created=time.strftime('%Y-%m-%dT%H:%M:%S'),
-               stores={str(L): str(bg.derived_path(L)) for L in Ls}, per_L={})
+               tag=tag, grid=str(inp.GRID_ZARR if grid is None else grid),
+               masks=str(inp.MASKS_NC if masks is None else masks),
+               stores={str(L): str(bg.derived_path(L, tag=tag)) for L in Ls}, per_L={})
     for L in Ls:
         t = time.time()
         say(f'--- L = {L}')
-        rows, pools = load_pool(L, edge13, n_analysis, say=say)
+        rows, pools = load_pool(L, edge13, n_analysis, say=say,
+                                path=bg.derived_path(L, tag=tag))
         gate = pools[f'p{FRONT_PCT:g}']
         c = closure(gate, rows, L)
         s = slopes(pools, L, n_boot=n_boot, say=say)
@@ -577,17 +621,26 @@ def main(argv=None) -> int:
     ap.add_argument('--L', default=','.join(str(L) for L in REPORT_L),
                     type=lambda s: [int(x) for x in s.split(',') if x])
     ap.add_argument('--n-boot', type=int, default=N_BOOT)
-    ap.add_argument('--out', default=str(OUT_JSON))
+    ap.add_argument('--out', default=None,
+                    help='the summary JSON (default m3_closure_summary.json, or '
+                         'm3_closure_{tag}_summary.json with --tag)')
     ap.add_argument('--no-fig', action='store_true')
+    ap.add_argument('--tag', default=None,
+                    help='read data/{tag}_derived_L{L}.zarr (M3-digging task 1); the product '
+                         'without it')
+    ap.add_argument('--grid', default=None, help='the tile\'s static grid (default tile 330)')
+    ap.add_argument('--masks', default=None, help='the tile\'s §3.5 masks (default tile 330)')
     args = ap.parse_args(argv)
-    res = run(args.L, n_boot=args.n_boot)
-    Path(args.out).write_text(json.dumps(res, indent=1, default=str))
-    print(f'wrote {args.out}')
+    out = Path(args.out) if args.out else out_json(args.tag)
+    res = run(args.L, n_boot=args.n_boot, tag=args.tag, grid=args.grid, masks=args.masks)
+    out.write_text(json.dumps(res, indent=1, default=str))
+    print(f'wrote {out}')
     print(format_verdict(res))
     if not args.no_fig:
         from m3_closure_fig import figure
-        figure(res, OUT_PNG)
-        print(f'wrote {OUT_PNG}')
+        png = out_png(args.tag)
+        figure(res, png)
+        print(f'wrote {png}')
     return 0
 
 
@@ -602,9 +655,11 @@ def format_verdict(res) -> str:
     for L, d in res['per_L'].items():
         c = d['closure']
         t = c['terms']
+
+        def _f(name):
+            return f'{t[name]["over_measured"]:7.3f}' if name in t else f'{"absent":>7}'
         out.append(
-            f'  {L:>3} {t["two_F"]["over_measured"]:7.3f} {t["subfilter"]["over_measured"]:7.3f} '
-            f'{t["vertical"]["over_measured"]:7.3f} {t["surface_flux"]["over_measured"]:7.3f} '
+            f'  {L:>3} {_f("two_F")} {_f("subfilter")} {_f("vertical")} {_f("surface_flux")} '
             f'{c["residual"]["over_measured"]:7.3f} {c["catchall"]["over_measured"]:7.3f} '
             f'{c["residual"]["explained"]:7.3f} {c["residual"]["slope_on_2F"]:+7.3f} '
             f'{c["measured_on_2F"]["ols"]:7.3f}  '
