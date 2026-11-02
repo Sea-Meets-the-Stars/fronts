@@ -35,6 +35,49 @@ passed + 3 xfails** (was 290), 2 deselected, 270 s. Found along the way: `m3_run
 never been runnable (`hour_pair` raised on the stripped dataset) — fixed by the same change.
 Log entry "Execution prompt M3-digging, task 1".
 
+**Status 2026-10-31 — task 2 done** (Fable 5.1). `py/m3_controls.py` → `data/m3_controls_summary.json`,
+`data/m3_case_controls.json`, `figs/m3_controls.png` (needs `git add -f`); 9 tests; the
+declaration written to disk before any store opened; draws as declared; the real pool
+reproduces the product to < 1e-6. **Skill over no-skill at every `L`** by the declared rule:
+real residual ratio 0.813 / 0.841 / 0.898 / 1.042 against the permutation's 1.081 / 1.098 /
+1.127 / 1.238 (p5 1.067 / 1.088 / 1.117 / 1.227; spread 0.007-0.011) and the 24-h lag's 1.108 /
+1.098 / 1.090 / 1.199 — gaps of 20-39 permutation-sd, 3.8-12.6 real half-widths; the
+independent-field reference 1.13-1.19 reproduced to the second decimal. **Recorded against
+the rule:** the roll control (median 1.04-1.07, wide) does **not** separate at `L = 8` — the
+real 1.042 lies inside its 5-95 % band; the lag control is *higher* than the permutation at
+`L = 0-2` (keeping the diurnal phase of `V`, `S` does not help a wrong flow). The residual's
+"positive at every local hour" **survives the shuffle** (24/24 h for the lagged control too):
+not a missing term's signature. Selections: `G_prev` and `persist` are indistinguishable
+from the gate (0.810 vs 0.813 at `L = 0`); `sigma_mag` p90 gives 0.781 / 0.794 / 0.828 /
+0.946 with a steeper residual slope on `2F` (+0.55 to +0.69). Blocks: 3 / 12 / 24-h widen the
+ratio's interval 1.6-1.75 / 2.7-3.1 / 3.4-4.1×; the skill margins survive. The case re-seeded
+12 h earlier (×0.19, control ×0.93, `2F`/obs +0.01, budget/obs **+0.63**) and on persistence
+(×0.21, ×0.89, −0.08, +0.93) against the original ×0.19 / ×0.89 / −0.08 / +0.99: the decay is
+selection at any seed; the four-term integral's 0.99 is not robust. Wall 2 min 50 s in all
+(28-32 s per `L`; the estimate was an order of magnitude high). Suite **309 passed + 3
+xfails**, 2 deselected, 273 s. Log entry "Execution prompt M3-digging, task 2".
+
+**Status 2026-10-31 — task 3 done** (Fable 5.1). `py/m3_term_tests.py` → `data/m3_term_tests_summary.json`,
+`figs/m3_term_tests.png` (needs `git add -f`); `inputs.W_k2`; 8 tests; the declaration on
+disk before any store opened; no field written. **Identity:** the three components sum to the
+recomputed term to ≤ 5.5e-15, and the recomputed `surface_flux` / `surface_flux_kpp` /
+`vertical` / `vertical_factorised` equal the stored ones **exactly** (float32). **The split:**
+`S` is the non-solar heat term (98-100 % of its rms, corr +1.00); shortwave 14 % and
+anti-correlated with it, freshwater 11 % and collinear with it; no component correlates with
+the imbalance above +0.03; the three-multiplier fit leaves **0.995-0.998** of the imbalance's
+rms (≤ 1 % explained however weighted), with the freshwater multiplier −12 to −2.5 (a
+collinearity artefact) and the others drifting from +1.4 to +0.3 with `L` — **the declared
+cancellation rule fails at every `L`, both depth forms: §6.2 stands, component by component.**
+The pool mean of `I` is within ±0.03 of zero at every local hour while `S`'s is −0.07 to
+−0.22 at every hour: **the residual's "positive at every local hour" is the negative of `S`'s
+own frontolytic mean, not a missing term** (task 2's lagged control said the same).
+**`V` from the second cell:** 0.8-2.3× the top cell's rms (larger by day), correlated
++0.86 to +0.97, **the same sign in all 8 cases** (negative by day, positive at night); the
+order-2 `b_z` changes the factorised form by 0.6-1.8 %. The numbers support §2.4's reading
+(a discretisation term that scales with the cell) over "grid artefact"; `V` is 1-5 % of the
+amplitude either way. Wall 688 s (split) + 11 s (`V`); suite **316 passed + 3 xfails**. Log
+entry "Execution prompt M3-digging, task 3".
+
 ---
 
 ## What JXP decided (prompt 4, M3-Q27..Q30)

@@ -318,6 +318,25 @@ def W_k1(ds):
     return w
 
 
+def W_k2(ds):
+    """``ds.W_k.isel(k_l=2)``: the vertical velocity at the base of the
+    **second** cell (source ``k_p1 = 2``, ``Zl = -2.14 m``) -- what the
+    second cell's own tilting term takes (M3-digging task 3 (b), the vet
+    report's "V from a different top cell").  Same guards as :func:`W_k1`;
+    the level coords are dropped."""
+    W = ds['W_k']
+    if 'k_l' not in W.dims or W.sizes['k_l'] < 3:
+        raise ValueError(f'W_k needs a k_l dim with at least 3 interfaces, got dims {W.dims}')
+    w = W.isel(k_l=2, drop=True)
+    op.assert_dims(w, tuple(d for d in W.dims if d != 'k_l'), 'W_k2')
+    w.name = 'W_k2'
+    w.attrs.update(units='m s-1', k_l=2, source_dim='k_p1', source_index=2,
+                   Zl_m=float(ds['Zl'].values[2]) if 'Zl' in ds.coords else -2.14,
+                   long_name='vertical velocity at the base of the second cell, W(k_l=2) = source W(k_p1=2)',
+                   note='the cell-base velocity for the SECOND cell\'s tilting term (M3-digging task 3)')
+    return w
+
+
 def drF(ds):
     """``drF(k)`` [m] from the store as float64, ``[1.0, 1.14, 1.30]``;
     ``drF[0] = 1.0`` asserted (M2 tasks 4-5)."""

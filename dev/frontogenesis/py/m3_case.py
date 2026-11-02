@@ -150,10 +150,19 @@ def _uv(ds, t):
     return h['U'], h['V']
 
 
+PERSIST_HALF, PERSIST_MIN = 3, 5      # 'persist': front in >= 5 of the 7 pairs t0-3..t0+3
+
+
 def run(t0=T0, n_back=NB, n_fwd=NF, box=BOX, seed_box=SEED_BOX, L=L_CASE,
-        n_control=N_CONTROL, seed=0):
+        n_control=N_CONTROL, seed=0, seed_rule='p90', out_json=OUT_JSON, out_npz=OUT_NPZ):
     """Follow the box's front pixels through a window centred on pair ``t0`` and write the
     summary and the figure arrays.
+
+    ``seed_rule`` (M3-digging task 2 (d)): ``'p90'`` seeds on the front pixels of the corridor
+    at ``t0`` (the §5.1 case); ``'persist'`` seeds on the corridor pixels that are ``front`` in
+    at least :data:`PERSIST_MIN` of the ``2 * PERSIST_HALF + 1`` pairs around ``t0``.
+    ``out_json`` / ``out_npz`` default to the §5.1 products; the re-seeded controls write
+    elsewhere so the originals are never touched (``out_npz=False`` skips the arrays).
 
     Time base: everything lives on the **midpoint-time** grid, where pair ``t``'s fields sit at
     ``t + 0.5`` h.  A parcel is carried from one midpoint to the next by the model's velocity at
@@ -174,7 +183,14 @@ def run(t0=T0, n_back=NB, n_fwd=NF, box=BOX, seed_box=SEED_BOX, L=L_CASE,
 
     G_all = der['G'].values                                   # midpoint G, every pair
     sbj, sbi = slice(seed_box['j0'], seed_box['j1']), slice(seed_box['i0'], seed_box['i1'])
-    seeds = seed_parcels(der['front'].isel(time=t0).values[sbj, sbi], seed_box)
+    if seed_rule == 'p90':
+        seed_mask = der['front'].isel(time=t0).values[sbj, sbi]
+    elif seed_rule == 'persist':
+        fr = der['front'].isel(time=slice(t0 - PERSIST_HALF, t0 + PERSIST_HALF + 1)).values
+        seed_mask = fr[:, sbj, sbi].sum(axis=0) >= PERSIST_MIN
+    else:
+        raise ValueError(f"seed_rule must be 'p90' or 'persist', got {seed_rule!r}")
+    seeds = seed_parcels(seed_mask, seed_box)
     valid_box = der['valid'].isel(time=t0).values[sj, si]
     jj, ii = np.where(valid_box)
     pick = np.random.default_rng(seed).choice(len(jj), size=min(n_control, len(jj)),
@@ -288,8 +304,13 @@ def run(t0=T0, n_back=NB, n_fwd=NF, box=BOX, seed_box=SEED_BOX, L=L_CASE,
         source=dict(derived=str(DERIVED).format(L=L), raw='tile330_raw_20120702T00_72h.zarr'),
         case=dict(
             L=L, box=box, seed_box=seed_box, t0=int(t0), n_back=int(n_back), n_fwd=int(n_fwd),
-            seed_rule=('front pixels (G >= p90 over the analysis mask) inside the seed '
-                       'corridor at t0 -- one filament, not every front in the display box'),
+            seed_rule=(('front pixels (G >= p90 over the analysis mask) inside the seed '
+                        'corridor at t0 -- one filament, not every front in the display box')
+                       if seed_rule == 'p90' else
+                       (f'corridor pixels that are front in >= {PERSIST_MIN} of the '
+                        f'{2 * PERSIST_HALF + 1} pairs t0-{PERSIST_HALF}..t0+{PERSIST_HALF} '
+                        '(M3-digging task 2 (d), persistence seeding)')),
+            seed_rule_name=seed_rule,
             seed_lat=[float(der['YC'].values[sbj, sbi].min()),
                       float(der['YC'].values[sbj, sbi].max())],
             seed_lon=[float(der['XC'].values[sbj, sbi].min()),
@@ -335,12 +356,14 @@ def run(t0=T0, n_back=NB, n_fwd=NF, box=BOX, seed_box=SEED_BOX, L=L_CASE,
         residual_over_measured=front_terms['residual']['rms_over_measured'],
         checks=dict(trajectory=check_traj, rate=check_rate),
     )
-    OUT_JSON.write_text(json.dumps(out, indent=1))
+    pathlib.Path(out_json).write_text(json.dumps(out, indent=1))
+    if out_npz is False:
+        return out
 
     # --- the small arrays the figures draw ----------------------------------
     map_pairs = [t0, t0 + n_fwd // 3, t0 + 2 * n_fwd // 3, t0 + n_fwd]
     np.savez_compressed(
-        OUT_NPZ,
+        out_npz,
         G_box=np.stack([G_all[t][sj, si] for t in map_pairs]).astype('f4'),
         b_box=np.stack([der['b'].isel(time=t).values[sj, si] for t in map_pairs]).astype('f4'),
         two_F_box=np.stack([der['two_F'].isel(time=t).values[sj, si]

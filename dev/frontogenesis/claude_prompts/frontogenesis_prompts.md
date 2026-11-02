@@ -8307,3 +8307,244 @@ fixture limitation, not a plumbing one — and was moved onto `test_m3_run`'s bu
 `py/tests/test_m3_run.py`, `py/tests/test_m3_closure.py`,
 `claude_prompts/frontogenesis_prompt_M3_digging.md` (the decisions marked; the Status
 paragraph), this log. No store or JSON in `data/` changed. Nothing committed.
+
+### 2026-10-31 — Execution prompt M3-digging, task 2: the controls — a number for "no skill", and the pooling checks (Fable 5.1)
+
+**Task.** Give the vet report's red-team question ("is 0.81-1.04 what random noise of the same
+variance would give?") a measured answer, three ways, and run the pooling checks (vet §6 items
+1a, 5a, 5b, §7). `py/m3_controls.py` (+ `m3_controls_fig.py`, `tests/test_m3_controls.py`,
+9 tests) → `data/m3_controls_summary.json`, `data/m3_case_controls.json`,
+`figs/m3_controls.png`. The four product stores were read and not written;
+`m3_closure_summary.json` and `m3_case_summary.json` untouched. JXP's answers to M3D-Q1..Q5
+re-read first: no change to this task.
+
+**Pre-declared, and written to the JSON before any store was opened** (`write_declared`;
+pinned by a test that makes the loader raise): skill over no-skill at an `L` = the real
+residual ratio below the **5th percentile** of the permutation distribution AND below the
+24-h-lag control by more than the real 32-cell / 3-h block-bootstrap half-width; a reference,
+not a gate. `default_rng(0)`; **20** permutations, each a derangement; **20** rolls with
+`|dj|, |di| >= 64` cells; lags 24 and 48 h without wrap; bootstrap 1,000 draws, blocks 1 / 3 /
+12 / 24 h. The run used exactly the declared draws (`draws.as_declared = True`). The real
+pool's residual ratio reproduces the product's at every `L` to < 1e-6 (`product_check`).
+
+**(a) The controls — the residual ratio, `front & valid` of the measured pair:**
+
+| `L` | real [3-h CI] | independent-field ref. | permutation median (p5-p95) | 24-h lag [CI] | 48-h lag | roll median (p5-p95) | skill |
+|---|---|---|---|---|---|---|---|
+| 0 | **0.813** [0.791, 0.838] | 1.127 | 1.081 (1.067-1.089) | 1.108 [1.088, 1.129] | 1.184 | 1.037 (1.003-1.362) | yes |
+| 2 | **0.841** [0.815, 0.871] | 1.164 | 1.098 (1.088-1.107) | 1.098 [1.073, 1.126] | 1.237 | 1.045 (1.004-1.605) | yes |
+| 4 | **0.898** [0.868, 0.931] | 1.187 | 1.127 (1.117-1.137) | 1.090 [1.057, 1.129] | 1.282 | 1.057 (1.006-1.71) | yes |
+| 8 | **1.042** [1.002, 1.085] | 1.194 | 1.238 (1.227-1.249) | 1.199 [1.140, 1.268] | 1.367 | 1.066 (1.010-1.55) | yes |
+
+The gap real − control: permutation **−0.27 / −0.26 / −0.23 / −0.20**, i.e. 39 / 29 / 21 / 20
+permutation-sd and 11.4 / 9.2 / 7.4 / 4.7 real half-widths; the 24-h lag −0.30 / −0.26 / −0.19
+/ −0.16 (12.6 / 9.2 / 6.2 / 3.8 half-widths). **The declared rule passes at every `L`**: the
+real residual is well below anything a shuffled flow gives. The permutation median sits
+0.03-0.06 **below** the independent-field reference `sqrt(1 + (rms 2F/rms meas)²)` — the
+selection's effect, as expected — so the back-of-envelope of 2026-10-31 (1.13 / 1.19) was
+right to the second decimal and is now measured. The other statistics say the same thing
+more sharply: the explained fraction is +0.34 / +0.30 / +0.21 / −0.05 real against −0.17 /
+−0.20 / −0.26 / −0.51 (permutation) and −0.23 / −0.20 / −0.18 / −0.41 (lag); the residual's
+slope on `2F` is +0.44 / +0.45 / +0.46 / +0.53 real against **−0.69 / −0.47 / −0.25 / +0.03**
+for a permutation (a no-skill residual slopes on `2F` at ≈ −1 at the grid scale, because the
+residual then contains −2F itself); the measured side correlates +0.70 / +0.67 / +0.62 / +0.54
+with its own `2F` and +0.10 / +0.12 / +0.15 / +0.18 with a stranger's.
+
+**Two things the rule does not say, recorded plainly.** (i) **The spatial roll is the weakest
+control and at `L = 8` it does not separate**: its median is 1.04 / 1.05 / 1.06 / 1.07 with a
+wide, skewed spread (rolls that land the predicted field on the tile's land or edge inflate the
+residual), and at `L = 8` the real 1.042 lies **inside** the roll's 5-95 % band (1.010-1.55);
+the gap is −0.02, 0.1 roll-sd. At `L = 0-4` the real value is below the roll's p5. So at the
+coarsest scale the budget's residual is no better than "the same pair's terms moved 64+ cells
+sideways" — which is consistent with criterion 1's failure being worst there, and is the
+reading the vet report's §6 item 2 asked for (the sampling claim is not the whole story at
+filtered scales). (ii) **The lagged control is *higher* than the permutation at `L = 0-2`**
+(1.108 vs 1.081): keeping the diurnal phase of `V` and `S` does not help a control, because
+those terms are near-orthogonal to the imbalance (§6.2 of the interim) — the lag's optimal
+multiplier on `surface_flux` is 0.40-0.51 against the real 0.03-0.05 and the permutation's
+0.01-0.13, i.e. the diurnal phase of `S` is "explained" only when the flow is wrong.
+
+**The diurnal composite survives the shuffle**: the real residual's mean is positive at
+**24 of 24** local hours (ratio 0.77-0.87 at `L = 0`) and so is the 24-h-lag control's
+(24/24; ratio 1.05-1.20). "Positive at every local hour" is therefore **not** evidence of a
+systematic term the budget misses: a residual with the wrong flow in it has the same sign
+structure. The catch-all (no chunk terms) is 0.739 real vs 1.052 permuted at `L = 0`.
+
+**(b) Other selections** (residual ratio / explained / residual slope on `2F`, `L = 0 / 8`):
+p90 (the gate) 0.813 / +0.344 / +0.440 and 1.042 / −0.051 / +0.529; **`G_prev`** (the previous
+pair's `G`, p90; n 1,840,510) **0.810 / +0.349 / +0.442** and 1.043 / −0.053 / +0.530 —
+indistinguishable from the gate: selecting on the pair's own midpoint `G` is **not** a
+selection-on-the-outcome effect of any size; **`persist`** (front in n−1, n, n+1; n 1.54-1.72 M)
+0.810 / +0.350 / +0.443 and 1.047 / −0.059 / +0.530 — the same; p80 / p95 0.817 / 0.807 and
+1.045 / 1.038 — the same; **`sigma_mag` p90** (selected on strain, n 1,866,804) **0.781 / +0.391 /
++0.554** and **0.946 / +0.133 / +0.691** — the one selection that moves the numbers, and in the
+direction of a *better* closure (0.07-0.10 lower ratio), with a *steeper* residual slope on
+`2F` (+0.55 to +0.69): where the strain is large, `2F` is large and the measured side follows
+it more, but the residual grows with `2F` even faster. Selecting on the flow rather than the
+gradient does not close the budget either.
+
+**(c) Longer blocks** — the interval width of the residual ratio relative to 1-h blocks:
+3 h **1.75 / 1.67 / 1.63 / 1.73×**, 12 h 2.68 / 2.77 / 2.67 / 3.13×, 24 h **3.37 / 3.38 / 3.70 /
+4.08×** (the slope's: 1.59 / 2.60 / 3.27× at `L = 0`). The intervals keep widening to the
+longest block, i.e. the hour-to-hour correlation M2 task 3 saw (χ²/dof 1.8) extends to the
+day; the 3-h factor (1.6-1.75) matches M3 task 5's 1.58×. With 24-h blocks the real 3-h
+interval quoted above would be ~2× wider — [0.77, 0.86] at `L = 0` — and the skill rule's
+margins (4.7-11.4 half-widths at 3 h) survive it at every `L`.
+
+**(d) The case re-seeded** (`m3_case.run(seed_rule=, out_json=, out_npz=)` added; the §5.1
+products untouched; both runs' two checks pass — return error 1e-3 cells, rate corr 0.92 /
+0.90): seeded **12 h earlier** (pair 18, 07-02 18 UTC; 453 parcels; window −18/+24 h): change
+×**0.19**, control ×0.93, `2F`/observed +0.01, budget/observed +0.63; seeded on
+**persistence** (front in ≥ 5 of 7 pairs; 433 parcels): ×**0.21**, ×0.89, −0.08, +0.93; the
+original: ×0.19, ×0.89, −0.08, +0.99. The factor-of-five decay of the selected set is the
+same whenever and however it is seeded, the unselected control does not move, and `2F` alone
+predicts none of the change either way; the full four-term integral's "0.99" is not robust
+(0.63 at the other seed time) — which is the vet report's §7 reading, and it is now a number.
+22-24 s per run.
+
+**Wall.** 28-32 s per `L` (the estimate of 1-2 min per `L` per control family was high by an
+order of magnitude: the moment-form bootstrap — `ratio_rms` and `explained` carry
+`stats._moment_form` so the 1,000-draw intervals take seconds on 1.87 M pixels) plus the two
+case runs: **2 min 50 s** in all.
+
+**Tests.** `tests/test_m3_controls.py`, 9: the permutation of a pool whose `2F` *is* measured
+gives `sqrt(2)` (and the real pool closes exactly); the 24-h lag keeps the local-hour label
+and drops the tail; a roll never maps a pixel onto itself and respects the 64-cell minimum
+(on a 96-cell test grid the upper bound is clamped — a fix made after the first run of the
+test); `G_prev` = p90 when `G` is constant in time, pairs 0 / 70 dropped by `persist`; the
+moment-form estimators equal their direct forms and take the fast path; the real pool's
+recomputed residual equals the stored one; the skill rule is the declared one; the declared
+block is on disk before any store is opened; the table and the figure draw on a synthetic
+result. Suite **309 passed + 3 strict xfails**, 2 deselected, 273 s.
+
+**Files.** Created `py/m3_controls.py` (~520 lines), `py/m3_controls_fig.py`,
+`py/tests/test_m3_controls.py`, `figs/m3_controls.png` (**needs `git add -f`**),
+`data/m3_controls_summary.json`, `data/m3_case_controls.json` (+ the two re-seeded runs' own
+JSON / NPZ, `data/m3_case_controls_*.{json,npz}`), `data/m3_controls.nohup`. Modified
+`py/m3_case.py` (`seed_rule`, `out_json`, `out_npz`; defaults unchanged),
+`claude_prompts/frontogenesis_prompt_M3_digging.md` (Status), this log. Nothing committed.
+**Which vet item this answers:** §3 / §6 item 1a — "no skill" has a number at every `L`, and
+the real residual beats it by 20-39 permutation-sd; §6 item 5a — no selection changes the
+verdict, strain selection improves the ratio by 0.07-0.10; §6 item 5b — 24-h blocks widen
+the intervals 3.4-4.1× and do not change the reading; §7 — the followed front's decay is
+selection at any seed time. **The interim's diagnosis moved by one sentence**: the "positive
+at every local hour" residual is not a missing term's signature (the lagged control has it
+too); and the roll control at `L = 8` says the coarsest-scale residual has no skill over a
+sideways-shifted prediction, which strengthens §6.2 rather than §6.1.
+
+### 2026-10-31 — Execution prompt M3-digging, task 3: the two term tests — `S` split into its parts, `V` from the second cell (Fable 5.1)
+
+**Task.** Vet report §6 items 4 and 3. `py/m3_term_tests.py` (+ `m3_term_tests_fig.py`,
+`tests/test_m3_term_tests.py`, 8 tests; `inputs.W_k2` added) → `data/m3_term_tests_summary.json`,
+`figs/m3_term_tests.png`. The raw and chunk stores were re-read through `inputs.open_inputs`
+as the sweep did; **no field written**; the product untouched. JXP's answers to M3D-Q1..Q5
+re-read: no change to this task.
+
+**Pre-declared, written to the JSON before any store was opened** (pinned by a test): the
+split reveals a **cancellation** if the three-multiplier fit lowers the imbalance's rms below
+the unit-sum residual's by more than the 32-cell / 3-h block-bootstrap half-width of that
+difference AND every multiplier lies in [0.5, 2]; otherwise §6.2's orthogonality stands. `V`
+from the second cell: a sensitivity, no threshold — reported is whether the second-cell term
+keeps the top-cell term's diurnal phase and sign. Pairs 0 / 9 / 21 / 30 (16 / 01 / 13 / 22
+LST) at `L = 0` and `4`.
+
+**Identity, every pair, every `L`, both depth forms.** The three components (non-solar heat,
+shortwave with its Jerlov fraction, freshwater; the other two fluxes zeroed with their attrs
+kept so the sign guard sees them) sum to the recomputed full term to **≤ 5.5e-15** relative
+rms (tolerance 1e-10); the recomputed term, cast to float32, equals the stored
+`surface_flux` / `surface_flux_kpp` **exactly** (0.0 relative rms on 284 pair-`L` cases), and
+the recomputed `vertical` / `vertical_factorised` on the 8 `V` cases likewise. The split is
+the stored term and nothing else.
+
+**(a) The split — `L = 0 / 2 / 4 / 8`, the 1 m (primary) form, pool `front & valid`, `I =
+measured − 2F − τ − V` (rms 0.739 / 0.727 / 0.713 / 0.685 of measured):**
+
+| component | rms / `S` | corr with `S` | corr with `I` | pool mean / rms(meas) at `L = 0` |
+|---|---|---|---|---|
+| non-solar heat | **0.996 / 0.992 / 0.988 / 0.979** | +1.00 | +0.02 / +0.03 / +0.02 / +0.01 | −0.080 to −0.088, **negative at 24/24 h** |
+| shortwave | 0.147 / 0.144 / 0.142 / 0.139 | **−0.68 / −0.67 / −0.65 / −0.59** | +0.01 / +0.01 / +0.00 / −0.00 | +0.0003 (night) to +0.020 (12 LST), positive 24/24 h |
+| freshwater | 0.111 / 0.111 / 0.112 / 0.111 | +0.98 / +0.99 / +0.99 / +0.98 | +0.01 | −0.009 to −0.010, negative 24/24 h |
+| `S` (sum) | 1 | — | **+0.02 / +0.03 / +0.03 / +0.01** | −0.093 (0 LST) to −0.074 (12 LST) |
+
+`S` *is* the non-solar term: 98-100 % of its rms, correlation +1.00. The shortwave part is
+14 % of `S` and anti-correlated with it (the noon heating gradient opposes the non-solar
+cooling gradient); the freshwater part is 11 % and collinear with the non-solar (+0.98 —
+evaporation and sensible/latent cooling share the wind field). **No component correlates
+with the imbalance above +0.03.** The three-multiplier fit: non-solar **+1.43 [1.13, 1.78] /
++1.06 / +0.62 / +0.30**, shortwave +0.54 [0.01, 1.11] / +0.52 / +0.31 / +0.05, freshwater
+**−12.1 [−15.3, −9.5] / −8.7 / −5.0 / −2.5** — the freshwater multiplier is a collinearity
+artefact (its 0.11 × −12 cancels the non-solar's excess over the single multiplier +0.048),
+and it is out of bounds at every `L`, as is the non-solar at `L = 4-8` and the shortwave at
+`L = 4-8`. The rms gain over the unit sum is large and formally significant (+0.10 / +0.16 /
++0.26 / +0.52 of rms `I`, half-widths 0.013-0.042) — but it is the removal of the unit-sum
+*penalty*, not an explanation: against `I` itself (no `S`) the fitted three components leave
+**0.995 / 0.995 / 0.997 / 0.998** of the rms, i.e. they explain **≤ 1 % of the imbalance's
+variance however they are weighted**; the two-component (heat, freshwater) and single-multiplier
+fits the same (0.996-0.9998). **The declared rule fails at every `L` in both depth forms:
+§6.2's orthogonality stands, now component by component.** The `KPPhbl` form: `S` is
+0.030-0.045 of measured, its non-solar and shortwave parts each ~1.1-1.2 of `S` and partly
+cancelling (corr with `S` 0.36-0.45), the single multiplier the interim's 1.93 / 2.03 / 1.47 /
+0.64, the three-fit's multipliers 2.7-5.7 on non-solar and −16 to −41 on freshwater, rms
+against `I` 0.996-0.998; no cancellation.
+
+**The diurnal composites settle one sentence of the interim.** The pool mean of `I` is
+within ±0.03 of zero at every local hour (positive at 7 / 6 / 2 / 7 of 24 h); the pool mean
+of `S` is **−0.07 to −0.22 at every hour**, most negative at night (0-4 LST, when the
+non-solar cooling gradient is strongest) and least at noon (the shortwave offset). The
+product's residual is `I − S`, so **its "positive at every local hour" (§6.4) is the negative
+of `S`'s mean, not a missing term** — the same conclusion task 2's lagged control reached
+from the other side. The term is frontolytic on average, the imbalance is not, and the two
+do not correlate pixel by pixel.
+
+**(b) `V` from the second cell** (rms over measured; `V_cell2` on `V_top` slope (corr); sign
+of the pool means top / cell 2):
+
+| `L` | pair, LST | `V_top` | fact. o1 | fact. o2 | **`V_cell2`** | slope (corr) | signs |
+|---|---|---|---|---|---|---|---|
+| 0 | 0, 16 | 0.0187 | 0.0145 | 0.0145 | **0.0438** | +2.02 (+0.87) | − / − |
+| 0 | 9, 01 | 0.0131 | 0.0125 | 0.0127 | 0.0131 | +0.93 (+0.92) | + / + |
+| 0 | 21, 13 | 0.0294 | 0.0206 | 0.0207 | **0.0469** | +1.53 (+0.97) | − / − |
+| 0 | 30, 22 | 0.0202 | 0.0105 | 0.0107 | 0.0186 | +0.85 (+0.92) | + / + |
+| 4 | 0, 16 | 0.0165 | 0.0108 | 0.0107 | 0.0335 | +1.72 (+0.86) | − / − |
+| 4 | 9, 01 | 0.0105 | 0.0087 | 0.0088 | 0.0092 | +0.81 (+0.93) | + / + |
+| 4 | 21, 13 | 0.0255 | 0.0142 | 0.0142 | 0.0363 | +1.36 (+0.96) | − / − |
+| 4 | 30, 22 | 0.0209 | 0.0068 | 0.0069 | 0.0164 | +0.73 (+0.92) | − / − |
+
+The second cell's tilting term (`dz` 1.22 m against the top cell's 1.07 m; `W(k_l = 2)`) is
+**0.8-2.3× the top cell's in rms** — larger by day (1.6-2.3× at 13-16 LST, when the warm
+layer sits in cell 2's gradient), the same at night (0.8-1.0×) — correlates with it at
+**+0.86 to +0.97** and **keeps its sign at all 8 cases** (negative by day, positive at
+night). The order-2 `b_z` changes the factorised form by **0.6-1.8 %** (slope 0.994-1.018):
+the three-level sensitivity is nil. The factorised form is 0.33-0.96 of the full term, so the
+dropped `−w ∇b_z · ∇b` is not small — a restatement of M3 task 2. **The reading:** the vet's
+"if it moves, it is a grid artefact" and the interim's "it is a discretisation term, moving
+with the cell is the prediction" are both consistent with a term whose *amplitude* changes
+with the cell; what separates them is phase and sign, and those are the same cell to cell.
+The numbers support §2.4. And whatever the reading, `V` is 1-5 % of the measured amplitude:
+nothing here can move the verdict, as the vet report itself noted.
+
+**Wall.** The split: **688 s** for 71 pairs × 4 `L` (9.8 s per pair, 4 `L`, the two hours'
+read and eight `surface_flux_term` calls — the estimate of ~35 min was 3× high); `V`: 10.6 s
+for the 8 cases; the fits ~1 min. The figure failed on the first run — int local-hour keys in
+memory vs str after a JSON round-trip — and was redrawn from the JSON after the fix; a test
+now draws both ways.
+
+**Tests.** `tests/test_m3_term_tests.py`, 8: the split identity through `compute_budget` on
+ramped, noisy fluxes at `L = 0, 2` (both depth forms, 1e-9 relative, every component
+non-zero); zero flux arrays keep their attrs and pass the sign guard; `W_k2` picks `k_l = 2`
+and refuses two interfaces; `V_cell2 = 0` when `b_k1 = b_k2` while `V_top` and the stored
+terms reproduce; the fit recovers (1, 1, 1), finds a half-weight term and the rule calls it,
+and a pure-noise term gets ~0 and is out of bounds; the declared block is on disk before any
+store opens; the figure draws from memory and from JSON. Suite **316 passed + 3 strict
+xfails**, 2 deselected, 279 s (run before the figure test was added; that file's 8 pass).
+
+**Files.** Created `py/m3_term_tests.py` (~550 lines), `py/m3_term_tests_fig.py`,
+`py/tests/test_m3_term_tests.py`, `figs/m3_term_tests.png` (**needs `git add -f`**),
+`data/m3_term_tests_summary.json`, `data/m3_term_tests.nohup`. Modified `py/inputs.py`
+(`W_k2`), `claude_prompts/frontogenesis_prompt_M3_digging.md` (Status), this log. Nothing
+committed. **Which vet items this answers:** §6 item 4 — splitting `S` does not lower the
+residual: no component explains more than 1 % of the imbalance's variance, the orthogonality
+is not a cancellation; §6 item 3 — the second-cell `V` keeps phase and sign and correlates at
+0.86-0.97 with the top cell's, as a discretisation term should. **The interim's diagnosis
+moved by one sentence, the same one task 2 moved**: the residual's positive mean at every
+local hour is `S`'s own frontolytic mean, not a signature of a missing term.
