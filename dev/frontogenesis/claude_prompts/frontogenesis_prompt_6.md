@@ -142,7 +142,14 @@ build (Q17), M0 → M4 in proportion then the synthesis (Q18, extended by one mi
 **only** from the task log entries and the JSON summaries — `m3_closure_summary.json`,
 `m3_figs_summary.json`, `m3_case_summary.json`, and now `m4_find_done.json`,
 `m4_track_summary.json`, `m4_recon.json`, `m4_quality.json`, `m4_strength.json` — with no data
-store opened by the report or its scripts (Q23), `check_report_numbers.py` extended (or a sibling
+store opened by the report or its scripts (Q23), *(added 2026-11-03, M3 digging: the digging note
+`report/frontogenesis_M3_digging.md` and its summaries — `m3_controls_summary.json`,
+`m3_case_controls.json`, `m3_term_tests_summary.json`, `m3_tracer_summary.json`,
+`m3_closure_tile330tracer_summary.json`, `m3_closure_tile330tracerpc_summary.json`,
+`m3_closure_tile329_summary.json`, `m3_tile2_summary.json`, `m3_parcels_summary.json` — join the
+allowed sources, asserted by `report/check_digging_numbers.py`; the note's closing table (its §6)
+goes into this report's limitations and its answer to planning §12, and the parcels finding of
+M3-digging task 6 into §5.1's successor as one marked paragraph with its table, M3D-Q6 (a).)* `check_report_numbers.py` extended (or a sibling
 written) to assert the new report's JSON-backed numbers and the "Do not" list, the merged
 glossary with units (Q25), the authors line, a dated status line and the circulation note (Q26).
 The interim report is **not rewritten** — marked notes only, as for every document.

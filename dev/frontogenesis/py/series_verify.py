@@ -73,8 +73,8 @@ def _check_schema(ds: xr.Dataset) -> dict:
     for c in COORDS:
         if c not in ds.coords:
             problems.append(f'coord {c} missing')
-    if 'face' in ds.coords and (ds['face'].ndim != 0 or int(ds['face']) != 10):
-        problems.append(f'face is not the scalar 10: {ds["face"].values}')
+    if 'face' in ds.coords and ds['face'].ndim != 0:       # any face, as a scalar (M3-digging task 5)
+        problems.append(f'face is not a scalar coord: {ds["face"].values}')
     if 'niter' in ds.coords and ds['niter'].dims != ('time',):
         problems.append(f'niter dims {ds["niter"].dims} != (time,)')
     for c in ('XC', 'YC'):
@@ -246,8 +246,8 @@ def _check_chunk_schema(ds: xr.Dataset, k_max: int) -> dict:
     for c in CHUNK_COORDS:
         if c not in ds.coords:
             problems.append(f'coord {c} missing')
-    if 'face' in ds.coords and (ds['face'].ndim != 0 or int(ds['face']) != 10):
-        problems.append(f'face is not the scalar 10: {ds["face"].values}')
+    if 'face' in ds.coords and ds['face'].ndim != 0:       # any face, as a scalar (M3-digging task 5)
+        problems.append(f'face is not a scalar coord: {ds["face"].values}')
     tenc = ds['time'].encoding
     if tenc.get('units') != TIME_UNITS or np.dtype(tenc.get('dtype', 'f8')) != np.int64:
         problems.append(f'time encoding {tenc.get("units")!r} / {tenc.get("dtype")}')

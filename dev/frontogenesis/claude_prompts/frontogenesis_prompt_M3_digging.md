@@ -78,6 +78,77 @@ order-2 `b_z` changes the factorised form by 0.6-1.8 %. The numbers support §2.
 amplitude either way. Wall 688 s (split) + 11 s (`V`); suite **316 passed + 3 xfails**. Log
 entry "Execution prompt M3-digging, task 3".
 
+**Status 2026-11-02 — task 6 done** (Fable 5.1; out of order, tasks 4-5 unaffected).
+`py/m3_parcels.py` → `data/m3_parcels_summary.json`, `figs/m3_parcels_velocity.png`,
+`figs/m3_parcels_motion.png` (both need `git add -f`); 3 tests. At the seed the 450 parcels move
+at 0.21 m/s (0.41 cells/h), **mostly across the 3.8-km front** (|cross| 0.18, |along| 0.08 m/s);
+the box-mean flow is 0.20 m/s southward plus a 0.09 m/s rms oscillation, near-inertial
+(20 h) over semidiurnal; paths straight (net/path 0.94, 29 km in the forward day) into the
+0.4-0.7 m/s jet at 123.9 W. At +16 h **68 % of the parcels are still on a front pixel but only
+46 % on a pixel that was front at the seed**; the `G` pattern moves 4 km while the water moves
+21 km, and the seed pixels keep 70 % front / 0.67 `G`: **the front is a standing feature
+fed by cross-front flow, not a material line**, and the water is heated by one front contrast
+per ~16 h on the way through. Does not explain the hourly gate (0.4-0.9 cells per step,
+re-selected each pair; `persist` = the gate's ratio); reframes §5.1's ×0.19 as the parcels'
+exit from a convergence zone, and M4's object-vs-water matching. Discussion in `## Q&A` →
+`### Parcels`; **M3D-Q6** (where it goes: recommend the M5 report) and **M3D-Q7** (the
+"prompt 7" slip). Suite **320 passed + 3 xfails**. Log entry "Execution prompt M3-digging,
+task 6".
+
+**Status 2026-11-02 — task 4 done** (Fable 5.1). `py/m3_tracer.py` → two tracer stores
+(`Theta`/`Salt` advected from hour 0 by OS7MP, the 7-cell margin clamped; linear and
+piecewise velocity columns), two `--chunk none` sweeps (tags `tile330tracer`,
+`tile330tracerpc`), two closures, `data/m3_tracer_summary.json`, `figs/m3_tracer.png`
+(needs `git add -f`); 6 tests. **All four checks pass**: hour 0→1 is `fv_advect` bit for bit;
+mean drift ≤ 0.12 sd over 72 h (the variance of `Theta`/`b` *grows* 11/16 % — fronts sharpen;
+`Salt`'s decays); the tracer's `G` p90 is 1.3-1.5× the model's at 24-48 h; `verify_series`
+and the chunk-less open pass. **Result:** tracer residual / measured **0.870 / 0.713 / 0.544 /
+0.408** at `L = 0/2/4/8` against the product's 0.813 / 0.841 / 0.898 / 1.042 (catch-all 0.739
+/ 0.728 / 0.713 / 0.685); the two velocity columns identical to 0.0006 (**the within-hour
+interpolation has no effect**). **Declared reading:** `r_tr(0) = 0.87 ≥ 0.50` →
+analysis-limited at the grid scale (the floor equals the imbalance; inflated by the sharper
+fronts — the tracer's Eulerian gap is 1.01 vs 0.67); `r_tr(8) = 0.41 > 0.25` → the pipeline
+contributes at the filtered scales, the model's excess over the floor being 0 / 0.02 / 0.17 /
+0.28. The tracer's measured on `2F` is **0.976 at `L = 0`** (V3b's 0.975 reproduced) with a
+residual uncorrelated with `2F` (−0.02 to −0.07), while the model's residual slopes on `2F` at
++0.44 to +0.53: **that part is not the pipeline** — it is the model. Criterion 1 passes on the
+tracer at `L = 8` only; its slopes there are calibration, labelled; no efficiency quoted.
+Wall ~30 min per column for the advection (both at once), ~29 min per sweep, ~3 min per
+closure; ~11 GB added to `data/`. Suite **326 passed + 3 xfails**. Log entry "Execution
+prompt M3-digging, task 4".
+
+**Status 2026-11-02 — task 5 done** (Fable 5.1). `py/m3_tile2.py` → tile 329's grid, masks,
+72-h surface store (370 s, 1.16 GB), four `--chunk none` derived stores (1,564 s), the
+closure, `data/m3_tile2_summary.json`, `figs/m3_tile2.png` (needs `git add -f`); 4 tests.
+Tile 329 = face 7, `j` 3600:4320, `i` 2880:3600, lon −143 to −128, **no land**, the same
+`CS = 0, SN = −1` as face 10; **orientation QA passed**: the V3 null slope **0.991 [0.984,
+0.998]** (tile 330: 0.981). Masks: analysis 498,436 cells, coast distance +inf. Three tile-330
+assumptions removed, byte-identical for 330 (`osn_tiles.rect_pixel`; a `masks=` argument on
+`validate`'s llc null; the verifier's `face == 10`). **Result:** catch-all residual / measured
+**0.878 / 0.882 / 0.870 / 0.851** at `L = 0/2/4/8` against tile 330's catch-all 0.739 / 0.728 /
+0.713 / 0.685 — criterion 1 fails at every `L`, criterion 2 passes from `L = 2`. The
+Eulerian gap is the same (0.65 vs 0.67 at `L = 0`): **cause one is general.** But the
+open-ocean imbalance is **flat with `L`** (excess over the tracer floor 0.01 / 0.17 / 0.33 /
+0.44) and **uncorrelated with `2F`** (slope −0.05 to −0.09; measured on `2F` 0.93 → 0.45), where
+Monterey's residual slopes on `2F` at +0.44 to +0.53: the `2F`-correlated excess of task 4 is
+the Monterey filament regime's, and the open ocean adds an `L`-flat, strain-uncorrelated
+imbalance on fronts 22-31 % weaker — consistent with an aliased internal-wave field, a
+hypothesis for M5. Suite **330 passed + 3 xfails**. Log entry "Execution prompt M3-digging,
+task 5".
+
+**Status 2026-11-03 — task 7 done; the prompt is complete** (Fable 5.1).
+`report/frontogenesis_M3_digging.md` (seven sections as specified, the closing table
+answering the review's §6 items, six figures from `../figs/`, a provenance appendix; 2,663
+words of body prose against ~2,000 — the one spec not met, logged as the interim's length
+was); `report/check_digging_numbers.py` (**186** JSON-backed numbers asserted verbatim, the
+product's slopes forbidden, the tracer's allowed only as labelled calibration — **OK**); one
+marked paragraph at the end of the interim's §8 with every test's outcome in the declared
+terms and **the verdict of §5.2 unchanged** (`check_report_numbers.py` still OK); the marked
+source-list clause in prompt 6 task 2; two rows in `report/README.md`. PDF built with the
+interim's recipe (the `ocean14` env's bundled pandoc): **13 pages**, every page inspected,
+two glyph / math-mode defects fixed, no warnings. No `py/` code changed; suite 330 + 3
+xfails stands. Six PNGs need `git add -f`. Log entry "Execution prompt M3-digging, task 7".
+
 ---
 
 ## What JXP decided (prompt 4, M3-Q27..Q30)
@@ -458,12 +529,26 @@ Log: the `TileInfo`, the orientation QA numbers, the mask counts, the pull's wal
 volume, the sweep's wall time, the comparison table, and one paragraph on what a second
 regime does to the `L = 0` failure and to the diagnosis's cause one.
 
-### 6. The digging note, and its reference from the interim (M3-Q28 (a))
+### 6. Following the parcels
+
+I think that one of the reasons the M3 gate failed is that the parcels we follow are moving off 
+the fronts.  This is apparent in the example shown in Section 5.1 of the Interim report.
+At t=+16 hours, a majority of the parcels indicated by the cyan dots are no longer on the front 
+features that they started with.  Let's examine this further.  Please create a figure or two
+indicating the horizontal velocity field at t=0hr (the seed) and then discuss with me the 
+motions we are observing.  While it was not our intent for M3 to follow the fronts as we
+define them, it is surprising to see the horizontal velocities are so large that the parcels
+are moving off the fronts.  
+After generatnig the figure(s), discuss this with me in the Q&A/Parcels section below.
+Use Fable if you can.
+Log your work.
+
+### 7. The digging note, and its reference from the interim (M3-Q28 (a))
 
 `report/frontogenesis_M3_digging.md` + `report/check_digging_numbers.py` (M3D-Q4, decided (a):
 a separate checker, the interim's frozen) + figures
 copied or referenced from `figs/`; one marked paragraph in the interim report; one marked
-edit in prompt 6.
+edit in prompt 6 *(the M5 prompt, `frontogenesis_prompt_6.md`; "prompt 7" corrected 2026-11-02, M3D-Q7)*.
 
 - **Audience and rules:** the interim's (M3-Q16..Q26): an advanced PhD student in physical
   oceanography; every symbol introduced in words; no code identifiers in the running prose;
@@ -472,7 +557,10 @@ edit in prompt 6.
   `m3_closure_tile330tracer_summary.json`, `m3_closure_tile{N}_summary.json`) and the product's
   `m3_closure_summary.json` for the comparison columns; the "Do not" list below.
 - **Length:** ~2,000 words of body prose plus the four figures and a numbers appendix in the
-  interim's format (value, source, JSON key).
+  interim's format (value, source, JSON key). *(added 2026-11-02, M3D-Q6 (a): task 6's two
+  parcel figures and `data/m3_parcels_summary.json` join the note's record; the finding itself
+  — the front as a standing feature fed by cross-front flow — goes into the **M5 report's**
+  successor to §5.1 as one marked paragraph with the table, not into the interim.)*
 - **Structure:** (1) what the vet report objected to, in two paragraphs; (2) the noise floor
   — the controls and the tracer, with the pre-declared readings and what each gave; (3) the
   two term tests; (4) the pooling and selection checks and the re-seeded case; (5) the second
@@ -537,6 +625,117 @@ paragraph verbatim; the prompt-6 edit; the PDF page count; the suite count; whic
 - Do not extend the window or the cadence; sub-hourly fields do not exist (M3-Q14).
 
 ## Q&A
+
+### Parcels
+
+#### Claude, 2026-11-02 (task 6 — following the parcels)
+
+Two figures, `figs/m3_parcels_velocity.png` (the velocity at the seed hour over `log10 G`, the
+speed with streamlines, the cross-front component on front pixels, and the hodograph of the
+box-mean velocity over the window) and `figs/m3_parcels_motion.png` (the trajectories over the
+forward day, the fraction of parcels on a front pixel, the distance to the nearest front
+pixel beside the parcels' own `G`, and the speed split into along- and cross-front parts),
+from `py/m3_parcels.py` → `data/m3_parcels_summary.json`. Everything below is from that JSON
+and two small follow-up calculations recorded in the log; the case products are untouched.
+Geographic components on face 10 are `u_east = V`, `v_north = −U`; the front normal is
+`∇b/|∇b|` at the midpoint field at the parcel's position and time; "front pixel" is §3.4's
+`G ≥ p90`.
+
+**What the velocity field is.** The seed front (the near-zonal filament at 37.0-37.1 N) sits
+on the northern flank of a strong **southward jet** along ~123.9 W (0.4-0.7 m/s in the speed
+panel), which is the dominant feature of the box. At the seed hour the parcels move at a
+median **0.21 m/s** (p10-p90 0.10-0.35; 0.41 cells per hour), and that velocity is mostly
+**across** the front: |cross-front| **0.18 m/s** against |along-front| 0.08 m/s. The front is
+2.0 dx ≈ **3.8 km** wide, so at face value the water crosses it in **6 h**. Over the window the
+box-mean velocity is a steady **0.20 m/s southward** (u_east −0.03, v_north −0.20) with an
+oscillation of rms 0.09 m/s about it whose largest component is **near-inertial** (period
+20.0 h at 37 N; amplitude 0.07 m/s in both components, rotating clockwise in the hodograph) and
+whose semidiurnal part is 0.03 / 0.065 m/s. Over 16 h the oscillation displaces water by
+~1-2 km; the drift by ~12 km. The parcels' paths are nearly straight (net / path length 0.94
+over the forward day; net 15.7 cells = 29 km, median), and their speed *rises* along the path
+— 0.23 m/s at the seed, 0.45 m/s at +12 h — as they are drawn south-east into the jet: over
+16 h the median parcel moves 13 km east and 14 km south.
+
+**What the parcels do relative to the front — the numbers behind the +16 h panel of Figure 4:**
+
+| hours from seed | on a front pixel (`G ≥ p90`) | within 2 cells of one | on a pixel that was front *at the seed* | median `G` / `G_seed` along the parcels | the seed pixels themselves: still front / `G` / `G_seed` |
+|---|---|---|---|---|---|
+| 0 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 / 1.00 |
+| +8 | 0.80 | 1.00 | 0.76 | 1.26 | 0.83 / 0.92 |
+| **+16** | **0.68** | 0.88 | **0.46** | **0.71** | **0.70 / 0.67** |
+| +24 | 0.55 | 0.84 | 0.38 | 0.30 | 0.70 / 0.68 |
+| control (2,500 unselected, same box) | 0.26-0.28 throughout | | | | |
+
+and the `G` *pattern* itself hardly moves: the cross-correlation shift of `log10 G` around the
+corridor is 0 / 4 / 3 km at +8 / +16 / +24 h while the water that was on the front moves
+9 / 21 / 28 km. Along the parcels the top-cell buoyancy is **not conserved**: median
+|b − b_seed| is 0.46 / 1.06 / 1.46 of the front's own contrast (|∇b| × width = 1.1e-3 m s⁻²)
+at +8 / +16 / +24 h, the sign is lightening, and the top-cell temperature rises +0.12 / +0.39
+/ +0.37 K (from 14.1 °C — cold upwelled water warming as it flows south).
+
+**The reading.** Your eye was right and the mechanism is instructive. The parcels are not
+"moving off the fronts" in the sense of leaving front pixels — at +16 h two thirds are still
+on one and 88 % are within two cells, against 27 % for unselected water — but they *have*
+left the front they started on: only 46 % are on a pixel that was front at the seed, and
+the water has travelled 21 km while the frontal pattern moved 4 km. **This front is a
+standing feature of the flow, not a material line.** Water enters it from the north at
+~0.2 m/s, is squeezed in the convergence (the parcels' `G` rises 26 % in the first 8 h, and
+the Eulerian `G` at the seed pixels stays at 0.67-0.92 for the whole day), and leaves it
+south-eastward into the jet, where its own `G` decays (×0.30 by +24 h) while the front it
+left behind keeps 70 % of its pixels. The surface trace of a buoyancy front can be
+stationary with water flowing through it only if the water's buoyancy changes on the way,
+and it does: one front contrast per ~16 h, by heating. The large velocities are not
+surprising for this regime — a 0.2 m/s equatorward drift with a 0.4-0.7 m/s jet is the
+summer California Current off Monterey — and the near-inertial and tidal parts (0.1 m/s)
+are a minor fraction of it over a day. What is surprising, and worth saying in the report,
+is that *cross-front* flow dominates at the seed: this front is being fed, not sheared.
+
+**Does this explain the M3 gate's failure? No — and the record already shows why.** The gate is
+hourly: each semi-Lagrangian step follows water for one hour, a median 0.4-0.9 cells, less
+than the 2-cell front width, and the front pool is re-selected at every pair's midpoint, so
+no pixel in the gate's pool has "left its front" within the step it is judged on. Task 2's
+`persist` selection (pixels that are front at `n−1`, `n` and `n+1`) gives the same residual
+ratio as the gate (0.810 vs 0.813 at `L = 0`), and the sub-filter / departure-point nulls
+(V3, V4) already showed the hourly displacement is handled. The parcels' leaving the front is
+a **24-hour** phenomenon, and it bears on the three places where the project follows water
+for a day: (i) **§5.1's case study** — the "front weakens by a factor of five" is the
+parcels' *exit* from a standing convergence zone, not the front weakening (the front itself
+keeps two thirds of its strength at its own location), and the Lagrangian `G` history of
+these parcels is an entry-and-exit through the front, which is also why the four-term
+integral's 0.99 was fragile (0.63 at the other seed, task 2); (ii) **M4's reconciliation**,
+which tracks front *objects* and matches pixels along the flow — the objects are the
+standing features, the matched pixels are the water, and over a day the two separate by
+~20 km here; (iii) **the vet report's §7 point** that the followed-front integral is "a
+path-integrated fit": agreed, and now with a mechanism. I would add one marked paragraph to
+§5.1 in the M5 report (not the interim) saying this, with the table above.
+
+**What it does bear on physically.** A surface front maintained by convergence against
+heating is exactly the configuration in which the budget's two "small" terms are not small
+*along a parcel*: the cross-front flow of 0.18 m/s over a 3.8 km front is a surface
+convergence of order 5e-5 s⁻¹ ≈ 0.5 f, i.e. a secondary circulation with subduction on the
+dense side, and the heating that lightens the parcels by a contrast per day is the
+surface-flux term. The budget measures both at the top cell and finds them 1-5 % and
+30-80 % of the amplitude respectively, uncorrelated with the imbalance (tasks 3 and the
+interim §6.2). That the terms are the right physics and still do not close the hourly
+budget is the finding; the parcel picture here does not change it, but it says what the
+front *is*, and that belongs in the write-up.
+
+**Questions.**
+
+**M3D-Q6 — Where this goes.** (a) **the M5 report**, §5.1's successor, one marked paragraph
+and the table, with the two figures in the digging note (task 7) as the record; (b) the
+interim's §5.1, as a marked addendum (the interim is otherwise frozen, M5-Q2); (c) the
+digging note only. I recommend **(a)**: it changes how the case is read, so it belongs where
+the case is told.
+
+> **JXP:** Ok, go with (a). 
+
+**M3D-Q7 — A note on your edit.** Task 7's text now says the M5 source list is "a marked edit
+in prompt 7"; the M5 prompt is `frontogenesis_prompt_6.md`. I take "prompt 7" as a slip of
+the renumbering and will edit prompt 6 in task 7 unless you say otherwise.
+
+> **JXP:** Yes, correct that
+
 
 ### Claude, 2026-10-31 (before task 1)
 

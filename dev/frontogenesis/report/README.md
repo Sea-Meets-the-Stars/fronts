@@ -12,6 +12,8 @@
 | `figs/case_front_maps.png` | The followed front over four hourly snapshots, and the predicted tendency on the same frames |
 | `figs/case_strength.png` | Its strength along the trajectory against the prediction, and the hourly rates |
 | `figs/case_budget.png` | Its five-term budget beside the 71-pair pooled one |
+| `frontogenesis_M3_digging.md` | **The digging note** (M3-digging task 7, 2026-11-03): the external review's tests — the controls, the offline tracer, the term tests, the pooling checks and the re-seeded case, the second tile, the parcels — each with its pre-declared reading; the M3 verdict unchanged. Its figures are referenced from `../figs/` (`m3_controls`, `m3_tracer`, `m3_term_tests`, `m3_tile2`, `m3_parcels_velocity`, `m3_parcels_motion`) |
+| `check_digging_numbers.py` | The note's sibling of `check_report_numbers.py`: every JSON-backed number of the note re-read from the digging summaries and required verbatim; the product's withheld slopes forbidden; the tracer's slopes allowed only as a labelled calibration |
 
 The project had no picture of its own method before these two. That is the one thing a reader
 who is not embedded needs most, and it is why M3-Q20 (b) asked for them.
@@ -82,5 +84,9 @@ Set by JXP's answers to **M3-Q16..Q26** (`../claude_prompts/frontogenesis_prompt
 
 ```
 python check_report_numbers.py        # exit 0 if the report matches the summaries
+python check_digging_numbers.py       # the same for the digging note
 python make_report_figs.py            # redraws the two schematics
 ```
+
+The digging note's PDF builds with the same `pandoc` command as the interim's, with
+`frontogenesis_M3_digging.md` in place of the interim's file name.

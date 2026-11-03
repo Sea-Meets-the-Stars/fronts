@@ -8548,3 +8548,366 @@ is not a cancellation; §6 item 3 — the second-cell `V` keeps phase and sign a
 0.86-0.97 with the top cell's, as a discretisation term should. **The interim's diagnosis
 moved by one sentence, the same one task 2 moved**: the residual's positive mean at every
 local hour is `S`'s own frontolytic mean, not a signature of a missing term.
+
+### 2026-11-02 — Execution prompt M3-digging, task 6: following the parcels (Fable 5.1)
+
+**Task.** JXP (prompt M3-digging, new task 6, 2026-11-02; the digging note became task 7):
+one reason the M3 gate failed may be that the followed parcels move off the fronts — in §5.1's
+Figure 4 most of the cyan parcels are off their starting features by +16 h; draw the
+horizontal velocity at the seed and discuss the motions. Out of order with tasks 4-5, which
+it does not affect. Discussion written in the prompt's `## Q&A` → `### Parcels`, with
+**M3D-Q6** (where the finding goes; recommend the M5 report) and **M3D-Q7** (the "prompt 7"
+slip in task 7's text).
+
+**Code.** `py/m3_parcels.py` (+ `m3_parcels_fig.py`; `tests/test_m3_parcels.py`, 3 tests) →
+`data/m3_parcels_summary.json`, `figs/m3_parcels_velocity.png`, `figs/m3_parcels_motion.png`
+(**both need `git add -f`**). Reads the raw `U`, `V` for hours 6-55, the `L = 0` store's `G`,
+`b`, `front`, `valid`, `front_width` for pairs 6-54, and the case products; recomputes the
+case's 2,500-parcel control with its own seed; modifies nothing. Geographic components by the
+grid's `CS`/`SN` (face 10: `u_east = V`, `v_north = −U`); the front normal `∇b/|∇b|` from
+`operators.grad_b` on the stored midpoint `b`; along/cross-front speeds at the parcels'
+positions; on-front flags and the distance to the nearest front pixel
+(`distance_transform_edt`) per hour; the box-mean velocity fitted with mean + trend +
+sinusoids at 12.42 h and the inertial period. 30 s.
+
+**The velocity field at the seed (2012-07-03 06 UTC).** The seed front (the zonal filament at
+37.0-37.1 N) is the northern flank of a southward jet along ~123.9 W of 0.4-0.7 m/s. The
+450 seed parcels move at a median **0.21 m/s** (0.10-0.35; 0.41 cells/h), **mostly across the
+front**: |cross| 0.18 m/s, |along| 0.08 m/s; the front is 2.0 dx = 3.8 km wide, a crossing
+time of 6 h at face value. The box-mean velocity over the window is a steady 0.20 m/s
+southward (u_east −0.03, v_north −0.20) plus an rms 0.09 m/s oscillation, near-inertial
+(20.0 h at 37 N; 0.07 m/s in each component, clockwise) over semidiurnal (0.03 / 0.065 m/s):
+the drift moves water ~12 km in 16 h, the oscillation ~1-2 km. The parcels' paths are
+straight (net/path 0.94; net 15.7 cells = 29 km over the forward day) and their speed rises
+to 0.45 m/s at +12 h as they are drawn south-east into the jet (13 km east, 14 km south
+in 16 h).
+
+**The parcels relative to the front** (fractions of the 450; the control is 0.26-0.28
+throughout):
+
+| h | on a front pixel | within 2 cells | on a seed-time front pixel | `G/G_seed` along parcels | seed pixels still front / their `G/G_seed` |
+|---|---|---|---|---|---|
+| +8 | 0.80 | 1.00 | 0.76 | 1.26 | 0.83 / 0.92 |
+| +16 | 0.68 | 0.88 | 0.46 | 0.71 | 0.70 / 0.67 |
+| +24 | 0.55 | 0.84 | 0.38 | 0.30 | 0.70 / 0.68 |
+
+The `log10 G` pattern around the corridor shifts 0 / 4 / 3 km (cross-correlation) at +8 / +16 /
++24 h while the water moves 9 / 21 / 28 km. Along the parcels the top-cell `b` changes by
+0.46 / 1.06 / 1.46 of the front's contrast (|∇b| × width = 1.1e-3 m s⁻²), lightening; SST
++0.12 / +0.39 / +0.37 K from 14.1 °C.
+
+**Reading** (the full argument is in the Q&A). The front is a **standing feature of the
+flow, not a material line**: water enters from the north at ~0.2 m/s, is squeezed (the
+parcels' `G` rises 26 % in 8 h; the Eulerian `G` at the seed pixels stays at 0.67-0.92 all
+day), and exits into the jet where its `G` decays ×0.30 while the front keeps 70 % of its
+pixels; the surface trace is stationary with throughflow because the water is heated by a
+contrast per ~16 h. JXP's eye was right (54 % off the starting feature at +16 h) and the
+velocities are the regime's (summer California Current: 0.2 m/s drift, 0.4-0.7 m/s jet);
+the surprise worth recording is that the flow at the seed is cross-front — the front is
+being fed, not sheared. **It does not explain the gate**: the gate follows water for one
+hour (0.4-0.9 cells, under the 2-cell width), re-selects every pair, and task 2's `persist`
+selection gives the gate's own ratio (0.810 vs 0.813). It bears on the three day-long
+constructions — §5.1's integral (the ×0.19 "weakening" is the parcels' exit from a standing
+convergence zone; the front at its own location loses a third), M4's object-vs-water
+matching (~20 km apart after a day here), and the vet's §7 point — and it names the
+physics: convergence of order 0.5 f with heating, i.e. the vertical and surface-flux terms
+are the right ones along a parcel even though they do not close the hourly budget.
+
+**Checks.** The parcels at the seed are the 450 of §5.1 (`m3_case_fields.npz`); the control
+reproduces the case's seeding (`default_rng(0)`, 2,500 of the box's valid pixels); the
+geographic rotation, the along/cross decomposition (recomposes the speed; NaN without a
+gradient) and the period fit (exact on a synthetic series) are tested. Suite **320 passed +
+3 strict xfails**, 2 deselected, 264 s.
+
+**Files.** Created `py/m3_parcels.py`, `py/m3_parcels_fig.py`, `py/tests/test_m3_parcels.py`,
+the two PNGs, `data/m3_parcels_summary.json`. Modified
+`claude_prompts/frontogenesis_prompt_M3_digging.md` (the Parcels discussion, M3D-Q6..Q7, the
+Status). Nothing committed.
+
+### 2026-11-02 — Execution prompt M3-digging, task 4: the offline tracer — the pipeline on a case with a known answer (Fable 5.1)
+
+**Task.** Vet report §3 / §6 item 1b, the noise floor: run the full pipeline on a tracer whose
+budget is known exactly. JXP's answers re-read first: M3D-Q6 (a) and Q7 applied to task 7's
+text (the parcels finding goes to the M5 report; "prompt 7" corrected to prompt 6); M3-Q29 (a),
+M3D-Q1 (a), M3D-Q3 (a) govern this task as written. `py/m3_tracer.py` (+ `m3_tracer_fig.py`;
+`tests/test_m3_tracer.py`, 6 tests) → two tracer stores, two sweeps, two closures,
+`data/m3_tracer_summary.json`, `figs/m3_tracer.png`. The product untouched.
+
+**Design, as declared** (`DECLARED`, written to each column's summary before the run): `Theta`
+and `Salt` from the model's hour 0, advected 72 h by `fvadvect`'s OS7MP step (`advective`,
+`split`, `dt_sub = 100 s`, land filled once per hour by the nearest ocean value as `fv_advect`
+does), the 7-cell margin clamped to the model's own fields interpolated in time after every
+sub-step; `U V W Eta KPPhbl oceTAUX oceTAUY` copied from the raw store so `inputs`, the masks
+and the sweep read the store unchanged; `--chunk none`. Two velocity columns: **linear** in
+time between the hourly snapshots (tag `tile330tracer`) and **piecewise** (the hour's
+midpoint velocity held constant — the flow the semi-Lagrangian step assumes; tag
+`tile330tracerpc`). Resumable per hour (the state is the store's last hour). **The tracer's
+true budget is `DG/Dt = 2F + τ + OS7MP dissipation`**: no `V`, no `S`, no KPP, no sub-hourly
+flow — its residual is the pipeline's own floor.
+
+**The four checks, all passed, both columns.** (1) Hour 0 → 1 with the piecewise velocity and
+no clamp equals `fvadvect.fv_advect` **bit for bit** for both tracers (max |diff| 0.0 on the
+real grid; the first draft refilled land every sub-step and broke this — land cells have
+`r_inv = 0` and never change, so the refill was both unnecessary and a deviation from V3b's
+step; fixed to once per hour). (2) Conservation on `mask_analysis`: the ocean-mean drift over
+72 h is −0.12 / −0.05 / +0.11 initial-sd for `Theta` / `Salt` / `b`, against a
+tracer-minus-model difference on the first interior ring of 0.3-0.4 K (the clamp's inflow);
+the **variance of `Theta` and `b` grows 11 / 16 %** (the fronts sharpen under the strain with
+nothing to oppose them) while `Salt`'s decays 8 % — recorded as found; the prompt's
+expectation "the variance decays" was wrong for a sharpening tracer field. (3) The front
+population: `G`'s p50 / p90 / p99 for the tracer are **1.23 / 1.30 / 1.31×** the model's at
+24 h and 1.46 / 1.49 / 1.44× at 48 h; the log-`G` correlation with the model falls to 0.42 /
+0.29. (4) `verify_series` passes; `open_inputs(chunk=None)` opens (`chunk = absent`, face 10).
+
+**The closure of the tracer, beside the product** (residual / measured on `front & valid`; for
+the tracer the residual *is* the catch-all; `L = 0 / 2 / 4 / 8`):
+
+| | product, 5 terms | product, 2-term catch-all | **tracer, linear** | tracer, piecewise |
+|---|---|---|---|---|
+| residual / measured | 0.813 / 0.841 / 0.898 / 1.042 | 0.739 / 0.728 / 0.713 / 0.685 | **0.870 / 0.713 / 0.544 / 0.408** | 0.869 / 0.712 / 0.543 / 0.408 |
+| explained | +0.34 / +0.30 / +0.21 / −0.05 | | **+0.23 / +0.49 / +0.70 / +0.83** | +0.23 / +0.49 / +0.70 / +0.83 |
+| residual slope on `2F` | +0.44 / +0.45 / +0.46 / +0.53 | | **−0.02 / −0.07 / −0.05 / −0.03** | −0.02 / −0.07 / −0.05 / −0.03 |
+| measured on `2F` (OLS, corr) | 1.34 (0.70) / 1.14 / 0.98 / 0.83 | | **0.976 (0.48)** / 0.68 / 0.59 / 0.56 | 0.976 / 0.68 / 0.59 / 0.56 |
+| Eulerian − semi-Lagrangian gap | 0.672 / 0.408 / 0.252 / 0.183 | | **1.014 / 0.767 / 0.452 / 0.287** | 1.015 / 0.768 / 0.451 / 0.287 |
+| order 5 − order 3 gap | 0.108 / 0.053 / 0.027 / 0.021 | | 0.174 / 0.125 / 0.068 / 0.049 | |
+| `τ / 2F` | 0 / 0.35 / 0.55 / 0.75 | | 0 / 0.38 / 0.57 / 0.72 | |
+| criterion 1 (judged at `L ≥ 2`) | fail / fail / fail | | fail / fail / **pass** | fail / fail / pass |
+| criterion 2 | fail / pass / pass / pass | | fail / fail / fail / pass | |
+
+**The two velocity columns are the same to 0.0004-0.0006** in every statistic: the
+within-hour velocity interpolation — the thing M3D-Q3 was designed to isolate — has **no
+effect**. The semi-Lagrangian step's assumption of a within-hour-constant flow costs nothing.
+
+**The declared reading (M3D-Q1 (a)), applied as written.** `r_tr(0) = 0.870 ≥ 0.50` →
+**"analysis-limited at the grid scale"**: on a tracer whose only non-kinematic process is the
+advection scheme's dissipation, the hourly pipeline's residual at the grid scale is as large
+as the model's (0.87 against the model's 0.74 catch-all / 0.81 five-term), so the grid-scale
+imbalance of M3 is what the hourly semi-Lagrangian estimate plus OS7MP numerics produce *with
+no physics at all*. `r_tr(8) = 0.408`, above 0.25 → **"the pipeline contributes at the
+filtered scales"**: against the model's catch-all 0.685 the pipeline accounts for 0.41 and the
+model's own physics-or-numerics for the excess. The excess of the model over the floor grows
+with `L`: **0 / 0.02 / 0.17 / 0.28** at `L = 0 / 2 / 4 / 8` — the model's budget is worse than
+the pipeline's floor *only* at the filtered scales. Two caveats stated with it. (i) The
+tracer's floor at `L = 0` is **inflated by its sharper fronts** (`G` p90 1.3-1.5× the
+model's: the Eulerian − semi-Lagrangian gap on the tracer is 1.01, against the model's 0.67,
+and the order-5 gap 0.17 against 0.11); the ratio statistics survive the population change
+but the grid-scale floor should be read as an upper bound for the model's own front
+population. (ii) The tracer's measured tendency sits on `2F` with slope **0.976** at `L = 0` —
+V3b's 0.975 [0.954, 1.003] reproduced over 71 pairs on the real flow — and its residual is
+**uncorrelated with `2F`** (slope −0.02 to −0.07), whereas the model's residual slopes on `2F`
+at +0.44 to +0.53 and its measured tendency exceeds `2F` by 34 % at `L = 0` (slope 1.34). That
+difference is **not the pipeline**: something in the model makes `DG/Dt` exceed the strain
+term systematically where the strain is large, which an advected tracer does not do. It is
+the one thing in this task that points at physics rather than numerics, and it belongs in
+the M5 diagnosis beside §6.1.
+
+**Slopes.** Criterion 1 passes on the tracer at `L = 8` only, so by the prompt's rule only
+that scale's slopes are quotable, **as the pipeline's calibration, labelled "tracer, not the
+model"**: measured on `2F` 0.558 (corr 0.62) — not a calibration of `F` alone, since `τ` is
+0.72 of `2F` there; the three-term explained fraction 0.83 is the calibration statistic at
+that scale. The closure table's own `measured_on_2F` at `L = 0`, 0.976, is reported as the
+V3b check it is. No efficiency of LLC4320 is quoted; the product's slopes stay withheld.
+
+**Wall.** Advection 1,740 / 1,799 s per column (24 s per hour with both running at once; 11 s
+alone, as measured beforehand — the estimate of 10-30 min was right for one column);
+sweeps 1,728 / 1,753 s (6.0-6.1 s per pair, four `L`); closures ~3 min each; the report
+seconds. Stores: 772 MB per tracer store, ~1.4 GB per derived store × 4 `L` × 2 columns
+(~11 GB added to `data/`).
+
+**Tests.** `tests/test_m3_tracer.py`, 6: the sub-step loop with the piecewise velocity and no
+clamp is `fv_advect` bit for bit on a synthetic grid with land; the time interpolation
+returns the endpoints and the midpoint; linear and piecewise differ on a varying flow and
+agree to 1e-15 on a steady one; the clamp resets exactly the margin cells; an hour dataset
+keeps the raw layout with only the tracers replaced; the declared reading maps the thresholds
+and the tags. Suite **326 passed + 3 strict xfails**, 2 deselected, 266 s.
+
+**Files.** Created `py/m3_tracer.py` (~560 lines), `py/m3_tracer_fig.py`,
+`py/tests/test_m3_tracer.py`, `figs/m3_tracer.png` (**needs `git add -f`**),
+`data/tile330_tracer_{linear,piecewise}_20120702T00_72h.zarr`,
+`data/tile330tracer{,pc}_derived_L{0,2,4,8}.zarr`, `data/m3_closure_tile330tracer{,pc}_L*.json`
+and `_summary.json`, `data/m3_tracer_{linear,piecewise}_summary.json`,
+`data/m3_tracer_summary.json`, the logs / done-files / nohups. Modified
+`py/m3_tracer_fig.py` (one panel title corrected after the result contradicted the prompt's
+expectation), `claude_prompts/frontogenesis_prompt_M3_digging.md` (task 7's two edits; the
+Status), this log. Nothing committed. **Which vet item this answers:** §3 and §6 item 1b —
+the null now has its noise floor: at the grid scale the floor equals the imbalance
+(analysis-limited, with the sharper-fronts caveat); at the filtered scales the model's
+imbalance exceeds the floor by 0.17-0.28, and the model's residual carries a `2F`-correlated
+part the tracer's does not. **The interim's diagnosis moves by one paragraph in §6.1**: cause
+one (sampling at the grid scale) is confirmed as the analysis's own floor, and the
+filtered-scale excess is where the model's physics lives.
+
+### 2026-11-02 — Execution prompt M3-digging, task 5: a second tile, surface-only — tile 329 (Fable 5.1)
+
+**Task.** Vet report §6 item 5c; M3-Q30 (a), M3D-Q2 (a) tile 329, M3D-Q5 (a) the same 72 h. No
+new answers since task 4; the task ran as written. `py/m3_tile2.py` (+ `tests/test_m3_tile2.py`,
+4 tests) → `data/tile329_grid.zarr`, `tile329_masks.nc`, `tile329_raw_20120702T00_72h.zarr`,
+`tile329_derived_L{0,2,4,8}.zarr`, `m3_closure_tile329_summary.json`,
+`data/m3_tile2_summary.json`, `figs/m3_tile2.png`. The product untouched; **no chunk store
+pulled** (M3-Q30 (b) declined).
+
+**Three tile-330 assumptions found and removed on the way**, each byte-identical for tile
+330: (i) `osn_tiles.load_grid` / `_series_attrs` wrote the module constants `(13320, 9720)` as
+`rect_i` / `rect_j` for any tile — now `rect_pixel(tile)`, the centre of the tile's rect
+slices, which *is* `(13320, 9720)` for tile 330; (ii) `validate._llc_inputs` opened
+`tile330_masks.nc` for any 720 × 720 tile — a `masks` argument threaded through
+`test_discrete_null` / `_discrete_null`, defaults unchanged; (iii) `series_verify`'s schema
+check required `face == 10` at two sites — now a scalar `face` of any value. The pull process
+had imported the verifier before fix (iii) and reported FAILED at its end; `--step verify`
+re-run on the complete store: **OK** (time, schema, niter, land_nan, KPPhbl).
+
+**1. Resolve and the grid.** `tile_spec(12600, 9720)` → tile 329 = **face 7**, face-local `j`
+3600:4320, `i` 2880:3600 (rect `j` 9360:10080, `i` 12240:12960). The grid from OSN in 9 s:
+**`CS = 0, SN = −1`, the same orientation as face 10**; lon −142.99 to −128.01, lat 26.66 to
+38.27 (tile 330's latitudes); dxC median 1.796 km, dyC 1.950 km (tile 330: 1.796 / 1.950);
+**0 land cells of 518,400**, depth 1,057-6,336 m. **Orientation QA:** the V3 discrete null on
+this tile's hour 0 → 1 with this tile's masks — OLS slope of measured on `2F` **0.9908
+[0.9839, 0.9980]** on 49,844 front pixels (tile 330: 0.9806 [0.9698, 0.9942]) → **PASS**
+(band [0.95, 1.05]); the operators read face 7 as they read face 10. 3 s.
+
+**2. Masks** (halo 7, 100 km, edge 7): ocean = halo = offshore = **518,400** (all), edge =
+analysis = **498,436** (tile 330: 262,925; ×1.90); `coast_distance_km` = +inf everywhere,
+recorded; the Gulf-of-California check not run.
+
+**3. Pull.** 72 h from OSN, resumable: hours 0-1 in the prep step (11.1 / 9.9 s), the other
+70 in **370 s** (median 4.3 s per hour, max 11.8 — the link was 2-3× faster than M2's smoke);
+**1,163 MB**. `verify_series` OK.
+
+**4. Sweep and closure.** `m3_run.py --raw … --grid … --masks … --chunk none --tag tile329`:
+284 budgets in **1,564 s** (5.4 s per pair; `n_valid` 498,436, `n_lost` 0 at `L ≤ 4`);
+`m3_closure.py --tag tile329 --grid … --masks …` ~3 min; the store's `utc_offset_h` −9.0 and
+`face` 7 from task 1's plumbing, so the local-hour composites are solar; `by_coast_km` empty
+(no bins on a land-free tile), `offshore_only` = the whole pool (3,538,924 pixels at
+`L = 0`).
+
+**5. The comparison** (residual / measured on each tile's `front & valid`; `L = 0 / 2 / 4 / 8`):
+
+| | tile 330, 5 terms | tile 330, 2-term catch-all | **tile 329 (no land), 2-term catch-all** |
+|---|---|---|---|
+| residual / measured | 0.813 / 0.841 / 0.898 / 1.042 | 0.739 / 0.728 / 0.713 / 0.685 | **0.878 / 0.882 / 0.870 / 0.851** |
+| explained | +0.34 / +0.30 / +0.21 / −0.05 | +0.45 / +0.47 / +0.49 / +0.53 | **+0.23 / +0.23 / +0.25 / +0.29** |
+| residual slope on `2F` | +0.44 / +0.45 / +0.46 / +0.53 | | **−0.07 / −0.09 / −0.08 / −0.05** |
+| measured on `2F` (OLS) | 1.34 / 1.14 / 0.98 / 0.83 | | **0.93 / 0.69 / 0.56 / 0.45** |
+| Eulerian − semi-Lagrangian gap | 0.672 / 0.408 / 0.252 / 0.183 | | 0.654 / 0.372 / 0.210 / 0.132 |
+| order 5 − 3 gap | 0.108 / 0.053 / 0.027 / 0.021 | | 0.157 / 0.079 / 0.037 / 0.027 |
+| `τ / 2F` | 0 / 0.35 / 0.55 / 0.75 | | 0 / 0.32 / 0.54 / 0.75 |
+| criterion 2 (slope, corr) | 0.69 / 0.81 / 0.89 / 0.94 | | 0.79 / **0.89** / **0.94** / **0.96** (0.79 / 0.93 / 0.98 / 0.99) |
+| rms measured [s⁻⁵] | 4.0e-18 / 2.2e-18 / 1.2e-18 / 4.6e-19 | | 1.4e-18 / 6.9e-19 / 3.5e-19 / 1.4e-19 |
+| `G` p90 threshold, tile 329 / 330 | | | 0.78 / 0.76 / 0.73 / 0.69 |
+| front width (median, dx) | 2.36 / 2.98 / 4.01 / 6.20 | | 2.29 / 2.91 / 3.94 / 5.99 |
+
+Criterion 1 **fails at every `L`** on tile 329 (0.85-0.88 against 0.50; against the product's
+catch-all it is *worse* by 0.14 / 0.15 / 0.16 / 0.17); criterion 2 passes from `L = 2`, a
+little better than on tile 330. The residual ratio by local hour is 0.77-0.95, flat.
+
+**What a second regime does to the `L = 0` failure and to cause one.** The open NE Pacific
+tile has fronts 22-31 % weaker at p90, a measured amplitude a third of Monterey's, the same
+sub-filter fraction, and a slightly *smaller* Eulerian − semi-Lagrangian gap (0.65 vs 0.67 at
+`L = 0`; 0.13 vs 0.18 at `L = 8`) — and it fails the hourly budget at the grid scale at the
+same size (0.88 catch-all; Monterey 0.74 catch-all, 0.81 with the chunk terms). **The `L = 0`
+failure is not Monterey's; cause one — the hourly sampling at 2 km — holds on both tiles with
+the same gap.** The two regimes differ at the filtered scales, in two ways that matter for
+the diagnosis. (i) On tile 329 the imbalance **does not fall with `L`** (0.88 → 0.85) where
+Monterey's catch-all falls (0.74 → 0.69) and the tracer's floor falls to 0.41: the open-ocean
+excess over the pipeline's floor is **0.01 / 0.17 / 0.33 / 0.44** at `L = 0 / 2 / 4 / 8`,
+larger than Monterey's 0 / 0.02 / 0.17 / 0.28. (ii) On tile 329 the residual is **uncorrelated
+with `2F`** (slope −0.05 to −0.09, as the tracer's) and the measured tendency falls *below*
+`2F` at the filtered scales (slope 0.45 at `L = 8`), whereas Monterey's measured tendency
+exceeds `2F` by 34 % at `L = 0` with a residual that slopes on `2F` at +0.44 to +0.53. So the
+`2F`-correlated excess task 4 identified as "the model, not the pipeline" is **a feature of the
+Monterey filament regime** (the standing, fed fronts of task 6), not of the model's surface
+budget in general; and the open-ocean imbalance at the filtered scales is a large, `L`-flat,
+strain-uncorrelated signal on weak fronts — which is what an internal-wave / near-inertial
+field aliased into hourly differences of a weak gradient would look like (the vet report's
+§4 C3 caveat; Torres et al. 2018 have the summer NE Pacific dominated by unbalanced motions
+at these scales), and what the chunk terms, had they been pulled, would not change (they
+made Monterey's residual *worse*). That is a hypothesis for M5, not a finding; testing it
+needs the internal-wave band separated, which no hourly surface field can do.
+
+**Tests.** `tests/test_m3_tile2.py`, 4: the resolver round-trips 330 and 329 and the
+provenance pixel is the slice centre (330's constants unchanged); the masks on a synthetic
+grid without land (+inf distance, offshore all-true, analysis = edge); the dry run lists
+the 72 timestamps and the three store names; the QA band and the declaration. Suite **330
+passed + 3 strict xfails**, 2 deselected, 279 s (run before the compare step; it adds no test).
+
+**Files.** Created `py/m3_tile2.py` (~430 lines), `py/tests/test_m3_tile2.py`,
+`figs/m3_tile2.png` (**needs `git add -f`**), the four tile-329 stores and masks (~1.2 GB raw,
+~1.4 GB per derived `L`), `data/m3_closure_tile329_L*.json`, `_summary.json`,
+`data/m3_tile2_summary.json`, `data/m3_tile2.log`, `data/m3_run_tile329.log`. Modified
+`py/osn_tiles.py` (`rect_pixel`), `py/validate.py` (`masks=`), `py/series_verify.py` (the face
+check), `claude_prompts/frontogenesis_prompt_M3_digging.md` (Status), this log. Nothing
+committed. **Which vet item this answers:** §6 item 5c — a second tile, surface-only: the
+grid-scale failure generalises (0.88), the filtered-scale behaviour does not (flat, not
+falling; uncorrelated with `2F`). **The interim's diagnosis moves by one paragraph in §6**:
+cause one is general; the `2F`-correlated excess is Monterey's; the open ocean adds a
+third, `L`-flat imbalance whose source the surface fields cannot name.
+
+### 2026-11-03 — Execution prompt M3-digging, task 7: the digging note, and its reference from the interim (Fable 5.1)
+
+**Task.** M3-Q28 (a), M3D-Q4 (a), M3D-Q6 (a), M3D-Q7. No new answers since task 5; the task
+ran as written. Written: `report/frontogenesis_M3_digging.md`, `report/check_digging_numbers.py`,
+one marked paragraph at the end of the interim's §8, one marked edit in prompt 6 task 2's
+allowed-source list, two rows and a build note in `report/README.md`, the PDF. No code in
+`py/` changed; no store or JSON in `data/` changed; nothing committed.
+
+**The note.** Seven sections as the prompt lists them — what was objected to (two paragraphs);
+the noise floor (the three controls with the declared skill rule, the offline tracer with the
+declared three-way reading); the two term tests; pooling, selection and the followed front
+(including task 6's parcels, per M3D-Q6 (a) as record, the finding itself being M5's); the
+second tile; the closing table answering the review's §6 items one by one (item, test,
+outcome, what it changes in §6.1 / §6.2, what it does not); what remains untestable (the
+flow's sub-hourly evolution; a five-term budget on a second region) — then six figures
+referenced from `../figs/` (`m3_controls`, `m3_tracer`, `m3_term_tests`, `m3_tile2`,
+`m3_parcels_velocity`, `m3_parcels_motion`) and a numbers-and-provenance appendix in the
+interim's format. Audience and rules as the interim's: an advanced PhD student, every symbol
+in words, no code identifiers in the running prose, the product's slopes withheld and said to
+be, the tracer's 0.976 labelled as the pipeline's calibration. **Length: 2,663 words of body
+prose** (3,983 with front matter, tables, captions and the appendix) against the prompt's
+~2,000 — the one spec not met, logged as the interim's length was (M3-Q19): the seven
+sections and the closing table are what JXP asked to be reported, and nothing was padded.
+
+**The checker.** `check_digging_numbers.py`: **186 JSON-backed numbers** re-read from the nine
+digging summaries and the product's closure summary, formatted as the note formats them,
+required verbatim; the product's four withheld slopes forbidden in any sentence about a
+slope; the tracer's slopes allowed only in a sentence that says "tracer" or "calibration";
+the "withheld" statement required; the six figure paths resolved. **OK on the first run**
+and after every edit. It also asserts, as a precondition, that the split's cancellation rule
+failed at every `L` (the note says so in words).
+
+**The interim.** One paragraph appended to §8, `*(added 2026-11-03, M3 digging.)*`, naming
+the note and giving each test one sentence with its outcome in the declared terms: the
+shuffled no-skill 1.08-1.24 against the real 0.81-1.04 at 20-39 sd; the tracer floor 0.870 at
+the grid scale and 0.408 at `L = 8` against the catch-all 0.685, with the 0.17-0.28 excess and
+the `2F`-correlated part the tracer lacks; the split with no cancellation and §6.4's positive
+residual as the term's own mean; the second cell keeping phase and sign; no selection
+changing the verdict, blocks widening ≤ 4×; the land-free tile failing at the same size with
+a scale-flat, strain-uncorrelated imbalance; the followed front as a standing feature; **the
+verdict of §5.2 unchanged**. `check_report_numbers.py` → **OK** after the edit (105 numbers;
+no withheld slope quoted; the paragraph references no figure).
+
+**Prompt 6.** Task 2's allowed-source sentence gains a marked clause listing the note and its
+nine summaries, the checker, where the closing table goes (the limitations and the answer to
+planning §12) and where the parcels finding goes (§5.1's successor, M3D-Q6 (a)).
+
+**The PDF.** Built with the interim's recipe (the `pandoc` bundled under the `ocean14` env's
+`pypandoc` — the frontogenesis env has no `pypandoc`; `xelatex` and `pdfinfo` from `/usr/bin`):
+**13 pages**, every page inspected. Two defects found and fixed on inspection: `≤` / `≥`
+with no glyph in the body font (written in LaTeX, as the interim did) and the imbalance's
+definition breaking out of math mode on page 3 (its dollar signs printed; now
+`$I = \mathrm{measured} - 2F - \tau - V$`). Rebuilt with **no warnings**; the five-column
+closing table is cramped but legible; the appendix's long JSON keys hyphenate as the
+interim's do. `report/README.md`: two rows (the note, the checker) and the build note.
+
+**Suite.** No `py/` code changed in this task; the last full run (task 5) stands: **330 passed
++ 3 strict xfails**, 2 deselected. **PNGs needing `git add -f`** across the digging tasks:
+`figs/m3_controls.png`, `figs/m3_term_tests.png`, `figs/m3_tracer.png`, `figs/m3_tile2.png`,
+`figs/m3_parcels_velocity.png`, `figs/m3_parcels_motion.png` (the working figures
+`figs/m3_closure_tile330tracer*.png` are milestone QA, not report figures); the PDF is not
+committed, as the interim's is not.
+
+**Files.** Created `report/frontogenesis_M3_digging.md`, `report/check_digging_numbers.py`,
+`report/frontogenesis_M3_digging.pdf` (uncommitted). Modified `report/frontogenesis_M3_interim.md`
+(§8, one marked paragraph), `report/README.md`, `claude_prompts/frontogenesis_prompt_6.md`
+(task 2, one marked clause), `claude_prompts/frontogenesis_prompt_M3_digging.md` (Status),
+this log. **The prompt is complete**: tasks 1-7 done; M3D-Q1..Q7 all answered and applied;
+the M3 verdict unchanged throughout.

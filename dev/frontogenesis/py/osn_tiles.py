@@ -60,6 +60,15 @@ ORIENTATION = ('CS=0, SN=-1: j/V/dyC zonal (eastward), i/U/dxC meridional '
 DATA_DIR = Path(__file__).resolve().parents[1] / 'data'
 
 
+def rect_pixel(tile: TileInfo) -> tuple:
+    """The rect-grid pixel that names a tile in the provenance attrs: the
+    centre of its rect slices -- ``(13320, 9720)`` for tile 330, i.e. the
+    module constants, so tile 330's attrs are unchanged (M3-digging task 5,
+    2026-11-02: a second tile)."""
+    half = (tile.rect_i_slice.stop - tile.rect_i_slice.start) // 2
+    return (int(tile.rect_i_slice.start + half), int(tile.rect_j_slice.start + half))
+
+
 def tile_spec(i_rect: int = TILE_RECT_I, j_rect: int = TILE_RECT_J) -> TileInfo:
     """Resolve the study tile.
 
@@ -144,7 +153,7 @@ def load_grid(endpoint: str = OSN_ENDPOINT, tile: TileInfo = None) -> xr.Dataset
         face_index=int(tile.face_idx),
         j_face_start=int(tile.j_face_slice.start),
         i_face_start=int(tile.i_face_slice.start),
-        rect_i=int(TILE_RECT_I), rect_j=int(TILE_RECT_J),
+        rect_i=rect_pixel(tile)[0], rect_j=rect_pixel(tile)[1],
         source='OSN', endpoint=endpoint, orientation=ORIENTATION,
         dx_km_37N=round(dx_km, 2), dy_km_37N=round(dy_km, 2), land_fill='NaN')
     return g_tile
@@ -340,7 +349,7 @@ def _series_attrs(timestamps, tile: TileInfo, endpoint: str, include_wind: bool)
         face_index=int(tile.face_idx),
         j_face_start=int(tile.j_face_slice.start),
         i_face_start=int(tile.i_face_slice.start),
-        rect_i=int(TILE_RECT_I), rect_j=int(TILE_RECT_J), land_fill='NaN',
+        rect_i=rect_pixel(tile)[0], rect_j=rect_pixel(tile)[1], land_fill='NaN',
         **_provenance())
 
 
