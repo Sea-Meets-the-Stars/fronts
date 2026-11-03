@@ -8911,3 +8911,35 @@ committed, as the interim's is not.
 (task 2, one marked clause), `claude_prompts/frontogenesis_prompt_M3_digging.md` (Status),
 this log. **The prompt is complete**: tasks 1-7 done; M3D-Q1..Q7 all answered and applied;
 the M3 verdict unchanged throughout.
+
+### 2026-11-03 — Execution prompt M3-digging, task 8: a summary at the top of the digging note (Fable 5.1)
+
+**Task.** JXP (new task 8): "write a summary of the digging note and put it at the top of its
+report." No new answers in the Q&A; nothing in the task needed a decision.
+
+**Done.** A `## Summary` section inserted in `report/frontogenesis_M3_digging.md` between the
+front matter and §1, **unnumbered** so that every cross-reference to the note's sections — in
+the note itself, in the interim's §8 paragraph ("its §6"), in prompt 6's task-2 clause — stays
+valid. **723 words**, six paragraphs: the setting and the review's objection with the verdict
+stated up front; then the four places the diagnosis sharpened — the residual is skill, not
+noise (20-39 sd below the shuffled 1.08-1.24); the grid-scale failure is the analysis's own
+floor (the tracer's 0.870 / 0.713 / 0.544 / 0.408, the model's 0.17-0.28 excess at the filtered
+scales, the strain-correlated part the tracer lacks, the velocity interpolation making no
+difference, the 0.976 calibration); the surface-flux term orthogonal part by part and the
+positive residual as the term's own mean, the second-cell vertical term keeping phase and
+sign; the pooling holding, the fronts as standing features (4 km vs 21 km in sixteen hours),
+the land-free tile failing at 0.878 / 0.882 / 0.870 / 0.851 with the same grid-scale gap and a
+scale-flat, strain-uncorrelated imbalance above it — and the two untestable requests, with
+the closing statement that every number is asserted by a script and the product's slopes
+remain withheld. The audience and rules of the note (M3-Q16..Q26) kept: no code identifiers,
+every quantity in words, the one slope quoted being the tracer's calibration.
+
+**Checks.** `check_digging_numbers.py` → **OK** (186 numbers; the summary adds no new
+JSON-backed rendering, repeats checked ones, and quotes no withheld slope). PDF rebuilt with
+the interim's recipe: **14 pages** (was 13), no warnings; pages 1-2 inspected, the summary
+runs to the top of page 2 and the rule before §1 renders. Note now 4,708 words in all; the
+body prose of §1-§7 unchanged at 2,663.
+
+**Files.** Modified `report/frontogenesis_M3_digging.md` (the summary), its PDF (uncommitted),
+`claude_prompts/frontogenesis_prompt_M3_digging.md` (Status), this log. No code, no store,
+no JSON changed; nothing committed.

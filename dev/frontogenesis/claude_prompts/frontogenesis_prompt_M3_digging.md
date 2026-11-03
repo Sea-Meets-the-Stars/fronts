@@ -149,6 +149,13 @@ interim's recipe (the `ocean14` env's bundled pandoc): **13 pages**, every page 
 two glyph / math-mode defects fixed, no warnings. No `py/` code changed; suite 330 + 3
 xfails stands. Six PNGs need `git add -f`. Log entry "Execution prompt M3-digging, task 7".
 
+**Status 2026-11-03 — task 8 done** (Fable 5.1). A `## Summary` (unnumbered, so every
+cross-reference to the note's §1-§7 stands) inserted between the note's front matter and §1:
+723 words, the verdict up front and the four places the diagnosis sharpened, the two
+untestable requests, the withheld slopes said to be withheld. `check_digging_numbers.py`
+still OK (186 numbers); PDF rebuilt, **14 pages**, no warnings, pages 1-2 inspected. Log entry
+"Execution prompt M3-digging, task 8".
+
 ---
 
 ## What JXP decided (prompt 4, M3-Q27..Q30)
@@ -587,6 +594,11 @@ edit in prompt 6 *(the M5 prompt, `frontogenesis_prompt_6.md`; "prompt 7" correc
 Log: the word count; the number of checked numbers; the checker's result; the interim's new
 paragraph verbatim; the prompt-6 edit; the PDF page count; the suite count; which PNGs need
 `git add -f`.
+
+### 8. Summary + Interim report
+
+Please write a summary of the digging note and put it at the top of its report.
+
 
 ---
 
