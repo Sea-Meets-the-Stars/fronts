@@ -8943,3 +8943,84 @@ body prose of §1-§7 unchanged at 2,663.
 **Files.** Modified `report/frontogenesis_M3_digging.md` (the summary), its PDF (uncommitted),
 `claude_prompts/frontogenesis_prompt_M3_digging.md` (Status), this log. No code, no store,
 no JSON changed; nothing committed.
+
+### 2026-11-05 — Execution prompt M3-digging, task 9: the surface-flux term — its equations, and its effect on the primary example (Fable 5.1)
+
+**Task.** JXP (new task 9): add equations describing the surface-flux term to the interim
+report, and a figure describing its effects on the primary example, in
+`report/frontogenesis_M3_interim.md`. No new answers in the Q&A. The interim's own rules
+kept (M3-Q16..Q26: the audience, no code identifiers in prose, no store opened by the report
+or its scripts, every JSON-backed number asserted); the additions are **marked**
+`*(added 2026-11-05, M3-digging task 9.)*` and nothing existing was rewritten.
+
+**The analysis.** `py/m3_case_sflux.py` (+ `tests/test_m3_case_sflux.py`, 1 test) → 
+`data/m3_case_sflux.json`, `data/m3_case_sflux.npz` (152 s). Along the §5.1 case's 450
+parcels (pairs 6-54, the seed at 30) it samples the stored budget columns **cubically, as the
+case does** (a first draft sampled linearly and did not reproduce the case's integrals — with
+cubic sampling the §5.1 numbers reproduce exactly: `2F` alone −0.08, all four +0.99), and
+recomputes the term's three parts (`m3_term_tests.split_components`, `L = 0`, both depth
+forms; identity to the stored term 2e-15). It writes the parcel-median rates, the integrals
+from the seed with and without `S` (the case's own integrator), the pointwise relation of `S`
+and its parts to the imbalance `I = measured − 2F − τ − V` over the forward day, the
+composite by local hour, and the maps at the seed. The amplitude ratios are the rms over
+every parcel and interval of the forward day, as the case quotes its terms (a ratio of the
+parcel-*median* series is meaningless, the median measured rate being near zero because the
+parcels' rates alternate in sign — the first draft reported 6.8 that way; corrected).
+
+**What `S` does on this front.** r.m.s. **0.309** of the measured tendency over the forward
+day (0.295 over the window, the §5.1 number); **0.977 non-solar**, 0.125 shortwave, 0.117
+freshwater. The parcel-median `S` is **negative at 24 of 24 forward intervals** (frontolytic:
+cold upwelled water warming as it flows south), most so at 03 LST and least at 13 LST.
+Integrated along the parcels, **`S` alone accounts for +1.08 of the observed change** in `G`
+over the forward day; `2F + τ + V` account for −0.08, as `2F` alone does; so **the "0.99 of the
+observed change" of §5.1's four-term integral is the surface-flux term and nothing else**,
+and with `S` in its boundary-layer form (§6.3; 0.010 of measured here, `h_bl` median 30.7 m
+along the parcels) the integral returns to −0.06. Pointwise on the parcels, `S` correlates
+with the imbalance at **+0.141** (fitted factor +0.38; subtracting it at unit weight does not
+reduce the imbalance's variance; the non-solar part +0.148, the shortwave part −0.138, the
+freshwater part +0.131). The §6.2 finding on one front: the right sign and size on average,
+uncorrelated hour by hour — its mean is the front's weakening, its fluctuations are not the
+budget's.
+
+**The report.** (i) A new **§2.6 "The surface-flux term"** after §2.5 (no renumbering: 2.5 was
+§2's last subsection): the three flux rates in a layer of thickness `h` — `∂Θ/∂t =
+Q_top/(ρ_c c_p h)` with `Q_top = (Q_net − Q_sw) + f_sw(h) Q_sw`, `∂𝒮/∂t = −𝒮 F_w/(ρ_c h)` — the
+buoyancy tendency `B_sfc = (g/ρ_0)(−ρα ∂Θ/∂t + ρβ ∂𝒮/∂t)` in the repository's sign
+convention, and `S = 2 ∇_h b · ∇_h \overline{B_sfc}^L`; then the three properties: the sign
+(a heating gradient favouring the dense side is frontolytic), the depth scale (`Δz` the
+top cell's own budget, `h_bl` the hourly-mean after KPP — a factor ~22 in amplitude, not in
+pattern), and linearity (`S = S_ns + S_sw + S_fw`; the pooled fractions 0.996 / 0.147 / 0.111
+from the digging note). Salinity written `𝒮` to keep `S` for the term. (ii) In §5.1 after
+Figure 6: a marked paragraph with the numbers above and **Figure 6b** (`report/figs/case_sflux.png`,
+drawn by `make_case_figs.sflux()` from the two products only): (a) the maps at the seed —
+`S`, its non-solar and shortwave parts, the imbalance — with the parcels; (b) the rates along
+the parcels with the parts and the `h_bl` form; (c) the integrals with and without `S`; (d)
+the pointwise relation with binned medians, the unit line and the fitted line. "6b" so that
+Figures 7-11 keep their numbers. (iii) Six glossary rows (`B_sfc`; `Q_net, Q_sw, F_w`;
+`f_sw(h)`; `h`; the three parts). (iv) One Appendix B row (`m3_case_sflux.json`).
+(v) `check_report_numbers.py` extended with a block of **13** numbers from the new JSON
+(now 118) — **OK**. One collision caught and worked around: the case's non-solar fraction
+**0.977** equals the withheld `L = 4` slope to three decimals, and the checker flags a 3-dp
+match on any line that says "slope"; the two lines were reworded ("fitted factor") rather
+than the rule relaxed. (vi) `report/README.md`: the figure's row.
+
+**The PDF.** Rebuilt with the interim's recipe: **29 pages** (was 26 before the §8 paragraph
+and this), no warnings; pages 3-4 (§2.6, the equations typeset) and 12-13 (the paragraph and
+Figure 6b) inspected. The figure's (c)/(d) titles collided on the first draw and an
+annotation in (c) sat on the observed curve; both fixed (the annotation's numbers are in the
+text and caption).
+
+**Tests.** `tests/test_m3_case_sflux.py`: the integral from the seed both ways on a synthetic
+rate. Suite **331 passed + 3 strict xfails**, 2 deselected, 281 s (a first run collected
+nothing — the shell's working directory had drifted into `report/`; rerun from an absolute
+path).
+
+**Files.** Created `py/m3_case_sflux.py`, `py/tests/test_m3_case_sflux.py`,
+`report/figs/case_sflux.png` (**needs `git add -f`**), `data/m3_case_sflux.{json,npz}`.
+Modified `report/frontogenesis_M3_interim.md` (§2.6; §5.1 paragraph + Figure 6b; glossary;
+Appendix B), `report/make_case_figs.py` (`sflux()`), `report/check_report_numbers.py`,
+`report/README.md`, its PDF (uncommitted), `claude_prompts/frontogenesis_prompt_M3_digging.md`
+(Status), this log. Nothing committed. **What it adds to the diagnosis:** the four-term
+integral's agreement on the primary example was the surface-flux term's mean, and the term's
+pointwise orthogonality (+0.14 here, +0.02 pooled) is what keeps it from closing the hourly
+budget — the one sentence for M5's §5.1 successor.

@@ -191,7 +191,104 @@ def budget_bars():
     save(fig, 'case_budget.png')
 
 
+# ====================================================== 4. the surface-flux term on this front
+def sflux():
+    """M3-digging task 9 (2026-11-05): the surface-flux term on the followed front, from
+    ``data/m3_case_sflux.{json,npz}`` (``py/m3_case_sflux.py``) -- no store opened."""
+    X = np.load(DATA / 'm3_case_sflux.npz', allow_pickle=False)
+    J = json.loads((DATA / 'm3_case_sflux.json').read_text())
+    h, rh, nb = X['hours'], X['rate_hours'], int(X['n_back'])
+    XC, YC, box = X['XC'], X['YC'], X['box']
+    ext = [XC.min(), XC.max(), YC.min(), YC.max()]
+
+    def geo(a):
+        return a.T[::-1]
+    fig = plt.figure(figsize=(14.2, 10.6))
+    gs = fig.add_gridspec(2, 4, height_ratios=(1.0, 1.15), hspace=0.42, wspace=0.36)
+    # (a) the maps at the seed: S, its parts, the imbalance
+    lon, lat = _lonlat(X['pos_seed'], box, XC, YC)
+    smax = float(np.nanpercentile(np.abs(X['map_S']), 99.0))
+    panels = (('map_S', '$S$ (all fluxes)'), ('map_S_nonsolar', 'non-solar heat part'),
+              ('map_S_shortwave', 'shortwave part'), ('map_I', 'imbalance $I = D_hG/Dt - 2F - \\tau - V$'))
+    for c, (k, lab) in enumerate(panels):
+        a = fig.add_subplot(gs[0, c])
+        vmax = smax if k != 'map_I' else float(np.nanpercentile(np.abs(X['map_I']), 99.0))
+        im = a.imshow(geo(X[k]), extent=ext, norm=TwoSlopeNorm(0.0, -vmax, vmax), cmap='RdBu_r',
+                      origin='lower', aspect='auto', interpolation='bilinear')
+        a.plot(lon, lat, '.', ms=1.3, color='#1A1A1A', alpha=0.5, mew=0, zorder=4)
+        a.set_title(('(a)  ' if c == 0 else '') + lab, fontsize=10, color=MIDNIGHT)
+        a.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(3))
+        a.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(4))
+        a.tick_params(labelsize=8)
+        if c == 0:
+            a.set_ylabel('latitude', fontsize=9)
+        a.set_xlabel('longitude', fontsize=9)
+        cb = fig.colorbar(im, ax=a, fraction=0.05, pad=0.02)
+        cb.ax.tick_params(labelsize=7)
+    # (b) the rates along the parcels
+    b = fig.add_subplot(gs[1, 0:2])
+    b.axhline(0, color=MUTED, lw=0.9)
+    b.plot(rh, X['med_DGDt_semilag'], '-o', color=MIDNIGHT, ms=2.6, lw=1.8, label='measured  $D_hG/Dt$', zorder=5)
+    b.plot(rh, X['med_I'], '-', color=MUTED, lw=1.6, label='imbalance  $I$')
+    b.plot(rh, X['med_surface_flux'], '-', color=AMBER, lw=2.2, label='$S$ (top cell, 1 m)')
+    b.plot(rh, X['med_top_nonsolar'], '--', color=RED, lw=1.2, label='non-solar part')
+    b.plot(rh, X['med_top_shortwave'], '--', color='#E0A458', lw=1.2, label='shortwave part')
+    b.plot(rh, X['med_top_freshwater'], '--', color=TEAL, lw=1.2, label='freshwater part')
+    b.plot(rh, X['med_surface_flux_kpp'], ':', color=AMBER, lw=1.6, label='$S$ with $h_{\\rm bl}$ (§6.3)')
+    b.axvline(0, color=MUTED, lw=0.9, alpha=0.5)
+    b.set_xlabel('hours from the seed time'); b.set_ylabel('parcel-median tendency  [s$^{-5}$]')
+    b.set_title('(b)  the surface-flux term and its parts along the parcels', fontsize=11, color=MIDNIGHT)
+    b.legend(fontsize=7.6, ncol=2, loc='lower left', framealpha=0.95)
+    sg = J['sign']
+    b.text(0.985, 0.97, f"$S < 0$ (frontolytic) at {sg['S_negative_intervals_fwd']}/{sg['n_intervals']} forward intervals",
+           transform=b.transAxes, fontsize=8.4, color=AMBER, va='top', ha='right')
+    # (c) the integrals with and without S
+    c_ = fig.add_subplot(gs[1, 2])
+    c_.plot(h, X['G_obs'], '-o', color=MIDNIGHT, ms=2.8, lw=2.0, label='observed  $G$', zorder=5)
+    c_.plot(h, X['int_two_F'], '-', color=GREEN, lw=1.8, label=r'$G_0 + \int 2F\,dt$')
+    c_.plot(h, X['int_two_F_tau_V'], '-.', color=TEAL, lw=1.4, label=r'$G_0 + \int (2F{+}\tau{+}V)\,dt$')
+    c_.plot(h, X['int_all_four'], '--', color=AMBER, lw=2.0, label=r'$G_0 + \int (2F{+}\tau{+}V{+}S)\,dt$')
+    c_.plot(h, X['int_all_four_kpp'], ':', color=AMBER, lw=1.6, label=r'the same with $S$ on $h_{\rm bl}$')
+    c_.axvline(0, color=MUTED, lw=0.9, alpha=0.5)
+    c_.set_xlabel('hours from the seed time'); c_.set_ylabel('$G$  [s$^{-4}$]')
+    c_.set_title('(c)  the integral with and without $S$', fontsize=10.5, color=MIDNIGHT)
+    c_.set_ylim(0, float(np.nanmax(X['G_obs'])) * 1.35)
+    c_.legend(fontsize=7.4, loc='upper left', framealpha=0.95)
+    # (d) the pointwise relation
+    d = fig.add_subplot(gs[1, 3])
+    x, y = X['pw_S_x'].astype('f8'), X['pw_S_y'].astype('f8')
+    ok = np.isfinite(x) & np.isfinite(y)
+    d.plot(x[ok], y[ok], '.', ms=1.2, color=MUTED, alpha=0.25, mew=0)
+    qs = np.nanpercentile(x[ok], np.linspace(0, 100, 13))
+    cx, cy, lo, hi = [], [], [], []
+    for q0, q1 in zip(qs[:-1], qs[1:]):
+        m = ok & (x >= q0) & (x < q1)
+        if m.sum() > 20:
+            cx.append(np.median(x[m])); cy.append(np.median(y[m]))
+            lo.append(np.percentile(y[m], 25)); hi.append(np.percentile(y[m], 75))
+    d.errorbar(cx, cy, yerr=[np.array(cy) - np.array(lo), np.array(hi) - np.array(cy)], fmt='o-', color=AMBER,
+               ms=4, lw=1.6, capsize=2, label='binned median, inter-quartile', zorder=5)
+    pw = J['pointwise']['S']
+    xx = np.array([np.nanpercentile(x[ok], 1), np.nanpercentile(x[ok], 99)])
+    d.plot(xx, xx, '-', color=MUTED, lw=1.0, label='unit line (closure)')
+    d.plot(xx, pw['ols'] * xx, '--', color=RED, lw=1.2, label=f"OLS slope {pw['ols']:+.2f}")
+    d.axhline(0, color=MUTED, lw=0.6); d.axvline(0, color=MUTED, lw=0.6)
+    d.set_xlim(xx * 1.15); d.set_ylim(np.nanpercentile(y[ok], [1, 99]) * 1.15)
+    d.set_xlabel('$S$ on the parcel  [s$^{-5}$]'); d.set_ylabel('imbalance $I$ on the parcel  [s$^{-5}$]')
+    d.set_title(f"(d)  pointwise, corr {pw['corr']:+.2f}", fontsize=10.5, color=MIDNIGHT)
+    d.text(0.02, 0.02, f"{pw['n']:,} parcel-hours", transform=d.transAxes, fontsize=8, color=MUTED)
+    d.ticklabel_format(axis='both', style='sci', scilimits=(-2, 2), useMathText=True)
+    d.legend(fontsize=7.6, loc='upper left', framealpha=0.95)
+    r = J['rms_over_measured']
+    fig.suptitle(f"The surface-flux term on the followed front ($L = 0$): r.m.s. {r['S']:.3f} of the measured "
+                 f"tendency, {J['parts_over_S']['nonsolar']:.2f} of it non-solar; its integral over the forward "
+                 f"day is {J['integrals']['S_integral_over_dG']:+.2f} of the observed change",
+                 fontsize=11.5, color=MIDNIGHT, y=0.985)
+    save(fig, 'case_sflux.png')
+
+
 if __name__ == '__main__':
     front_maps()
     strength()
     budget_bars()
+    sflux()

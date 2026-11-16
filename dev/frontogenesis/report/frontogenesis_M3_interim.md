@@ -78,6 +78,28 @@ $$
 
 with every term formed through one operator set at each filter scale and written for $G$ rather than $\tfrac{1}{2}G$ (Figure 2). The **vertical term** $V$ is $2\nabla_h b\cdot\nabla_h$ of the top-cell vertical advective tendency $-w_{\rm base}\,(b_0 - b_1)/\Delta z_{01}$ ($\Delta z_{01} = 1.07$ m), from the model's own cell-base velocity and its two uppermost levels. The **surface-flux term** $S$ is the same contraction of the top-cell buoyancy tendency from the net heat, shortwave and freshwater fluxes, each spread over $\Delta z = 1$ m (the shortwave fraction absorbed within the top metre is 0.521). The **sub-filter term** $\tau$ is defined in §3.3. With these three measured, $R$ reduces to numerical diffusion plus interior KPP mixing — the only form in which an efficiency could ever have been earned.
 
+### 2.6 The surface-flux term
+
+*(added 2026-11-05, M3-digging task 9.)* The term $S$ deserves its equations, because it is the one budget term that is a parameterised forcing rather than a kinematic quantity, and because §5.1 and §6 turn on what it can and cannot do. The model forces its top cell with three air–sea fluxes — the net heat flux $Q_{\rm net}$ (which includes the shortwave), the shortwave flux $Q_{\rm sw}$, and the downward freshwater flux $F_w$ — all stored positive into the ocean. Within a layer of thickness $h$ the fluxes change the layer's temperature $\Theta$ and salinity $\mathcal{S}$ at the rates
+
+$$
+\left.\frac{\partial\Theta}{\partial t}\right|_{\rm sfc} = \frac{Q_{\rm top}}{\rho_c\, c_p\, h}, \qquad Q_{\rm top} = \left(Q_{\rm net} - Q_{\rm sw}\right) + f_{\rm sw}(h)\,Q_{\rm sw}, \qquad \left.\frac{\partial\mathcal{S}}{\partial t}\right|_{\rm sfc} = -\frac{\mathcal{S}\,F_w}{\rho_c\, h},
+$$
+
+where $\rho_c$ and $c_p$ are the model's reference density and heat capacity, and $f_{\rm sw}(h)$ is the fraction of the shortwave absorbed within the layer under the model's Jerlov water type (0.521 for the 1 m top cell: the non-solar part enters entirely at the surface, the solar part mostly heats the water below). The buoyancy tendency that follows, with the thermal and haline expansion coefficients $\alpha$ and $\beta$ of the equation of state at the local state, is
+
+$$
+B_{\rm sfc} = \frac{g}{\rho_0}\left(-\rho\,\alpha\left.\frac{\partial\Theta}{\partial t}\right|_{\rm sfc} + \rho\,\beta\left.\frac{\partial\mathcal{S}}{\partial t}\right|_{\rm sfc}\right),
+$$
+
+in the repository's sign convention in which $b$ increases with density, so that heating or freshening *lowers* $b$. The term in the budget of $G$ is then the same contraction as every other term, the tendency low-passed at the filter scale $L$ before its gradient is taken:
+
+$$
+S = 2\,\nabla_h b \cdot \nabla_h \overline{B_{\rm sfc}}^{\,L}.
+$$
+
+Three properties follow. First, the sign: a heating gradient that favours the dense side of a front — more heat where $b$ is larger — lowers $b$ most where it is highest, so $\nabla_h B_{\rm sfc}$ opposes $\nabla_h b$ and $S < 0$: **frontolytic**. Heating that favours the light side is frontogenetic. Second, the depth scale: with $h = \Delta z = 1$ m, the top cell's own budget, $S$ is the term the stored fields obey instant by instant; with $h = h_{\rm bl}$, the boundary-layer depth, it is the hourly-mean tendency after KPP has mixed the flux down — the sensitivity of §6.3, which changes the amplitude by the ratio of the two depths (about a factor 22) but not the pattern. Third, linearity: $B_{\rm sfc}$ is linear in the three fluxes at fixed state, and so is every operator after it, so $S$ is exactly the sum of a non-solar heat part, a shortwave part and a freshwater part, $S = S_{\rm ns} + S_{\rm sw} + S_{\rm fw}$; on the pooled front pixels the non-solar part is 0.996 of the term's amplitude at the grid scale, the shortwave part 0.147 and opposing it, the freshwater part 0.111 and collinear with the non-solar (the companion digging note, §3). The fluxes themselves are six-hourly forcing interpolated by the model, so the shortwave's diurnal cycle is a triangle peaking at 13 local solar time rather than resolved insolation.
+
 ---
 
 ## 3. Method
@@ -187,6 +209,12 @@ against the pre-declared tolerance of 0.50 on $R$. **One front reproduces the po
 ![](figs/case_budget.png)
 
 **Figure 6.** The budget of one front. The r.m.s. of each of the five terms as a fraction of the measured tendency's, for the 450 followed parcels beside the 71-pair pooled values at $L = 0$, with the 0.50 tolerance on $R$ drawn. The two sets of bars agree to within a few hundredths, term by term; the residual sits at 0.74 on this front and 0.81 on the pool.
+
+*(added 2026-11-05, M3-digging task 9.)* **What the surface-flux term does on this front.** The term of §2.6, followed along the same 450 parcels, is shown in Figure 6b. Over the forward day its r.m.s. is 0.309 of the measured tendency's (0.295 over the whole window, the number in Figure 6), and 0.977 of it is the non-solar heat part — the shortwave part is 0.125, peaking at the early afternoon, and the freshwater part 0.117. Its sign is the physics of §2.6 made visible: the parcel-median $S$ is **negative at 24 of 24 forward intervals** — the heating favours the dense side of this filament, cold upwelled water warming as it flows south (§4 of the companion note) — most frontolytic at 03 and least at 13 local solar time, when the shortwave offsets the cooling gradient. That sign is what the four-term integral of Figure 5 rests on. Integrated along the parcels from the seed, $S$ alone accounts for **+1.08 of the observed change** in $G$ over the forward day; the three other terms together account for −0.08, exactly as $2F$ alone does; so the "0.99 of the observed change" of Figure 5 is the surface-flux term and nothing else, and with the term in its boundary-layer form (§6.3) the integral returns to −0.06. The pointwise picture is the pooled one in miniature: on the parcels, hour by hour, $S$ correlates with the imbalance $I = D_hG/Dt - 2F - \tau - V$ at only **+0.141**, with a fitted factor of +0.38 in place of the unit factor closure would need, and subtracting it at unit weight does not reduce the imbalance's variance. A term that is the right sign and the right size on average, and uncorrelated with the imbalance hour by hour, is the §6.2 finding stated on one front: its mean is the front's weakening, its fluctuations are not the budget's.
+
+![](figs/case_sflux.png)
+
+**Figure 6b.** The surface-flux term on the followed front. (a) At the seed time, in the case box: $S$, its non-solar and shortwave parts, and the imbalance $I$, on a common diverging scale, with the parcels. (b) The parcel-median rates along the trajectory: the measured tendency, the imbalance, $S$ and its three parts, and $S$ in its boundary-layer form. (c) The integrals from the seed: the observed $G$ against $G_0 + \int 2F\,dt$, the same with $\tau$ and $V$, with all four terms, and with $S$ on $h_{\rm bl}$. (d) The pointwise relation on the parcels over the forward day: $I$ against $S$, hour by hour and parcel by parcel, with the binned medians, the unit line and the fitted line.
 
 §5.2 asks the same question of every front at once.
 
@@ -341,6 +369,11 @@ Units are given for every variable. The grid cell on this tile is 1.68–2.07 km
 | catch-all residual | $R + V + S$: the residual the budget would have with no full-depth data | s$^{-5}$ |
 | $w$, $\eta$ | vertical velocity; free-surface height. At the top face $w = d\eta/dt$ | m s$^{-1}$; m |
 | $\Delta z$ | top-cell thickness, 1.0 m (the cell-base spacing used in $V$ is 1.07 m) | m |
+| $B_{\rm sfc}$ | the top-cell buoyancy tendency from the surface fluxes (§2.6); $S = 2\nabla_h b\cdot\nabla_h \overline{B_{\rm sfc}}^{L}$ | m s$^{-3}$ |
+| $Q_{\rm net}$, $Q_{\rm sw}$, $F_w$ | net heat, shortwave and freshwater fluxes into the ocean (§2.6); six-hourly forcing interpolated by the model | W m$^{-2}$; W m$^{-2}$; kg m$^{-2}$ s$^{-1}$ |
+| $f_{\rm sw}(h)$ | the shortwave fraction absorbed within depth $h$ (Jerlov type IA); 0.521 for 1 m | — |
+| $h$ | the layer the fluxes are spread over: $\Delta z$ (primary) or $h_{\rm bl}$ (sensitivity) | m |
+| $S_{\rm ns}$, $S_{\rm sw}$, $S_{\rm fw}$ | the non-solar, shortwave and freshwater parts of $S$; they sum to it exactly (§2.6) | s$^{-5}$ |
 | $h_{\rm bl}$ | KPP boundary-layer depth; median 22.2 m on front pixels; diurnal range 15.6–26.5 m | m |
 | $\nabla^4 b$ | biharmonic of buoyancy, the signature of the model's scale-selective numerical diffusion | m$^{-3}$ s$^{-2}$ |
 | KPP | the model's vertical mixing parameterisation; its interior part stays in $R$ | — |
@@ -453,4 +486,5 @@ Every number in this report is taken from a task log entry in `claude_prompts/fr
 | case strength change over the forward day: followed parcels; unselected control (2,500 parcels) | 0.19; 0.89 | JSON `m3_case_summary.json` `strength.change_factor` |
 | case integrated prediction at +24 h: $2F$ alone; four terms; fraction of observed change | $8.47 \times 10^{-14}$; $1.59 \times 10^{-14}$; −0.08; 0.99 | JSON `m3_case_summary.json` |
 | case hourly tendencies after the seed: $2F$ positive; measured positive; sign agreement; correlation | 19 of 24; 3 of 24; 1 in 3; +0.71 | JSON `m3_case_summary.json` |
+| case surface-flux term (§5.1, Figure 6b): r.m.s. over measured, forward day; parts over $S$ (non-solar / shortwave / freshwater); negative intervals; correlation and fitted factor on the imbalance; integral over the observed change; the four-term integral with $S$ on $h_{\rm bl}$ | 0.309; 0.977 / 0.125 / 0.117; 24 of 24; +0.141, +0.38; +1.08; −0.06 | JSON `m3_case_sflux.json` |
 | case budget r.m.s. over measured: $2F$; $\tau$; $V$; $S$; $R$ (pooled $L = 0$ beside) | 0.502 (0.521); 0.000 (0.000); 0.011 (0.017); 0.295 (0.355); 0.737 (0.813) | JSON `m3_case_summary.json`; JSON `term_contribution.*.rms_over_measured` |

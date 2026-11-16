@@ -156,6 +156,20 @@ untestable requests, the withheld slopes said to be withheld. `check_digging_num
 still OK (186 numbers); PDF rebuilt, **14 pages**, no warnings, pages 1-2 inspected. Log entry
 "Execution prompt M3-digging, task 8".
 
+**Status 2026-11-05 — task 9 done** (Fable 5.1). `py/m3_case_sflux.py` → `data/m3_case_sflux.{json,npz}`
+(the term, its three parts and its `h_bl` form along the §5.1 parcels, cubic sampling so the
+case's integrals reproduce exactly); `report/figs/case_sflux.png` (needs `git add -f`) by
+`make_case_figs.sflux()`; 1 test. The interim gains, marked: **§2.6 "The surface-flux term"**
+(the flux rates, `B_sfc`, `S = 2∇b·∇B̄`, the sign, the depth scale, the linear split), a
+§5.1 paragraph and **Figure 6b**, six glossary rows, an Appendix B row; the checker extended
+by 13 numbers (118, OK) — one collision (the non-solar fraction 0.977 = the withheld `L = 4`
+slope) reworded around, not relaxed. **Finding:** on the followed front `S` is 0.309 of the
+measured tendency, 0.977 non-solar, negative at 24/24 forward intervals; integrated along
+the parcels it alone accounts for **+1.08** of the observed change while `2F + τ + V` give
+−0.08 — §5.1's "0.99" is `S` and nothing else — yet pointwise it correlates with the
+imbalance at only +0.141: §6.2 on one front. PDF **29 pages**, pages 3-4 and 12-13 inspected.
+Suite **331 passed + 3 xfails**. Log entry "Execution prompt M3-digging, task 9".
+
 ---
 
 ## What JXP decided (prompt 4, M3-Q27..Q30)
@@ -599,6 +613,15 @@ paragraph verbatim; the prompt-6 edit; the PDF page count; the suite count; whic
 
 Please write a summary of the digging note and put it at the top of its report.
 
+### 9. Surface flux term
+
+I wish to explore further the surface flux term and its impacts on the results.  Please do:
+    - Add additional equations to the report describing this term
+    - Provide a figure describing its effects on our primary example
+
+Make these changes to the `frontogenesis_M3_interm.md` report in `report/`.
+Use Fable if you can.
+Log your work.
 
 ---
 

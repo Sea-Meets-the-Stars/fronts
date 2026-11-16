@@ -33,6 +33,7 @@ REPORT = HERE / 'frontogenesis_M3_interim.md'
 S = json.loads((DATA / 'm3_closure_summary.json').read_text())
 F = json.loads((DATA / 'm3_figs_summary.json').read_text())
 K = json.loads((DATA / 'm3_case_summary.json').read_text())
+X = json.loads((DATA / 'm3_case_sflux.json').read_text())        # §2.6 / Figure 6b (task 9)
 L_ALL = ('0', '2', '4', '8')
 
 
@@ -131,6 +132,21 @@ def checks():
     out.append(('case: rate check rms ratio', [f"{ck['rate']['rms_ratio']:.3f}"]))
     for k, v in K['terms'].items():
         out.append((f'case: {k} / measured', [f"{v['rms_over_measured']:.3f}"]))
+    # --- §2.6 / Figure 6b, the surface-flux term on the case (M3-digging task 9) ------
+    r, pa, sg, ig, pw = X['rms_over_measured'], X['parts_over_S'], X['sign'], X['integrals'], X['pointwise']['S']
+    out.append(('case sflux: S / measured, forward day', [f"{r['S']:.3f}"]))
+    for part in ('nonsolar', 'shortwave', 'freshwater'):
+        out.append((f'case sflux: {part} part over S', [f"{pa[part]:.3f}"]))
+    out.append(('case sflux: negative intervals', [f"{sg['S_negative_intervals_fwd']} of {sg['n_intervals']}"]))
+    out.append(('case sflux: corr with the imbalance', [f"{pw['corr']:+.3f}"]))
+    out.append(('case sflux: fitted factor on the imbalance', [f"{pw['ols']:+.2f}"]))
+    out.append(('case sflux: integral over the observed change', [f"{ig['S_integral_over_dG']:+.2f}"]))
+    oc = ig['over_observed_change']
+    out.append(('case sflux: four terms over observed change', [f"{oc['all_four']:+.2f}", f"{oc['all_four']:.2f}"]))
+    out.append(('case sflux: without S over observed change', [f"{oc['two_F_tau_V']:+.2f}", f"{abs(oc['two_F_tau_V']):.2f}"]))
+    out.append(('case sflux: with S on h_bl over observed change', [f"{oc['all_four_kpp']:+.2f}"]))
+    out.append(('case sflux: most frontolytic hour', [f"{X['diurnal']['S_min_hour']:02d}"]))
+    out.append(('case sflux: least frontolytic hour', [f"{X['diurnal']['S_max_hour']:02d}"]))
     return out
 
 

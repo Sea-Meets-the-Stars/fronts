@@ -12,6 +12,7 @@
 | `figs/case_front_maps.png` | The followed front over four hourly snapshots, and the predicted tendency on the same frames |
 | `figs/case_strength.png` | Its strength along the trajectory against the prediction, and the hourly rates |
 | `figs/case_budget.png` | Its five-term budget beside the 71-pair pooled one |
+| `figs/case_sflux.png` | The surface-flux term on the followed front (§5.1, Figure 6b; M3-digging task 9): its maps and parts at the seed, its rates and parts along the parcels, the integrals with and without it, the pointwise relation to the imbalance — from `../data/m3_case_sflux.{json,npz}` (`../py/m3_case_sflux.py`) |
 | `frontogenesis_M3_digging.md` | **The digging note** (M3-digging task 7, 2026-11-03): the external review's tests — the controls, the offline tracer, the term tests, the pooling checks and the re-seeded case, the second tile, the parcels — each with its pre-declared reading; the M3 verdict unchanged. Its figures are referenced from `../figs/` (`m3_controls`, `m3_tracer`, `m3_term_tests`, `m3_tile2`, `m3_parcels_velocity`, `m3_parcels_motion`) |
 | `check_digging_numbers.py` | The note's sibling of `check_report_numbers.py`: every JSON-backed number of the note re-read from the digging summaries and required verbatim; the product's withheld slopes forbidden; the tracer's slopes allowed only as a labelled calibration |
 
