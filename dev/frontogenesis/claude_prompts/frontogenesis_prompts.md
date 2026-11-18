@@ -9285,3 +9285,50 @@ new checker, the build), `frontogenesis_coding.md` (a marked note in §6 M5),
 `claude_prompts/frontogenesis_prompt_6.md` (Status; M5-Q4, M5-Q5), this log. The interim
 report, the digging note, the planning document and every figure are untouched. No PNG is new.
 Nothing committed. **Next:** task 3 (the README in `dev/frontogenesis/`).
+
+### 2026-11-18 — Execution prompt 6, task 4: the track-analysis prompt document (Fable 5.2)
+
+**Asked.** JXP is concerned that results for the tracked fronts may be affected by changes in
+the pixels allocated to a front between timesteps — from the flow-informed tracking or from
+real changes in the front — and asked for a new prompt document with the context and pointers
+to the code, to be edited by JXP into tasks. Task 3 (the README) was skipped by the request
+and remains open. JXP's answers M5-Q4 ("this is fine for now") and M5-Q5 (a) need no action.
+
+**Written.** `claude_prompts/frontogenesis_prompt_track_analysis.md`:
+- §1 context: the setting; the pipeline (find, track, reconcile on matched parcels, quality,
+  strength); the results that bear on the concern, all from the prompt-5 entries and the M4
+  JSONs; a per-track table; and §1.4, eight things M4 does not settle.
+- §2 pointers: `py/tracking.py` function by function with line numbers; the `fronts` objects
+  it imports; the five runners with logged wall times, products and the row keys of
+  `m4_recon.json`, `m4_quality.json`, `m4_strength.json`; a loading recipe; Figures 8, 9 and
+  the tracking-quality figure with their functions, registry entries and the redraw command;
+  the tests; where it is written up.
+- §3 the rules that carry over; §4 six possible starting points, marked as suggestions; empty
+  `## Tasks` and `## Q&A`.
+
+**Sources.** No store opened, no runner re-run, no code changed. Numbers not in an earlier
+entry are marked "(new)" in the document and were tabulated from `m4_strength.json` series
+rows and `m4_quality.json` rows: per track, the label size min / median / max, the count of
+hourly size changes above 25 %, task 4's splits and merges, and `ΔG` three ways; pooled, 78 of
+700 links change size by more than 25 %, the median `|Δ log npix|` is 0.10 next to a task-2
+flag and 0.03 elsewhere, and `|Δ log G_label|` correlates with `|Δ log npix|` at 0.69.
+
+**Found while writing it.**
+- The parcels of the matched rate are re-seeded from each hour's chosen label
+  (`matched_link`), so the material curve `G_matched` chains hourly material rates over a
+  changing parcel population. This is as built and as logged in task 5, but it is the point
+  where a pixel-set change can still enter, and the document says so first.
+- `reconcile_track` and `front_strength_series` carry task 2's flag (`_n_overlap >= 2`; 102
+  links in `m4_track_summary.json`, 100–101 in the reconciliation tables). The statement
+  "flagged links reconcile no worse" (0.917 / 0.483 against 0.958 / 0.403) and Figure 8's
+  shading are on that flag, not on task 4's 168 split-or-merge links.
+- The task-5 entry says the label-mean `ΔG` disagrees in sign with the material `ΔG` for 4 of
+  10 fronts (labels 5, 96, 161, 100). `m4_strength.json` gives both negative for label 5
+  (−4.26e-14 and −2.84e-15): 3 of 10. The task-5 entry is not edited; the report does not
+  quote the count.
+
+**Docs.** Prompt 6: the Status paragraph. Coding §6 M5: a marked note. No new question.
+
+**Not done.** No analysis: the document has no tasks. Task 3 is open. Tests not re-run (no
+code changed). Nothing committed; the one new file is
+`claude_prompts/frontogenesis_prompt_track_analysis.md`.

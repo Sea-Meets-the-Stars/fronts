@@ -1107,6 +1107,11 @@ with a verdict each; the withheld slopes and Figure 2 are in its Appendix C only
 It shows registry figures and `report/figs/` only, so `make_figs.py --report` redraws all of
 them. The README remains (task 3).
 
+*(added 2026-11-18, prompt 6 task 4.)* A follow-up prompt on the tracked fronts —
+whether changes in a front's pixel set between hours affect the M4 results — is started at
+`claude_prompts/frontogenesis_prompt_track_analysis.md` (context and code pointers; tasks to be
+written by JXP). No code changed.
+
 ### M6 — Depth  *(planning Phase 4, deferred)*
 
 Full-depth budget against `CHUNKS/monterey_bay`. Out of scope until M3 passes.

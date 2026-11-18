@@ -64,6 +64,20 @@ interim's and the digging note's checkers still pass. Every figure is a registry
 the log). Suite **345 passed + 3 strict xfails**, 2 deselected, 304 s. Nothing committed; `report/frontogenesis_report.pdf` is
 untracked like the other two PDFs. Log: "Execution prompt 6, task 2".
 
+**Status 2026-11-18 — task 4 done (Fable 5.2).** Task 3 (the README) was not requested and is
+still open. `claude_prompts/frontogenesis_prompt_track_analysis.md` is written, for JXP to
+edit: §1 the context (the M4 pipeline step by step, the results that bear on changing pixel
+sets, a per-track table, and eight things the M4 analysis does not settle); §2 pointers to the
+library (`py/tracking.py`, function by function with line numbers), the five runners and their
+JSON row contents, the three figures and how to redraw them, the tests, and where it is written
+up; §3 the rules that carry over; §4 six possible starting points, marked as suggestions; empty
+`## Tasks` and `## Q&A`. No store was opened and no code changed. Two things found while
+writing it: the "flagged links reconcile no worse" comparison and Figure 8's shading use task
+2's flag (about 100 links), not task 4's 168; and the task-5 log's "label-mean ΔG disagrees in
+sign with the material one for 4 of 10" is 3 of 10 in `m4_strength.json` (label 5 has both
+negative) — the report does not quote that count. No new question. Nothing committed. Log:
+"Execution prompt 6, task 4".
+
 ---
 
 ## What exists *(added 2026-10-28)*
@@ -295,6 +309,18 @@ suite with its expected count. Three warnings belong in it: `m0_write.py`, `m0_q
 git-ignored and holds ~10 GB of stores and products that the commands rebuild; every PNG is
 git-ignored and tracked with `git add -f`.
 
+### 4. Further follow the front analysis
+
+I am concerned that some of the results for the tracked fronts may be affected by the changes
+in the pixels allocated to a given front between timesteps. This could be due to the flow-informed 
+tracking or actual changes in the front, e.g. interactions with other features.
+I wish to dig in further on this, and will do so with additional analysis.
+Please generate a new prompt doc `frontogenesis_prompt_track_analysis.md` with the following content:
+   - Context based on what we have done so far, including the results of the tracked fronts analysis
+   - Pointers to the code that has been written to perform this analysis and generate the figures
+
+I will then edit that file to create new prompts to guide the additional analysis.
+
 ---
 
 ## Acceptance criteria
@@ -438,6 +464,7 @@ are not comparable with 0.981 at all.
   the table without a verdict.
 - (c) Judge it at every `L` against 0.981 (distinguishable at `L = 0, 2, 8`, not at `L = 4`).
   I think this misuses the baseline at `L > 0`, for the reason above.
+>A. Yes, this is fine for now
 
 **M5-Q5 — Length.** Q19 (b) asked for ~8 pages and ~4,500 words; the interim missed it
 (5,479 words, 22 then 29 pages) and M5-Q2 (a) asked for the trim. This report trims the
@@ -450,3 +477,5 @@ M4, the digging tests, the limitations and Appendix C: about 6,900 body prose wo
   paragraphs), §7.4–§7.5 (to one paragraph, pointing at the digging note) and §9.1's
   mechanism paragraph.
 - (c) Keep it, and add a two-page stand-alone summary in front for circulation.
+
+>A. Leave it (a)
