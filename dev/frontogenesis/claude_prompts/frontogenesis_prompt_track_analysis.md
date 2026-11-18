@@ -17,6 +17,107 @@ real changes in the front (lengthening, splitting, merging, interaction with oth
 This document sets out what the M4 analysis did about that, what it left open, and where the
 code is.
 
+**Status — Matched parcels, task 1 (2026-11-18, Fable 5.2): done, first iteration.**
+`py/matched_parcels.py` (generic: `--track K`, or `--label N [--anchor-step S]`, following a
+front that is not an M4 track on the fly) wrote `tracked/matched_parcels_track_81.md`, 11
+figures in `tracked/figs/` and `data/matched_parcels_track_81.json`. The three rates equal
+`m4_strength.json` exactly at all 69 steps. Three questions are open in Q&A (TA-Q1..Q3). See
+the log entry at the end.
+
+**Status — Matched parcels, task 2 (2026-11-18, Fable 5.2): done.** TA-Q1 (a), TA-Q2 (a) and
+TA-Q3 (figures good) noted; nothing in the figures or the parcels changed.
+`tracked/matched_parcels_track_81.md` now has the equations for `G`, `2F` and the stored
+`DG/Dt` (§1), a section confirming the three rates use the same parcels in each pair, with two
+qualifications (§2), and a section answering whether the agreement of `2F` and the stored
+tendency means the front strengthens at the rate `2F` (§4: the reading is right; the
+implication does not follow on its own). No new question. See the log entry at the end.
+
+**Status — Matched parcels, task 3 (2026-11-18, Fable 5.2): done.** Yes, the surface-flux
+term can be included: the derived store holds it for every pair, in both forms (1 m top cell,
+primary; spread over the KPP boundary layer, the declared sensitivity), and it is read at the
+seed cells of the matched parcels as `2F` is. `tracked/matched_parcels_track_81.md` has a new
+§5 (definition, a new Figure 3, tables, six numbered findings), a fourth column in the
+per-parcel figure, the term in every panel heading and two new columns in the table. On this
+front neither form accounts for the gap between the measured rates and `2F`; and the 1 m
+term's band mean follows the pixel set (0.94) where the three rates do not. No new question.
+See the log entry at the end.
+
+---
+
+## Tasks
+
+### Matched parcels
+
+1. I wish to dig in further on the tracked front analysis, especially the hourly rates for
+matches pixels described in Section 9.4 of the report.  Let us track the same front (label 81,
+pair 35) as in the M4 analysis.  I want to view for each of timestep `t` the pixels of the chosen label, 
+and the pixels of the previous label advected by the flow.  Also report the evaluation of the 
+hourly rates of these matched parcels: 2F, stored DG/dt and the matched rate.
+Generate a markdown file named `tracked/matched_parcels_track_81.md` with the following content:
+    - A series of figures to show the pixels of the chosen label, and the pixels of the previous label advected by the flow, i.e. the matched parcels.  Indicate the hourly rates for the matched parcels.
+    - A short discussion of how the hourly rates for the matched parcels are calculated
+
+I am likely to request addtional tracked fronts to analyze.  Be sure to write
+generic Python scripts for this work.
+We may need to iterate a few times on this task. If you have any questions, 
+please put them in the "Q&A/Matched parcels" section below.
+Use Fable 5.2.  Log your work in the Logs section below.
+
+2. This is excellent.  I have a few requests for you for to make modifications to the markdown file:
+   - Provide additional information on how each of the hourly rates are calculated.  Provide equations for 
+    the stored G and for 2F.
+   - Confirm (or refute) that for each of these calculations, the rates are calculated on the same set of parcels in each pair 
+   - In this example, the rates for 2F and stored DG/dt appear to track one another well throughout the 
+   window.  Am I reading that correctly?  Does this imply that the front is strengthening or weakening at 
+   the rate predicted by 2F?
+
+Consider each of the above and modify the markdown file accordingly.
+Use Fable 5.2.  Log your work in the Logs section below.
+
+3. None of the discussion we have had so far includes the surface-flux term,
+which we examined at length in the main report and work that led to it.
+Are you able to include it in this tracked front analysis?  If so, please do so.
+If you have any questions, please put them in the "Q&A/Matched parcels" section below.
+Use Fable 5.2.  Log your work in the Logs section below.
+
+## Q&A
+
+### Matched parcels
+
+**TA-Q1 — Which parcels should the rates be evaluated on?** *(asked 2026-11-18, task 1)*
+The task describes "the pixels of the previous label advected by the flow, i.e. the matched
+parcels". In M4 these are two different sets. The matched parcels of step `t` are seeded on
+the label chosen **at `t`** (dilated by one cell) and traced one hour forward and one hour
+back; the label at `t − 1` does not enter the rate at all. The previous label advected to `t`
+is the tracker's prediction. The first iteration shows both sets in every panel and reports
+the M4 rates (band 1 + centred, as in report §9.4) unchanged.
+- (a) Keep it so: M4's parcels, with the advected previous label shown for comparison.
+  *(what was done; recommended as the baseline)*
+- (b) Add a second set of rates seeded on the **previous** label and carried forward one hour
+  (`[G(t, x⁺) − G(t−1, x)] / Δt` on the band of the label at `t − 1`). This is M4's
+  `band1_forward` variant, which reconciled less well than the centred one.
+- (c) Add the rates split by pixel class — parcels of the chosen label that coincide with the
+  advected previous label against those that are new — which is starting point (b) of §4.
+
+>A. Keep it so, i.e. (a)
+
+**TA-Q2 — "Previous" in time, or in the tracker's walk?** The figures use the previous pair
+in time (`t − 1`) at every step. Before the anchor (pairs 0–34) the tracker walked backwards,
+so its own reference for pair `t` was pair `t + 1`. Splits and merges are flagged in time
+order here, so for pairs before the anchor they are the reverse of task 4's flags (the counts
+on this track are 10 splits / 9 merges / 18 links here against task 4's 9 / 10 / 18).
+- (a) Time order everywhere. *(what was done; recommended)*
+- (b) The tracker's order (advect the label at `t + 1` backwards for pairs before the anchor).
+
+>A. (a)
+
+**TA-Q3 — Layout of the figures.** Eight panels per page, nine pages, a fixed crop for the
+whole track, index axes (`j` east, `i` south), `log10 G` in grey behind the pixels. Say if you
+want longitude / latitude axes, a tighter crop, fewer pairs, or a different background
+(for example `2F`, or none).
+
+>A. These figures look good
+
 ---
 
 ## 1. Context: what was done
@@ -327,14 +428,201 @@ in minutes.
   step, or the ten largest at several steps, and report which population statistics move.
   *(Item 4.)*
 
----
-
-## Tasks
-
-*(none yet — to be written by JXP)*
 
 ---
 
-## Q&A
+## Logs
 
-*(none yet)*
+### 2026-11-18 — Track analysis, Matched parcels task 1: the chosen label, the advected previous label and the hourly rates along the track of label 81 (Fable 5.2)
+
+**Asked.** For the front of label 81 at pair 35 (M4 track 0): at each step, view the pixels of
+the chosen label and the pixels of the previous label advected by the flow; report `2F`, the
+stored `DG/Dt` and the matched rate on the matched parcels; write
+`tracked/matched_parcels_track_81.md` with the figures and a short account of how the rates
+are calculated; generic scripts.
+
+**Written.**
+- `py/matched_parcels.py` (new). `get_track` (an M4 track by index or by anchor label and
+  step; any other label is followed with `tracking.follow_flow` and M4's settings),
+  `pixel_sets` (chosen label, previous label advected, counts, split / merge in time order),
+  `parcel_link` (`matched_link(centred=True, band=1)` kept per parcel), `analyse_track`,
+  `track_summary`, `check_against_m4`, three figure functions, `write_markdown`, `run`, CLI.
+  `tracking.py` and `fronts/` are not edited.
+- `py/tests/test_matched_parcels.py` (new, 2 tests on `test_tracking`'s growing front).
+- `tracked/matched_parcels_track_81.md`; `tracked/figs/matched_parcels_track_81_series.png`,
+  `…_parcels.png` and nine `…_sets_AA_BB.png` pages (8 pairs each); and
+  `data/matched_parcels_track_81.json` (every number in the markdown, one row per step).
+- Command: `cd py && /home/xavier/miniconda3/envs/frontogenesis/bin/python matched_parcels.py
+  --label 81 --anchor-step 35` (135 s). Other fronts: `--track K` or `--label N`.
+
+**Checks.**
+- At every step `parcel_link`'s three means are asserted equal to `matched_link`'s (rtol
+  1e-9); the run passed.
+- `r_matched`, `r_store` and `two_F` equal the `m4_strength.json` series of track 0 exactly at
+  all 69 steps with a rate; the labels are identical at all 71.
+- The on-the-fly path was run on a front that is not an M4 track (label 39 at pair 35, the
+  11th largest): 71 steps, 201 s, output written to the scratch directory only.
+- New tests: 2 passed (1.2 s). The full suite was **not** re-run; no existing file under `py/`
+  was changed.
+
+**Numbers for label 81** (band 1 + centred, 69 steps; units 10⁻¹⁹ s⁻⁵; none is an efficiency).
+- Mean rate: `2F` +2.79, stored +3.01, matched +0.97. Fraction of hours positive: 0.81, 0.83,
+  0.58.
+- Hour by hour: matched against stored, correlation 0.968, r.m.s. difference 0.437 of the
+  stored r.m.s.; matched against `2F`, 0.938, sign agreement 0.74; stored against `2F`, 0.947.
+- Parcels: median 657 per step for a median label of 178 px; none dropped; median displacement
+  0.23 cells per hour.
+- Pixel sets over 70 links: a median 0.73 of the chosen label's pixels coincide cell for cell
+  with the advected previous label; median dilated IoU 0.81; a median 0.04 of chosen pixels lie
+  more than one cell from it. More than a quarter of the chosen label is new at 8 pairs (7, 11,
+  12, 16, 21, 30, 39, 67); more than a quarter of the advected label is unmatched at 9 pairs
+  (5, 10, 11, 13, 14, 18, 27, 38, 40). Splits 10, merges 9, links with either 18 (time order).
+
+**Seen in the figures, not tested.**
+- The matched rate sits below the stored rate and `2F` over most of pairs 5–35 (Figure 1) while
+  following their hour-to-hour shape; over those pairs the mean gap to the stored rate is 2.1 × 10⁻¹⁹ s⁻⁵,
+  against a stored mean of 3.2 and a matched mean of 1.1. This is the r.m.s. ratio 0.437 seen as an offset. No cause is established.
+- From pair 41 to pair 66 the track is a 104–136-px piece with almost no change of pixel set,
+  and that interval holds the largest swings of all three rates (+16 to −14). The big changes
+  of pixel set (pairs 5–30, 38–40, 67) fall where the rates are small. So on this track the
+  largest hourly rates are not produced by changes of the pixel set.
+- Pairs 38–40: the label drops from 295 to 178 px (split, the western arm is left to another
+  label), returns to 299 px (merge) and drops to 111 px (split). The three rates do not jump
+  across these three links (matched +2.09, +3.49, +0.71, −3.5).
+
+**Open.** TA-Q1 (which parcels the rates should be on — the task text equates the advected
+previous label with the matched parcels, which M4 does not), TA-Q2 (previous in time or in the
+tracker's walk), TA-Q3 (figure layout). Nothing committed; PNGs are git-ignored and need
+`git add -f`.
+
+### 2026-11-18 — Track analysis, Matched parcels task 2: equations, the same-parcels check, and what the agreement of `2F` and the stored tendency implies (Fable 5.2)
+
+**Asked.** Three modifications to `tracked/matched_parcels_track_81.md`: more on how each rate
+is calculated, with equations for the stored tendency and `2F`; confirm or refute that the
+three rates are on the same parcels in each pair; and whether `2F` and the stored `DG/Dt`
+track one another, and whether that implies the front strengthens or weakens at the rate
+predicted by `2F`.
+
+**Answers noted.** TA-Q1 (a) keep M4's parcels; TA-Q2 (a) time order; TA-Q3 the figures are
+good. No figure and no parcel set was changed.
+
+**Changed.** `py/matched_parcels.py` only (the markdown is generated, so every later front gets
+the same sections): `parcel_link` now also returns the count of parcels entering `2F`, the
+per-parcel correlations between the three quantities, and their means on the ridge (the
+label's own pixels) and on the flanks; `analyse_track` copies the other budget terms from
+`matched_link`; `track_summary` adds the same-parcels counts, r.m.s. differences, trapezoid
+integrals and the ridge / flank means; `write_markdown` has new §1.1, §1.2, §2 and §4 (the
+old §3 and §4 are now §5 and §6). Regenerated with `matched_parcels.py --label 81
+--anchor-step 35`. The equations were written from `semilag.measured_DGDt`,
+`operators._frontogenesis_discrete` and `budget.compute_budget`, not from memory.
+
+**1. Equations (markdown §1).** `G` is `|L b^m|²` on the midpoint-mean buoyancy; the stored
+`two_F` is twice the discretely consistent form (the commutator of the gradient stencil with
+advection), on midpoint fields; `DGDt_semilag` is `[G(x, h_{t+1}) − G(x_d, h_t)] / Δt` with
+hour-end buoyancy, `b` interpolated at the departure point; then the three means over the
+`N_t` parcels of the band.
+
+**2. Same parcels: confirmed, with two qualifications (markdown §2).** 55,213 parcels over 69
+steps; 55,213 enter the matched and the stored rate and 55,213 enter `2F`, the same number at
+every step, none dropped. Qualifications: (i) the stored tendency at a seed cell belongs to
+the parcel arriving there at the end of the hour, half a displacement (median 0.12 cells) from
+the matched parcel at the midpoint; (ii) the time windows differ (matched: two hours between
+midpoint-mean fields; stored: one hour between hour-end fields; `2F`: instantaneous), all
+centred on the midpoint. Between pairs the sets are not the same.
+
+**3. `2F` against the stored tendency (markdown §4).** Units 10⁻¹⁹ s⁻⁵; none is an efficiency.
+- The reading is right: correlation 0.947, r.m.s. difference 1.61 against an r.m.s. of 5.63
+  (`2F`) and 5.32 (stored), sign agreement 0.96, mean difference +0.23. They are the closest
+  of the three pairs of rates (matched − stored 2.33 r.m.s., matched − `2F` 2.49).
+- It does not by itself imply the front strengthens at the rate `2F`:
+  - The agreement is of band means, not of parcels. Median per-parcel correlation within a
+    step: stored against `2F` 0.46, matched against stored 0.86, matched against `2F` 0.36.
+    On the ridge (27 % of the band) the means are `2F` +3.82, stored +12.02, matched +5.08; on
+    the flanks +2.41, −0.20, −0.49. The stored construction's known positive bias on one-cell
+    ridges (report §9.3) may contribute; how much is not established.
+  - The matched rate, the other measurement of the same Lagrangian rate, is below the stored
+    tendency at **all 69 hours** (mean +0.97 against +3.01) and positive on 58 % of hours
+    against 83 %.
+  - Over 68 hours (trapezoid, 10⁻¹⁴ s⁻⁴): `∫2F` +6.76, stored +7.31, matched +2.31; the band
+    mean of the label as found changed by +0.11 (6.63 to 6.74).
+  - On the same parcels the surface-flux term averages +12.90, the vertical term −0.08 and the
+    residual −12.59: the stored tendency is close to `2F` alone, which is not a closed budget.
+
+**Correction to the task-1 entry.** It said the matched rate sits below the stored rate "over
+most of pairs 5–35". It is below at every one of the 69 hours.
+
+**Checks.** The run's assertion against `matched_link` passed at every step; the rates still
+equal `m4_strength.json` exactly. `test_matched_parcels.py`: 2 passed. The full suite was not
+re-run; no other file under `py/` was changed. Nothing committed.
+
+**Open, not asked.** Why the matched rate is lower than the stored tendency at every hour, and
+how much of the stored ridge value is the registration bias. A synthetic ridge moved with this
+track's displacements, or the stored tendency recomputed with a centred two-hour step, would
+separate them.
+
+### 2026-11-18 — Track analysis, Matched parcels task 3: the surface-flux term on the matched parcels (Fable 5.2)
+
+**Asked.** Whether the surface-flux term can be included in the tracked-front analysis, and
+to include it if so.
+
+**Answer: yes, with no new computation from model output.** `tile330_derived_L0.zarr` holds
+`surface_flux` (the flux taken up in the 1 m top cell — the report's primary form) and
+`surface_flux_kpp` (the flux spread over the KPP boundary-layer depth — the declared
+sensitivity of report §7.3, M3-Q13 (c)), plus `vertical` and `KPPhbl`, for every pair at the
+midpoint time. They are read at the seed cells of the matched parcels exactly as `2F` is, and
+are finite on every parcel at every step, so their means are over the same `N_t` parcels.
+
+**Changed.** `py/matched_parcels.py` only: `EXTRA_FIELDS` and per-parcel `S_1m`, `S_kpp`, `V`,
+`hbl` in `parcel_link`; `surface_flux_summary` (means, r.m.s., residuals with and without the
+term against both measured rates, the report's §7.2 multiplier and correlation, day / night,
+ridge / flank, integrals); `set_change_summary` (does a band mean's hourly change follow the
+change of label size); `fig_budget` (new Figure 3); a fourth column in `fig_parcels`; the term
+in each panel heading of the pair-by-pair figures; markdown §5 (new), a row in §2's table, two
+columns in the final table; the old §5 and §6 are §6 and §7. A store without these fields (the
+test fixture) simply omits the section. Regenerated with `matched_parcels.py --label 81
+--anchor-step 35`; one new file, `tracked/figs/matched_parcels_track_81_budget.png`.
+
+**Numbers for label 81** (band means over 69 steps, 10⁻¹⁹ s⁻⁵; none is an efficiency).
+
+| | mean | r.m.s. | hours positive |
+|---|---|---|---|
+| `2F` | +2.79 | 5.63 | 0.81 |
+| stored `DG/Dt` | +3.01 | 5.32 | 0.83 |
+| matched | +0.97 | 4.48 | 0.58 |
+| vertical | −0.08 | 0.58 | 0.67 |
+| `S`, 1 m | +12.90 | 13.62 | 1.00 |
+| `S`, `h_bl` | +0.12 | 0.82 | 0.49 |
+
+- Residual r.m.s., measured − predicted, against stored / matched: `2F` alone 1.61 / 2.49;
+  `2F + V` 1.60 / 2.29; `2F + V + S(1 m)` 13.48 / 15.44; `2F + V + S(h_bl)` 1.61 / 2.52.
+- The 1 m term is positive at all 69 hours, night (+13.14) and day (+12.63), on 92 % of
+  parcels in the median step; ridge +19.84, flanks +10.43. Its correlation with the imbalance
+  stored − `2F` − `V` is −0.09 and the residual-minimising multiplier +0.018 (matched
+  imbalance: −0.20, −0.128); the report's pooled multiplier at `L = 0` is +0.048.
+- The boundary-layer form is 0.060 of the 1 m form in r.m.s.; `h_bl` on the parcels has a
+  median of 21.6 m (step means 4.0–28.0 m); the two forms' hourly band means correlate at
+  +0.15.
+- Integrals over 68 h (10⁻¹⁴ s⁻⁴): `S` 1 m +31.70, `S` `h_bl` +0.27, `2F` +6.76, stored +7.31,
+  matched +2.31.
+- **Pixel-set dependence (new, and on the concern of this document).** Correlation of the size
+  of the hourly change of each band mean with `|Δ log npix|` over 68 consecutive steps: `2F`
+  +0.01, stored −0.11, matched −0.05, `S` 1 m **+0.94**, `S` `h_bl` +0.43. Median change at the
+  13 links where the label size jumps by more than 0.25 in the log, against the other links:
+  `S` 1 m 5.65 against 0.40; `2F` 1.75 against 1.75; stored 1.64 against 1.72; matched 1.40
+  against 1.76. The per-parcel map (Figure 2, fourth column) shows the 1 m term concentrated
+  on the western arm of the front and near zero on the eastern arm, so its band mean changes
+  when the tracker drops or regains an arm (pairs 14, 27, 30, 38–40, 67).
+
+**Reading.** On this front the surface-flux term as stored does not account for the gap
+between the measured rates and `2F` in either form — the report's pooled result (§5.2, §7.2,
+§7.3) on one front; it is not reopened. For the pixel-set question: the three rates are
+insensitive to the hour's change of pixel set and the 1 m surface-flux mean is not.
+
+**Not established.** Why the 1 m term is positive at every hour here, when the report's sign
+discussion (§2.4) describes heating towards the dense side as frontolytic; the split into
+non-solar, shortwave and freshwater parts was not redone on these parcels.
+
+**Checks.** The run's assertion against `matched_link` passed at every step, and
+`matched_link`'s own `surface_flux` mean equals the new `S_1m_mean` (both are the mean of the
+same field on the same parcels). `test_matched_parcels.py`: 2 passed. The full suite was not
+re-run; no other file under `py/` was changed. Nothing committed.
