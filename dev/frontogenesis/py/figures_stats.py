@@ -98,7 +98,8 @@ def fig02_joint_pdf(data_dir=None, fig_dir=None, summary=None, Ls=fg.L_ALL, bins
     fig.suptitle('Figure 2 — measured vs 2F on front pixels, 71 pairs pooled   |   '
                  'the slopes are NOT a frontogenesis efficiency (task 6: criterion 1 failed)',
                  fontsize=12, color=fg.COL['red'])
-    fg.caption(fig, 'Baseline is the M1 discrete null 0.981, never 1. Only interpretable beside '
+    fg.footer(fig, out, L=Ls, mask=fg.MASK_FRONT, text=
+                    'Baseline is the M1 discrete null 0.981, never 1. Only interpretable beside '
                     'Figure 2b, which shows the residual tracks neither grad⁴b nor KPPhbl with '
                     '|r| > 0.22 — so no slope here may be called diabatic damping.')
     fig.tight_layout(rect=(0, 0.04, 1, 0.93))
@@ -163,7 +164,8 @@ def fig02b_discriminator(data_dir=None, fig_dir=None, summary=None, Ls=fg.L_ALL)
     ax.legend(fontsize=8)
     fig.suptitle('Figure 2b — what does the residual track?  |  front & valid, 71 pairs pooled',
                  fontsize=12)
-    fg.caption(fig, 'Planning §12: the residual tracks grad⁴b more than KPPhbl at L = 0-2 and '
+    fg.footer(fig, out, L=Ls, mask=fg.MASK_FRONT, text=
+                    'Planning §12: the residual tracks grad⁴b more than KPPhbl at L = 0-2 and '
                     'the reverse at L = 8, but NEITHER partial correlation exceeds 0.22 at any '
                     'L. No diabatic signal can be isolated, so no slope in Figure 2 is called '
                     'damping. ' + fg.SAMPLING_CAVEAT)
@@ -235,7 +237,9 @@ def fig03_slope_vs_L(data_dir=None, fig_dir=None, summary=None, Ls=fg.L_ALL):
     out['subfilter_over_2F'] = dict(zip([str(L) for L in Ls], sub))
     fig.suptitle('Figure 3 — slope, Eulerian agreement and the subfilter term against L',
                  fontsize=12)
-    fg.caption(fig, 'No L = 1 column: operators.lowpass refuses an odd L (half-width L/2 must be '
+    fg.footer(fig, out, L=Ls, mask=fg.MASK_FRONT + '; the edge_cells = 13 series on the wider '
+              'tile-edge margin', text=
+                    'No L = 1 column: operators.lowpass refuses an odd L (half-width L/2 must be '
                     'an integer), so it would be a different filter rather than an extra column '
                     '(task 4; M3-Q3). Baseline 0.981, never 1.')
     fig.tight_layout(rect=(0, 0.05, 1, 0.93))
@@ -281,8 +285,9 @@ def fig04_alignment(data_dir=None, fig_dir=None, Ls=fg.L_ALL, bins=60):
                      r'\frac{1}{2}|\sigma| G \cos 2\theta$', fontsize=10)
     axs[1].legend(fontsize=8)
     fig.suptitle('Figure 4 — gradient alignment with the compressional strain axis', fontsize=12)
-    fg.caption(fig, 'theta folded to [0, pi/2]; theta = 0 is maximal frontogenesis with this '
-                    'sign convention (M1-Q3, final). Mask: front & valid at each L.')
+    fg.footer(fig, out, L=Ls, mask=fg.MASK_FRONT, text=
+                    'theta folded to [0, pi/2]; theta = 0 is maximal frontogenesis with this '
+                    'sign convention (M1-Q3, final).')
     fig.tight_layout(rect=(0, 0.04, 1, 0.93))
     out['png'] = fg.save(fig, 'fig04_alignment.png', fig_dir=fig_dir)
     return out
@@ -342,7 +347,7 @@ def fig06_diurnal(data_dir=None, fig_dir=None, summary=None, Ls=(0, 4)):
         ax.legend(fontsize=7, loc='upper left')
     fig.suptitle('Figure 6 — the diurnal composite  |  residual, vertical and surface-flux terms '
                  'by local solar hour', fontsize=12)
-    fg.caption(fig, fg.FORCING_CAVEAT + ' ' + fg.WIND_CAVEAT + ' ' + fg.WINDOW_CAVEAT
+    fg.footer(fig, out, L=Ls, mask=fg.MASK_FRONT, text=fg.FORCING_CAVEAT + ' ' + fg.WIND_CAVEAT + ' ' + fg.WINDOW_CAVEAT
                + ' MEASURED, the residual does NOT change sign over the cycle: it stays '
                  'positive at every local hour (34 % modulation at L = 0, minimum ~17 LST), and '
                  'surface_flux stays negative; only vertical and the KPPhbl variant change sign. '
@@ -350,7 +355,7 @@ def fig06_diurnal(data_dir=None, fig_dir=None, summary=None, Ls=(0, 4)):
                  'make the residual damping either (Figure 2b rules that out). KPPhbl: minimum '
                  '15.6 m at 12 LST, maximum 26.5 m at 02 LST, the expected phase. '
                + fg.SAMPLING_CAVEAT, fontsize=7.5)
-    fig.tight_layout(rect=(0, 0.07, 1, 0.93))
+    fig.tight_layout(rect=(0, 0.10, 1, 0.93))
     out['png'] = fg.save(fig, 'fig06_diurnal.png', fig_dir=fig_dir)
     return out
 
@@ -391,7 +396,8 @@ def fig07_offshore(data_dir=None, fig_dir=None, summary=None, Ls=fg.L_ALL):
     axs[2].set_title('sample size', fontsize=10)
     fig.suptitle('Figure 7 — statistics against distance offshore  |  front & valid, 71 pairs',
                  fontsize=12)
-    fg.caption(fig, 'The >= 100 km cut (red dashed) is already inside mask_analysis, so the '
+    fg.footer(fig, out, L=Ls, mask=fg.MASK_FRONT, text=
+                    'The >= 100 km cut (red dashed) is already inside mask_analysis, so the '
                     'offshore restriction excluded nothing here and the pool begins at the line '
                     '(planning §5.6). The residual fraction is nearly flat with distance.')
     fig.tight_layout(rect=(0, 0.05, 1, 0.93))

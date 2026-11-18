@@ -26,6 +26,23 @@ is in `git log` for this file. Three questions, **M5-Q1..Q3**, are in `## Q&A` a
 **Task 1 and task 3 can start on the recommendations; task 2 waits on M5-Q1 and M5-Q2.** The
 Status paragraph convention of prompts 4–5 applies: one per task, added here when it is done.
 
+**Status 2026-11-16 — task 1 done (Fable 5.2).** On M5-Q3 (a). **One registry:**
+`figures.FIGURES` now has 20 entries in order — `fig01, fig02, fig02b, fig03, fig03b, fig04,
+fig05, fig06, fig07, fig08, fig09, fig10, fig_tq, figV1, figV2, figV3, figV3b, figV4, figV5,
+figV6` — the M4 and V entries as thin lazy delegates to `figures_m4` and `validate_figs`
+(`figures.M3_FIGURES` keeps the original ten for `m3_figs.py`, which is kept and was not
+re-run). **One footer:** `figures.footer()` writes every caption's first line
+(`L = … | mask: … | config … | band …`) and puts `L` and `mask` in the returned dict; V1–V5
+return `L=None`, `mask='synthetic'`. **One command:** `py/make_figs.py` (`--only`, `--list`,
+`--report`, `--recompute`) → `data/figs_summary.json`; 20/20 ok in 243 s with `--report`.
+**No number changed:** the ten M3 figures equal `m3_figs_summary.json`; Figures 8, 9 and the
+diagnostic equal `m4_strength.json`'s `fig08`/`fig09` and `m4_quality.json`'s `figure` blocks;
+V3 redraws 0.981 [0.970, 0.994] and V3b its band 0.954–1.003. `--recompute` was run once for
+real (five M4 runners, 4,824 s): every regenerated number in the six M4 JSONs is identical to
+the previous products. Suite **338 passed + 3 strict xfails**, 2 deselected, 289 s. No new PNG
+(all were already tracked; 16 show as modified); `py/make_figs.py` is new. No new question.
+Nothing committed. Log: "Execution prompt 6, task 1".
+
 ---
 
 ## What exists *(added 2026-10-28)*
@@ -348,6 +365,8 @@ condition both assume the slope is printed; they were written before the gate wa
 - (c) Print them in the body against the baseline, as the prompt's original item 3 says. This
   contradicts the "Do not" list of prompts 4, 5 and 6 unless you lift it, so it needs your word.
 
+>A. Let us do option (b), an Appendix only
+
 **M5-Q2 — What the M5 report is, relative to the interim.** The interim is 454 lines, 22 PDF
 pages, M0 → M3, and over its Q19 length by a third (recorded, not accepted). M4 adds roughly a
 section and a half (task 2 item 5 above) and the synthesis adds §12's verdict and the full
@@ -362,6 +381,8 @@ limitations list.
 - (c) A short M4 + synthesis addendum (~6 pages) that cites the interim for M0 → M3: smallest,
   but a reader then needs two documents and the limitations are split across them.
 
+>A. Yes, option (a).  One report to share and work from is our goal.
+
 **M5-Q3 — The scope of "one command".** The acceptance says every figure regenerable from the
 stores by one command. Figures 8, 9 and the diagnostic depend on the M4 products (tracks, flow
 store, series), which take 71 minutes to rebuild from the stores; the ten M3 figures read the
@@ -374,4 +395,4 @@ derived stores and the closure summary in under two minutes; V1–V6 are synthet
 - (b) The command always recomputes from the stores (71 min per run), no flag.
 - (c) The command covers `figs/` only; `report/figs/` keeps its two scripts.
 
-#### JXP
+>A. Agreed, stick with (a)

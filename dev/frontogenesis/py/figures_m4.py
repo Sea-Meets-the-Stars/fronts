@@ -4,7 +4,14 @@ Same style and conventions as :mod:`figures` (200 dpi, ``figs/``, a caption on t
 numbers drawn returned to the caller so the summary JSON and the PNG cannot disagree).
 Nothing here computes anything: the rows come from ``tracking.tracking_quality`` as the
 runner wrote them.
+
+*(added 2026-11-16, prompt 6 task 1.)*  The three ``*_from_products`` functions at the end are
+the registry's entries (``figures.FIGURES['fig08' | 'fig09' | 'fig_tq']``): they load what the
+M4 runners wrote -- ``m4_strength.json``, ``m4_quality.json``, ``m4_tracks.json``, plus the label
+zarr and the ``L = 0`` store for Figure 8's maps -- and call the drawing functions above, which
+are unchanged apart from their captions now going through ``figures.footer``.
 """
+import json
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +27,7 @@ SEQ = 'Blues'
 
 
 def fig_tracking_quality(q_flow: pd.DataFrame, q_plain: pd.DataFrame, fig_dir=None,
-                         name='fig_tq_tracking_quality', radius=2.0) -> dict:
+                         name='fig_tq_tracking_quality', radius=2.0, L=0, config='D') -> dict:
     """Four panels.  (a) the prompt's quantity: |chosen − flow-predicted| centroid
     displacement per link, flow-informed and plain walks; (b) the mask-based distance (median
     over the chosen label's pixels to the nearest pixel of the advected previous mask);
@@ -84,15 +91,16 @@ def fig_tracking_quality(q_flow: pd.DataFrame, q_plain: pd.DataFrame, fig_dir=No
     ns, nm_ = int(q_flow['split'].sum()), int(q_flow['merge'].sum())
     out.update(n_split_flow=ns, n_merge_flow=nm_, n_links_flow=int(len(q_flow)),
                n_links_plain=int(len(q_plain)))
-    fg.caption(fig, (f'Tracking quality (prompt 5 task 4, criterion 3). {len(q_flow)} flow-informed and '
-                     f'{len(q_plain)} plain links of the 10 largest fronts at pair 35, L = 0, mask_analysis, '
-                     f'config D. The prediction is the previous found mask advected by the model flow '
+    fg.footer(fig, out, L=L, mask=fg.MASK_ANALYSIS, config=config, fontsize=7, text=(
+                     f'Tracking quality (prompt 5 task 4, criterion 3). {len(q_flow)} flow-informed and '
+                     f'{len(q_plain)} plain links of the {q_flow["track"].nunique()} largest fronts at the '
+                     f'anchor pair. The prediction is the previous found mask advected by the model flow '
                      f'(tile330_flow.zarr). Flow-informed: {ns} splits, {nm_} merges flagged '
                      f'(>= 5 overlapping pixels per label). The centroid shift (a) has a tail that is topology, '
                      f'not motion; (b), the 90th-percentile distance of the chosen pixels from the prediction, is the '
-                     f'measure of following the fluid.'), fontsize=7)
+                     f'measure of following the fluid.'))
     fig.tight_layout(rect=(0, 0.05, 1, 1))
-    out['path'] = fg.save(fig, name, fig_dir=fig_dir)
+    out['path'] = fg.save(fig, name if name.endswith('.png') else name + '.png', fig_dir=fig_dir)
     return out
 
 
@@ -116,7 +124,7 @@ def _crop(track, labels_by_time, pad=15):
 
 
 def fig08_front_case(track, series: pd.DataFrame, labels_by_time, fields, *, steps=None, fig_dir=None,
-                     name='fig08_front_case', band=1) -> dict:
+                     name='fig08_front_case', band=1, L=0, config='D') -> dict:
     """Five map panels of log10 G in a fixed crop with the tracked label (dilated by ``band``)
     outlined, then four panels along the track: the strength curves (the label mean, the
     material curve from the matched rate, the 2F-predicted curve, the Phase-2 and the
@@ -206,10 +214,11 @@ def fig08_front_case(track, series: pd.DataFrame, labels_by_time, fields, *, ste
                n_split_merge=int(d['split_merge'].sum()))
     fig.suptitle(f'Figure 8 — one tracked front (anchor label {track.anchor.label}, pair {track.anchor.step}): '
                  f'the sequence and its strength against the prediction', fontsize=12, y=0.97)
-    fg.caption(fig, (f'L = 0, mask_analysis, config D, flow-informed track, band {band} (M4-Q3 (a)). Maps: log10 G at five '
+    fg.footer(fig, out, L=L, mask=fg.MASK_ANALYSIS, config=config, band=band, fontsize=7, text=(
+                     f'Flow-informed track, centred rates (M4-Q3 (a)). Maps: log10 G at five '
                      f'steps in a fixed crop, the tracked label outlined. Curves: the label mean is a mean over a changing '
                      f'pixel set; the material curve integrates the matched rate of the same parcels (task 3); the '
-                     f'predicted curve integrates the parcel-averaged 2F; no slope is quoted (M3 not closed).'), fontsize=7)
+                     f'predicted curve integrates the parcel-averaged 2F; no slope is quoted (M3 not closed).'))
     out['path'] = fg.save(fig, name + '.png', fig_dir=fig_dir)
     return out
 
@@ -217,7 +226,8 @@ def fig08_front_case(track, series: pd.DataFrame, labels_by_time, fields, *, ste
 # ---------------------------------------------------------------------------
 # Figure 9 -- the population of ten fronts
 # ---------------------------------------------------------------------------
-def fig09_population(summary: dict, series: dict, *, fig_dir=None, name='fig09_population') -> dict:
+def fig09_population(summary: dict, series: dict, *, fig_dir=None, name='fig09_population', band=1,
+                     L=0, config='D') -> dict:
     """(a) per front: the fraction of hours that are frontogenetic by the matched rate and by
     2F, with the pooled values and their fronts-and-hours bootstrap intervals; (b) lifetime
     against mean 2F, as the prompt asks (every track spans the window, so this is a line of
@@ -292,10 +302,6 @@ def fig09_population(summary: dict, series: dict, *, fig_dir=None, name='fig09_p
     d.set_title(f'(d) every link ({len(allr)}): sign agreement {sa["value"]:.2f} [{sa["lo"]:.2f}, {sa["hi"]:.2f}]; '
                 'decile means; NO slope quoted', fontsize=9, loc='left')
     fig.suptitle('Figure 9 — the ten tracked fronts: frontogenetic or frontolytic, and against the prediction', fontsize=12)
-    fg.caption(fig, ('L = 0, mask_analysis, config D, flow-informed tracks, band 1, centred rates (M4-Q3 (a)). Intervals: '
-                     f'bootstrap over fronts and {pooled["frac_frontogenetic_matched"]["block_h"]}-h blocks of hours, '
-                     f'{pooled["frac_frontogenetic_matched"]["n_boot"]} draws. No slope is quoted as an efficiency (M3 not closed).'),
-               fontsize=7)
     fig.tight_layout(rect=(0, 0.04, 1, 0.95))
     out = dict(n_fronts=int(len(per)),
                pooled={k: {kk: v[kk] for kk in ('value', 'lo', 'hi')} for k, v in pooled.items() if isinstance(v, dict)},
@@ -306,5 +312,71 @@ def fig09_population(summary: dict, series: dict, *, fig_dir=None, name='fig09_p
                n_fronts_dG_pred_positive=int((per['dG_pred_2F'] > 0).sum()),
                n_fronts_sign_agree_dG=int((np.sign(per['dG_matched']) == np.sign(per['dG_pred_2F'])).sum()),
                n_links=int(len(allr)))
+    fg.footer(fig, out, L=L, mask=fg.MASK_ANALYSIS, config=config, band=band, fontsize=7, text=(
+        'Flow-informed tracks, centred rates (M4-Q3 (a)). Intervals: '
+        f'bootstrap over fronts and {pooled["frac_frontogenetic_matched"]["block_h"]}-h blocks of hours, '
+        f'{pooled["frac_frontogenetic_matched"]["n_boot"]} draws. No slope is quoted as an efficiency (M3 not closed).'))
     out['path'] = fg.save(fig, name + '.png', fig_dir=fig_dir)
     return out
+
+
+# ---------------------------------------------------------------------------
+# the registry's entries (prompt 6 task 1): redraw from the M4 products
+# ---------------------------------------------------------------------------
+STRENGTH_JSON, QUALITY_JSON, TRACKS_JSON = 'm4_strength.json', 'm4_quality.json', 'm4_tracks.json'
+
+
+def _product(name, data_dir=None, runner=None) -> dict:
+    p = Path(data_dir or fg.DATA_DIR) / name
+    if not p.exists():
+        raise FileNotFoundError(f'{p} not found: run {runner or "the M4 runners"} first '
+                                '(or make_figs.py --recompute)')
+    d = json.loads(p.read_text())
+    if d.get('status', 'ok') != 'ok':
+        raise RuntimeError(f'{p.name} records status {d.get("status")!r}: {d.get("error")}')
+    return d
+
+
+def _series(strength: dict) -> dict:
+    """``{track index -> DataFrame}`` as ``m4_strength`` held it (JSON keys are strings and a
+    record list loses nothing else: NaN round-trips, ``split_merge`` stays bool)."""
+    return {int(k): pd.DataFrame(v) for k, v in strength['series'].items()}
+
+
+def _done(out):
+    out['png'] = out['path']
+    return out
+
+
+def fig08_from_products(data_dir=None, fig_dir=None, case=None, **kw) -> dict:
+    """Figure 8 from the products: the case track's series from ``m4_strength.json``, its
+    labels from ``m4_tracks.json`` (flow-informed), the label zarr and the ``L = 0`` derived
+    store for the maps.  ``case`` defaults to the track the runner drew."""
+    import tracking as tr
+    d = Path(data_dir or fg.DATA_DIR)
+    s = _product(STRENGTH_JSON, data_dir, 'm4_strength.py')
+    par = s.get('params', {})
+    case = int(par.get('case_track', 0) if case is None else case)
+    tracks = tr.tracks_from_json(_product(TRACKS_JSON, data_dir, 'm4_track.py')['flow'])
+    labels = tr.open_fronts_series(d / tr.fronts_path(0).name)
+    fields = tr.DerivedFields(fg.derived_path(0, data_dir))
+    kw.setdefault('band', int(par.get('band', 1)))
+    try:
+        return _done(fig08_front_case(tracks[case], _series(s)[case], labels, fields, fig_dir=fig_dir, **kw))
+    finally:
+        fields.ds.close()
+
+
+def fig09_from_products(data_dir=None, fig_dir=None, **kw) -> dict:
+    """Figure 9 from ``m4_strength.json`` alone: the population summary and every track's series."""
+    s = _product(STRENGTH_JSON, data_dir, 'm4_strength.py')
+    kw.setdefault('band', int(s.get('params', {}).get('band', 1)))
+    return _done(fig09_population(s['summary'], _series(s), fig_dir=fig_dir, **kw))
+
+
+def fig_tq_from_products(data_dir=None, fig_dir=None, **kw) -> dict:
+    """The tracking-quality diagnostic from ``m4_quality.json``'s rows (both walks)."""
+    q = _product(QUALITY_JSON, data_dir, 'm4_quality.py')
+    kw.setdefault('radius', float(q.get('params', {}).get('radius_cells', 2.0)))
+    return _done(fig_tracking_quality(pd.DataFrame(q['flow']['rows']), pd.DataFrame(q['plain']['rows']),
+                                      fig_dir=fig_dir, **kw))

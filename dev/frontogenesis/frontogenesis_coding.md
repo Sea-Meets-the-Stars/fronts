@@ -817,6 +817,31 @@ closed).
 **0.981 with its band [0.970, 0.994]** (the V3 real-velocity slope, `form='discrete'`), with V3b's
 systematic band 0.954-1.003 beside it (decided 2026-09-30, M1-Q4).
 
+*(added 2026-11-16, prompt 6 task 1 — as consolidated in M5.)* `figures.FIGURES` is the one
+registry, 20 entries in order: `fig01, fig02, fig02b, fig03, fig03b, fig04, fig05, fig06, fig07,
+fig08, fig09, fig10, fig_tq, figV1, figV2, figV3, figV3b, figV4, figV5, figV6`. Every entry is
+`fn(data_dir=None, fig_dir=None, **kw) -> dict` and the dict carries `png`, **`L`** and
+**`mask`** (plus `config` / `band` where the figure has one) beside the numbers drawn.
+`figures.M3_FIGURES` names M3 task 7's ten, which is all `m3_figs.py` renders
+(`m3_figs_summary.json` keeps its meaning). **"`figV1..figV6` in `figures.py`" is satisfied by
+the registry, not by moving code:** the V-figures are still drawn by `validate_figs.fig_V*` from
+the numbers `validate.py`'s gates compute; `figures.figV*` run the gate with `png=True` into the
+directory asked for and return its small numbers. V3b (M1 task 6b) is a registry entry of its
+own, `figV3b`, between V3 and V4, drawn with the semi-Lagrangian reference rows as it always
+was; V3 and V3b report the real-velocity half when the M0 stores are on disk. Likewise Figures
+8, 9 and the tracking-quality diagnostic stay in `figures_m4.py`:
+`fig08_from_products` / `fig09_from_products` / `fig_tq_from_products` load `m4_strength.json`,
+`m4_quality.json`, `m4_tracks.json` (and, for Figure 8's maps, the label zarr and the `L = 0`
+store) and call the drawing functions the M4 runners call. **One caption helper:**
+`figures.footer(fig, out, L, mask, config=None, band=None, text='', caveats=())` writes
+"`L = … cells | mask: … | config … | band …. <text>`" on the page and records `L` / `mask` in
+`out`; every registry figure with a caption goes through it (V1–V5 keep the titles
+`validate_figs` gave them and return `L = None`, `mask = 'synthetic'`; V6's footer states the
+three masks and their parameters). **One command:** `py/make_figs.py` renders the registry (or
+`--only`), writes `data/figs_summary.json` in `m3_figs_summary.json`'s form, with `--report`
+also runs `report/make_report_figs.py` and `report/make_case_figs.py`, and with `--recompute`
+first re-runs the five M4 runners from the stores (M5-Q3 (a)); it never re-runs the M3 closure.
+
 ---
 
 ## 5. Test strategy
@@ -1064,6 +1089,15 @@ standardise captions so each states its `L` and its mask; wire up one-command re
 **Acceptance:** every figure regenerable from the stores by one command; every caption states `L`
 and mask; the report states the closure tolerance, the null-test baseline, and the §12
 null-result criteria explicitly, with limitations unhedged.
+
+*(added 2026-11-16, prompt 6 task 1 — done: consolidation, captions, one command.)* The first
+three tasks above are done: `figures.FIGURES` (20 entries, §4.10's note), `figures.footer()`
+(every caption states `L` and mask, and every entry returns them), and `py/make_figs.py`
+(`--only`, `--report`, `--recompute`; `data/figs_summary.json`). "Regenerable from the stores
+by one command" is met in the sense of M5-Q3 (a): by default the figures are redrawn from the
+products; `--recompute` first re-runs the five M4 runners from the stores (4,824 s when run on
+2026-11-16, every number reproduced); the M3 closure and the derived stores are not re-run by
+this command (`m3_run.py`, `m3_closure.py`). The report and the README remain (tasks 2, 3).
 
 ### M6 — Depth  *(planning Phase 4, deferred)*
 

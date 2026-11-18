@@ -14,6 +14,14 @@ prompt allows: :mod:`figures_maps` (1, 3b, 5, 10) and :mod:`figures_stats`
 (2, 2b, 3, 4, 6, 7).  This file holds the style, the loaders and the
 re-exports, so callers import one place.
 
+*(added 2026-11-16, prompt 6 task 1 -- M5 consolidation.)*  ``FIGURES`` now
+holds every figure of the study -- the ten above, Figures 8 and 9 and the
+tracking-quality diagnostic (drawn in :mod:`figures_m4`), and V1-V6 plus V3b
+(drawn in :mod:`validate_figs`) -- behind one signature, and
+:func:`footer` is the one caption helper: every entry states its ``L`` and
+its mask on the page and returns them as keys.  ``py/make_figs.py`` is the
+one command; ``m3_figs.py`` still renders ``M3_FIGURES`` only.
+
 **Framing (M3-Q15 (a), 2026-10-10).**  Task 6's gate failed at every `L`, so
 these figures carry a methodological finding, not an efficiency.  Figure 2
 draws its slopes under an explicit **NOT QUOTED** banner, and no figure
@@ -170,9 +178,54 @@ def caption(fig, text, y=0.005, fontsize=8):
     fig.text(0.5, y, text, ha='center', va='bottom', fontsize=fontsize, color='0.3', wrap=True)
 
 
-def mask_note(L, mask='front & valid (mask_analysis & isfinite, p90 of G at the midpoint)'):
+#: the two masks the M3 figures use, stated once (prompt 6 task 1)
+MASK_FRONT = 'front & valid (mask_analysis & isfinite, p90 of G at the midpoint)'
+MASK_FINITE = 'all finite cells (land and the filter rim grey)'
+MASK_ANALYSIS = 'mask_analysis (the fronts are found on it)'
+MASK_SYNTHETIC = 'synthetic'
+
+
+def mask_note(L, mask=MASK_FRONT):
     """Every title or caption must state its ``L`` and its mask (task 7)."""
     return f'L = {L} cells   |   {mask}'
+
+
+def _fmt_L(L):
+    if L is None:
+        return 'L: not applicable (no filter)'
+    if isinstance(L, (tuple, list)):
+        return 'L = ' + ' / '.join(str(int(v)) for v in L) + ' cells'
+    return f'L = {int(L)} cells'
+
+
+def footer_text(L, mask, config=None, band=None, text='', caveats=()):
+    """The uniform caption (prompt 6 task 1): ``L``, the mask, the finding
+    config / band where the figure has one, then the figure's own sentence
+    and the caveats.  One implementation for every registry entry."""
+    head = [_fmt_L(L), f'mask: {mask}']
+    if config is not None:
+        head.append(f'config {config}')
+    if band is not None:
+        head.append(f'band {band}')
+    tail = ' '.join(t.strip() for t in (text,) + tuple(caveats) if t and t.strip())
+    return '   |   '.join(head) + ('.  ' + tail if tail else '.')
+
+
+def footer(fig, out, L, mask, *, config=None, band=None, text='', caveats=(), y=0.005,
+           fontsize=8):
+    """Draw :func:`footer_text` on ``fig`` and record what it states in the
+    figure's returned dict -- ``out['L']`` and ``out['mask']`` (plus
+    ``config`` / ``band`` when given) -- so "every caption states its L and
+    mask" is a key a test can assert, not a thing to read off a PNG."""
+    txt = footer_text(L, mask, config, band, text, caveats)
+    caption(fig, txt, y=y, fontsize=fontsize)
+    out['L'] = list(L) if isinstance(L, (tuple, list)) else L
+    out['mask'] = mask
+    if config is not None:
+        out['config'] = config
+    if band is not None:
+        out['band'] = band
+    return txt
 
 
 def binned(x, y, bins=12, lo=2.5, hi=97.5, n_boot=200, labels=None, seed=0):
@@ -193,9 +246,150 @@ from figures_maps import (fig01_maps, fig03b_filter_ladder, fig05_sharpening_tim
 from figures_stats import (fig02_joint_pdf, fig02b_discriminator, fig03_slope_vs_L,  # noqa: E402
                            fig04_alignment, fig06_diurnal, fig07_offshore)
 
-#: name -> callable, in figure order; ``m3_figs`` drives this
+# ---------------------------------------------------------------------------
+# M4's figures and the validation figures (prompt 6 task 1) -- delegates
+# ---------------------------------------------------------------------------
+# The drawing code stays where it was written: Figures 8, 9 and the
+# tracking-quality diagnostic in ``figures_m4`` and V1-V6 in
+# ``validate_figs`` (driven by ``validate``'s gate functions).  Coding
+# §4.10's "figV1..figV6 in figures.py" is met by the REGISTRY below, not by
+# moving code.  The delegates import lazily: ``figures_m4`` imports this
+# module, and ``validate`` pulls in the whole science path.
+def fig08_front_case(data_dir=None, fig_dir=None, **kw):
+    """Figure 8 -- one tracked front, redrawn from ``m4_strength.json``, the
+    tracks, the label zarr and the ``L = 0`` store (``figures_m4``)."""
+    import figures_m4
+    return figures_m4.fig08_from_products(data_dir, fig_dir, **kw)
+
+
+def fig09_population(data_dir=None, fig_dir=None, **kw):
+    """Figure 9 -- the ten tracked fronts, redrawn from ``m4_strength.json``."""
+    import figures_m4
+    return figures_m4.fig09_from_products(data_dir, fig_dir, **kw)
+
+
+def fig_tq_tracking_quality(data_dir=None, fig_dir=None, **kw):
+    """The tracking-quality diagnostic (M4 criterion 3; not in planning §7's
+    numbering), redrawn from ``m4_quality.json``."""
+    import figures_m4
+    return figures_m4.fig_tq_from_products(data_dir, fig_dir, **kw)
+
+
+#: the keys of each gate's result that go into the figures summary (the
+#: full results carry arrays); a trailing ``*`` is a prefix
+_V_KEEP = {
+    'figV1': ('series_max_err_ref', 'semilag_err_max_all', 'convergence_order', 'gate'),
+    'figV2': ('err_*', 'lin_err*', 'R_from*', 'gate*', 'worst_x*'),
+    'figV3': ('slope', 'ci', 'n_front', 'gate', 'gate_form', 'velocities'),
+    'figV3b': ('bias', 'stencil_effect', 'velocities'),
+    'figV4': ('headline', 'headline_order1', 'headline_order5', 'width_slope'),
+    'figV5': ('bias*',),
+    'figV6': ('n_*', 'edge_*', 'halo_*', 'offshore_km'),
+}
+
+
+def _grid(data_dir=None):
+    import osn_tiles as ot
+    return ot.open_grid(None if data_dir is None else Path(data_dir) / 'tile330_grid.zarr',
+                        with_face=True)
+
+
+def _vfig(name, call, data_dir, fig_dir, L=None, mask=MASK_SYNTHETIC):
+    """Run one of ``validate``'s gates with ``png=True`` so it draws through
+    ``validate_figs`` as it always has, into ``fig_dir``; return the small
+    numbers with the registry's ``png`` / ``L`` / ``mask`` keys."""
+    import validate as va
+    import validate_figs as vf
+    keep_dir = vf.FIG_DIR
+    vf.FIG_DIR = Path(fig_dir or FIG_DIR)
+    try:
+        res = call(va)
+    finally:
+        vf.FIG_DIR = keep_dir
+    keys = _V_KEEP[name]
+    out = {k: v for k, v in res.items()
+           if any(k == p or (p.endswith('*') and k.startswith(p[:-1])) for p in keys)}
+    out.update(png=res['png'], L=res.get('L', L), mask=res.get('mask', mask))
+    return out
+
+
+def figV1(data_dir=None, fig_dir=None, **kw):
+    """V1 -- Cartesian deformation (synthetic; ``validate.test_cartesian_deformation``)."""
+    return _vfig('figV1', lambda va: va.test_cartesian_deformation(png=True, **kw),
+                 data_dir, fig_dir)
+
+
+def figV2(data_dir=None, fig_dir=None, **kw):
+    """V2 -- analytic gradients on the tile-330 metric (needs the grid store)."""
+    return _vfig('figV2', lambda va: va.test_native_metric(_grid(data_dir), png=True, **kw),
+                 data_dir, fig_dir)
+
+
+def _null(gate_name, data_dir, kw):
+    """V3 / V3b report the real-velocity ('llc') half when the M0 stores are
+    there -- its slope is Figure 2's baseline -- and the strain half alone
+    when they are not; the figure carries both halves whenever it can."""
+    def call(va):
+        gate = getattr(va, gate_name)
+        vel = kw.pop('velocities', None)
+        if vel is None:
+            try:
+                return dict(gate(velocities='llc', png=True, grid_ds=_grid(data_dir), **kw),
+                            velocities='llc')
+            except FileNotFoundError:
+                vel = 'strain'
+        return dict(gate(velocities=vel, png=True, **kw), velocities=vel)
+    return call
+
+
+def figV3(data_dir=None, fig_dir=None, **kw):
+    """V3 -- the discrete null: the baseline slope 0.981 [0.970, 0.994]."""
+    return _vfig('figV3', _null('test_discrete_null', data_dir, kw), data_dir, fig_dir)
+
+
+def figV3b(data_dir=None, fig_dir=None, **kw):
+    """V3b -- the finite-volume null: the model-advection band (a recorded
+    bias, not a gate; M1-Q2).  Drawn with the semi-Lagrangian truth beside the
+    four finite-volume schemes, as the figure in ``figs/`` always was (M1 task
+    6b): the gate's own default omits those reference rows."""
+    kw.setdefault('schemes', ('semilag', 'centred', 'os7', 'os7mp', 'dst3'))
+    return _vfig('figV3b', _null('test_fv_null', data_dir, kw), data_dir, fig_dir)
+
+
+def figV4(data_dir=None, fig_dir=None, **kw):
+    """V4 -- interpolation bias under a uniform, zero-strain flow (synthetic)."""
+    return _vfig('figV4', lambda va: va.test_interpolation_bias(png=True, **kw),
+                 data_dir, fig_dir)
+
+
+def figV5(data_dir=None, fig_dir=None, **kw):
+    """V5 -- interpolate ``b``, never ``G``: the half-cell demonstration (synthetic)."""
+    return _vfig('figV5', lambda va: va.demo_interp_half_cell(png=True, **kw),
+                 data_dir, fig_dir)
+
+
+def figV6(data_dir=None, fig_dir=None, **kw):
+    """V6 -- land halo, offshore cut and tile-edge margin: the mask geometry
+    itself (needs the grid and the 2 h raw store).  Its footer and its
+    ``mask`` key are written by ``validate_figs.fig_V6``."""
+    return _vfig('figV6', lambda va: va.qa_land_halo(_grid(data_dir), png=True, **kw),
+                 data_dir, fig_dir)
+
+
+#: name -> callable, in figure order: planning §7's twelve, the M4
+#: tracking-quality diagnostic, then the validation set.  Every entry is
+#: ``fn(data_dir=None, fig_dir=None, **kw)`` and returns the numbers it drew
+#: with ``png``, ``L`` and ``mask`` keys.  ``make_figs`` drives all of it.
 FIGURES = {
     'fig01': fig01_maps, 'fig02': fig02_joint_pdf, 'fig02b': fig02b_discriminator,
     'fig03': fig03_slope_vs_L, 'fig03b': fig03b_filter_ladder, 'fig04': fig04_alignment,
     'fig05': fig05_sharpening_time, 'fig06': fig06_diurnal, 'fig07': fig07_offshore,
-    'fig10': fig10_term_budget}
+    'fig08': fig08_front_case, 'fig09': fig09_population, 'fig10': fig10_term_budget,
+    'fig_tq': fig_tq_tracking_quality,
+    'figV1': figV1, 'figV2': figV2, 'figV3': figV3, 'figV3b': figV3b, 'figV4': figV4,
+    'figV5': figV5, 'figV6': figV6}
+
+#: M3 task 7's ten, which ``m3_figs`` renders into ``m3_figs_summary.json``
+#: (task 8's audit) -- unchanged by M5
+M3_FIGURES = ('fig01', 'fig02', 'fig02b', 'fig03', 'fig03b', 'fig04', 'fig05', 'fig06',
+              'fig07', 'fig10')

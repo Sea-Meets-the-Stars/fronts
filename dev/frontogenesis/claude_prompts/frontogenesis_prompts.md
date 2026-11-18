@@ -9024,3 +9024,100 @@ Appendix B), `report/make_case_figs.py` (`sflux()`), `report/check_report_number
 integral's agreement on the primary example was the surface-flux term's mean, and the term's
 pointwise orthogonality (+0.14 here, +0.02 pooled) is what keeps it from closing the hourly
 budget — the one sentence for M5's §5.1 successor.
+
+### 2026-11-16 — Execution prompt 6, task 1: figures consolidated — one registry, one footer, one command (Fable 5.2)
+
+**Read first.** JXP's answers in prompt 6's Q&A: **M5-Q1 (b)** (Figure 2 and the four slopes in
+an appendix only; task 2), **M5-Q2 (a)** (a new `report/frontogenesis_report.md` that
+supersedes the interim; task 2), **M5-Q3 (a)** (`make_figs.py` draws every figure of `figs/`
+and, with `--report`, `report/figs/`, from the products by default and from the stores with
+`--recompute`; deck figures stay with the deck builds). Task 1 was done on Q3 (a). No new
+question arose.
+
+**One registry.** `figures.FIGURES` grew from ten entries to **20**, in this order:
+`fig01, fig02, fig02b, fig03, fig03b, fig04, fig05, fig06, fig07, fig08, fig09, fig10, fig_tq,
+figV1, figV2, figV3, figV3b, figV4, figV5, figV6`. Every entry has the one signature
+`fn(data_dir=None, fig_dir=None, **kw) -> dict` and returns `png`, `L`, `mask` beside its
+numbers. Decisions:
+- *Delegates, not moves.* `figures_m4` imports `figures`, and `validate` imports the science
+  path, so the M4 and V entries are thin functions in `figures.py` that import their module
+  when called. No drawing code was moved.
+- *Figures 8, 9 and the diagnostic are redrawn from the products.* New
+  `figures_m4.fig08_from_products`, `fig09_from_products`, `fig_tq_from_products` read
+  `m4_strength.json`, `m4_quality.json`, `m4_tracks.json` (and the label and `L = 0` stores
+  for the Figure 8 map), refuse a product whose `status` is not `ok`, and name the runner to
+  run when one is missing. The drawing functions the runners call are unchanged in what they
+  draw.
+- *V figures through their gates.* `figV1..figV6` call the `validate.py` gate with `png=True`
+  and return a filtered set of its numbers. `figV3` uses the LLC velocities when the grid is
+  there and falls back to the synthetic strain field otherwise. **`figV3b` is its own entry**
+  (the prompt listed V1..V6; the V3b figure is a committed PNG and the baseline's band comes
+  from it) and passes the `semilag` scheme so the redraw has the reference rows of the
+  committed figure.
+- *`M3_FIGURES`* keeps the original ten; `m3_figs.py` is kept, defaults to them, and **was not
+  re-run** — `m3_figs_summary.json` is untouched and remains task 8's audit record.
+  `m3_figs.render` gained one argument (`names`) so `make_figs.py` reuses its try/except loop.
+
+**One footer.** `figures.footer(fig, out, L, mask, config=, band=, text=, caveats=)` writes
+the caption, whose first line is always `L = … | mask: … | config … | band …`, and records
+`L` and `mask` (and `config`, `band`) in the returned dict. `figures.footer_text` is the
+string alone. Four mask constants (`MASK_FRONT`, `MASK_FINITE`, `MASK_ANALYSIS`,
+`MASK_SYNTHETIC`) replace thirteen hand-written phrases. All ten M3 figures, the three M4
+figures and V6 now use it; two-part figures state both masks (Figure 5: maps / histogram;
+Figure 10: maps / bars and curves). V1–V5 are synthetic and keep their own titles: they
+return `L=None`, `mask='synthetic'` and have no footer. V6 returns `L=None` and the three
+masks it draws as built. The scientific caveats in each caption (the withheld-slope banner of
+Figure 2, the not-closed statement, the band and construction of Figures 8 and 9) are the
+same text as before, after the first line.
+
+**One command.** `py/make_figs.py`: all 20 by default; `--only a,b`; `--list`; `--report`
+(then runs `report/make_report_figs.py` and `report/make_case_figs.py`); `--recompute` (first
+runs `m4_find.py --clobber`, `m4_track.py --clobber-flow`, `m4_recon.py`, `m4_quality.py`,
+`m4_strength.py`, stopping at the first failure); `--out`, `--fig-dir`. Each figure in its own
+try/except; exit status non-zero if a figure, a runner or a report script fails. It writes
+`data/figs_summary.json` in `m3_figs_summary.json`'s form. **The M3 closure and the derived
+stores are not re-run by this command** — stated in its docstring and in coding §6.
+
+**The run.** `make_figs.py --report`: **20/20 ok, 243 s** (longest: V3b 61 s, Figure 2 28 s,
+Figure 2b 28 s, V3 27 s, Figure 4 24 s, V4 19 s; the two report scripts 5 s).
+
+**No number changed.**
+- Figures 1–7, 10 (`data/figs_summary.json`) vs `m3_figs_summary.json`: identical, every key.
+- Figures 8, 9 vs `m4_strength.json`'s `fig08` / `fig09` blocks, and the diagnostic vs
+  `m4_quality.json`'s `figure` block: identical.
+- V3: 0.981 [0.970, 0.994] (0.98059, [0.9698, 0.9942]); V3b: 0.9747, band [0.9541, 1.0030].
+- **`--recompute`, run once for real** (`--only fig08,fig09,fig_tq`, products backed up
+  first): find 638 s, track 2,030 s, recon 1,245 s, quality 215 s, strength 692 s; **4,824 s**
+  in all (4,258 s as logged in prompt 5; the tracker was slower on a shared machine). A
+  key-by-key comparison of the six regenerated JSONs (`m4_find_done`, `m4_tracks`,
+  `m4_track_summary`, `m4_recon`, `m4_quality`, `m4_strength`) with the previous ones: the
+  only differences are start/finish times, wall times, the new `L`/`mask`/`config`/`band` keys
+  in the figure blocks, and the diagnostic's path now ending in `.png`. `m4_tracks.json` is
+  identical in full. The M4 products in `data/` are now the regenerated ones.
+
+**The PNGs.** None is new. Sixteen show as modified: the thirteen with a new footer line
+(Figures 1–10, the diagnostic) and V6; `V5_interp_half_cell.png` and the two report schematics
+differ in bytes only (no pixel differs by more than 30/255 from the committed image). V1, V2,
+V3, V3b, V4 and the case-study figures came out byte-identical. Figure 6's bottom margin was
+widened (0.07 → 0.10) for the longer footer; the others were checked strip by strip.
+*Not fixed, older than this task:* Figure 10's colourbar overlaps its last map panel.
+
+**Tests.** `test_figures.py`: the names-and-order test now asserts the 20, the M3 ten and the
+signature; new `test_footer_states_L_mask_config_band_and_records_them`;
+`test_synthetic_V_entries_draw_through_validate_figs` (V1, V4, V5: `L is None`,
+`mask == 'synthetic'`); `test_make_figs_recompute_order_and_exit_status` (a fake `run`: the
+five runners in order, stop at the first failure, non-zero exit); and, on the real products,
+`test_the_one_command_run_changed_no_number_and_states_every_mask` (the comparisons above,
+and every PNG tracked). `test_tracking.py`: footer keys asserted, and
+`test_registry_redraws_the_m4_figures_from_the_products`.
+`test_the_real_figures_match_task_6_and_are_tracked` passes unchanged. Suite **338 passed +
+3 strict xfails**, 2 deselected, 289 s (was 331).
+
+**Files.** Created `py/make_figs.py`, `data/figs_summary.json` (git-ignored, like the other
+summaries). Modified `py/figures.py`, `py/figures_maps.py`, `py/figures_stats.py`,
+`py/figures_m4.py`, `py/validate_figs.py`, `py/m3_figs.py`, `py/tests/test_figures.py`,
+`py/tests/test_tracking.py`; sixteen PNGs in `figs/` and `report/figs/` (already tracked, so
+plain `git add`); the M4 products in `data/` (regenerated, numbers identical);
+`frontogenesis_coding.md` (marked notes in §4.10 and §6 M5);
+`claude_prompts/frontogenesis_prompt_6.md` (Status); this log. Nothing committed.
+**Next:** task 2 (the report, on M5-Q1 (b) and M5-Q2 (a)) and task 3 (the README).

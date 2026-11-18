@@ -713,3 +713,61 @@ def test_bootstrap_fronts_hours_and_population(strength_case, tmp_path):
     assert (tmp_path / 'fig09_test.png').exists() and o9['n_fronts'] == 3
     o8 = f4.fig08_front_case(sc['track'], df, sc['labels'], sc['fields'], fig_dir=tmp_path, name='fig08_test')
     assert (tmp_path / 'fig08_test.png').exists() and o8['track_label'] == 1 and len(o8['steps_mapped']) == 5
+    # prompt 6 task 1: the uniform footer's keys
+    for o in (o8, o9):
+        assert o['L'] == 0 and 'mask_analysis' in o['mask'] and o['config'] == 'D' and o['band'] == 1
+
+
+def test_registry_redraws_the_m4_figures_from_the_products(strength_case, moving_series, tmp_path):
+    """Prompt 6 task 1: ``figures.FIGURES['fig08' | 'fig09' | 'fig_tq']`` read what the M4
+    runners wrote -- the two JSONs, the tracks, the label zarr, the L = 0 store -- and draw
+    the numbers the runners' own calls drew, with the registry's ``png`` / ``L`` / ``mask``."""
+    import json
+    import figures as fg
+    import figures_m4 as f4
+    sc = strength_case
+    data, direct, figs = tmp_path / 'data', tmp_path / 'direct', tmp_path / 'figs'
+    data.mkdir()
+    times = list(sc['labels'])
+    df = tr.front_strength_series(sc['track'], sc['labels'], sc['flow'], sc['fields'])
+    series = {k: df.copy() for k in range(3)}
+    summ = tr.population_summary(series)
+    o8 = f4.fig08_front_case(sc['track'], df, sc['labels'], sc['fields'], fig_dir=direct)
+    o9 = f4.fig09_population(summ, series, fig_dir=direct)
+    # the products, as the runners write them
+    sc['fields'].ds.to_zarr(str(fg.derived_path(0, data)), mode='w')
+    tr.write_fronts_series(sc['labels'], data / tr.fronts_path(0).name)
+    tr.dump_json(dict(times=times, flow=tr.tracks_to_json([sc['track']] * 3, times)), data / f4.TRACKS_JSON)
+    tr.dump_json(dict(summary=summ, fig08=o8, fig09=o9, status='ok',
+                      series={str(k): d.to_dict('records') for k, d in series.items()},
+                      params=dict(band=tr.BAND, case_track=0)), data / f4.STRENGTH_JSON)
+    labels_at, mtimes = tr.labels_at_factory(moving_series[0])
+    flow = _UniformFlow(6.0)
+    anchor = ft.anchor_at(labels_at(0), 0, 1)
+    qf = tr.tracking_quality([tr.follow_flow(labels_at, mtimes, anchor, flow, km_per_px=1.9)], flow,
+                             moving_series[0], name='flow')
+    qp = tr.tracking_quality([tr.follow_flow(labels_at, mtimes, anchor, None, km_per_px=1.9)], flow,
+                             moving_series[0], name='plain')
+    oq = f4.fig_tracking_quality(qf, qp, fig_dir=direct)
+    assert oq['path'].endswith('.png')                     # the suffix the runner's record lacked
+    tr.dump_json(dict(flow=dict(rows=qf.to_dict('records')), plain=dict(rows=qp.to_dict('records')),
+                      figure=oq, status='ok', params=dict(radius_cells=tr.RADIUS_CELLS)), data / f4.QUALITY_JSON)
+
+    def same(a, b):
+        for k, v in a.items():
+            if k in ('path', 'png'):
+                continue
+            assert json.loads(json.dumps(v)) == json.loads(json.dumps(b[k])) or (v != v and b[k] != b[k]), k
+    for name, ref, stem in (('fig08', o8, 'fig08_front_case'), ('fig09', o9, 'fig09_population'),
+                            ('fig_tq', oq, 'fig_tq_tracking_quality')):
+        out = fg.FIGURES[name](data_dir=data, fig_dir=figs)
+        same(ref, out)
+        assert out['png'] == out['path'] == str(figs / (stem + '.png')) and (figs / (stem + '.png')).exists()
+        assert out['L'] == 0 and 'mask_analysis' in out['mask'] and out['config'] == 'D', name
+    # a missing or failed product is an error that names the runner, not a blank figure
+    (data / f4.QUALITY_JSON).unlink()
+    with pytest.raises(FileNotFoundError, match='m4_quality.py'):
+        fg.FIGURES['fig_tq'](data_dir=data, fig_dir=figs)
+    tr.dump_json(dict(status='error', error='x'), data / f4.STRENGTH_JSON)
+    with pytest.raises(RuntimeError, match='status'):
+        fg.FIGURES['fig09'](data_dir=data, fig_dir=figs)
