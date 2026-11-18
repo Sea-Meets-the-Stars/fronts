@@ -46,7 +46,8 @@ def _terms(a, res, Ls):
     w = 0.18
     x = np.arange(len(Ls))
     for k, t in enumerate(mc.TERMS):
-        v = [res['per_L'][str(L)]['closure']['terms'][t]['over_measured'] for L in Ls]
+        v = [res['per_L'][str(L)]['closure']['terms'].get(t, {}).get('over_measured', np.nan)
+             for L in Ls]                      # a chunk-less run has no vertical / surface_flux
         a.bar(x + (k - 1.5) * w, v, w, label=t, color=TERM_COLOR[t])
     r = [res['per_L'][str(L)]['closure']['residual']['over_measured'] for L in Ls]
     c = [res['per_L'][str(L)]['closure']['catchall']['over_measured'] for L in Ls]

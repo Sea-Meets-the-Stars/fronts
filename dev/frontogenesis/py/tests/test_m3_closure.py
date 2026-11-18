@@ -178,6 +178,37 @@ def test_catchall_is_the_no_chunk_identity():
 # ---------------------------------------------------------------------------
 # the overall verdict and the "not quoted" rule
 # ---------------------------------------------------------------------------
+def test_closure_on_a_pool_without_the_chunk_terms_is_its_own_catchall():
+    """M3-digging task 1: a chunk-less store (the tracer, a second tile)
+    pools what it has; the catch-all is the residual, the absent terms are
+    named, the depth checks are skipped and the verdict logic is unchanged."""
+    p = pool_with(resid_frac=0.3)
+    full = mc.closure(p, rows_for(p), 4)
+    q = {k: v for k, v in p.items() if k not in ('vertical', 'surface_flux', 'surface_flux_kpp')}
+    q['residual'] = p['residual'] + p['vertical'] + p['surface_flux']    # what the sweep stores
+    c = mc.closure(q, rows_for(q), 4)
+    assert c['terms_absent'] == ['vertical', 'surface_flux'] and c['terms_present'] == ['two_F', 'subfilter']
+    assert set(c['terms']) == {'two_F', 'subfilter'} and set(c['term_contribution']) == {'two_F', 'subfilter'}
+    assert c['catchall']['over_measured'] == c['residual']['over_measured']
+    assert 'IDENTICAL' in c['catchall']['note']
+    assert 'skipped' in c['depth_scale_check'] and 'skipped' in c['chunk_terms_help']
+    assert 'surface_flux_kpp' not in c
+    np.testing.assert_allclose(c['residual']['over_measured'], full['catchall']['over_measured'])
+    assert c['verdict']['gated'] and 'per_pair' in c and 'day3' in c
+    comp = mc.composites(q)
+    assert set(k for k in comp['by_local_hour'][next(iter(comp['by_local_hour']))]
+               if k.endswith('_over_meas')) == {'resid_over_meas', 'two_F_over_meas', 'subfilter_over_meas'}
+    res = dict(per_L={'4': dict(closure=c, euler=dict(passed=False))}, verdict=mc.overall(
+        {'4': dict(closure=c, euler=dict(passed=False))}))
+    assert 'absent' in mc.format_verdict(res)
+
+
+def test_out_paths_follow_the_tag():
+    assert mc.out_json().name == 'm3_closure_summary.json'
+    assert mc.out_json('tile329').name == 'm3_closure_tile329_summary.json'
+    assert mc.out_png('t').name == 'm3_closure_t.png' and mc.out_png().name == 'm3_closure.png'
+
+
 def _per_L(passes):
     return {str(L): dict(closure=dict(verdict=dict(passed=p, gated=L in mc.GATE_L)),
                          euler=dict(passed=True)) for L, p in passes.items()}

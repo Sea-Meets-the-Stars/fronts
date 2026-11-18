@@ -1,5 +1,35 @@
 # `dev/frontogenesis/report/` — the interim report
 
+*(added 2026-11-18, prompt 6 task 2.)* **The current report is `frontogenesis_report.md`**
+(M0 → M5; M5-Q2 (a)). It supersedes the interim report below, which stays untouched as the
+record of 12 October 2026, as does the digging note of 3 November.
+
+| File | What it is |
+|---|---|
+| `frontogenesis_report.md` | **The report.** M0 → M4 and the synthesis: the null result with its tolerance up front, the budget term by term, the baselines, the withdrawn diabatic claim, the per-front results, the limitations, planning §12's verdict condition by condition. Appendix C alone carries the withheld slopes and Figure 2 (M5-Q1 (b)) |
+| `check_frontogenesis_report.py` | Its number check: re-uses the interim's and the digging note's lists (minus the numbers this report does not carry, dropped by name), adds the M4 numbers from the five `m4_*.json` summaries and Appendix C's from `slopes_not_quoted`; enforces prompt 6's "Do not" list line by line (slopes only in Appendix C; 0.951 / 1.008 never without "not an efficiency"; criterion 4 never "met" without "pre-registered"; "damping" and "efficiency" only negated); checks the front matter, the glossary and that every figure is one `../py/make_figs.py --report` redraws. Tested by `../py/tests/test_report.py` |
+
+Build (31 pages on 18 November 2026, no missing glyphs), with the `pandoc` of "Building the
+PDF" below — on this workstation the binary is in the `ocean14` env's `pypandoc`:
+
+```
+$PANDOC frontogenesis_report.md -o frontogenesis_report.pdf \
+        --pdf-engine=xelatex --include-in-header=pandoc-header.tex \
+        -V geometry:margin=1in -V fontsize=11pt
+python check_frontogenesis_report.py      # exit 0 if the report matches the summaries
+python ../py/make_figs.py --report        # redraws every figure the report shows
+```
+
+Its rules are those of "The rules this report is written under" below, with two changes by
+JXP's answers in `../claude_prompts/frontogenesis_prompt_6.md`: the allowed sources gain the
+five M4 summaries and the digging summaries, and the measured-versus-predicted slopes appear
+in an appendix only. Unlike the interim it shows no deck re-plot: every figure is from
+`../figs/` (the registry) or `figs/`.
+
+---
+
+*The interim report (12 October 2026) and the digging note — as written then:*
+
 | File | What it is |
 |---|---|
 | `frontogenesis_M3_interim.md` | **The report.** M0 → M3, written for a reader outside the project — M3 did not close, and this is where that is explained |
@@ -12,6 +42,9 @@
 | `figs/case_front_maps.png` | The followed front over four hourly snapshots, and the predicted tendency on the same frames |
 | `figs/case_strength.png` | Its strength along the trajectory against the prediction, and the hourly rates |
 | `figs/case_budget.png` | Its five-term budget beside the 71-pair pooled one |
+| `figs/case_sflux.png` | The surface-flux term on the followed front (§5.1, Figure 6b; M3-digging task 9): its maps and parts at the seed, its rates and parts along the parcels, the integrals with and without it, the pointwise relation to the imbalance — from `../data/m3_case_sflux.{json,npz}` (`../py/m3_case_sflux.py`) |
+| `frontogenesis_M3_digging.md` | **The digging note** (M3-digging task 7, 2026-11-03): the external review's tests — the controls, the offline tracer, the term tests, the pooling checks and the re-seeded case, the second tile, the parcels — each with its pre-declared reading; the M3 verdict unchanged. Its figures are referenced from `../figs/` (`m3_controls`, `m3_tracer`, `m3_term_tests`, `m3_tile2`, `m3_parcels_velocity`, `m3_parcels_motion`) |
+| `check_digging_numbers.py` | The note's sibling of `check_report_numbers.py`: every JSON-backed number of the note re-read from the digging summaries and required verbatim; the product's withheld slopes forbidden; the tracer's slopes allowed only as a labelled calibration |
 
 The project had no picture of its own method before these two. That is the one thing a reader
 who is not embedded needs most, and it is why M3-Q20 (b) asked for them.
@@ -82,5 +115,9 @@ Set by JXP's answers to **M3-Q16..Q26** (`../claude_prompts/frontogenesis_prompt
 
 ```
 python check_report_numbers.py        # exit 0 if the report matches the summaries
+python check_digging_numbers.py       # the same for the digging note
 python make_report_figs.py            # redraws the two schematics
 ```
+
+The digging note's PDF builds with the same `pandoc` command as the interim's, with
+`frontogenesis_M3_digging.md` in place of the interim's file name.

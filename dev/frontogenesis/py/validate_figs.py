@@ -718,5 +718,12 @@ def fig_V6(ctx):
 
     fig.suptitle(f'V6: land halo, offshore cut, Gulf of California and tile-edge margin; tile 330 '
                  f'(face 10), rim measured at {SNAPSHOT}; maps north-up via (XC, YC)', fontsize=13)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    # (added 2026-11-16, prompt 6 task 1) the uniform footer: V6 IS the mask geometry, so its
+    # ``mask`` is the three masks drawn and their parameters; no filter, hence no L
+    import figures as fg
+    fg.footer(fig, res, L=None, mask=(
+        f'mask_ocean, mask_halo (halo_cells = {halo_cells}) and mask_analysis '
+        f'(halo, offshore >= {float(a["offshore_km"]):g} km, edge_cells = {edge_cells}) as built'),
+        text='G for the rim panel is unfiltered (L = 0).')
+    fig.tight_layout(rect=(0, 0.02, 1, 0.97))
     return _save(fig, 'V6_land_halo_tile330.png')

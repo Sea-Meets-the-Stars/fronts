@@ -63,7 +63,7 @@ def fig01_maps(data_dir=None, fig_dir=None, hours=(fg.HOUR_DAY, fg.HOUR_NIGHT), 
                                                       ('residual', res))})
     fig.suptitle('Figure 1 — measured, predicted and residual tendency on one hour  |  '
                  'shared diverging scale per row', fontsize=12)
-    fg.caption(fig, 'Mask: all finite cells shown; land and the filter rim grey. '
+    fg.footer(fig, out, L=Ls, mask=fg.MASK_FINITE, text=
                     'Task 6: the residual is 0.81-1.04 of measured in rms on front pixels, which '
                     'is why the third column is not blank. ' + fg.SAMPLING_CAVEAT)
     out['png'] = fg.save(fig, 'fig01_maps.png', fig_dir=fig_dir)
@@ -111,7 +111,8 @@ def fig03b_filter_ladder(data_dir=None, fig_dir=None, pair=fg.HOUR_DAY, Ls=fg.L_
             out[f'{k}_L{L}'] = float(np.sqrt(np.nanmean(A ** 2)))
     fig.suptitle(f'Figure 3b — the filter ladder, pair {pair}  |  mask: all finite cells',
                  fontsize=12)
-    fg.caption(fig, 'The L = 0 subfilter panel is exactly zero by construction, not small: '
+    fg.footer(fig, out, L=Ls, mask=fg.MASK_FINITE, text=
+                    'The L = 0 subfilter panel is exactly zero by construction, not small: '
                     'planning §5.4 (corrected). Task 6: rms(subfilter)/rms(2F) = 0 / 0.353 / '
                     '0.552 / 0.748 at L = 0 / 2 / 4 / 8 — the term GROWS with L.')
     out['png'] = fg.save(fig, 'fig03b_filter_ladder.png', fig_dir=fig_dir)
@@ -164,8 +165,8 @@ def fig05_sharpening_time(data_dir=None, fig_dir=None, pair=fg.HOUR_DAY, Ls=(0, 
     ax.set_title('front pixels only (p90 of G at the midpoint)', fontsize=9)
     ax.legend(fontsize=8)
     fig.suptitle('Figure 5 — sharpening timescale and the one-hour sampling limit', fontsize=12)
-    fg.caption(fig, 'Mask: maps show all finite cells; the histogram is front & valid. '
-                    'A front with t_sharp below 1 h changes faster than the output cadence. '
+    fg.footer(fig, out, L=Ls, mask='maps: ' + fg.MASK_FINITE + '; histogram: ' + fg.MASK_FRONT,
+              text='A front with t_sharp below 1 h changes faster than the output cadence. '
                     + fg.SAMPLING_CAVEAT)
     fig.tight_layout(rect=(0, 0.04, 1, 0.94))
     out['png'] = fg.save(fig, 'fig05_sharpening_time.png', fig_dir=fig_dir)
@@ -234,7 +235,9 @@ def fig10_term_budget(data_dir=None, fig_dir=None, summary=None, pair=fg.HOUR_DA
                        for L in Ls}
     fig.suptitle('Figure 10 — the five-term budget  |  maps at one hour, rms over all 71 pairs',
                  fontsize=12)
-    fg.caption(fig, 'The catch-all (residual + vertical + surface_flux, i.e. no chunk store) is '
+    fg.footer(fig, out, L=Ls, mask=f'maps (L = {L_map}): ' + fg.MASK_FINITE + '; bars and curves: '
+              + fg.MASK_FRONT, text=
+                    'The catch-all (residual + vertical + surface_flux, i.e. no chunk store) is '
                     'SMALLER than the residual at every L: the measured surface-flux term '
                     'carries 0.36-0.80 of the measured amplitude but correlates +0.01 to +0.02 '
                     'with the imbalance, so subtracting it at unit weight adds its variance. '

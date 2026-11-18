@@ -732,10 +732,115 @@ the three task-7a caller-side rules (explicit `n_workers`; despur only on a non-
 the runner. **`fronts/front_tracking.py` is not on this branch** — it lives only on
 `origin/viz_tools` (commit e04d4f2); tasks 2-5 need it merged or imported from there.
 
+*(added 2026-10-27, M4 task 2 — flow-informed tracking as built, `py/tracking.py`.)*
+`advect_mask(mask_bool, u_c, v_c, grid_ds, dt=3600.0)` is as specified (bool in, `TypeError` on
+an integer field; `departure_index` then `interp_to_departure` of the mask as float at
+**order 1**, threshold `>= 0.5`); `advect_mask_by(mask, di, dj)` is its inner step on a stored
+displacement. `class Flow(raw_ds, grid_ds, grid, store=None)` holds the displacement fields of
+every transition both ways (transition `k` = pair `k -> k+1` with `U`, `V` at hour `k+1`;
+`displacement(k, ±1)`, `advect(mask, step_from, step_to)`, `km_per_px` from the grid,
+`precompute()` -> `data/tile330_flow.zarr`, float32, 4 vars on `(transition, j, i)`).
+`flow_weighted_score(candidate, reference, predicted, radius, predicted_mask=None, weights=None,
+**kw)` wraps `score_candidate`; the extra term is `1 - IoU` on **1-cell dilated** masks
+(`iou_dilated`; config D's fronts are 1 px wide, so a raw IoU of two skeletons one cell apart
+is 0), weight `weights['flow_iou']` (default 1.0, `FLOW_WEIGHTS`). `follow_flow(labels_at,
+times, anchor, flow=None, ...)` is `follow`'s walk with the advected mask as the prediction
+(the position term's distance field is built from it) and the extra term; `flow=None`
+reproduces `follow` link for link (tested). `track_top_n(labels_by_time, times=None, n=10,
+flow=None, *, anchor_step=None, km_per_px=None, ...)` anchors on the `n` largest labels of
+`anchor_step` (default the middle pair). `track_table`, `compare_tracks`, `tracks_to_json` /
+`tracks_from_json`; `m4_track.py` is the runner -> `data/m4_tracks.json`,
+`data/m4_track_summary.json`. `front_tracking.py` is on this branch since JXP merged
+`viz_tools` (M4-Q2) and is not edited.
+
+*(added 2026-10-28, M4 task 3 — the reconciliation as built, `py/tracking.py`.)*
+`forward_positions(pos, di, dj, n_iter=8)` inverts the stored arrival map (`x = pos + d(x)`,
+cubic sampling of `d`; the forward form of `departure_index`, checked against
+`m3_case.step_forward` to 5.9e-4 cells median). `DerivedFields(derived_zarr)` caches per-pair
+fields. `matched_link(step, label_t, label_tp1, labels_by_time, flow, fields)` -> one row:
+every front pixel of the label at `step` is a parcel carried to `step + 1`; `r_matched = [mean
+G_{t+1}(x') - mean G_t(x)] / dt` on the parcels that stay finite; `r_store = mean 0.5 (DGDt_t(x)
++ DGDt_{t+1}(x'))` on the same parcels (the §5.1 case-study construction); the budget terms
+averaged the same way; and two contrasts never gated — `r_mask` (the thresholded advected mask
+as the set) and `r_label` (the endpoint labels; `set_evolution = r_label - r_matched`).
+`reconcile_track(track, labels_by_time, flow, fields, *, centred=False, band=0)` -> DataFrame
+(one row per link, a gap still yields a row with `r_label` NaN; `split_merge` from the link's
+`_n_overlap`). `centred=True` samples the parcels of step `t` at `t-1` and `t+1` (both
+interpolated, the rate centred on pair `t`'s midpoint, the store's `DGDt_t` then taken at the
+cells — the same time base); `band=r` dilates the label by `r` cells first (what
+`colocate_fronts_with_properties(dilation_radius=r)` measures). Both exist because the
+pre-registered construction (`False, 0`) carries a registration artefact on 1-px ridges (task-3
+log); `m4_recon.py` runs the four combinations, the pre-registered one first as the verdict;
+`reconcile_summary(df)` -> criterion 4 pooled and per track against the **pre-declared**
+`RECON_RMS_TOL = 0.5`, `RECON_CORR_MIN = 0.8` (module constants; basis: the case study's 0.443 /
+0.901 on the same two estimates, whose time bases are half an hour apart). `m4_recon.py` is the
+runner -> `data/m4_recon.json`.
+
+*(added 2026-10-28, M4 task 4 — tracking quality as built, `py/tracking.py` and
+`py/figures_m4.py`.)* `tracking_quality(tracks, flow, labels_by_time, *, km_per_px=None,
+name=None)` -> one row per link (every found step but the anchor): the prediction is the
+previous found mask advected by the stored flow across the gap (rebuilt, not read from the
+link, so the same function judges the plain tracks); `diff_cells` / `diff_km` is the prompt's
+`|chosen − flow-predicted|` centroid displacement; `mask_dist_median` / `_p90` the distance from
+the chosen label's pixels to the nearest predicted pixel and `flow_iou` the dilated IoU (the
+mask-to-mask measures, since the centroid one's tail is topology); `split` = the prediction
+overlaps >= 2 labels at the step, `merge` = the chosen label advected back overlaps >= 2 labels
+at the previous step, a label counting at >= `SPLIT_MIN_PIXELS = 5` overlapping pixels;
+`chosen_is_majority` / `chosen_overlap_frac`. `quality_summary(df)` -> the distributions
+pooled and per track. `figures_m4.fig_tracking_quality(q_flow, q_plain)` ->
+`figs/fig_tq_tracking_quality.png` (the prompt's histogram, the mask-based one, a per-track
+strip with ▲ split ▼ merge, the IoU); `m4_quality.py` is the runner -> `data/m4_quality.json`.
+
+*(added 2026-10-28, M4 task 5 — front strength and the population as built, `py/tracking.py`
+and `py/figures_m4.py`.)* `front_strength_series(track, labels_by_time, flow, fields, *,
+matched_pixels=True, band=1, centred=True, ...)` -> one row per found step (`G_by_time` /
+`two_F_by_time` of the spec are `fields`): the primary strength `G_label` through
+`label_mean` = `colocate_fronts_with_properties(nan_policy='omit', dilation_radius=band)` on
+the one label (note: colocate's `npix` is the undilated count and its radius-1 band is
+Euclidean, i.e. 4-connected; `G_band8` is the plain mean on task 3's 8-connected band, for
+comparison); with `matched_pixels=True` the task-3 rates on the parcels and the curves
+integrated from the anchor by the trapezoid rule — `G_matched` (material), `G_pred` (2F),
+`G_store` (the Phase-2 rate), `G_budget` (the four measured terms); the secondary
+`cross_front(mask, b, km_per_px)`: `curtains.extract_main_axis`, `path_metrics`,
+`perpendicular_path` every `TRANSECT_EVERY = 4` axis pixels where `transect_front_crossings`
+is 1, `b` sampled cubically over `± TRANSECT_HALF_WIDTH = 6` cells; `delta_b` = the step
+between the transect ends, `width_km` = the 25-75 % rise distance, medians over the transects.
+`bootstrap_fronts_hours(values, tracks, steps, stat, n=1000, block_h=6)` is criterion 5's
+bootstrap (fronts with replacement, then 6-h blocks of each front's hours);
+`population_summary(series)` -> per front and pooled. `figures_m4.fig08_front_case` ->
+`figs/fig08_front_case.png`; `fig09_population` -> `figs/fig09_population.png`;
+`m4_strength.py` is the runner -> `data/m4_strength.json`. No slope is drawn or quoted (M3 not
+closed).
+
 `figures.py`: one function per figure, `fig01_maps(...)` ... `fig10_term_budget(...)`, plus
 `figV1..figV6`, each writing a PNG to `dev/frontogenesis/figs/`. `fig02` draws the M1 baseline at
 **0.981 with its band [0.970, 0.994]** (the V3 real-velocity slope, `form='discrete'`), with V3b's
 systematic band 0.954-1.003 beside it (decided 2026-09-30, M1-Q4).
+
+*(added 2026-11-16, prompt 6 task 1 — as consolidated in M5.)* `figures.FIGURES` is the one
+registry, 20 entries in order: `fig01, fig02, fig02b, fig03, fig03b, fig04, fig05, fig06, fig07,
+fig08, fig09, fig10, fig_tq, figV1, figV2, figV3, figV3b, figV4, figV5, figV6`. Every entry is
+`fn(data_dir=None, fig_dir=None, **kw) -> dict` and the dict carries `png`, **`L`** and
+**`mask`** (plus `config` / `band` where the figure has one) beside the numbers drawn.
+`figures.M3_FIGURES` names M3 task 7's ten, which is all `m3_figs.py` renders
+(`m3_figs_summary.json` keeps its meaning). **"`figV1..figV6` in `figures.py`" is satisfied by
+the registry, not by moving code:** the V-figures are still drawn by `validate_figs.fig_V*` from
+the numbers `validate.py`'s gates compute; `figures.figV*` run the gate with `png=True` into the
+directory asked for and return its small numbers. V3b (M1 task 6b) is a registry entry of its
+own, `figV3b`, between V3 and V4, drawn with the semi-Lagrangian reference rows as it always
+was; V3 and V3b report the real-velocity half when the M0 stores are on disk. Likewise Figures
+8, 9 and the tracking-quality diagnostic stay in `figures_m4.py`:
+`fig08_from_products` / `fig09_from_products` / `fig_tq_from_products` load `m4_strength.json`,
+`m4_quality.json`, `m4_tracks.json` (and, for Figure 8's maps, the label zarr and the `L = 0`
+store) and call the drawing functions the M4 runners call. **One caption helper:**
+`figures.footer(fig, out, L, mask, config=None, band=None, text='', caveats=())` writes
+"`L = … cells | mask: … | config … | band …. <text>`" on the page and records `L` / `mask` in
+`out`; every registry figure with a caption goes through it (V1–V5 keep the titles
+`validate_figs` gave them and return `L = None`, `mask = 'synthetic'`; V6's footer states the
+three masks and their parameters). **One command:** `py/make_figs.py` renders the registry (or
+`--only`), writes `data/figs_summary.json` in `m3_figs_summary.json`'s form, with `--report`
+also runs `report/make_report_figs.py` and `report/make_case_figs.py`, and with `--recompute`
+first re-runs the five M4 runners from the stores (M5-Q3 (a)); it never re-runs the M3 closure.
 
 ---
 
@@ -759,7 +864,7 @@ marked `@pytest.mark.network` smoke test of the OSN pull.
 | `test_m3_run.py` *(added, M3 task 4)* | `verify_derived_series` against one defect at a time; the runner's pair arithmetic and resumable closure cache |
 | `test_m3_closure.py` *(added, M3 task 6)* | the pre-declared tolerances are the ones used; a verdict flips at the tolerance; `L = 0` reported, never gated; the optimal-multiplier and partial-correlation diagnostics |
 | `test_figures.py` *(added, M3 task 7)* | every figure runs on a tiny synthetic store and draws **the summary's** numbers; the baseline is 0.981, never 1 |
-| `test_tracking.py` *(added 2026-10-26, M4 task 1)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
+| `test_tracking.py` *(added 2026-10-26, M4 task 1; extended 2026-10-27, task 2: mask advection by integer / half-cell / NaN shifts and by a uniform flow through the real `departure_index`; the dilated IoU's decay; the extra term and the kept veto; `follow_flow(flow=None) == follow`; a front moving 3x the search radius that plain `follow` loses and the flow walk keeps; `track_top_n` and the JSON round trip; `needs_grid`: the real flow's sign and skeleton retention; extended 2026-10-28, task 3: the forward map inverts the arrival map and drops NaN parcels; on a synthetic growing, translating ridge the matched rate equals the stored material rate exactly while the endpoint-label rate carries the set's growth; `reconcile_track` / `reconcile_summary` and the tolerance flip; `needs_grid`: `forward_positions` vs `m3_case.step_forward` on 300 real front pixels; extended 2026-10-28, task 4: on the moving series the flow walk's links differ from the fluid by 0 and the plain walk's neighbour link by 2 cells; split and merge flags each way, and a one-pixel touch is not a topology event; the figure runs; extended 2026-10-28, task 5: colocate's band and count semantics; an erf front's step and 25-75 % width recovered; the strength curves exact on the linear-growth ridge; the fronts-and-hours bootstrap; `population_summary` and Figures 8-9 run on the synthetic case)* | config D read from the YAML; the two timestamp formats; labels int32 / contiguous / off NaN / one 8-connected component each; mask as NaN equals NaN land bit for bit and differs from zeros; the island fill removed; an empty field does not raise; the series' keys and store round trip; `needs_grid`: pair 0 of `L = 0` |
 
 *(added 2026-10-11, M3 task 8.)* The suite is **258 passed + 3 strict xfails**, 2 network tests
 deselected, ~230 s on the workstation. The three xfails document `fronts` bugs (M1 task 7a) and
@@ -963,6 +1068,18 @@ per-front strength series vs `integral(2F dt)` on the **advected pixel set**;
 5. **Figures 8 and 9 plus the tracking-quality diagnostic** written. Bootstrap here is over
    **frontal features and hours**.
 
+*(added 2026-10-28, M4 task 5 — status.)* M4 was run on JXP's instruction although M3 is not
+closed (prompt 5 Status, 2026-10-26). Criteria: **1 met** (10 tracks, each 71/71 steps, 70 h);
+**2 met** (the flow term on 700/700 links; the flow changed 71 links and filled 51 gaps on 3 of
+10 tracks against plain `follow()`); **3 met** (task 4: 168/700 links flagged split/merge, the
+chosen label within 1 cell of the advected prediction on 72 % of links by the per-link p90
+distance); **4 met on the band-1 + centred construction** (M4-Q3 (a): corr 0.953, r.m.s. ratio
+0.415 against the pre-declared 0.8 / 0.5) **and failed as pre-registered** (1-px skeleton,
+forward: a registration artefact, task 3); **5 met** (Figures 8, 9 and the tracking-quality
+diagnostic; bootstrap over fronts and 6-h blocks of hours). No slope is quoted as an efficiency.
+Found and not fixed in `fronts`: `follow()` loses its position veto when the shifted reference
+leaves the tile (task 4). The §4.10 signatures as built are in the marked notes above.
+
 ### M5 — Figures and report  *(planning Phase 5)*
 
 Tasks: **consolidate** `figures.py` (the figures themselves were produced in M1/M3/M4);
@@ -972,6 +1089,28 @@ standardise captions so each states its `L` and its mask; wire up one-command re
 **Acceptance:** every figure regenerable from the stores by one command; every caption states `L`
 and mask; the report states the closure tolerance, the null-test baseline, and the §12
 null-result criteria explicitly, with limitations unhedged.
+
+*(added 2026-11-16, prompt 6 task 1 — done: consolidation, captions, one command.)* The first
+three tasks above are done: `figures.FIGURES` (20 entries, §4.10's note), `figures.footer()`
+(every caption states `L` and mask, and every entry returns them), and `py/make_figs.py`
+(`--only`, `--report`, `--recompute`; `data/figs_summary.json`). "Regenerable from the stores
+by one command" is met in the sense of M5-Q3 (a): by default the figures are redrawn from the
+products; `--recompute` first re-runs the five M4 runners from the stores (4,824 s when run on
+2026-11-16, every number reproduced); the M3 closure and the derived stores are not re-run by
+this command (`m3_run.py`, `m3_closure.py`). The report and the README remain (tasks 2, 3).
+
+*(added 2026-11-18, prompt 6 task 2 — done: the report.)* `report/frontogenesis_report.md`
+(M5-Q2 (a): a new document superseding the interim, which is untouched), with
+`report/check_frontogenesis_report.py` and `py/tests/test_report.py`. It states the closure
+tolerance and its date, the baseline and its two bands, and planning §12's four conditions
+with a verdict each; the withheld slopes and Figure 2 are in its Appendix C only (M5-Q1 (b)).
+It shows registry figures and `report/figs/` only, so `make_figs.py --report` redraws all of
+them. The README remains (task 3).
+
+*(added 2026-11-18, prompt 6 task 4.)* A follow-up prompt on the tracked fronts —
+whether changes in a front's pixel set between hours affect the M4 results — is started at
+`claude_prompts/frontogenesis_prompt_track_analysis.md` (context and code pointers; tasks to be
+written by JXP). No code changed.
 
 ### M6 — Depth  *(planning Phase 4, deferred)*
 
@@ -1002,6 +1141,11 @@ Distilled from the adversarial review. Re-read before each milestone.
 - [ ] Land halo applied **before** any differencing, not after.
 - [ ] Used `calculate_fields.buoyancy_of_field` (JMD95), **not** `utils/physical_calculations.buoyancy_of_field` (legacy: g in km/s^2, rho_ref=1025), and not TEOS-10.
 - [ ] Bootstrapped over **features**, not pixels.
+- [ ] *(added 2026-10-28, M4 task 3)* Measured a front's strength over its **width** (the label
+  dilated by 1 cell), not on the 1-px skeleton, and differenced it **centred in time**: a parcel
+  sampled at its cell at `t` (the ridge maximum) and interpolated at `t+1` is biased low by
+  2-6 % of `G` per hour on a rigidly translated ridge; `DGDt_semilag` on ridge cells has the
+  mirror (+0.6-1 %) bias.
 - [ ] Quoted every slope **against the M1 discrete-null baseline**, never against 1.
 - [ ] Did not call a slope < 1 "diabatic damping" without Figure 2b separating numerical
       diffusion from air-sea forcing.
