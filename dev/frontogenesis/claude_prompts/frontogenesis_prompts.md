@@ -9121,3 +9121,167 @@ plain `git add`); the M4 products in `data/` (regenerated, numbers identical);
 `frontogenesis_coding.md` (marked notes in §4.10 and §6 M5);
 `claude_prompts/frontogenesis_prompt_6.md` (Status); this log. Nothing committed.
 **Next:** task 2 (the report, on M5-Q1 (b) and M5-Q2 (a)) and task 3 (the README).
+
+### 2026-11-18 — Execution prompt 6, task 2: the report (Fable 5.2)
+
+**Read first.** Prompt 6's Q&A: no new answers since task 1; **M5-Q1 (b)** (the slopes and
+Figure 2 in an appendix only, §12 condition 2 judged there and nowhere else) and **M5-Q2 (a)**
+(a new document superseding the interim; "one report to share and work from") govern this
+task. M3-Q16..Q26 bind it as they bound the interim (reader: an advanced PhD student in
+physical oceanography; Markdown + LaTeX + pandoc; numbers only from the log entries and the
+JSON summaries; no store opened; options listed, none recommended). Task 1's files were
+committed by JXP ("figs", 5ed0e58); the tree was clean but for the two untracked PDFs.
+
+**What was written.** `report/frontogenesis_report.md` — title, authors / dated status /
+circulation lines, 12 sections, three appendices:
+1. *What we measured* — the verdict in the first sentence, then one table of the load-bearing
+   numbers (the residual ratios against 0.50 and its date; 0 of 71; the baseline; the tracer
+   floor; the no-skill reference; the 0.22 bound; the ten tracks; criterion 4 both ways).
+2. *The surface budget* (interim §2, with §2.6's surface-flux equations cut to half).
+3. *Method* (interim §3, plus §3.6 on finding and tracking objects).
+4. *The earlier milestones* (M0–M2).
+5. *The budget, term by term* — the gate; the five terms with the two-term residual and the
+   `h_bl` sensitivity as rows of one table; the followed front, with the surface-flux
+   paragraph and the parcels finding with its table (M3D-Q6 (a)); alternatives ruled out.
+6. *The slope, and what it is read against* — the three baselines, criterion 2's slopes
+   (labelled as sampling consistency), and that criterion 4's slopes are withheld and where.
+7. *Why the budget does not close* — cause one with the tracer floor beside it, cause two with
+   the three-part split, the depth scale, the no-skill controls, the second tile.
+8. *Numerical versus diabatic: the claim withdrawn* — the partial correlations, the diurnal
+   composite's unmet expectation and what explains it.
+9. *Per-front results* — the fronts; **yes, the flow changed the links on 3 of 10 tracks**;
+   tracking quality; criterion 4 both ways with the registration artefact; one front; the
+   population; the hourly-versus-integral contrast.
+10. *Limitations* — twelve, unhedged.
+11. *What would have made this a null result* — the four conditions, a verdict each.
+12. *Options on record* — six, none recommended (M3-Q22 (b)).
+A. Glossary (three tables, units; merged with M4's terms). B. Numbers and provenance.
+C. The measured-versus-predicted slopes.
+
+**Figure inventory (14; all redrawn by `py/make_figs.py --report`).**
+
+| Report figure | File |
+|---|---|
+| 1, 2 | `report/figs/schematic_pipeline.png`, `schematic_budget.png` |
+| 3 | `figs/V3_discrete_null.png` |
+| 4, 5 | `figs/fig01_maps.png`, `figs/fig10_term_budget.png` |
+| 6, 7 | `report/figs/case_front_maps.png`, `case_strength.png` |
+| 8, 9 | `figs/fig02b_discriminator.png`, `figs/fig06_diurnal.png` |
+| 10, 11, 12 | `figs/fig_tq_tracking_quality.png`, `fig08_front_case.png`, `fig09_population.png` |
+| C1, C2 | `figs/fig02_joint_pdf.png`, `figs/fig03_slope_vs_L.png` (Appendix C only) |
+
+Every caption states its `L` and mask. **No deck re-plot is used** (the interim used three):
+the deck figures are outside the one command (M5-Q3 (a)), so cause one is a table (§7.1) and
+the budget and discriminator figures are the registry's. Not shown: Figures 3b, 4, 5, 7,
+V1, V2, V3b, V4–V6, `case_budget.png`, `case_sflux.png`, and the digging figures (which their
+own runners draw; the digging note has them).
+
+**Headline numbers as reported.** Residual / measured 0.813 / 0.841 / 0.898 / 1.042 against
+0.50 (fixed 2026-10-07; judged at `L >= 2`); 0 of 71 pairs; residual over `2F` 1.56 / 1.41 /
+1.40 / 1.60; terms 0.521–0.653 (`2F`), 0–0.488 (`tau`), 0.015–0.017 (`V`), 0.355–0.795 (`S`);
+two-term residual 0.739–0.685; with `h_bl` 0.738–0.684. Baseline 0.981 [0.970, 0.994], bands
+0.954–1.003 and 0.972 ± 0.020. Criterion 2: 0.691 / 0.813 / 0.891 / 0.939, corr 0.758–0.984.
+Cause one: Eulerian gap 0.672 → 0.183; tracer floor 0.870 / 0.713 / 0.544 / 0.408. Cause two:
+optimal multiplier on `S` +0.048, corr +0.022. No-skill 1.081–1.238, 39–20 sd. Second tile
+0.878 / 0.882 / 0.870 / 0.851. Discriminator: neither partial correlation above 0.22. M4: ten
+tracks, 71 of 71, 70 h; 71 links differ and 51 only the flow walk made; 168 of 700 flagged
+(93 splits, 85 merges); criterion 4 **failed as pre-registered** (−0.093 / 1.123) and met on
+band 1 + centred (0.953 / 0.415; 5 of 10 tracks); frontogenetic hours 0.64 [0.50, 0.77]
+matched against 0.81 [0.75, 0.88] by `2F`; sign agreement 0.78 [0.67, 0.86]; `∫2F dt > 0` on
+10 of 10 fronts, material `ΔG > 0` on 7. The band's 0.951 / 1.008 and the ten per-front
+ratios appear once each, in sentences that say they are not an efficiency.
+
+**Appendix C (M5-Q1 (b)).** Opens with the caveat in bold. Figure 2 under its banner, Figure
+3, and one table: OLS 1.342 / 1.138 / 0.977 / 0.831, trimmed 1.194 / 1.004 / 0.888 / 0.801,
+orthogonal 2.436 / 2.106 / 2.019 / 2.146, chain form 1.073 / 1.006 / 0.927 / 0.820, each with
+its one-hour block interval, read against the three baselines. Three readings, none about
+fronts: the slope is not a stable number (orthogonal 1.8–2.6× OLS); the trend with `L` is not
+damping (the subfilter term makes it fall; the tracer's own slopes are 0.976 / 0.677 / 0.586 /
+0.558, labelled a calibration); and **§12 condition 2 judged: not met as written** — at
+`L = 0`, where the baseline applies, the slope is distinguishable from 0.981 and *above* it —
+**and uninformative**. That judgement is mine and is put to JXP as **M5-Q4**; the 2026-10-28
+revision of the prompt had "not judged".
+
+**The checker.** `report/check_frontogenesis_report.py`, a sibling (the interim's is frozen
+with its document). It imports the interim's and the digging note's `checks()` lists, drops
+by name the numbers this report does not carry (22 of the interim's; the digging list kept by
+prefix), and adds the M4 numbers and Appendix C's: **226 in the body, 21 in Appendix C, all
+present.** The "Do not" list, line by line: any withheld slope (four estimators, 4-dp bare or
+3-dp / 2-dp beside the word slope or efficiency) before `## Appendix C` fails; the body must
+say they are withheld; Appendix C must open with its caveat and judge condition 2; 0.951 with
+1.008 needs "not an efficiency" on the line; "criterion 4" with met / passes needs
+"pre-registered"; "damping" and "efficiency" need a negation on the line; the front matter,
+the three glossary tables, the tolerance with its date and §10 / §11 must exist; every figure
+must exist and be one `make_figs.py --report` redraws. The first run found eight problems,
+all mine: four roundings (the sign-agreement upper bound, `L = 4`'s residual over `2F`, the
+`L = 2` OLS upper bound, the tracer's velocity-column difference), two numbers given only as
+a range, and two rule hits ("can mask damping" in the tides limitation, reworded; "none"
+added to the negations). `check_report_numbers.py` and `check_digging_numbers.py` still pass
+on their documents.
+
+**Two numbers corrected against the JSONs.** (i) The sign-agreement interval is
+**[0.67, 0.86]** (`m4_strength.json`: 0.8646), as Figure 9 prints it; prompt 6's task 2 text
+has 0.87. (ii) The residual over `2F` at `L = 4` is **1.40** (1.4045); the interim's Appendix
+B prints 1.41. The interim is not rewritten; the slip is recorded here.
+
+**The PDF.** `report/frontogenesis_report.pdf`, **31 pages**, by the interim's recipe (the
+`pandoc` binary is in the `ocean14` env's `pypandoc`; `xelatex` from `/usr/bin`). Every page
+looked at on contact sheets. Fixed: two glyphs missing from the font (the split / merge
+triangles in a caption, now words); the reconciliation table's first column wrapping to one
+word per line (labels shortened, column widened); Appendix C's table splitting across a page
+(a page break before it). Not fixed: the four strip-shaped figures (8, 9, C1, C2) are small
+on a portrait page, as they were in the interim.
+
+**Length — the one spec not met.** About 6,900 body prose words (11,600 with tables,
+captions and appendices) against Q19 (b)'s ~4,500. The interim's material was cut (the case
+study to about a third, the surface-flux equations to half, three deck figures and one case
+figure dropped); M4, the digging tests, the limitations and Appendix C were added. **M5-Q5.**
+
+**Planning-document claims: confirmed and overturned.** Compiled from the log entries named.
+*Overturned in planning (4):* the residual being purely diabatic; the unfiltered limit
+isolating it; interpolation error being negligible; heat fluxes being unavailable.
+*Overturned in M0 against the data (5 + 4):* land stored as 0 (it is NaN); `W[k_l=0] ≈ 0`
+(it is `dEta/dt`); 1.8–2.3 km spacing (1.68–2.07 km on a 90°-rotated face); rotation terms
+~0.1 % (identically zero); a single `kappa_num` (strongly scale-dependent); a NaN rim on the
+high tile edges only (finite, on all four); a ~3-cell stencil rim (1 cell for `G`, 2 for
+`F`); `G` as the repo's `gradb2` (0.91×; must share `b_x, b_y` with `F`); the interpolated
+Jacobian trace (0.80× the flux-form divergence).
+*M1:* the null passing as first built — it failed at 0.758 and passes at 0.981 only with a
+discretely consistent `F`, whose chain form has its own baseline of 0.79; the planning risk of
+a 25–80 % interpolation bias — measured at 0.28–1.0 % of `G` per hour (V4), small but signed.
+*M2:* a resolved diurnal shortwave — the forcing is 6-hourly, a triangle; a 0.1–0.3 K warm
+layer — 0.01 K.
+*M3:* the budget closing at `L >= 2` — it does not, at any scale; the residual changing sign
+over the day — positive at every hour (explained in the digging: the surface-flux term's own
+mean); the "diabatic damping" reading — withdrawn, neither partial correlation above 0.22;
+the surface-flux term as a closing term — near-orthogonal to the imbalance, part by part; the
+semi-Lagrangian estimate as *the* measured tendency — two estimates differ by 0.67 of the
+signal at `L = 0`, and a passive tracer's floor is 0.870; the followed front as a material
+line — a standing feature its water crosses in ~16 h; cause one as the whole story at the
+filtered scales — the tracer floor is 0.408 at `L = 8` against 0.685.
+*M4:* the pre-registered reconciliation on the 1-px skeleton — a registration artefact; the
+advected mask as a better predictor than persistence — never, on IoU at hourly cadence;
+lifetime vs mean `F` — degenerate on a 72-h window.
+*§12, as judged:* condition 1 met; condition 3 met; condition 4 not met (the null passes);
+condition 2 not met as written and uninformative (Appendix C; M5-Q4).
+*Confirmed:* one shared operator on both sides (the 0.91× lesson); the discrete null at
+`1 ± 0.05`; the sub-filter term growing with `L` and opposing `2F` as the pilot predicted
+(0.35 / 0.55 / 0.75 of `2F`); the vertical term being small and a discretisation term (same
+sign and phase from the second cell); `KPPhbl`'s diurnal phase; the residual being skill and
+not noise (20–39 sd from a shuffled budget); cause one being general (a second tile);
+flow-informed tracking changing the links (Lauren's question, planning Q14); and planning
+§11's warning that a mean over a changing pixel set is not material (set-evolution 5.2–7.0×
+the matched rate).
+
+**Tests.** `py/tests/test_report.py`, 7: the report matches the summaries; five inserted
+sentences each trip their rule (a bare slope, "criterion 4 is met", "diabatic damping",
+0.951 / 1.008 unqualified, an un-negated efficiency); a changed number is caught. Suite
+**345 passed + 3 strict xfails**, 2 deselected, 304 s (was 338).
+
+**Files.** Created `report/frontogenesis_report.md`, `report/check_frontogenesis_report.py`,
+`py/tests/test_report.py`, `report/frontogenesis_report.pdf` (untracked, like the other two
+PDFs). Modified `report/README.md` (a marked block at the top: which report is current, the
+new checker, the build), `frontogenesis_coding.md` (a marked note in §6 M5),
+`claude_prompts/frontogenesis_prompt_6.md` (Status; M5-Q4, M5-Q5), this log. The interim
+report, the digging note, the planning document and every figure are untouched. No PNG is new.
+Nothing committed. **Next:** task 3 (the README in `dev/frontogenesis/`).

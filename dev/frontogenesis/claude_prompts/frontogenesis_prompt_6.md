@@ -43,6 +43,27 @@ the previous products. Suite **338 passed + 3 strict xfails**, 2 deselected, 289
 (all were already tracked; 16 show as modified); `py/make_figs.py` is new. No new question.
 Nothing committed. Log: "Execution prompt 6, task 1".
 
+**Status 2026-11-18 — task 2 done (Fable 5.2).** On M5-Q1 (b) and M5-Q2 (a).
+`report/frontogenesis_report.md` is written — 12 sections and three appendices, 14 figures,
+**31 PDF pages** — and supersedes the interim, which is untouched (`report/README.md` says
+which is current). Order as the task asks: what we measured, with 0.813 / 0.841 / 0.898 /
+1.042 against 0.50 and its date in the first table; the budget term by term with the
+`h_bl` sensitivity beside it; the baselines, criterion 2's slopes and the withholding of
+criterion 4's; numerical vs diabatic, withdrawn; the per-front results with criterion 4 both
+ways; twelve limitations; §12 condition by condition (1 met, 3 met, 4 not met, 2 judged in the
+appendix). **Appendix C alone** carries Figure 2, Figure 3 and the four slopes with three other
+estimators; condition 2 is judged there as **not met as written** (at `L = 0` the slope is
+distinguishable from 0.981 and lies above it) **and uninformative** — see **M5-Q4**. The
+digging results are folded in (tracer floor, controls, split, second tile, the parcels table
+per M3D-Q6 (a)). `report/check_frontogenesis_report.py`: **226 JSON-backed numbers in the
+body and 21 in Appendix C asserted, the "Do not" list enforced line by line — passes**; the
+interim's and the digging note's checkers still pass. Every figure is a registry or
+`report/figs/` figure, so `make_figs.py --report` redraws them all; no deck re-plot is used.
+**One spec not met and logged: length** — about 6,900 body prose words against Q19's ~4,500
+(**M5-Q5**). Two numbers were corrected from the JSONs (in
+the log). Suite **345 passed + 3 strict xfails**, 2 deselected, 304 s. Nothing committed; `report/frontogenesis_report.pdf` is
+untracked like the other two PDFs. Log: "Execution prompt 6, task 2".
+
 ---
 
 ## What exists *(added 2026-10-28)*
@@ -396,3 +417,36 @@ derived stores and the closure summary in under two minutes; V1–V6 are synthet
 - (c) The command covers `figs/` only; `report/figs/` keeps its two scripts.
 
 >A. Agreed, stick with (a)
+
+### Claude, 2026-11-18 (after task 2)
+
+Two questions. Neither blocks task 3; the report is written on the first option of each.
+
+**M5-Q4 — How Appendix C judges planning §12's second condition.** With the slopes printed
+(M5-Q1 (b)) the condition "the measured slope is not distinguishable from the discrete-null
+baseline" had to be judged, and the answer is awkward. The baseline is a grid-scale number, so
+I judged it at `L = 0` only: OLS 1.342 [1.304, 1.376] against 0.981 [0.970, 0.994] —
+distinguishable, and *above* the baseline (trimmed 1.194, chain form 1.073 likewise). At
+`L > 0` the slope on `2F` alone must fall with `L` because of the subfilter term, and the
+tracer's own slopes there are 0.677 / 0.586 / 0.558, so the product's 1.138 / 0.977 / 0.831
+are not comparable with 0.981 at all.
+- (a) **As written now**: "not met as written, and uninformative" — the letter of the
+  condition fails at `L = 0`, the departure is in the opposite sense to damping, and a slope
+  from a budget that does not close has no interpretation either way. §11 then reads "two of
+  four met, the first decisive on its own". **Recommended** — it is what the numbers say.
+- (b) Record it as "not judged", as the 2026-10-28 revision of this prompt had it, and keep
+  the table without a verdict.
+- (c) Judge it at every `L` against 0.981 (distinguishable at `L = 0, 2, 8`, not at `L = 4`).
+  I think this misuses the baseline at `L > 0`, for the reason above.
+
+**M5-Q5 — Length.** Q19 (b) asked for ~8 pages and ~4,500 words; the interim missed it
+(5,479 words, 22 then 29 pages) and M5-Q2 (a) asked for the trim. This report trims the
+interim's material (the case study to a third, §2.6 to a half, the deck figures gone) but adds
+M4, the digging tests, the limitations and Appendix C: about 6,900 body prose words, 31 pages
+(of which about 8 are figures and 8 appendices).
+- (a) **Leave it**: one report to share and work from, with the numbers findable by section.
+  **Recommended.**
+- (b) A trim pass to ~5,000 words: the first cuts would be §5.3 (to the table and two
+  paragraphs), §7.4–§7.5 (to one paragraph, pointing at the digging note) and §9.1's
+  mechanism paragraph.
+- (c) Keep it, and add a two-page stand-alone summary in front for circulation.

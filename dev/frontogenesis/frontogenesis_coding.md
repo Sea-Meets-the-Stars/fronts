@@ -1099,6 +1099,14 @@ products; `--recompute` first re-runs the five M4 runners from the stores (4,824
 2026-11-16, every number reproduced); the M3 closure and the derived stores are not re-run by
 this command (`m3_run.py`, `m3_closure.py`). The report and the README remain (tasks 2, 3).
 
+*(added 2026-11-18, prompt 6 task 2 — done: the report.)* `report/frontogenesis_report.md`
+(M5-Q2 (a): a new document superseding the interim, which is untouched), with
+`report/check_frontogenesis_report.py` and `py/tests/test_report.py`. It states the closure
+tolerance and its date, the baseline and its two bands, and planning §12's four conditions
+with a verdict each; the withheld slopes and Figure 2 are in its Appendix C only (M5-Q1 (b)).
+It shows registry figures and `report/figs/` only, so `make_figs.py --report` redraws all of
+them. The README remains (task 3).
+
 ### M6 — Depth  *(planning Phase 4, deferred)*
 
 Full-depth budget against `CHUNKS/monterey_bay`. Out of scope until M3 passes.
