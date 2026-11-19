@@ -42,6 +42,17 @@ front neither form accounts for the gap between the measured rates and `2F`; and
 term's band mean follows the pixel set (0.94) where the three rates do not. No new question.
 See the log entry at the end.
 
+**Status — Surface-flux, task 1 (2026-11-18, Fable 5.2): done; one question open (TA-Q4).**
+The same band means were run on all ten M4 tracks (`py/surface_flux_tracks.py`,
+`data/surface_flux_tracks.json`). Short answer: **yes for the 1 m form, no for the surface
+flux as such.** The flux as taken up in the 1 m top cell is not the rate at which any of the
+ten fronts changes (multiplier −0.012 [−0.034, +0.033] on the matched rate, pooled; +1 would
+be a correct term). The form spread over the boundary layer is about a tenth of `2F` and
+smaller than the disagreement between the two measured rates, so it can neither be confirmed
+nor ruled out. New: the sign of the 1 m term on a front is set by whether its warm side is the
+dense side (4 of the 10 tracks, 38 % of the pooled front pixels). I recommend returning to the
+report with marked notes on three points; nothing in its verdict changes. See the log entry.
+
 ---
 
 ## Tasks
@@ -80,7 +91,32 @@ Are you able to include it in this tracked front analysis?  If so, please do so.
 If you have any questions, please put them in the "Q&A/Matched parcels" section below.
 Use Fable 5.2.  Log your work in the Logs section below.
 
+### Surface-flux
+
+1. Given the inconsistency between surface-flux and the other hourly rates, might we conclude
+that it is not impacting the front strengthening or weakening?  If so, should we return to the
+main report on this topic?
+If you have any questions, please put them in the "Q&A/Surface-flux" section below.
+Use Fable 5.2.  Log your work in the Logs section below.
+
 ## Q&A
+
+### Surface-flux
+
+**TA-Q4 — How should the report take this up?** *(asked 2026-11-18, Surface-flux task 1)*
+The ten-track result sharpens three statements of `report/frontogenesis_report.md` and
+reverses none: (i) §2.4, §5.3 and §8 describe the term as frontolytic "at every hour" — that
+is the net of two populations of opposite sign, set by whether the warm side of the front is
+the dense side; (ii) §7.2 calls the 1 m term "near-orthogonal to the imbalance" — on front
+means it is excluded at unit weight on every track, which is a stronger statement and supports
+§7.3's reading; (iii) §12 lists a front-mean budget as an option not run — it has now been
+run on ten fronts, not pre-registered.
+- (a) Marked notes at §2.4, §7.2–§7.3, §8 and §12 pointing to one short new subsection (§9.6,
+  "The surface-flux term on the tracked fronts"), with the table of the log entry. The 1 m
+  form stays primary and the null result stands. *(recommended)*
+- (b) Leave the report as it is; keep this in the track-analysis documents only.
+- (c) As (a), and also make the boundary-layer form primary. This reopens M3-Q13 (c), and the
+  evidence here does not show that form is right, only that the 1 m form is not.
 
 ### Matched parcels
 
@@ -626,3 +662,115 @@ non-solar, shortwave and freshwater parts was not redone on these parcels.
 `matched_link`'s own `surface_flux` mean equals the new `S_1m_mean` (both are the mean of the
 same field on the same parcels). `test_matched_parcels.py`: 2 passed. The full suite was not
 re-run; no other file under `py/` was changed. Nothing committed.
+
+### 2026-11-18 — Track analysis, Surface-flux task 1: is the surface-flux term acting on the tracked fronts, and should the report be revisited? (Fable 5.2)
+
+**Asked.** Given the inconsistency between the surface-flux term and the other hourly rates,
+may we conclude it is not affecting the strengthening or weakening of the front; and if so,
+should we return to the main report.
+
+**Done.** One front cannot carry that conclusion, so the band means of
+`matched_parcels.py` (band 1 + centred, the same parcels for every term) were run on **all ten
+M4 flow-informed tracks**, 69 hours each, 690 track-hours.
+- `py/surface_flux_tracks.py` (new): per track and pooled, the front-mean residuals with and
+  without each form of `S`; the report's §7.2 multiplier with a moving-block bootstrap over
+  hours (6 h blocks, 2,000 draws, declared in the module before the run); the split of `S`
+  into non-solar, shortwave and freshwater parts on the parcels
+  (`m3_term_tests.split_components`); the thermal fraction of the buoyancy gradient,
+  `R_T = ∇b·∇b_T / |∇b|²` (`R_T < 0`: the warm side is the dense side); and the same means
+  on the budget's pooled front pixels. Product: `data/surface_flux_tracks.json` (1,039 s).
+- `py/tests/test_surface_flux_tracks.py` (new, 2 tests). No other file changed; the report is
+  not edited.
+
+**Numbers** (band means, 10⁻¹⁹ s⁻⁵; `S₁` is the 1 m form, `S_h` the boundary-layer form; none
+is an efficiency).
+
+| label | `R_T` | mean `2F` | mean stored | mean matched | mean `S₁` | hours `S₁ > 0` | mean `S_h` | r.m.s. `S_h` / `2F` |
+|---|---|---|---|---|---|---|---|---|
+| 81 | −0.69 | +2.79 | +3.01 | +0.97 | +12.90 | 1.00 | +0.12 | 0.15 |
+| 84 | +0.48 | +11.24 | +18.77 | +10.80 | −26.60 | 0.00 | −0.71 | 0.07 |
+| 202 | +0.98 | +3.18 | +3.82 | +1.61 | −9.25 | 0.00 | −0.68 | 0.25 |
+| 100 | −0.72 | +0.98 | +0.22 | −0.82 | +6.06 | 1.00 | −0.03 | 0.21 |
+| 187 | −0.77 | +0.60 | +1.09 | +0.51 | +4.42 | 1.00 | +0.13 | 0.38 |
+| 5 | −0.17 | +1.07 | −0.07 | −0.11 | +1.87 | 0.88 | −0.45 | 0.36 |
+| 96 | +0.47 | +1.01 | +1.79 | +0.73 | −5.33 | 0.00 | −0.21 | 0.15 |
+| 133 | +0.84 | +0.15 | +0.06 | −0.07 | −1.28 | 0.00 | −0.09 | 0.53 |
+| 161 | +1.79 | +1.41 | +1.67 | +0.51 | −6.51 | 0.00 | −0.42 | 0.21 |
+| 218 | +0.76 | +0.31 | +0.60 | +0.35 | −1.52 | 0.00 | −0.15 | 0.41 |
+
+Pooled over the 690 track-hours:
+
+| | stored | matched |
+|---|---|---|
+| r.m.s. of the measured rate | 8.41 | 5.68 |
+| residual, `2F` alone | 3.61 | 1.89 |
+| residual, `2F + V` | 3.66 | 1.90 |
+| residual, `2F + V + S₁` | 14.84 | 12.45 |
+| residual, `2F + V + S_h` | 3.90 | 1.87 |
+| multiplier on `S₁` [95 %] | −0.200 [−0.247, −0.116] | −0.012 [−0.034, +0.033] |
+| multiplier on `S_h` [95 %] | −1.79 [−2.61, −0.13] | +0.63 [+0.19, +1.46] |
+
+R.m.s. of the terms: `2F` 5.72, `S₁` 12.16, `S_h` 0.63, `V` 0.33. Means: `2F` +2.27, stored
++3.10, matched +1.45, `S₁` −2.52, `S_h` −0.25.
+
+**1. The 1 m form is not acting on these fronts. This can be concluded.**
+- It is the largest term on every track (1.1 to 6.9 times the r.m.s. of `2F`) and of one sign at
+  every hour on nine tracks of ten. Label 84's `S₁` averages −26.6 while the front
+  strengthens at +10.8 to +18.8; label 81's averages +12.9 against +1.0 to +3.0.
+- Adding it multiplies the residual by 4 (stored) and 6.5 (matched). Its multiplier lies
+  between −0.66 and +0.17 on every track against either measured rate; no interval reaches
+  +0.25, let alone +1.
+- This is what §7.3 of the report expected for a physical reason: the mixing scheme spreads
+  the flux through the boundary layer (median 17–40 m on these tracks) within the hour, so the
+  top cell does not keep it. The statement is that the term **as formed over 1 m** is not the
+  top cell's hourly tendency, not that the flux does nothing.
+
+**2. The surface flux itself cannot be said to have no effect.**
+- The boundary-layer form is the physically expected size. It is small: 0.11 of `2F` in
+  r.m.s. pooled, 0.07 to 0.53 per track.
+- It is not negligible in the mean on the weaker fronts: `S_h` is of one sign at every hour on
+  four tracks, and its mean is −0.2 to −0.6 of the mean of `2F` on six.
+- It is below what these data can detect. The two measured rates differ by 1.65 in the mean
+  (stored above matched, the unexplained offset of the task-2 entry), against 0.25 for `S_h`,
+  and they give opposite answers: the pooled multiplier is +0.63 [+0.19, +1.46] on the matched
+  rate, which includes +1 and excludes 0, and −1.79 [−2.61, −0.13] on the stored rate, which
+  excludes both. Per track, 8 of 10 multipliers are positive against the matched rate and 5 of
+  10 against the stored. Until the stored–matched offset is understood, an effect of the size
+  of `S_h` is neither shown nor excluded.
+- Indirect effects of the flux (through the boundary-layer depth and mixing) are not in `S`
+  at all and are not tested here.
+
+**3. The sign of `S₁` is explained (the item left "not established" in the task-3 entry).**
+- On every track the non-solar heat part carries the term (for label 81: +12.95 of +12.90;
+  shortwave −1.25, freshwater +1.19).
+- The sign follows `R_T`. The four tracks with `S₁ > 0` (81, 100, 187, 5) have `R_T < 0`: the
+  warm side is the dense side and salinity sets the buoyancy gradient. The six with `S₁ < 0`
+  have `R_T > 0`. On label 81's parcels `S₁` averages +13.97 where `R_T < 0` (92 % of them)
+  and −1.75 elsewhere.
+- So the term is the damping of the surface temperature contrast (more heat lost over warmer
+  water). That weakens a front whose warm side is light and strengthens one whose warm side
+  is dense.
+- On the pooled front pixels (1.81 million, 69 pairs) 38 % have `R_T < 0` (35–40 % per hour);
+  `S₁` averages +5.20 there and −8.67 on the rest, net −3.40, negative at every hour. The
+  report's "frontolytic at every hour" is that net.
+
+**4. Should we return to the report? Yes, with marked notes; the verdict does not change.**
+Three statements are sharpened (TA-Q4): the sign of the term (§2.4, §5.3, §8); the 1 m form
+excluded on front means rather than "near-orthogonal" (§7.2–§7.3); and the front-mean budget
+of §12, now run on ten fronts. On front means `2F` alone leaves 0.43 (stored) and 0.33
+(matched) of the measured r.m.s., against 0.74 per pixel in the report's pool. That comparison
+was not pre-registered, is on ten fronts selected for size, and neither figure is a closed
+budget or an efficiency.
+
+**Also seen, not interpreted.** Pooled over tracks the stored imbalance is anti-correlated
+with `S₁` (−0.65; multiplier −0.200), and the matched imbalance is not (−0.19; −0.012). Label
+84 carries most of it (stored imbalance r.m.s. 10.8 with `S₁` at −26.6).
+
+**Checks.** The recomputed 1 m term equals the stored `surface_flux` on front pixels to
+2.7 × 10⁻⁸ relative r.m.s. at every pair. Track 0's means equal
+`data/matched_parcels_track_81.json`. Tests: 4 passed (the 2 new and the 2 of
+`test_matched_parcels.py`). The full suite was not re-run. Nothing committed.
+
+**Limits.** Ten fronts, the largest at pair 35, one tile, 72 hours. `R_T` uses the midpoint
+fields and a local linearisation of the equation of state. The bootstrap resamples hours
+within tracks; it does not treat the ten tracks as a sample of fronts.
