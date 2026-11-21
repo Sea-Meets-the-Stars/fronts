@@ -1,6 +1,6 @@
 # Matched parcels along the track of label 81 (anchor pair 35)
 
-*Generated 2026-11-18 by `py/matched_parcels.py` (track analysis, "Matched parcels" task 1). Regenerate with `python matched_parcels.py --label 81 --anchor-step 35`. Every number here is in `data/matched_parcels_track_81.json`.*
+*Generated 2026-11-21 by `py/matched_parcels.py` (track analysis, "Matched parcels" task 1). Regenerate with `python matched_parcels.py --label 81 --anchor-step 35`. Every number here is in `data/matched_parcels_track_81.json`.*
 
 **Setting.** LLC4320 tile 330, `L = 0`, `mask_analysis`, finder config D, flow-informed track (m4_tracks.json flow track 0). The track is found at 71 pairs, 0–70 (2012-07-02 00:30 to 2012-07-04 22:30 UTC); the label has 104 / 178 / 413 pixels (min / median / max). Rates are on the band-1, centred construction (M4-Q3 (a)) and are quoted in units of 10⁻¹⁹ s⁻⁵. The M3 budget did not close, so **no ratio or slope of these rates is an efficiency**.
 
@@ -37,6 +37,78 @@ $$\left.\frac{D_h G}{Dt}\right|_t(\mathbf{x}) = \frac{G\!\left(\mathbf{x},\, h_{
 - $G(\mathbf{x}, h_{t+1}) = |\mathsf{L}\, b(h_{t+1})|^2$ at the cell: the hour-end buoyancy, not the midpoint mean.
 - $\mathbf{x}_d$ is the departure point of the parcel that **arrives at the cell at $h_{t+1}$**; the displacement $\mathbf{d}$ is found by three iterations of the midpoint rule with the velocity interpolated at cubic order.
 - $G(\mathbf{x}_d, h_t)$ is formed by interpolating $b(h_t)$ (cubic) onto the five-point stencil centred at $\mathbf{x}_d$ and applying the same $\mathsf{L}$. Buoyancy is interpolated, never $G$.
+
+#### The semi-Lagrangian `DG/Dt`, step by step
+
+*(added 2026-11-21, "Semi-Lagrangian dG/dt" task 1; written from `py/semilag.py`.)*
+
+**What is being measured.** The rate of change of $G$ following the horizontal surface flow,
+
+$$\frac{D_h G}{Dt} = \frac{\partial G}{\partial t} + \mathbf{u}\cdot\nabla_h G .$$
+
+The two terms on the right are each much larger than their sum on a front that moves (the Eulerian form is kept in the store as `DGDt_euler`, a cross-check only). The semi-Lagrangian step avoids forming them: it takes one difference of $G$ along the path of the water, between where the water was at $h_t$ and where it is at $h_{t+1}$. The path is chosen to **end** on a cell centre, so the value at $h_{t+1}$ needs no interpolation and only the value at $h_t$ does. The result is a field on the grid, one value per cell, attached to the cell where the water arrives.
+
+**Step 1 — velocity at the cell centres, in cells per hour.** The model velocities sit on the cell faces (`U` on the faces along the grid index $i$, `V` along $j$). They are averaged in time to the midpoint of the hour and in space to the cell centre, and divided by the local centre-to-centre spacing (`semilag.centre_velocities`, `departure_index`):
+
+$$u_c(j,i) = \tfrac12\left[U^{m}(j,\,i_g{=}i) + U^{m}(j,\,i_g{=}i{+}1)\right], \qquad \hat u = \frac{u_c\,\Delta t}{\Delta x_C}, \qquad \hat v = \frac{v_c\,\Delta t}{\Delta y_C},$$
+
+with $U^{m} = \tfrac12[U(h_t) + U(h_{t+1})]$ and $v_c$ likewise from `V`. Everything is done in index space along the model axes; nothing is rotated to east / north at this stage. $(\hat u, \hat v)$ is the displacement in cells over the hour if the velocity were uniform.
+
+**Step 2 — the departure point.** For the cell centre $\mathbf{x} = (j, i)$ the displacement $\mathbf{d} = (d_j, d_i)$ of the water arriving there is found by the midpoint rule, iterated three times:
+
+$$\mathbf{d}^{(0)} = \hat{\mathbf{u}}(\mathbf{x}), \qquad \mathbf{d}^{(n+1)} = \hat{\mathbf{u}}\!\left(\mathbf{x} - \tfrac12\mathbf{d}^{(n)}\right),\quad n = 0, 1, 2, \qquad \mathbf{x}_d = \mathbf{x} - \mathbf{d}^{(3)} .$$
+
+The velocity is evaluated half-way along the path, at the middle of the hour, which makes the step second order in $\Delta t$. $\hat{\mathbf{u}}$ at the fractional position is interpolated with the cubic of step 3. $\mathbf{x}_d$ is a fractional grid position: where the water that is at the cell centre at $h_{t+1}$ was at $h_t$.
+
+**Step 3 — the interpolation.** A field $f$ at a fractional position $\mathbf{p} = (p_j, p_i)$ is the tensor-product cubic Lagrange interpolant on the 4 × 4 nearest nodes (`semilag.interp_to_departure`). With $j_0 = \lfloor p_j \rfloor$, $\tau_j = p_j - j_0$ and the same along $i$,
+
+$$\tilde f(\mathbf{p}) = \sum_{m=-1}^{2}\ \sum_{n=-1}^{2} \ell_m(\tau_j)\,\ell_n(\tau_i)\, f(j_0 + m,\ i_0 + n), \qquad \ell_k(\tau) = \prod_{\substack{q=-1 \\ q \ne k}}^{2} \frac{\tau - q}{k - q} .$$
+
+It reproduces any cubic exactly and returns the node value at a whole-cell position. If any of the 16 nodes is land or outside the tile the result is NaN; nothing is filled.
+
+**Step 4 — $G$ at the departure point.** $b(h_t)$ is interpolated at five points: $\mathbf{x}_d$ and its four neighbours one cell away along each axis, $\mathbf{x}_d \pm \mathbf{e}_i$ and $\mathbf{x}_d \pm \mathbf{e}_j$. The **same** displacement $\mathbf{d}(\mathbf{x})$ is used for all five, so the stencil is the arrival cell's own stencil moved rigidly to $\mathbf{x}_d$. Write the five values $b_0, b_E, b_W$ (along $i$) and $b_N, b_S$ (along $j$). Then the same gradient stencil $\mathsf{L}$ as everywhere else is applied (`semilag.grad_b_at_departure`):
+
+$$g_i = \tfrac12\left[\frac{b_0 - b_W}{\Delta x_C^{-}} + \frac{b_E - b_0}{\Delta x_C^{+}}\right], \qquad g_j = \tfrac12\left[\frac{b_0 - b_S}{\Delta y_C^{-}} + \frac{b_N - b_0}{\Delta y_C^{+}}\right],$$
+
+$$b_x = g_i \cos\theta - g_j \sin\theta, \qquad b_y = g_i \sin\theta + g_j \cos\theta, \qquad G(\mathbf{x}_d, h_t) = b_x^2 + b_y^2 .$$
+
+$\Delta x_C^{\mp}$ are the spacings to the lower and upper neighbour and $\theta$ the grid angle (`CS`, `SN`), all taken at the arrival cell; they change by 0.02 % per cell. With $\mathbf{d} = 0$ this is bit for bit the ordinary $G$ of the cell.
+
+**Step 5 — $G$ at the arrival cell,** $G(\mathbf{x}, h_{t+1}) = |\mathsf{L}\, b(h_{t+1})|^2$, the ordinary gradient of the hour-end buoyancy at the cell. No interpolation.
+
+**Step 6 — the rate.**
+
+$$\left.\frac{D_h G}{Dt}\right|_t(\mathbf{x}) = \frac{G(\mathbf{x}, h_{t+1}) - G(\mathbf{x}_d, h_t)}{\Delta t}, \qquad \Delta t = 3600\ \mathrm{s}.$$
+
+It is stored at the arrival cell and labelled with the midpoint time of the pair. It can be written as a local change at the cell plus a change along the path at the first hour, which add to it exactly:
+
+$$\frac{G(\mathbf{x}, h_{t+1}) - G(\mathbf{x}_d, h_t)}{\Delta t} = \underbrace{\frac{G(\mathbf{x}, h_{t+1}) - G(\mathbf{x}, h_t)}{\Delta t}}_{\text{local}} + \underbrace{\frac{G(\mathbf{x}, h_t) - G(\mathbf{x}_d, h_t)}{\Delta t}}_{\text{advective}} .$$
+
+**Three choices in this construction, and why.**
+
+- **Buoyancy is interpolated, never $G$.** $G$ has a sharp maximum on a front, and interpolating across a maximum cuts it: bilinear interpolation of $G$ is low by about $\Delta x^2\, G_{xx}/8$ there. A value at $h_t$ that is too low reads as strengthening that did not happen. On a test front 1.5 cells wide, moved half a cell, the error of $G$ at the maximum is −4.8 % with linear interpolation of $b$, −0.49 % with the cubic used here and −0.09 % with a quintic (the store keeps the quintic version as `DGDt_semilag_o5`).
+- **The stencil is moved rigidly.** The alternative — carry the whole field $b(h_t)$ to the arrival grid with each cell\'s own displacement, then differentiate — gives $\nabla\!\left[b_t(\mathbf{x}_d(\mathbf{x}))\right] = (\mathsf{I} - \nabla\mathbf{d})^{\mathsf T}\,\nabla b_t$. The factor $\nabla\mathbf{d}$ is the strain of the flow over the hour, which is the frontogenesis itself. For water that keeps its buoyancy that carried field **is** $b(h_{t+1})$, so the difference would be zero when the true rate is $2F$. Holding $\mathbf{d}$ fixed across the stencil keeps the strain out of the value at $h_t$, so that it appears in the difference.
+- **This is why it can be compared with `2F`.** If buoyancy is carried unchanged, $b(\mathbf{x}, h_{t+1}) = b(\mathbf{x}_d(\mathbf{x}), h_t)$, the two gradients differ only because neighbouring cells have different displacements. Expanding that difference to first order in $\Delta t$ gives the commutator form of `2F` written above, on the same stencil. Anything else that changes $b$ along the path — vertical exchange, surface fluxes, mixing, the model\'s own numerical diffusion — and the error of an hourly step, appears as a difference between the stored `DG/Dt` and `2F`.
+
+**What limits it.**
+
+- *The hourly step.* The path is built from two velocity snapshots an hour apart. The Eulerian and the semi-Lagrangian estimates of the same rate differ by 0.672 of its r.m.s. on the pooled front pixels at this scale (report §7.1); the interpolation order accounts for 0.108.
+- *Ridge cells.* The value at $h_t$ is interpolated and the value at $h_{t+1}$ is read at a cell. On the crest of a ridge one cell wide the interpolated value is slightly low, which biases the rate positive: +0.6 to +1 % of $G$ per hour on a synthetic ridge whose true rate is zero (report §9.3, §10). §4 below shows the stored rate is much larger on the label's own pixels than on the flanks; how much of that is this bias is not established.
+- *Time levels.* It uses hour-end buoyancy; `G` and `2F` use the midpoint mean. All three are centred on the midpoint of the pair.
+
+**A worked example: pair 36 of this track** (2012-07-03, 12:00 → 13:00 UTC), drawn by `py/slides_dGdt.py`. The tracker chose label 83 at this pair: 307 pixels, 1,143 parcels after the one-cell dilation. Every field in the figure was recomputed from the raw store with the functions above and agrees with the stored `DGDt_semilag` to 2e-07 of its r.m.s. on the parcels.
+
+![The semi-Lagrangian DG/Dt of pair 36](../slides/dGdt_method.png)
+
+**Figure (from the slides): `slides/dGdt_method.png`.** Unlike the other figures of this document it is drawn north-up in longitude and latitude.
+
+- **(a)** The front on $\log_{10} G$ at the midpoint (12:30 UTC): the label's pixels (red), the parcels (cyan outline) and a 15 × 15-cell window (orange) used for the lower row.
+- **(b)** Steps 2 to 4 for one parcel, at true scale. The background and contours are $b$ at 12:00; the grey lines are cell edges. The white dot is the arrival cell centre $\mathbf{x}$ (grid cell j 126, i 653; black square). The red dot is its departure point $\mathbf{x}_d$: $\mathbf{d} = (d_i, d_j) = (-0.144, -0.035)$ cells, 0.15 of a cell in length. The four open circles are the stencil neighbours of step 4, one cell from $\mathbf{x}_d$; $b$ at 12:00 is interpolated at these five points.
+  - For this parcel $G(\mathbf{x}, \text{13:00}) = 3.206$ and $G(\mathbf{x}_d, \text{12:00}) = 2.942$ (× 10⁻¹³ s⁻⁴), so $D_hG/Dt = (3.206 - 2.942) \times 10^{-13} / 3600 = +73.4$ × 10⁻¹⁹ s⁻⁵: a 9 % rise of $G$ in the hour.
+- **(d), (e), (f)** The same three numbers for every parcel in the window: $G$ at the departure points at 12:00 (step 4), $G$ at the arrival cells at 13:00 (step 5), and their difference over one hour (step 6). The two $G$ maps are nearly identical to the eye; the rate is their small difference. The window holds 59 parcels with a mean of +38.3.
+- **(c)** The rate at every parcel of the front. The mean over the 1,143 parcels is **+4.20** × 10⁻¹⁹ s⁻⁵. This is $r_{\rm store}$ of pair 36: the "stored" entry of that pair in the table of §7 and one point of the stored curve in Figure 1. Individual parcels reach several tens in either sign (r.m.s. 22.0), so the band mean is a small remainder of values of both signs.
+
+Displacements on this band are a fraction of a cell: median 0.20, 90th percentile 0.37, largest 0.54 cells. In band means, $G(\mathbf{x}_d, h_t) = 5.647$, $G(\mathbf{x}, h_t) = 5.715$ and $G(\mathbf{x}, h_{t+1}) = 5.798$ (× 10⁻¹⁴ s⁻⁴). The local part is therefore +2.30 and the advective part +1.90, which add to +4.20. Parcel by parcel the two parts are larger than their sum (r.m.s. 37.7 and 31.2 against 22.0) and largely cancel; `slides/dGdt_split.png` shows them. For comparison, at this pair the matched rate is +2.38 and `2F` is +3.46.
 
 ### 1.2 The parcels of a step and the three means
 

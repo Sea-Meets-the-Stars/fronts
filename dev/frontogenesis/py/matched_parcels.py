@@ -656,6 +656,195 @@ def _f(x, nd=2):
     return '—' if x is None or (isinstance(x, float) and not np.isfinite(x)) else f'{x:+.{nd}f}'
 
 
+def _slide_example(track, df, data_dir=None):
+    """The worked example of ``slides_dGdt.py`` (``data/slides_dGdt_<pair>.json``) when it is
+    a pair of this track with the same label; ``None`` otherwise."""
+    for f in sorted(Path(data_dir or DATA_DIR).glob('slides_dGdt_*.json')):
+        try:
+            d = json.load(open(f))
+        except (OSError, ValueError):
+            continue
+        s = d.get('pair')
+        if s in track.labels and int(track.labels[s]) == int(d.get('label', -1)):
+            row = df[df['step'] == s]
+            if len(row) and np.isclose(float(row['r_store'].iloc[0]), d['check']['band_mean'], rtol=1e-6):
+                return dict(d, row=row.iloc[0], json=f.name)
+    return None
+
+
+def semilag_detail(track, df, *, data_dir=None, slides_rel='../slides'):
+    """Markdown lines for the end of §1.1: the semi-Lagrangian ``DG/Dt`` step by step (written
+    from ``semilag.py``), and -- when ``slides_dGdt.py`` has drawn a pair of this track -- the
+    worked example of ``slides/dGdt_method.png`` with its numbers."""
+    L = []
+    w = L.append
+    w('#### The semi-Lagrangian `DG/Dt`, step by step')
+    w('')
+    w('*(added 2026-11-21, "Semi-Lagrangian dG/dt" task 1; written from `py/semilag.py`.)*')
+    w('')
+    w('**What is being measured.** The rate of change of $G$ following the horizontal surface flow,')
+    w('')
+    w(r'$$\frac{D_h G}{Dt} = \frac{\partial G}{\partial t} + \mathbf{u}\cdot\nabla_h G .$$')
+    w('')
+    w('The two terms on the right are each much larger than their sum on a front that moves '
+      '(the Eulerian form is kept in the store as `DGDt_euler`, a cross-check only). The '
+      'semi-Lagrangian step avoids forming them: it takes one difference of $G$ along the path of the water, '
+      'between where the water was at $h_t$ and where it is at $h_{t+1}$. The path is chosen to **end** on a cell '
+      'centre, so the value at $h_{t+1}$ needs no interpolation and only the value at $h_t$ does. '
+      'The result is a field on the grid, one value per cell, attached to the cell where the water arrives.')
+    w('')
+    w('**Step 1 — velocity at the cell centres, in cells per hour.** The model velocities sit on the cell faces '
+      '(`U` on the faces along the grid index $i$, `V` along $j$). They are averaged in time to the midpoint of the '
+      'hour and in space to the cell centre, and divided by the local centre-to-centre spacing '
+      '(`semilag.centre_velocities`, `departure_index`):')
+    w('')
+    w(r'$$u_c(j,i) = \tfrac12\left[U^{m}(j,\,i_g{=}i) + U^{m}(j,\,i_g{=}i{+}1)\right], \qquad '
+      r'\hat u = \frac{u_c\,\Delta t}{\Delta x_C}, \qquad \hat v = \frac{v_c\,\Delta t}{\Delta y_C},$$')
+    w('')
+    w(r'with $U^{m} = \tfrac12[U(h_t) + U(h_{t+1})]$ and $v_c$ likewise from `V`. Everything is done in index space '
+      r'along the model axes; nothing is rotated to east / north at this stage. $(\hat u, \hat v)$ is the '
+      r'displacement in cells over the hour if the velocity were uniform.')
+    w('')
+    w(r'**Step 2 — the departure point.** For the cell centre $\mathbf{x} = (j, i)$ the displacement '
+      r'$\mathbf{d} = (d_j, d_i)$ of the water arriving there is found by the midpoint rule, iterated three times:')
+    w('')
+    w(r'$$\mathbf{d}^{(0)} = \hat{\mathbf{u}}(\mathbf{x}), \qquad '
+      r'\mathbf{d}^{(n+1)} = \hat{\mathbf{u}}\!\left(\mathbf{x} - \tfrac12\mathbf{d}^{(n)}\right),\quad n = 0, 1, 2, '
+      r'\qquad \mathbf{x}_d = \mathbf{x} - \mathbf{d}^{(3)} .$$')
+    w('')
+    w(r'The velocity is evaluated half-way along the path, at the middle of the hour, which makes the step second '
+      r'order in $\Delta t$. $\hat{\mathbf{u}}$ at the fractional position is interpolated with the cubic of step 3. '
+      r'$\mathbf{x}_d$ is a fractional grid position: where the water that is at the cell centre at $h_{t+1}$ was at $h_t$.')
+    w('')
+    w(r'**Step 3 — the interpolation.** A field $f$ at a fractional position $\mathbf{p} = (p_j, p_i)$ is the '
+      r'tensor-product cubic Lagrange interpolant on the 4 × 4 nearest nodes (`semilag.interp_to_departure`). '
+      r'With $j_0 = \lfloor p_j \rfloor$, $\tau_j = p_j - j_0$ and the same along $i$,')
+    w('')
+    w(r'$$\tilde f(\mathbf{p}) = \sum_{m=-1}^{2}\ \sum_{n=-1}^{2} \ell_m(\tau_j)\,\ell_n(\tau_i)\, f(j_0 + m,\ i_0 + n), '
+      r'\qquad \ell_k(\tau) = \prod_{\substack{q=-1 \\ q \ne k}}^{2} \frac{\tau - q}{k - q} .$$')
+    w('')
+    w('It reproduces any cubic exactly and returns the node value at a whole-cell position. If any of the 16 nodes '
+      'is land or outside the tile the result is NaN; nothing is filled.')
+    w('')
+    w(r'**Step 4 — $G$ at the departure point.** $b(h_t)$ is interpolated at five points: $\mathbf{x}_d$ and its four '
+      r'neighbours one cell away along each axis, $\mathbf{x}_d \pm \mathbf{e}_i$ and $\mathbf{x}_d \pm \mathbf{e}_j$. '
+      r'The **same** displacement $\mathbf{d}(\mathbf{x})$ is used for all five, so the stencil is the arrival '
+      r"cell's own stencil moved rigidly to $\mathbf{x}_d$. Write the five values $b_0, b_E, b_W$ (along $i$) "
+      r'and $b_N, b_S$ (along $j$). Then the same gradient stencil $\mathsf{L}$ as everywhere else is applied '
+      r'(`semilag.grad_b_at_departure`):')
+    w('')
+    w(r'$$g_i = \tfrac12\left[\frac{b_0 - b_W}{\Delta x_C^{-}} + \frac{b_E - b_0}{\Delta x_C^{+}}\right], \qquad '
+      r'g_j = \tfrac12\left[\frac{b_0 - b_S}{\Delta y_C^{-}} + \frac{b_N - b_0}{\Delta y_C^{+}}\right],$$')
+    w('')
+    w(r'$$b_x = g_i \cos\theta - g_j \sin\theta, \qquad b_y = g_i \sin\theta + g_j \cos\theta, \qquad '
+      r'G(\mathbf{x}_d, h_t) = b_x^2 + b_y^2 .$$')
+    w('')
+    w(r'$\Delta x_C^{\mp}$ are the spacings to the lower and upper neighbour and $\theta$ the grid angle (`CS`, `SN`), '
+      r'all taken at the arrival cell; they change by 0.02 % per cell. With $\mathbf{d} = 0$ this is bit for bit the '
+      r'ordinary $G$ of the cell.')
+    w('')
+    w(r'**Step 5 — $G$ at the arrival cell,** $G(\mathbf{x}, h_{t+1}) = |\mathsf{L}\, b(h_{t+1})|^2$, the ordinary '
+      r'gradient of the hour-end buoyancy at the cell. No interpolation.')
+    w('')
+    w('**Step 6 — the rate.**')
+    w('')
+    w(r'$$\left.\frac{D_h G}{Dt}\right|_t(\mathbf{x}) = \frac{G(\mathbf{x}, h_{t+1}) - G(\mathbf{x}_d, h_t)}{\Delta t}, '
+      r'\qquad \Delta t = 3600\ \mathrm{s}.$$')
+    w('')
+    w('It is stored at the arrival cell and labelled with the midpoint time of the pair. It can be written as a '
+      'local change at the cell plus a change along the path at the first hour, which add to it exactly:')
+    w('')
+    w(r'$$\frac{G(\mathbf{x}, h_{t+1}) - G(\mathbf{x}_d, h_t)}{\Delta t} = '
+      r'\underbrace{\frac{G(\mathbf{x}, h_{t+1}) - G(\mathbf{x}, h_t)}{\Delta t}}_{\text{local}} + '
+      r'\underbrace{\frac{G(\mathbf{x}, h_t) - G(\mathbf{x}_d, h_t)}{\Delta t}}_{\text{advective}} .$$')
+    w('')
+    w('**Three choices in this construction, and why.**')
+    w('')
+    w(r'- **Buoyancy is interpolated, never $G$.** $G$ has a sharp maximum on a front, and interpolating across a '
+      r'maximum cuts it: bilinear interpolation of $G$ is low by about $\Delta x^2\, G_{xx}/8$ there. A value at '
+      r'$h_t$ that is too low reads as strengthening that did not happen. On a test front 1.5 cells wide, moved '
+      r'half a cell, the error of $G$ at the maximum is −4.8 % with linear interpolation of $b$, −0.49 % with the '
+      r'cubic used here and −0.09 % with a quintic (the store keeps the quintic version as `DGDt_semilag_o5`).')
+    w(r'- **The stencil is moved rigidly.** The alternative — carry the whole field $b(h_t)$ to the arrival grid '
+      r'with each cell\'s own displacement, then differentiate — gives '
+      r'$\nabla\!\left[b_t(\mathbf{x}_d(\mathbf{x}))\right] = (\mathsf{I} - \nabla\mathbf{d})^{\mathsf T}\,\nabla b_t$. '
+      r'The factor $\nabla\mathbf{d}$ is the strain of the flow over the hour, which is the frontogenesis itself. '
+      r'For water that keeps its buoyancy that carried field **is** $b(h_{t+1})$, so the difference would be zero '
+      r'when the true rate is $2F$. Holding $\mathbf{d}$ fixed across the stencil keeps the strain out of the '
+      r'value at $h_t$, so that it appears in the difference.')
+    w(r'- **This is why it can be compared with `2F`.** If buoyancy is carried unchanged, '
+      r'$b(\mathbf{x}, h_{t+1}) = b(\mathbf{x}_d(\mathbf{x}), h_t)$, the two gradients differ only because '
+      r'neighbouring cells have different displacements. Expanding that difference to first order in $\Delta t$ '
+      r'gives the commutator form of `2F` written above, on the same stencil. Anything else that changes $b$ along '
+      r'the path — vertical exchange, surface fluxes, mixing, the model\'s own numerical diffusion — and the '
+      r'error of an hourly step, appears as a difference between the stored `DG/Dt` and `2F`.')
+    w('')
+    w('**What limits it.**')
+    w('')
+    w('- *The hourly step.* The path is built from two velocity snapshots an hour apart. The Eulerian and the '
+      'semi-Lagrangian estimates of the same rate differ by 0.672 of its r.m.s. on the pooled front pixels at this '
+      'scale (report §7.1); the interpolation order accounts for 0.108.')
+    w('- *Ridge cells.* The value at $h_t$ is interpolated and the value at $h_{t+1}$ is read at a cell. On the crest '
+      'of a ridge one cell wide the interpolated value is slightly low, which biases the rate positive: +0.6 to +1 % '
+      'of $G$ per hour on a synthetic ridge whose true rate is zero (report §9.3, §10). §4 below shows the stored '
+      "rate is much larger on the label's own pixels than on the flanks; how much of that is this bias is not established.")
+    w('- *Time levels.* It uses hour-end buoyancy; `G` and `2F` use the midpoint mean. All three are centred on the '
+      'midpoint of the pair.')
+    ex = _slide_example(track, df, data_dir)
+    if ex is not None:
+        s, m, sp, ck = ex['pair'], ex['method'], ex['split'], ex['check']
+        pc, row = m['parcel'], ex['row']
+        t0, t1 = (x[-5:] for x in ex['times'])
+        u = UNIT
+        w('')
+        w(f'**A worked example: pair {s} of this track** ({ex["times"][0][:10]}, {t0} → {t1} UTC), drawn by '
+          f'`py/slides_dGdt.py`. The tracker chose label {ex["label"]} at this pair: {ck["n_skeleton"]} pixels, '
+          f'{ck["n_band"]:,} parcels after the one-cell dilation. Every field in the figure was recomputed from the raw '
+          f'store with the functions above and agrees with the stored `DGDt_semilag` to '
+          f'{ck["max_err_over_rms"]:.0e} of its r.m.s. on the parcels.')
+        w('')
+        w(f'![The semi-Lagrangian DG/Dt of pair {s}]({slides_rel}/dGdt_method.png)')
+        w('')
+        w(f'**Figure (from the slides): `slides/dGdt_method.png`.** Unlike the other figures of this document it is '
+          f'drawn north-up in longitude and latitude.')
+        w('')
+        w(f'- **(a)** The front on $\\log_{{10}} G$ at the midpoint ({ex["time_mid"][-5:]} UTC): the label\'s pixels '
+          f'(red), the parcels (cyan outline) and a {ex["window"]["size"]} × {ex["window"]["size"]}-cell window (orange) '
+          f'used for the lower row.')
+        w(f'- **(b)** Steps 2 to 4 for one parcel, at true scale. The background and contours are $b$ at {t0}; the '
+          f'grey lines are cell edges. The white dot is the arrival cell centre $\\mathbf{{x}}$ (grid cell j {pc["j"]}, '
+          f'i {pc["i"]}; black square). The red dot is its departure point $\\mathbf{{x}}_d$: '
+          f'$\\mathbf{{d}} = (d_i, d_j) = ({pc["di"]:+.3f}, {pc["dj"]:+.3f})$ cells, {pc["disp_cells"]:.2f} of a cell '
+          f'in length. The four open circles are the stencil neighbours of step 4, one cell from $\\mathbf{{x}}_d$; '
+          f'$b$ at {t0} is interpolated at these five points.')
+        w(f'  - For this parcel $G(\\mathbf{{x}}, \\text{{{t1}}}) = {pc["G_x_h1"] / 1e-13:.3f}$ and '
+          f'$G(\\mathbf{{x}}_d, \\text{{{t0}}}) = {pc["G_xd_h0"] / 1e-13:.3f}$ (× 10⁻¹³ s⁻⁴), so '
+          f'$D_hG/Dt = ({pc["G_x_h1"] / 1e-13:.3f} - {pc["G_xd_h0"] / 1e-13:.3f}) \\times 10^{{-13}} / 3600 = '
+          f'{pc["rate"] / u:+.1f}$ × 10⁻¹⁹ s⁻⁵: a {100 * (pc["G_x_h1"] / pc["G_xd_h0"] - 1):.0f} % rise of $G$ in the hour.')
+        w(f'- **(d), (e), (f)** The same three numbers for every parcel in the window: $G$ at the departure points at '
+          f'{t0} (step 4), $G$ at the arrival cells at {t1} (step 5), and their difference over one hour (step 6). '
+          f'The two $G$ maps are nearly identical to the eye; the rate is their small difference. The window holds '
+          f'{m["window_n"]} parcels with a mean of {m["window_mean"]:+.1f}.')
+        w(f'- **(c)** The rate at every parcel of the front. The mean over the {ck["n_band"]:,} parcels is '
+          f'**{ck["band_mean"] / u:+.2f}** × 10⁻¹⁹ s⁻⁵. This is $r_{{\\rm store}}$ of pair {s}: the "stored" entry of '
+          f'that pair in the table of §7 and one point of the stored curve in Figure 1. Individual parcels reach '
+          f'several tens in either sign (r.m.s. {sp["total"]["band_rms"]:.1f}), so the band mean is a small '
+          f'remainder of values of both signs.')
+        w('')
+        gb = ex['G_band_mean']
+        w(f'Displacements on this band are a fraction of a cell: median {ex["disp_cells"]["p50"]:.2f}, 90th percentile '
+          f'{ex["disp_cells"]["p90"]:.2f}, largest {ex["disp_cells"]["max"]:.2f} cells. In band means, '
+          f'$G(\\mathbf{{x}}_d, h_t) = {gb["Gd_h0"] / 1e-14:.3f}$, $G(\\mathbf{{x}}, h_t) = {gb["G_h0"] / 1e-14:.3f}$ and '
+          f'$G(\\mathbf{{x}}, h_{{t+1}}) = {gb["G_h1"] / 1e-14:.3f}$ (× 10⁻¹⁴ s⁻⁴). The local part is therefore '
+          f'{sp["local"]["band_mean"]:+.2f} and the advective part {sp["advect"]["band_mean"]:+.2f}, which add to '
+          f'{sp["total"]["band_mean"]:+.2f}. Parcel by parcel the two parts are larger than their sum (r.m.s. '
+          f'{sp["local"]["band_rms"]:.1f} and {sp["advect"]["band_rms"]:.1f} against {sp["total"]["band_rms"]:.1f}) '
+          f'and largely cancel; `slides/dGdt_split.png` shows them. For comparison, at this pair the matched rate is '
+          f'{row["r_matched"] / u:+.2f} and `2F` is {row["two_F"] / u:+.2f}.')
+    w('')
+    return L
+
+
 def write_markdown(path, name, track, source, df, summ, m4, pages, series_png, parcels_png,
                    detail_steps, keys, *, band=BAND, budget_png=None):
     lab, a = track.anchor.label, track.anchor.step
@@ -721,6 +910,7 @@ def write_markdown(path, name, track, source, df, summ, m4, pages, series_png, p
     w('- $G(\\mathbf{x}_d, h_t)$ is formed by interpolating $b(h_t)$ (cubic) onto the five-point stencil centred at '
       '$\\mathbf{x}_d$ and applying the same $\\mathsf{L}$. Buoyancy is interpolated, never $G$.')
     w('')
+    L.extend(semilag_detail(track, df))
     w('### 1.2 The parcels of a step and the three means')
     w('')
     w(f'At each pair `t` the tracker has chosen one label. `tracking.matched_link(centred=True, band={band})` then does '

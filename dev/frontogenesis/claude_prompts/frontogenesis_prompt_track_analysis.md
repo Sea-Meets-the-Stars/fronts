@@ -53,6 +53,12 @@ nor ruled out. New: the sign of the 1 m term on a front is set by whether its wa
 dense side (4 of the 10 tracks, 38 % of the pooled front pixels). I recommend returning to the
 report with marked notes on three points; nothing in its verdict changes. See the log entry.
 
+**Status — Semi-Lagrangian dG/dt, task 1 (2026-11-21, Fable 5.2): done.**
+`tracked/matched_parcels_track_81.md` has a new block at the end of §1.1, "The semi-Lagrangian
+`DG/Dt`, step by step": six steps with equations, three design choices and why, what limits
+the estimate, and a worked example on pair 36 that embeds and reads `slides/dGdt_method.png`
+panel by panel. Nothing else in the document changed. No question. See the log entry.
+
 ---
 
 ## Tasks
@@ -99,7 +105,21 @@ main report on this topic?
 If you have any questions, please put them in the "Q&A/Surface-flux" section below.
 Use Fable 5.2.  Log your work in the Logs section below.
 
+### Semi-Lagrangian dG/dt
+
+1. I need additional information on how the semi-Lagrangian dG/dt is calculated.
+You have provided information in the `tracked/matched_parcels_track_81.md` file, but
+I need more.  And it would be helfpul if you referred to the figure generated with the 
+`frontogenesis_slides.md` prompt doc named `slides/dGdt_method.png`.
+Add additional text and equations to the `tracked/matched_parcels_track_81.md` file, 
+at the end of Section 1.1
+If you have any questions, please put them in the "Q&A/Semi-Lagrangian dG/dt" section below.
+Use Fable 5.2.  Log your work in the Logs section below.
+
+
 ## Q&A
+
+### Semi-Lagrangian dG/dt
 
 ### Surface-flux
 
@@ -774,3 +794,45 @@ with `S₁` (−0.65; multiplier −0.200), and the matched imbalance is not (�
 **Limits.** Ten fronts, the largest at pair 35, one tile, 72 hours. `R_T` uses the midpoint
 fields and a local linearisation of the equation of state. The bootstrap resamples hours
 within tracks; it does not treat the ten tracks as a sample of fronts.
+
+### 2026-11-21 — Track analysis, Semi-Lagrangian dG/dt task 1: the stored `DG/Dt` step by step, with the slides figure (Fable 5.2)
+
+**Asked.** More on how the semi-Lagrangian `DG/Dt` is calculated, as text and equations at the
+end of §1.1 of `tracked/matched_parcels_track_81.md`, referring to `slides/dGdt_method.png`.
+
+**Changed.** `py/matched_parcels.py` only (the markdown is generated): new `semilag_detail`
+and `_slide_example`, called at the end of §1.1 in `write_markdown`. Regenerated with
+`matched_parcels.py --label 81 --anchor-step 35`. Apart from the new block (lines 41–112) the
+only line of the markdown that changed is the generation date. The text was written from
+`py/semilag.py`, not from memory.
+
+**What the new block holds.**
+- What is measured (`D_hG/Dt = ∂G/∂t + u·∇G`) and why one difference along the path is used.
+- Six steps with equations: (1) velocity at the cell centres, time-midpoint mean, in cells per
+  hour along the model axes; (2) the departure point by the midpoint rule, three iterations;
+  (3) the cubic Lagrange interpolant on 4 × 4 nodes; (4) `b(h_t)` interpolated on the
+  five-point stencil moved rigidly to the departure point, then the gradient stencil and the
+  rotation; (5) `G` at the arrival cell from `b(h_{t+1})`; (6) the difference over `Δt`, and
+  its exact split into a local and an advective part.
+- Three choices and why: `b` is interpolated, never `G` (errors −4.8 % / −0.49 % / −0.09 % at
+  orders 1 / 3 / 5 on the module's test front); the stencil is moved rigidly (carrying the
+  field and then differentiating would measure `DG/Dt − 2F`); and why the result is comparable
+  with `2F`.
+- What limits it: the hourly step (0.672, report §7.1), the ridge-cell bias (report §9.3), the
+  time levels.
+- The worked example, read from `data/slides_dGdt_36.json`: pair 36, label 83, 307 pixels,
+  1,143 parcels. One parcel (j 126, i 653): displacement 0.15 cells, `G` 2.942 → 3.206
+  × 10⁻¹³ s⁻⁴, rate +73.4 × 10⁻¹⁹ s⁻⁵. Window of 59 parcels: +38.3. Band mean **+4.20**, which
+  is `r_store` of pair 36 in this document's table. Local part +2.30, advective +1.90. The
+  figure is embedded as `../slides/dGdt_method.png` and its six panels are tied to the steps.
+
+**Generic.** The worked example appears only when a `data/slides_dGdt_<pair>.json` exists for
+a pair of the track with the same label and its band mean equals the document's `r_store` at
+that pair (relative 10⁻⁶); other fronts get the six steps without it.
+
+**Checks.** The slide JSON's band mean equals `r_store` of pair 36 (4.2023288 × 10⁻¹⁹ in
+both). Tests: 4 passed (`test_matched_parcels.py`, `test_surface_flux_tracks.py`); the full
+suite was not re-run. Nothing committed.
+
+**Note.** `slides/` is untracked in git; the embedded figure needs it committed (or the link
+breaks for another reader). TA-Q4 is still open.
