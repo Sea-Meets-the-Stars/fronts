@@ -185,6 +185,19 @@ def parcel_link(step, label, labels, flow, fields, *, band=BAND, dt=DT):
                                                 if m.sum() > 2 else np.nan)
         if out['hbl'] is not None:
             out['hbl_median'] = float(np.nanmedian(out['hbl'][ok]))
+        # 2F task 1: the chain-rule (continuum-formula) 2F at the same seed cells
+        if CHAIN_VAR in fields.ds:
+            fc = fields.get(CHAIN_VAR, step)[jj, ii]
+            m = ok & np.isfinite(fc)
+            out.update(two_F_chain=fc, n_two_F_chain=int(m.sum()))
+            if m.any():
+                out.update(two_F_chain_mean=float(fc[m].mean()), two_F_discrete_on_chain=float(f0[m].mean()),
+                           two_F_chain_ridge=float(fc[m & ridge].mean()) if (m & ridge).any() else np.nan,
+                           two_F_chain_flank=float(fc[m & ~ridge].mean()) if (m & ~ridge).any() else np.nan,
+                           two_F_chain_rms=float(np.sqrt(np.mean(fc[m] ** 2))),
+                           two_F_rms_parcels=float(np.sqrt(np.mean(f0[m] ** 2))))
+                for nm, x in (('corr_chain_two_F', f0), ('corr_store_chain', d0), ('corr_rate_chain', out['rate'])):
+                    out[nm] = float(np.corrcoef(fc[m], x[m])[0, 1]) if m.sum() > 2 else np.nan
         out.update(r_matched=(gp[alive].mean() - gm[alive].mean()) / (2 * dt),
                    r_store=float(d0[alive].mean()),
                    two_F_mean=float(f0[ok].mean()) if ok.any() else np.nan,
@@ -198,11 +211,17 @@ def parcel_link(step, label, labels, flow, fields, *, band=BAND, dt=DT):
     return out
 
 
+#: 2F task 1: the chain-rule form of 2F in the derived store, and its per-step scalars
+CHAIN_VAR = 'two_F_chain'
+CHAIN_SCALARS = ('two_F_chain_mean', 'n_two_F_chain', 'two_F_discrete_on_chain', 'two_F_chain_ridge',
+                 'two_F_chain_flank', 'two_F_chain_rms', 'two_F_rms_parcels', 'corr_chain_two_F',
+                 'corr_store_chain', 'corr_rate_chain')
+
 #: task 3: per-parcel key -> variable of the derived store
 EXTRA_FIELDS = dict(S_1m='surface_flux', S_kpp='surface_flux_kpp', V='vertical', hbl='KPPhbl')
 SCALARS_EXTRA = tuple(f'{k}_mean' for k in EXTRA_FIELDS) + tuple(f'n_{k}' for k in EXTRA_FIELDS) + tuple(
     f'{k}_{q}' for k in ('S_1m', 'S_kpp') for q in ('ridge', 'flank', 'frac_pos')) + (
-    'corr_S_1m_imbalance', 'corr_S_kpp_imbalance', 'hbl_median')
+    'corr_S_1m_imbalance', 'corr_S_kpp_imbalance', 'hbl_median') + CHAIN_SCALARS
 
 SCALARS = ('n_parcels', 'n_alive', 'r_matched', 'r_store', 'two_F_mean', 'G_mean_minus',
            'G_mean_0', 'G_mean_plus', 'disp_plus_median', 'disp_minus_median',
@@ -313,6 +332,38 @@ def surface_flux_summary(d):
     return out
 
 
+def chain_summary(d):
+    """2F task 1: the chain-rule ``2F`` against the stored (discretely consistent) ``2F`` on the
+    matched parcels, and each against the two measured rates.  ``None`` without the field.
+    ``mean_ratio`` is discrete over chain -- two forms of the prediction, not measured over
+    predicted."""
+    if 'two_F_chain_mean' not in d or d['two_F_chain_mean'].isna().all():
+        return None
+    c, f = d['two_F_chain_mean'], d['two_F']
+    out = dict(
+        same_parcels=bool((d['n_two_F_chain'] == d['n_two_F']).all()),
+        mean=dict(chain=float(c.mean()), discrete=float(f.mean())), rms=dict(chain=_rms(c), discrete=_rms(f)),
+        frac_hours_pos=dict(chain=float(np.mean(c > 0)), discrete=float(np.mean(f > 0))),
+        mean_ratio=float(f.mean() / c.mean()), rms_ratio=_rms(f) / _rms(c),
+        corr=float(np.corrcoef(c, f)[0, 1]), rms_diff=_rms(c - f),
+        frac_hours_abs_chain_larger=float(np.mean(np.abs(c) > np.abs(f))),
+        per_parcel_corr_median=float(d['corr_chain_two_F'].median()),
+        per_parcel_rms_ratio_median=float((d['two_F_rms_parcels'] / d['two_F_chain_rms']).median()),
+        ridge=dict(chain=float(d['two_F_chain_ridge'].mean()), discrete=float(d['two_F_ridge'].mean())),
+        flank=dict(chain=float(d['two_F_chain_flank'].mean()), discrete=float(d['two_F_flank'].mean())),
+        integral=dict(chain=_trapz(d, 'two_F_chain_mean'), discrete=_trapz(d, 'two_F')),
+        against={})
+    for m in ('r_store', 'r_matched'):
+        out['against'][m] = {k: dict(corr=float(np.corrcoef(d[m], x)[0, 1]), rms_diff=_rms(d[m] - x),
+                                     mean_diff=float((d[m] - x).mean()))
+                             for k, x in (('chain', c), ('discrete', f))}
+    out['per_parcel_corr_store'] = dict(chain=float(d['corr_store_chain'].median()),
+                                        discrete=float(d['corr_store_two_F'].median()))
+    out['per_parcel_corr_matched'] = dict(chain=float(d['corr_rate_chain'].median()),
+                                          discrete=float(d['corr_rate_two_F'].median()))
+    return out
+
+
 def track_summary(df):
     """The track's numbers the markdown quotes."""
     d = df.dropna(subset=['r_matched'])
@@ -356,6 +407,7 @@ def track_summary(df):
         budget_mean={k: float(d[k].mean()) for k in ('subfilter', 'vertical', 'surface_flux', 'residual')
                      if k in d},
         surface_flux=surface_flux_summary(d),
+        two_F_chain=chain_summary(d),
         set_change=set_change_summary(d, dict(two_F='two_F', r_store='r_store', r_matched='r_matched',
                                               S_1m='S_1m_mean', S_kpp='S_kpp_mean')),
         n_links=int(len(link)), n_split=int(link['split'].sum()), n_merge=int(link['merge'].sum()),
@@ -845,6 +897,216 @@ def semilag_detail(track, df, *, data_dir=None, slides_rel='../slides'):
     return L
 
 
+def _slide_2F_example(track, df, data_dir=None):
+    """The worked example of ``slides_2F.py`` (``data/slides_2F_<pair>.json``) when it is a
+    pair of this track with the same label and the same band-mean ``2F``; else ``None``."""
+    for f in sorted(Path(data_dir or DATA_DIR).glob('slides_2F_*.json')):
+        try:
+            d = json.load(open(f))
+        except (OSError, ValueError):
+            continue
+        s = d.get('pair')
+        if s in track.labels and int(track.labels[s]) == int(d.get('label', -1)):
+            row = df[df['step'] == s]
+            if len(row) and np.isclose(float(row['two_F'].iloc[0]), d['check']['band_mean_two_F'], rtol=1e-6):
+                return dict(d, row=row.iloc[0])
+    return None
+
+
+def two_F_detail(track, df, summ, *, data_dir=None, slides_rel='../slides'):
+    """Markdown lines of §1.3: how ``2F`` is calculated -- the continuum expression, its direct
+    evaluation on the grid (the chain-rule form, ``two_F_chain``) and the discretely consistent
+    form that is stored as ``two_F`` and used in every comparison (written from
+    ``operators.frontogenesis``), with the two forms compared on this track's parcels."""
+    L = []
+    w = L.append
+    u = UNIT
+    w('### 1.3 How `2F` is calculated: the continuum expression and its two forms on the grid')
+    w('')
+    w('*(added 2026-11-23, "2F" task 1; written from `py/operators.py`, `frontogenesis` and '
+      '`_frontogenesis_discrete`.)*')
+    w('')
+    w('There is one continuum expression for $F$ and there are two ways of evaluating it on the model grid. '
+      'The derived store holds both: `two_F_chain` and `two_F`. **Every `2F` in this document, and in the report, '
+      'is `two_F`, the discretely consistent form.** In short:')
+    w('')
+    w('| | what it is | exact for | in the store |')
+    w('|---|---|---|---|')
+    w('| continuum | the formula, for smooth fields | water that keeps its buoyancy and moves horizontally | — |')
+    w('| chain-rule form | the formula with every derivative replaced by a grid difference | nothing on a finite grid; '
+      'error of order $(\\Delta x/\\ell)^2$ for a front of width $\\ell$ | `two_F_chain` |')
+    w('| discretely consistent form | the rate of change of the **gridded** $G = \\lvert\\mathsf{L} b\\rvert^2$ under '
+      'advection | the quantity the stored `DG/Dt` measures, as $\\Delta t \\to 0$ | `two_F` (used here) |')
+    w('')
+    w('So the continuum expression is exact as mathematics, but it cannot be evaluated exactly from gridded fields. '
+      'Of the two gridded forms, the chain-rule form is the more direct transcription and the discretely consistent '
+      'form is the one that matches what the measured side computes. Neither is "the exact one"; they answer '
+      'slightly different questions, and on fronts one or two cells wide the difference is not small.')
+    w('')
+    w('#### The continuum expression')
+    w('')
+    w('If buoyancy is carried by the horizontal flow without change, $D_h b/Dt = \\partial_t b + \\mathbf{u}\\cdot\\nabla b = 0$. '
+      'Take the gradient of that equation. The gradient does not commute with advection, and the extra term is the '
+      'velocity gradient acting on the buoyancy gradient:')
+    w('')
+    w(r'$$\frac{D_h}{Dt}\frac{\partial b}{\partial x_k} = -\,\frac{\partial \mathbf{u}}{\partial x_k}\cdot\nabla b, '
+      r'\qquad k \in \{x, y\}.$$')
+    w('')
+    w(r'Multiply by $2\,\partial b/\partial x_k$ and sum over $k$, with $G = b_x^2 + b_y^2$:')
+    w('')
+    w(r'$$\frac{D_h G}{Dt} = -2\,(\nabla b)^{\mathsf T}(\nabla\mathbf{u})\,\nabla b = 2F, \qquad '
+      r'F = -\left(u_x\, b_x^2 + (u_y + v_x)\, b_x b_y + v_y\, b_y^2\right).$$')
+    w('')
+    w(r'The same quantity in terms of the divergence $\delta = u_x + v_y$, the strain magnitude $|\sigma|$ and the '
+      r'angle $\theta$ between $\nabla b$ and the compressional axis of the strain:')
+    w('')
+    w(r'$$2F = -\,\delta\, G + |\sigma|\, G \cos 2\theta .$$')
+    w('')
+    w('Convergence ($\\delta < 0$) sharpens the front; strain sharpens it when the buoyancy gradient lies within '
+      '45° of the compressional axis. The only assumptions are that $b$ is conserved along the horizontal flow and '
+      'that the fields are smooth. Vorticity does not appear: rotating the gradient does not change its length.')
+    w('')
+    w('#### Form 1 — the chain-rule form (`two_F_chain`)')
+    w('')
+    w('The formula for $F$ is evaluated with each derivative replaced by its grid estimate at the cell centre '
+      '(`operators.frontogenesis(form=\'chain\')`):')
+    w('')
+    w('- $b_x, b_y$ from the gradient stencil $\\mathsf{L}$ of `operators.grad_b`: differences of $b^m$ to the '
+      'two faces of the cell, averaged back to the centre (a centred difference over two cells), rotated to east / north.')
+    w('- $u_x, u_y, v_x, v_y$ from `operators.jacobian`: the face velocities $\\mathbf{u}^m$ are averaged to the '
+      'cell centres and rotated to east / north, then differenced and averaged back in the same way.')
+    w('- the three products are formed at the cell and summed; the stored field is $2F$.')
+    w('')
+    w('Each derivative is second-order accurate, which is very good for a feature many cells wide. The weakness is '
+      'specific to this use. The measured side does not hold the true $|\\nabla b|^2$; it holds the gridded '
+      '$G = |\\mathsf{L} b|^2$. A two-cell difference underestimates the gradient at the centre of a narrow front, '
+      'so the gridded $G$ is smaller than the true one, and its rate of change is smaller too. The chain-rule '
+      'form does not know this: it applies the product rule of calculus, which a finite-difference stencil does not '
+      'obey. It therefore predicts a larger rate than the gridded $G$ can show, even for a perfectly advected '
+      'field with no physics missing.')
+    w('')
+    w('#### Form 2 — the discretely consistent form (`two_F`, the one used)')
+    w('')
+    w('The idea is to repeat the continuum derivation with the stencil $\\mathsf{L}$ in place of the derivative, '
+      'keeping the commutator instead of applying the product rule. $\\mathsf{L}$ is linear, so under '
+      '$\\partial_t b = -\\mathbf{u}\\cdot\\nabla b$,')
+    w('')
+    w(r'$$\frac{D_h}{Dt}\left(\mathsf{L}_k b\right) = -\,\mathsf{L}_k\!\left(\mathbf{u}\cdot\nabla b\right) + '
+      r'\mathbf{u}\cdot\nabla\!\left(\mathsf{L}_k b\right) \equiv -\left[\mathsf{L}_k,\ \mathbf{u}\cdot\nabla\right] b, '
+      r'\qquad \frac{D_h}{Dt}\left|\mathsf{L} b\right|^2 = -2\sum_{k}\left(\mathsf{L}_k b\right)'
+      r'\left[\mathsf{L}_k,\ \mathbf{u}\cdot\nabla\right] b = 2F_{\rm disc}.$$')
+    w('')
+    w(r'In the continuum the commutator is $(\partial_k \mathbf{u})\cdot\nabla b$ and the chain-rule form is '
+      r'recovered. For the two-cell stencil, with $\mathsf{L}_k f = [f(\mathbf{x}+\mathbf{e}_k) - f(\mathbf{x}-\mathbf{e}_k)]/2h_k$, '
+      r'it is exactly')
+    w('')
+    w(r'$$\left[\mathsf{L}_k,\ \mathbf{u}\cdot\nabla\right] b = \frac{1}{2}\left[\frac{\mathbf{u}(\mathbf{x}+\mathbf{e}_k) - '
+      r'\mathbf{u}(\mathbf{x})}{h_k^{+}}\cdot\nabla b(\mathbf{x}+\mathbf{e}_k) + \frac{\mathbf{u}(\mathbf{x}) - '
+      r'\mathbf{u}(\mathbf{x}-\mathbf{e}_k)}{h_k^{-}}\cdot\nabla b(\mathbf{x}-\mathbf{e}_k)\right].$$')
+    w('')
+    w('Read it as the chain-rule term with two changes: the velocity gradient is the pair of **one-sided** '
+      'differences to the two neighbours, and each is multiplied by the buoyancy gradient **at that neighbour**, '
+      'not at the cell itself. Across a narrow front the gradient at the neighbours is weaker than at the centre, '
+      'which is how this form comes out smaller. As coded (`_frontogenesis_discrete`), on the midpoint fields '
+      '$b^m$, $\\mathbf{u}^m$:')
+    w('')
+    w('1. $g = (g_i, g_j) = \\mathsf{L} b^m$ along the two model axes (`grad_b`, then the rotation undone). '
+      '$F$ does not depend on the choice of axes, and the stencil is naturally written along the grid.')
+    w('2. $\\mathbf{u}_c = (u_c, v_c)$: the face velocities averaged to the cell centres, along the same axes. '
+      'This is the same centred velocity the semi-Lagrangian departure point of §1.1 is built from.')
+    w('3. The gradient at the neighbours is taken at fourth order, each component along its own axis: '
+      '$g^{(4)}_i = \\left[4 g_i - \\tfrac12\\left(g_i(i{+}1) + g_i(i{-}1)\\right)\\right]/3$, and likewise $g^{(4)}_j$ along $j$. '
+      'This is also the node derivative of the cubic interpolant the semi-Lagrangian step uses.')
+    w('4. For each axis $k$, with $h_k^{\\pm}$ the spacings to the upper and lower neighbour,')
+    w('')
+    w(r'$$C_k = \frac12\left[\frac{\left(\mathbf{u}_c(\mathbf{x}{+}\mathbf{e}_k) - \mathbf{u}_c(\mathbf{x})\right)\cdot '
+      r'g^{(4)}(\mathbf{x}{+}\mathbf{e}_k)}{h_k^{+}} + \frac{\left(\mathbf{u}_c(\mathbf{x}) - \mathbf{u}_c(\mathbf{x}{-}\mathbf{e}_k)\right)\cdot '
+      r'g^{(4)}(\mathbf{x}{-}\mathbf{e}_k)}{h_k^{-}}\right], \qquad 2F_{\rm disc} = -2\left(g_i\, C_i + g_j\, C_j\right).$$')
+    w('')
+    w('**How the two forms differ.**')
+    w('')
+    w(r'- They are equal when $b$ varies linearly across the stencil, and they converge as the front becomes wide '
+      r'compared with the grid.')
+    w(r'- At the centre of a front with a tanh profile of width $\ell$, the chain-rule form is larger than the '
+      r'rate of the gridded $G$ by the factor $1 + \tfrac23(\Delta x/\ell)^2$. The discrete form over the chain-rule '
+      r'form is then 0.86 for $\ell = 2\Delta x$ and 0.96 for $\ell = 4\Delta x$. The discrete form is correct to '
+      r'order $(\Delta x/\ell)^4$.')
+    w('- The form was not chosen in advance. The project\'s first validation test advected a tracer with the '
+      'analysis\'s own semi-Lagrangian step, so that the truth was known, and regressed the measured rate on the '
+      'chain-rule `2F`: the result on the real tile was 0.758 where 1 was required. With the discretely consistent '
+      'form and a cubic departure velocity the same test gives 0.981 [0.970, 0.994] (report §4, "the discrete '
+      'null"). That is a property of the operators on a synthetic truth, not a result about the model\'s fronts.')
+    w('- What the discrete form gives up: it predicts the rate of the gridded $G$, which on a front one or two cells '
+      'wide is not the rate of the true $|\\nabla b|^2$. The comparison in this document is between two gridded '
+      'quantities, which is what makes it a fair one.')
+    w('')
+    c = summ.get('two_F_chain')
+    if c is not None:
+        ag = c['against']
+        w(f'**The two forms on this track** (means over the same parcels at every step: '
+          f'{"confirmed" if c["same_parcels"] else "not at every step"}; × 10⁻¹⁹ s⁻⁵; '
+          f'{summ["n_rates"]} steps). The ratio of the two forms compares two predictions and is not a measured '
+          f'over predicted ratio.')
+        w('')
+        w('| | chain-rule form | discrete form (`two_F`) |')
+        w('|---|---|---|')
+        w(f'| mean over the track | {_f(c["mean"]["chain"] / u)} | {_f(c["mean"]["discrete"] / u)} |')
+        w(f'| r.m.s. of the hourly band means | {c["rms"]["chain"] / u:.2f} | {c["rms"]["discrete"] / u:.2f} |')
+        w(f'| fraction of hours positive | {c["frac_hours_pos"]["chain"]:.2f} | {c["frac_hours_pos"]["discrete"]:.2f} |')
+        w(f'| mean on the ridge (the label\'s own pixels) | {_f(c["ridge"]["chain"] / u)} | {_f(c["ridge"]["discrete"] / u)} |')
+        w(f'| mean on the flanks | {_f(c["flank"]["chain"] / u)} | {_f(c["flank"]["discrete"] / u)} |')
+        w(f'| integral over the track (10⁻¹⁴ s⁻⁴) | {_f(c["integral"]["chain"] / 1e-14)} | {_f(c["integral"]["discrete"] / 1e-14)} |')
+        w(f'| against the stored `DG/Dt`: correlation of hourly means | {ag["r_store"]["chain"]["corr"]:.3f} | {ag["r_store"]["discrete"]["corr"]:.3f} |')
+        w(f'| against the stored `DG/Dt`: r.m.s. difference | {ag["r_store"]["chain"]["rms_diff"] / u:.2f} | {ag["r_store"]["discrete"]["rms_diff"] / u:.2f} |')
+        w(f'| against the stored `DG/Dt`: mean difference (stored − form) | {_f(ag["r_store"]["chain"]["mean_diff"] / u)} | {_f(ag["r_store"]["discrete"]["mean_diff"] / u)} |')
+        w(f'| against the matched rate: correlation of hourly means | {ag["r_matched"]["chain"]["corr"]:.3f} | {ag["r_matched"]["discrete"]["corr"]:.3f} |')
+        w(f'| against the matched rate: r.m.s. difference | {ag["r_matched"]["chain"]["rms_diff"] / u:.2f} | {ag["r_matched"]["discrete"]["rms_diff"] / u:.2f} |')
+        w(f'| against the matched rate: mean difference (matched − form) | {_f(ag["r_matched"]["chain"]["mean_diff"] / u)} | {_f(ag["r_matched"]["discrete"]["mean_diff"] / u)} |')
+        w(f'| per parcel within a step, correlation with the stored `DG/Dt` (median) | {c["per_parcel_corr_store"]["chain"]:.2f} | {c["per_parcel_corr_store"]["discrete"]:.2f} |')
+        w(f'| per parcel within a step, correlation with the matched rate (median) | {c["per_parcel_corr_matched"]["chain"]:.2f} | {c["per_parcel_corr_matched"]["discrete"]:.2f} |')
+        w('')
+        w(f'- The hourly band means of the two forms correlate at {c["corr"]:.3f}; the discrete form is '
+          f'{c["rms_ratio"]:.2f} of the chain-rule form in r.m.s. and {c["mean_ratio"]:.2f} in the mean. '
+          f'The chain-rule form is the larger in magnitude at {c["frac_hours_abs_chain_larger"]:.0%} of hours.')
+        w(f'- Parcel by parcel within a step they correlate at a median {c["per_parcel_corr_median"]:.2f}, with the '
+          f'discrete form a median {c["per_parcel_rms_ratio_median"]:.2f} of the chain-rule form in r.m.s. '
+          f'They are the same pattern at different amplitude, not two different fields.')
+        w('- The rows "against the stored `DG/Dt`" and "against the matched rate" show which form sits closer to each '
+          'measured rate on this track. They are descriptive: the budget did not close, and no row is an efficiency.')
+        w('')
+    ex = _slide_2F_example(track, df, data_dir)
+    if ex is not None:
+        s, m, sp, ck, dec = ex['pair'], ex['method'], ex['split'], ex['check'], ex['decomposition']
+        pc, row = m['parcel'], ex['row']
+        w(f'**A worked example: pair {s} of this track** (label {ex["label"]}, {ck["n_band"]:,} parcels, midpoint '
+          f'{ex["time_mid"][-5:]} UTC), the same hour, front, window and parcel as the `DG/Dt` figure of §1.1; drawn by '
+          f'`py/slides_2F.py`, which recomputes both forms from the raw store and agrees with the stored fields to '
+          f'{max(ck["two_F_max_err_over_rms"], ck["two_F_chain_max_err_over_rms"]):.0e} of their r.m.s.')
+        w('')
+        w(f'![2F of pair {s}]({slides_rel}/2F_method.png)')
+        w('')
+        w('**Figure (from the slides): `slides/2F_method.png`**, north-up. The picture is explained with the '
+          'continuum expression (convergence plus aligned strain); the numbers in (c) and (f) are the stored '
+          'discrete form. (a) the front and the window; (b) one parcel: contours of $b^m$, the direction of '
+          '$\\nabla b$ (red), the compressional axis of the strain (black) and the flow relative to the parcel '
+          '(purple); (c) `2F` at every parcel; (d) the relative flow in the window, converging on the front; '
+          '(e) the alignment $\\cos 2\\theta$; (f) `2F` in the window.')
+        w('')
+        w(f'- **The parcel of panel (b)** (j {pc["j"]}, i {pc["i"]}): $G = {pc["G"] / 1e-13:.3f}$ × 10⁻¹³ s⁻⁴, '
+          f'$\\delta = {pc["delta"] / 1e-5:+.2f}$ × 10⁻⁵ s⁻¹ ({"convergent" if pc["delta"] < 0 else "divergent"}), $|\\sigma| = {pc["sigma"] / 1e-5:.2f}$ × 10⁻⁵ s⁻¹, '
+          f'$\\theta = {pc["theta_deg"]:.0f}°$. Convergence gives $-\\delta G = {pc["conv"] / u:+.1f}$ and strain '
+          f'$|\\sigma| G \\cos 2\\theta = {pc["strain"] / u:+.1f}$, so the chain-rule form is {pc["two_F_chain"] / u:+.1f}. '
+          f'The discrete form at the same cell is **{pc["two_F"] / u:+.1f}**, {pc["two_F"] / pc["two_F_chain"]:.2f} of it.')
+        w(f'- **The band.** The chain-rule form averages {sp["two_F_chain_mean"]:+.2f} ({sp["conv"]["band_mean"]:+.2f} from '
+          f'convergence and {sp["strain"]["band_mean"]:+.2f} from strain; `slides/2F_split.png`); the discrete form '
+          f'averages **{sp["two_F_discrete_mean"]:+.2f}**, {sp["ratio"]:.2f} of it, and the two correlate at '
+          f'{sp["corr"]:.2f} over the parcels. {m["frac_theta_lt_45"]:.0%} of the parcels have $\\theta < 45°$.')
+        w(f'- **Against the measured rates at this pair:** stored `DG/Dt` {row["r_store"] / u:+.2f}, matched rate '
+          f'{row["r_matched"] / u:+.2f}. One pair shows how the numbers are formed; it is not evidence for either form.')
+        w('')
+    return L
+
+
 def write_markdown(path, name, track, source, df, summ, m4, pages, series_png, parcels_png,
                    detail_steps, keys, *, band=BAND, budget_png=None):
     lab, a = track.anchor.label, track.anchor.step
@@ -897,7 +1159,8 @@ def write_markdown(path, name, track, source, df, summ, m4, pages, series_png, p
       'neighbour gradients are fourth order. It is what the semi-Lagrangian difference below tends to under exact '
       'advection on this grid. It equals the continuum expression for a linear $b$; at the centre of a front of '
       'width $\\ell$ the continuum expression is larger by a factor $1 + \\tfrac23 (\\Delta x/\\ell)^2$. `2F` is '
-      'an instantaneous quantity: it uses one time level (the midpoint) and no time difference.')
+      'an instantaneous quantity: it uses one time level (the midpoint) and no time difference. §1.3 derives both '
+      'forms and compares them on this track.')
     w('')
     w('**Stored `DG/Dt`** (`DGDt_semilag`), the measured tendency. One semi-Lagrangian step over the hour of the pair '
       '(`semilag.measured_DGDt`):')
@@ -945,6 +1208,7 @@ def write_markdown(path, name, track, source, df, summ, m4, pages, series_png, p
       'therefore re-seeded every hour. The figures of §6 show how the chosen label compares with the previous label '
       'carried by the flow, which is what decides how much the population changes from one hour to the next.')
     w('')
+    L.extend(two_F_detail(track, df, s))
     sp = s['same_parcels']
     w('## 2. Are the three rates calculated on the same set of parcels in each pair?')
     w('')

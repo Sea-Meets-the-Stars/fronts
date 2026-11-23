@@ -223,6 +223,53 @@ def appendix_c_checks():
     return out
 
 
+def split_checks():
+    """The divergence + strain split of §2.5, from ``slides_2F_36.json`` (slides 2F prompt 5)."""
+    dc = _load('slides_2F_36.json')['decomposition']
+    b, q = dc['band'], dc['parcel']
+    e5 = 1e5
+    out = [
+        ('split: f', [f"$f = {dc['f'] * e5:.2f} \\times 10^{{-5}}$"]),
+        ('split: parcels', [f"{b['n']:,} parcels"]),
+        ('split: rate conv', [f"| +{b['rate_conv'] * e5:.2f} |"]),
+        ('split: rate strain', [f"| +{b['rate_strain'] * e5:.2f} |"]),
+        ('split: rate total', [f"+{b['rate'] * e5:.2f} ({b['rate_over_f']:.2f} $f$; e-folding {b['efold_h']:.0f} h)"]),
+        ('split: |delta|', [f"$|\\delta|$ {b['abs_delta'] * e5:.2f}"]),
+        ('split: |sigma|', [f"$|\\sigma|$ {b['sigma'] * e5:.2f}"]),
+        ('split: conv', [f"| +{b['conv']:.2f} |"]),
+        ('split: strain', [f"| +{b['strain']:.2f} |"]),
+        ('split: chain', [f"| +{b['two_F_chain']:.2f} |", f"continuum +{b['two_F_chain']:.2f}"]),
+        ('split: |delta| over |sigma|', [f"{100 * b['abs_delta'] / b['sigma']:.0f} % of $|\\sigma|$"]),
+        ('split: convergent', [f"{100 * b['frac_convergent']:.0f} % of the parcels converge"]),
+        ('split: net over |delta|', [f"{b['net_over_abs_delta']:.2f} of the typical"]),
+        ('split: theta < 45', [f"On {100 * b['frac_theta_lt_45']:.0f} % of the parcels"]),
+        ('split: median theta', [f"median $\\theta$ {b['theta_median_deg']:.0f}°"]),
+        ('split: mean cos 2 theta', [f"mean $\\cos 2\\theta$ {b['cos2theta_mean']:.2f}"]),
+        ('split: strain realised', [f"delivers {b['strain_realised']:.2f} of"]),
+        ('split: strain share', [f"Strain carries {100 * b['strain_share']:.0f} %"]),
+        ('split: ridge', [f"+{dc['ridge']['conv']:.2f} from convergence, +{dc['ridge']['strain']:.2f} from strain"]),
+        ('split: flank', [f"+{dc['flank']['conv']:.2f}, +{dc['flank']['strain']:.2f}"]),
+        ('split: discrete', [f"+{b['two_F']:.2f}, {b['discrete_over_chain']:.2f} of the continuum"]),
+        ('split: parcel delta, sigma', [f"$\\delta = {q['delta'] * e5:.2f}$ and $|\\sigma| = {q['sigma'] * e5:.2f}"]),
+        ('split: parcel theta', [f"$\\theta = {q['theta_deg']:.0f}°$"]),
+        ('split: parcel rates', [f"${q['rate_conv'] * e5:+.2f}$ from convergence and ${q['rate_strain'] * e5:+.2f}$ from strain"]),
+        ('split: parcel total', [f"${q['rate'] * e5:.2f} \\times 10^{{-5}}$ s$^{{-1}}$ ({q['rate_over_f']:.2f} $f$; e-folding {q['efold_h']:.1f} h)"]),
+    ]
+    dd = dc['discrete']
+    out += [
+        ('split: discrete row', [f"+{dd['div']:.2f} + {dd['strain']:.2f} = +{b['two_F']:.2f}"]),
+        ('split: discrete terms', [f"+{dd['div']:.2f} from convergence and +{dd['strain']:.2f} from strain"]),
+        ('split: discrete remainder', [f"remainder of {dd['rot']:.3f} (r.m.s. {dd['rot_rms']:.1f} against {dd['total_rms']:.1f}"]),
+        ('split: discrete share', [f"Strain again carries {100 * dd['strain_share']:.0f} %"]),
+        ('split: discrete shrink', [f"convergence to {dd['div_over_cont']:.2f} and strain to {dd['strain_over_cont']:.2f}"]),
+        ('split: discrete corr', [f"at {dd['corr_div']:.2f} and {dd['corr_strain']:.2f}"]),
+        ('split: discrete ridge/flank', [f"+{dc['ridge']['d_div']:.2f} and +{dc['ridge']['d_strain']:.2f}, on the flanks "
+                                         f"+{dc['flank']['d_div']:.2f} and +{dc['flank']['d_strain']:.2f}"]),
+    ]
+    assert dc['split_max_err_over_rms'] < 1e-14
+    return out
+
+
 def body_checks():
     out = [c for c in interim.checks() if c[0] not in INTERIM_DROPPED]
     for lab, r in digging.checks():
@@ -231,7 +278,7 @@ def body_checks():
             out.append((lab, r))
     for L in L_ALL:
         out.append((f'L={L} residual over 2F', [f2(S['per_L'][L]['closure']['residual']['over_two_F'])]))
-    return out + m4_checks()
+    return out + m4_checks() + split_checks()
 
 
 def slope_renderings():

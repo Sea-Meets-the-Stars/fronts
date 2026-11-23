@@ -1,6 +1,6 @@
 # Matched parcels along the track of label 81 (anchor pair 35)
 
-*Generated 2026-11-21 by `py/matched_parcels.py` (track analysis, "Matched parcels" task 1). Regenerate with `python matched_parcels.py --label 81 --anchor-step 35`. Every number here is in `data/matched_parcels_track_81.json`.*
+*Generated 2026-11-23 by `py/matched_parcels.py` (track analysis, "Matched parcels" task 1). Regenerate with `python matched_parcels.py --label 81 --anchor-step 35`. Every number here is in `data/matched_parcels_track_81.json`.*
 
 **Setting.** LLC4320 tile 330, `L = 0`, `mask_analysis`, finder config D, flow-informed track (m4_tracks.json flow track 0). The track is found at 71 pairs, 0–70 (2012-07-02 00:30 to 2012-07-04 22:30 UTC); the label has 104 / 178 / 413 pixels (min / median / max). Rates are on the band-1, centred construction (M4-Q3 (a)) and are quoted in units of 10⁻¹⁹ s⁻⁵. The M3 budget did not close, so **no ratio or slope of these rates is an efficiency**.
 
@@ -28,7 +28,7 @@ $$2F_t(\mathbf{x}) = -2 \sum_{k \in \{x,\,y\}} \left(\mathsf{L}_k b^{m}\right) \
 
 $$\left[\mathsf{L}_k,\ \mathbf{u}\!\cdot\!\nabla\right] b = \frac{\left(\mathbf{u}(\mathbf{x}+\mathbf{e}_k) - \mathbf{u}(\mathbf{x})\right)\!\cdot\!\nabla b(\mathbf{x}+\mathbf{e}_k) + \left(\mathbf{u}(\mathbf{x}) - \mathbf{u}(\mathbf{x}-\mathbf{e}_k)\right)\!\cdot\!\nabla b(\mathbf{x}-\mathbf{e}_k)}{2 h_k}.$$
 
-The bracket is the commutator of the gradient stencil with advection; $h_k$ is the grid spacing and the neighbour gradients are fourth order. It is what the semi-Lagrangian difference below tends to under exact advection on this grid. It equals the continuum expression for a linear $b$; at the centre of a front of width $\ell$ the continuum expression is larger by a factor $1 + \tfrac23 (\Delta x/\ell)^2$. `2F` is an instantaneous quantity: it uses one time level (the midpoint) and no time difference.
+The bracket is the commutator of the gradient stencil with advection; $h_k$ is the grid spacing and the neighbour gradients are fourth order. It is what the semi-Lagrangian difference below tends to under exact advection on this grid. It equals the continuum expression for a linear $b$; at the centre of a front of width $\ell$ the continuum expression is larger by a factor $1 + \tfrac23 (\Delta x/\ell)^2$. `2F` is an instantaneous quantity: it uses one time level (the midpoint) and no time difference. §1.3 derives both forms and compares them on this track.
 
 **Stored `DG/Dt`** (`DGDt_semilag`), the measured tendency. One semi-Lagrangian step over the hour of the pair (`semilag.measured_DGDt`):
 
@@ -126,6 +126,105 @@ $$r_{\rm store}(t) = \frac{1}{N_t}\sum_{p \in P_t} \left.\frac{D_h G}{Dt}\right|
 4. **Parcels kept.** A parcel counts only if every sample is finite. The first and last pairs have no centred difference, so 69 of 71 steps have rates.
 
 **The previous label does not enter any rate.** The parcels of step `t` are seeded on the label chosen at `t`; the label at `t − 1` is used only by the tracker, to choose the label at `t`. The parcel population is therefore re-seeded every hour. The figures of §6 show how the chosen label compares with the previous label carried by the flow, which is what decides how much the population changes from one hour to the next.
+
+### 1.3 How `2F` is calculated: the continuum expression and its two forms on the grid
+
+*(added 2026-11-23, "2F" task 1; written from `py/operators.py`, `frontogenesis` and `_frontogenesis_discrete`.)*
+
+There is one continuum expression for $F$ and there are two ways of evaluating it on the model grid. The derived store holds both: `two_F_chain` and `two_F`. **Every `2F` in this document, and in the report, is `two_F`, the discretely consistent form.** In short:
+
+| | what it is | exact for | in the store |
+|---|---|---|---|
+| continuum | the formula, for smooth fields | water that keeps its buoyancy and moves horizontally | — |
+| chain-rule form | the formula with every derivative replaced by a grid difference | nothing on a finite grid; error of order $(\Delta x/\ell)^2$ for a front of width $\ell$ | `two_F_chain` |
+| discretely consistent form | the rate of change of the **gridded** $G = \lvert\mathsf{L} b\rvert^2$ under advection | the quantity the stored `DG/Dt` measures, as $\Delta t \to 0$ | `two_F` (used here) |
+
+So the continuum expression is exact as mathematics, but it cannot be evaluated exactly from gridded fields. Of the two gridded forms, the chain-rule form is the more direct transcription and the discretely consistent form is the one that matches what the measured side computes. Neither is "the exact one"; they answer slightly different questions, and on fronts one or two cells wide the difference is not small.
+
+#### The continuum expression
+
+If buoyancy is carried by the horizontal flow without change, $D_h b/Dt = \partial_t b + \mathbf{u}\cdot\nabla b = 0$. Take the gradient of that equation. The gradient does not commute with advection, and the extra term is the velocity gradient acting on the buoyancy gradient:
+
+$$\frac{D_h}{Dt}\frac{\partial b}{\partial x_k} = -\,\frac{\partial \mathbf{u}}{\partial x_k}\cdot\nabla b, \qquad k \in \{x, y\}.$$
+
+Multiply by $2\,\partial b/\partial x_k$ and sum over $k$, with $G = b_x^2 + b_y^2$:
+
+$$\frac{D_h G}{Dt} = -2\,(\nabla b)^{\mathsf T}(\nabla\mathbf{u})\,\nabla b = 2F, \qquad F = -\left(u_x\, b_x^2 + (u_y + v_x)\, b_x b_y + v_y\, b_y^2\right).$$
+
+The same quantity in terms of the divergence $\delta = u_x + v_y$, the strain magnitude $|\sigma|$ and the angle $\theta$ between $\nabla b$ and the compressional axis of the strain:
+
+$$2F = -\,\delta\, G + |\sigma|\, G \cos 2\theta .$$
+
+Convergence ($\delta < 0$) sharpens the front; strain sharpens it when the buoyancy gradient lies within 45° of the compressional axis. The only assumptions are that $b$ is conserved along the horizontal flow and that the fields are smooth. Vorticity does not appear: rotating the gradient does not change its length.
+
+#### Form 1 — the chain-rule form (`two_F_chain`)
+
+The formula for $F$ is evaluated with each derivative replaced by its grid estimate at the cell centre (`operators.frontogenesis(form='chain')`):
+
+- $b_x, b_y$ from the gradient stencil $\mathsf{L}$ of `operators.grad_b`: differences of $b^m$ to the two faces of the cell, averaged back to the centre (a centred difference over two cells), rotated to east / north.
+- $u_x, u_y, v_x, v_y$ from `operators.jacobian`: the face velocities $\mathbf{u}^m$ are averaged to the cell centres and rotated to east / north, then differenced and averaged back in the same way.
+- the three products are formed at the cell and summed; the stored field is $2F$.
+
+Each derivative is second-order accurate, which is very good for a feature many cells wide. The weakness is specific to this use. The measured side does not hold the true $|\nabla b|^2$; it holds the gridded $G = |\mathsf{L} b|^2$. A two-cell difference underestimates the gradient at the centre of a narrow front, so the gridded $G$ is smaller than the true one, and its rate of change is smaller too. The chain-rule form does not know this: it applies the product rule of calculus, which a finite-difference stencil does not obey. It therefore predicts a larger rate than the gridded $G$ can show, even for a perfectly advected field with no physics missing.
+
+#### Form 2 — the discretely consistent form (`two_F`, the one used)
+
+The idea is to repeat the continuum derivation with the stencil $\mathsf{L}$ in place of the derivative, keeping the commutator instead of applying the product rule. $\mathsf{L}$ is linear, so under $\partial_t b = -\mathbf{u}\cdot\nabla b$,
+
+$$\frac{D_h}{Dt}\left(\mathsf{L}_k b\right) = -\,\mathsf{L}_k\!\left(\mathbf{u}\cdot\nabla b\right) + \mathbf{u}\cdot\nabla\!\left(\mathsf{L}_k b\right) \equiv -\left[\mathsf{L}_k,\ \mathbf{u}\cdot\nabla\right] b, \qquad \frac{D_h}{Dt}\left|\mathsf{L} b\right|^2 = -2\sum_{k}\left(\mathsf{L}_k b\right)\left[\mathsf{L}_k,\ \mathbf{u}\cdot\nabla\right] b = 2F_{\rm disc}.$$
+
+In the continuum the commutator is $(\partial_k \mathbf{u})\cdot\nabla b$ and the chain-rule form is recovered. For the two-cell stencil, with $\mathsf{L}_k f = [f(\mathbf{x}+\mathbf{e}_k) - f(\mathbf{x}-\mathbf{e}_k)]/2h_k$, it is exactly
+
+$$\left[\mathsf{L}_k,\ \mathbf{u}\cdot\nabla\right] b = \frac{1}{2}\left[\frac{\mathbf{u}(\mathbf{x}+\mathbf{e}_k) - \mathbf{u}(\mathbf{x})}{h_k^{+}}\cdot\nabla b(\mathbf{x}+\mathbf{e}_k) + \frac{\mathbf{u}(\mathbf{x}) - \mathbf{u}(\mathbf{x}-\mathbf{e}_k)}{h_k^{-}}\cdot\nabla b(\mathbf{x}-\mathbf{e}_k)\right].$$
+
+Read it as the chain-rule term with two changes: the velocity gradient is the pair of **one-sided** differences to the two neighbours, and each is multiplied by the buoyancy gradient **at that neighbour**, not at the cell itself. Across a narrow front the gradient at the neighbours is weaker than at the centre, which is how this form comes out smaller. In fact the second change is the only one: **the same sum with the centre gradient $g(\mathbf{x})$ in place of the neighbour gradients is the chain-rule form**, because the mean of the two one-sided velocity differences is the centred velocity gradient. `py/slides_2F.py` asserts this on the band of pair 36 (agreement to 7e-12 of the r.m.s.; *added 2026-11-23, slides 2F prompt 9*). At the close-up parcel of the slides (j 126, i 653) the four neighbour terms are +40.7 (north), +21.8 (south), +4.3 (east) and +6.0 (west), summing to `two_F` = +72.8; with the centre gradient they are +51.6, +32.2, +4.0 and +6.2, summing to `two_F_chain` = +94.1. Almost all of it is the cross-front (north–south) pair, where the neighbours read 0.75 and 0.78 of the centre's gradient. Figure: `slides/2F_discrete.png`. As coded (`_frontogenesis_discrete`), on the midpoint fields $b^m$, $\mathbf{u}^m$:
+
+1. $g = (g_i, g_j) = \mathsf{L} b^m$ along the two model axes (`grad_b`, then the rotation undone). $F$ does not depend on the choice of axes, and the stencil is naturally written along the grid.
+2. $\mathbf{u}_c = (u_c, v_c)$: the face velocities averaged to the cell centres, along the same axes. This is the same centred velocity the semi-Lagrangian departure point of §1.1 is built from.
+3. The gradient at the neighbours is taken at fourth order, each component along its own axis: $g^{(4)}_i = \left[4 g_i - \tfrac12\left(g_i(i{+}1) + g_i(i{-}1)\right)\right]/3$, and likewise $g^{(4)}_j$ along $j$. This is also the node derivative of the cubic interpolant the semi-Lagrangian step uses.
+4. For each axis $k$, with $h_k^{\pm}$ the spacings to the upper and lower neighbour,
+
+$$C_k = \frac12\left[\frac{\left(\mathbf{u}_c(\mathbf{x}{+}\mathbf{e}_k) - \mathbf{u}_c(\mathbf{x})\right)\cdot g^{(4)}(\mathbf{x}{+}\mathbf{e}_k)}{h_k^{+}} + \frac{\left(\mathbf{u}_c(\mathbf{x}) - \mathbf{u}_c(\mathbf{x}{-}\mathbf{e}_k)\right)\cdot g^{(4)}(\mathbf{x}{-}\mathbf{e}_k)}{h_k^{-}}\right], \qquad 2F_{\rm disc} = -2\left(g_i\, C_i + g_j\, C_j\right).$$
+
+**How the two forms differ.**
+
+- They are equal when $b$ varies linearly across the stencil, and they converge as the front becomes wide compared with the grid.
+- At the centre of a front with a tanh profile of width $\ell$, the chain-rule form is larger than the rate of the gridded $G$ by the factor $1 + \tfrac23(\Delta x/\ell)^2$. The discrete form over the chain-rule form is then 0.86 for $\ell = 2\Delta x$ and 0.96 for $\ell = 4\Delta x$. The discrete form is correct to order $(\Delta x/\ell)^4$.
+- The form was not chosen in advance. The project's first validation test advected a tracer with the analysis's own semi-Lagrangian step, so that the truth was known, and regressed the measured rate on the chain-rule `2F`: the result on the real tile was 0.758 where 1 was required. With the discretely consistent form and a cubic departure velocity the same test gives 0.981 [0.970, 0.994] (report §4, "the discrete null"). That is a property of the operators on a synthetic truth, not a result about the model's fronts.
+- What the discrete form gives up: it predicts the rate of the gridded $G$, which on a front one or two cells wide is not the rate of the true $|\nabla b|^2$. The comparison in this document is between two gridded quantities, which is what makes it a fair one.
+
+**The two forms on this track** (means over the same parcels at every step: confirmed; × 10⁻¹⁹ s⁻⁵; 69 steps). The ratio of the two forms compares two predictions and is not a measured over predicted ratio.
+
+| | chain-rule form | discrete form (`two_F`) |
+|---|---|---|
+| mean over the track | +3.87 | +2.79 |
+| r.m.s. of the hourly band means | 6.41 | 5.63 |
+| fraction of hours positive | 0.83 | 0.81 |
+| mean on the ridge (the label's own pixels) | +5.21 | +3.82 |
+| mean on the flanks | +3.37 | +2.41 |
+| integral over the track (10⁻¹⁴ s⁻⁴) | +9.40 | +6.76 |
+| against the stored `DG/Dt`: correlation of hourly means | 0.942 | 0.947 |
+| against the stored `DG/Dt`: r.m.s. difference | 1.96 | 1.61 |
+| against the stored `DG/Dt`: mean difference (stored − form) | -0.85 | +0.23 |
+| against the matched rate: correlation of hourly means | 0.924 | 0.938 |
+| against the matched rate: r.m.s. difference | 3.51 | 2.49 |
+| against the matched rate: mean difference (matched − form) | -2.90 | -1.82 |
+| per parcel within a step, correlation with the stored `DG/Dt` (median) | 0.41 | 0.46 |
+| per parcel within a step, correlation with the matched rate (median) | 0.28 | 0.36 |
+
+- The hourly band means of the two forms correlate at 0.997; the discrete form is 0.88 of the chain-rule form in r.m.s. and 0.72 in the mean. The chain-rule form is the larger in magnitude at 86% of hours.
+- Parcel by parcel within a step they correlate at a median 0.95, with the discrete form a median 0.86 of the chain-rule form in r.m.s. They are the same pattern at different amplitude, not two different fields.
+- The rows "against the stored `DG/Dt`" and "against the matched rate" show which form sits closer to each measured rate on this track. They are descriptive: the budget did not close, and no row is an efficiency.
+
+**A worked example: pair 36 of this track** (label 83, 1,143 parcels, midpoint 12:30 UTC), the same hour, front, window and parcel as the `DG/Dt` figure of §1.1; drawn by `py/slides_2F.py`, which recomputes both forms from the raw store and agrees with the stored fields to 2e-07 of their r.m.s.
+
+![2F of pair 36](../slides/2F_method.png)
+
+**Figure (from the slides): `slides/2F_method.png`**, north-up. The picture is explained with the continuum expression (convergence plus aligned strain); the numbers in (c) and (f) are the stored discrete form. (a) the front and the window; (b) one parcel: contours of $b^m$, the direction of $\nabla b$ (red), the compressional axis of the strain (black) and the flow relative to the parcel (purple); (c) `2F` at every parcel; (d) the relative flow in the window, converging on the front; (e) the alignment $\cos 2\theta$; (f) `2F` in the window.
+
+- **The parcel of panel (b)** (j 126, i 653): $G = 3.082$ × 10⁻¹³ s⁻⁴, $\delta = -2.18$ × 10⁻⁵ s⁻¹ (convergent), $|\sigma| = 1.48$ × 10⁻⁵ s⁻¹, $\theta = 27°$. Convergence gives $-\delta G = +67.2$ and strain $|\sigma| G \cos 2\theta = +26.9$, so the chain-rule form is +94.1. The discrete form at the same cell is **+72.8**, 0.77 of it.
+- **The band.** The chain-rule form averages +4.21 (+1.29 from convergence and +2.92 from strain; `slides/2F_split.png`); the discrete form averages **+3.46**, 0.82 of it, and the two correlate at 0.95 over the parcels. 72% of the parcels have $\theta < 45°$.
+- **Against the measured rates at this pair:** stored `DG/Dt` +4.20, matched rate +2.38. One pair shows how the numbers are formed; it is not evidence for either form.
 
 ## 2. Are the three rates calculated on the same set of parcels in each pair?
 

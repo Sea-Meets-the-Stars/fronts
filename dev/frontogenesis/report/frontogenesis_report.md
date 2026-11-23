@@ -83,6 +83,54 @@ $$
 
 Three properties matter later. The sign: heating that favours the dense side of a front lowers $b$ most where it is highest, so $S < 0$ — **frontolytic**. The depth scale: with $h = \Delta z = 1$ m, $S$ is the term the stored top cell obeys instant by instant; with $h = h_{\rm bl}$, the boundary-layer depth, it is the hourly-mean tendency after the mixing scheme has spread the flux down — a factor of about 22 in amplitude and none in pattern (§7.3). Linearity: $S$ is exactly the sum of a non-solar heat part, a shortwave part and a freshwater part, and on the pooled front pixels the non-solar part is 0.996 of its amplitude at the grid scale. The fluxes are six-hourly forcing interpolated by the model, so the shortwave's diurnal cycle is a triangle peaking at 13 local solar time, not resolved insolation.
 
+### 2.5 What sharpens a front: convergence and strain
+
+**$G$ measures the spacing of isopycnals.** If two neighbouring isopycnals differ by $\Delta b$ and lie a distance $\ell$ apart, then $|\nabla_h b| \approx \Delta b/\ell$ and $G \approx \Delta b^2/\ell^2$. A parcel conserves $b$ in adiabatic flow, so $\Delta b$ is fixed, and everything that changes $G$ following the water changes the spacing:
+
+$$
+\frac{1}{G}\frac{DG}{Dt} = -\frac{2}{\ell}\frac{D\ell}{Dt}.
+$$
+
+To sharpen a front is to bring its isopycnals closer together. What $F$ adds is *which part of the flow* does that.
+
+**The rate form.** With the horizontal divergence $\delta = u_x + v_y$, the strain magnitude $|\sigma| = [(u_x - v_y)^2 + (v_x + u_y)^2]^{1/2}$ and the angle $\theta$ between $\nabla_h b$ and the compressional axis of the strain, the kinematic term of §2.1 is, exactly,
+
+$$
+2F = -\delta\, G + |\sigma|\, G \cos 2\theta, \qquad\text{that is}\qquad \boxed{\;\frac{1}{G}\frac{DG}{Dt} = -\delta + |\sigma| \cos 2\theta\;}
+$$
+
+for adiabatic horizontal flow. Each term is a growth rate of $G$ in s$^{-1}$, and its inverse is an e-folding time. The vorticity does not appear. Appendix D gives the derivation: the velocity gradient splits exactly into an isotropic squeeze, an area-preserving strain and a solid rotation, and the rotation turns $\nabla_h b$ without changing its length.
+
+**The two pure flows.** Each term is clearest in its own flow, taken alone.
+
+- *Divergence*, $u = \tfrac{1}{2}\delta x$, $v = \tfrac{1}{2}\delta y$. Every length changes at the rate $\delta/2$ in every direction, so $D\ell/Dt = \tfrac{1}{2}\delta\,\ell$ and $(1/G)\,DG/Dt = -\delta$. **Convergence ($\delta < 0$) packs the isopycnals together whatever the front's orientation**: a ring of parcels shrinks uniformly.
+- *Strain*, $u' = +\tfrac{1}{2}|\sigma| x'$ along the extensional axis and $v' = -\tfrac{1}{2}|\sigma| y'$ along the compressional axis. Area is conserved, so a ring of parcels becomes an ellipse. The gradient component along the compressional axis grows at $|\sigma|/2$ and the component along the extensional axis decays at the same rate, so $(1/G)\,DG/Dt = |\sigma|(\cos^2\theta - \sin^2\theta) = |\sigma| \cos 2\theta$.
+  - At $\theta = 0°$ the isopycnals lie along the stretching direction and are squeezed together, at the largest rate, $+|\sigma|$. This is the classical deformation-field front.
+  - At $\theta = 45°$ compression and stretching cancel.
+  - At $\theta = 90°$ the isopycnals are pulled apart, at $-|\sigma|$.
+
+  **The same strain sharpens or weakens a front according to the front's orientation, not the strain's strength.**
+
+**One front.** The terms are evaluated on the front of §9.4 at 2012-07-03 12:30 UTC: label 83 of track 0, on its one-cell band of 1,143 parcels, where $f = 6.80 \times 10^{-5}$ s$^{-1}$. The rates are weighted by $G$, the weighting under which the band means of $2F$ add up ($\langle 2F\rangle = \langle G\rangle \times$ rate).
+
+| | rate, $G$-weighted [10$^{-5}$ s$^{-1}$] | magnitude, $G$-weighted [10$^{-5}$ s$^{-1}$] | contribution to $\langle 2F\rangle$ [10$^{-19}$ s$^{-5}$] |
+|---|---|---|---|
+| convergence, $-\delta$ | +0.22 | $|\delta|$ 1.06 | +1.29 |
+| strain, $|\sigma| \cos 2\theta$ | +0.51 | $|\sigma|$ 1.77 | +2.92 |
+| total | +0.73 (0.11 $f$; e-folding 38 h) | | +4.21 |
+| stored discrete $2F$, the same split (point 3) | | | +1.08 + 2.39 = +3.46 |
+
+- **Divergence is large but mostly cancels.** The typical $|\delta|$ is 60 % of $|\sigma|$, but only 59 % of the parcels converge; the rest diverge. The net convergence rate is 0.21 of the typical $|\delta|$.
+- **Strain keeps one sign.** On 72 % of the parcels $\nabla_h b$ lies within 45° of the compressional axis (median $\theta$ 29°, mean $\cos 2\theta$ 0.33). The strain therefore delivers 0.29 of the rate it would at $\theta = 0$, consistently.
+- **Strain carries 69 % of $2F$ on this front.** The same holds on the ridge (+1.93 from convergence, +4.25 from strain) and on the flanks (+1.05, +2.43).
+- **Single parcels can differ.** At the parcel in the middle of the window of the slides, $\delta = -2.18$ and $|\sigma| = 1.48 \times 10^{-5}$ s$^{-1}$ with $\theta = 27°$. The rates there are $+2.18$ from convergence and $+0.87$ from strain, a total of $3.05 \times 10^{-5}$ s$^{-1}$ (0.45 $f$; e-folding 9.1 h). That parcel is convergence-led, while the front as a whole is strain-led.
+
+**Three points of reading.**
+
+1. **Why strain sets the sign and convergence varies.** The mesoscale strain varies slowly and is coherent along the front. Much of the convergence is the front's own ageostrophic secondary circulation: the cross-front overturning that holds the front near thermal-wind balance (Hoskins & Bretherton 1972; Hoskins 1982). It converges on one side of the front and diverges on the other, consistent with the 59/41 split above. In the semi-geostrophic picture, strain starts the sharpening and the convergence it induces speeds it up. At the surface, $\delta = -\partial w/\partial z$, so convergence comes with downwelling.
+2. **Vorticity acts through $\theta$.** The vorticity $\zeta$ does not change $G$, but it rotates $\nabla_h b$, while strain turns $\nabla_h b$ toward the compressional axis. The balance between the two sets the typical angle (Lapeyre, Klein & Hua 1999). A front at $\theta \approx 29°$, not at 0°, is the mark of that competition.
+3. **The split holds for the discrete $2F$ as well.** The identity is exact for the chain-rule form: here the two terms reproduce it to $10^{-15}$ of its r.m.s., with $\delta$ and $\sigma$ formed from the same Jacobian. The $2F$ this report compares with $D_hG/Dt$ is the discretely consistent form (§4), a commutator of the gradient stencil; on this front it is +3.46, 0.82 of the continuum +4.21. That form is linear in the one-sided velocity differences to each neighbour, so splitting those exactly as above splits it too (Appendix D, Step 4): **+1.08 from convergence and +2.39 from strain**, with a rotation remainder of −0.003 (r.m.s. 2.4 against 16.2 for the total) that vanishes for a linear $b$. Strain again carries 69 %. The grid shrinks both terms, convergence to 0.84 and strain to 0.82 of their continuum values; cell by cell each correlates with its continuum counterpart at 0.97 and 0.96. On the ridge the discrete terms are +1.68 and +3.23, on the flanks +0.86 and +2.08.
+
 ---
 
 ## 3. Method
@@ -443,6 +491,10 @@ Units are given for every variable. The grid cell on this tile is 1.68–2.07 km
 | $\Delta z$ | top-cell thickness, 1.0 m | m |
 | $h_{\rm bl}$ | boundary-layer depth of the model's vertical mixing scheme (KPP); median 22.2 m on front pixels | m |
 | $\nabla^4 b$ | biharmonic of buoyancy, the signature of scale-selective numerical diffusion | m$^{-3}$ s$^{-2}$ |
+| $\delta$; $\zeta$ | horizontal divergence $u_x + v_y$; vertical vorticity $v_x - u_y$ (§2.5) | s$^{-1}$ |
+| $\sigma_n$, $\sigma_s$; $|\sigma|$ | normal and shear strain, $u_x - v_y$ and $v_x + u_y$; strain magnitude $(\sigma_n^2 + \sigma_s^2)^{1/2}$ | s$^{-1}$ |
+| $\theta$ | angle between $\nabla_h b$ and the compressional axis of the strain, in $[0°, 90°]$; $\theta < 45°$ is frontogenetic | ° |
+| $f$ | Coriolis parameter, $6.80 \times 10^{-5}$ at 27.8 °N | s$^{-1}$ |
 | $\Delta b$; front width | the buoyancy step across a tracked front; the distance over which $b$ rises from 25 to 75 % of that step | m s$^{-2}$; km |
 
 **Method**
@@ -482,6 +534,7 @@ Units are given for every variable. The grid cell on this tile is 1.68–2.07 km
 | closure, figure and case summaries | `m3_closure_summary.json`, `m3_figs_summary.json`, `m3_case_summary.json`, `m3_case_sflux.json` |
 | digging summaries | `m3_controls_summary.json`, `m3_case_controls.json`, `m3_term_tests_summary.json`, `m3_tracer_summary.json`, `m3_tile2_summary.json`, `m3_parcels_summary.json` |
 | object summaries | `m4_find_done.json`, `m4_track_summary.json`, `m4_recon.json`, `m4_quality.json`, `m4_strength.json` |
+| split summary | `slides_2F_36.json`: the divergence and strain rates of §2.5, recomputed from the stores by `py/slides_2F.py` |
 | `measured`, `two_F`, `subfilter`, `vertical`, `surface_flux`, `residual` | the budget columns: $D_hG/Dt$, $2F$, $\tau$, $V$, $S$, $R$ |
 | `mask_analysis`, `front & valid`, `KPPhbl`, `lap2_b` | the analysis mask; the gate's pool; $h_{\rm bl}$; $\nabla^4 b$ |
 | config D | the front finder's production configuration used in §3.6 |
@@ -529,6 +582,7 @@ Every number in this report is taken from a task log entry in `claude_prompts/fr
 | coastal front 1,179 pixels | §10 | log only — prompt 5 task 1 |
 | the two package defects | §10 | log only — M1 task 7a, prompt 5 task 4 |
 | 504-hour cost; $L = 16$ mask | §12 | log only — M3 tasks 4 and 8; M3-Q3 |
+| divergence and strain split on the §9.4 front at 12:30, 3 July | §2.5 | `slides_2F_36.json` `decomposition` (written by `py/slides_2F.py`); flux-form sum 4.29: log only, slides 2F prompt 1 |
 | the withheld slopes | Appendix C only | `per_L[L].slopes_not_quoted`; `m3_figs_summary.json` `fig02`, `fig03`; the tracer's from `m3_tracer_summary.json` |
 
 ---
@@ -565,3 +619,55 @@ Three things follow from the table, none of them a statement about fronts.
 *The trend with $L$ is not damping.* The baseline is a grid-scale baseline. At $L > 0$ the budget for the filtered $G$ contains the sub-filter term, which opposes $2F$ and grows with $L$ (§5.2), so the slope on $2F$ alone must fall with $L$ with no diabatic process at all. The offline tracer of §7.1 — a calibration of the pipeline, with no physics — gives ordinary-least-squares slopes of 0.976 / 0.677 / 0.586 / 0.558 at $L = 0 / 2 / 4 / 8$ under the same analysis. The model's slopes lie *above* the tracer's at every scale.
 
 *The second null condition.* The condition reads: the measured slope is not distinguishable from the discrete-null baseline. It can be judged only at $L = 0$, where the baseline applies. There the ordinary-least-squares slope, 1.342 [1.304, 1.376], is distinguishable from 0.981 [0.970, 0.994] — and lies *above* it, as do the trimmed and chain-rule values: the measured tendency is, if anything, larger than the kinematic prediction, the opposite sense to damping. **The condition is therefore not met as written.** It is also uninformative: the departure from the baseline has the sign of the residual's positive regression on $2F$ (+0.440, §5.1), it changes by a factor of two with the estimator, and it belongs to a budget whose residual is as large as its signal. A slope from a budget that does not close has no interpretation, in either direction, and that — not the value of the slope — is why none is quoted.
+
+---
+
+## Appendix D. The divergence and strain split, derived
+
+The conventions are those of the code: `operators.frontogenesis` (`form='chain'`), `strain_from_jacobian` and `strain_alignment`.
+
+**Step 1: the gradient equation.** Take the horizontal gradient of $Db/Dt = 0$:
+
+$$
+\frac{D b_x}{Dt} = -(u_x b_x + v_x b_y), \qquad \frac{D b_y}{Dt} = -(u_y b_x + v_y b_y), \qquad\text{i.e.}\qquad \frac{D\nabla_h b}{Dt} = -(\nabla \mathbf{u})^{\mathsf T}\, \nabla_h b,
+$$
+
+with $\nabla\mathbf{u} = \begin{pmatrix} u_x & u_y \\ v_x & v_y \end{pmatrix}$. Only *differences* of velocity across the front enter, so a uniform current moves a front without changing it. Then
+
+$$
+\frac{DG}{Dt} = 2\,\nabla_h b \cdot \frac{D\nabla_h b}{Dt} = -2\left( u_x b_x^2 + (u_y + v_x) b_x b_y + v_y b_y^2 \right) = 2F .
+$$
+
+**Step 2: three motions.** Every 2 × 2 velocity gradient is, identically,
+
+$$
+\nabla\mathbf{u} = \tfrac{1}{2}\delta \begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix} + \tfrac{1}{2}\begin{pmatrix} \sigma_n & \sigma_s \\ \sigma_s & -\sigma_n \end{pmatrix} + \tfrac{1}{2}\zeta \begin{pmatrix} 0 & -1 \\ 1 & 0 \end{pmatrix},
+$$
+
+with $\delta = u_x + v_y$, $\sigma_n = u_x - v_y$, $\sigma_s = v_x + u_y$ and $\zeta = v_x - u_y$. The three parts are an isotropic squeeze, an area-preserving (trace-free, symmetric) strain and a solid rotation. Multiplying out recovers $u_x, u_y, v_x, v_y$. In the quadratic form $F = -(\nabla_h b)^{\mathsf T}(\nabla\mathbf{u})(\nabla_h b)$:
+
+- the rotation gives zero, because $\mathbf{g}^{\mathsf T}\begin{pmatrix} 0 & -1 \\ 1 & 0 \end{pmatrix}\mathbf{g} = 0$ for every $\mathbf{g}$;
+- the squeeze gives $-\tfrac{1}{2}\delta G$;
+- the strain gives $-\tfrac{1}{2}\left[\sigma_n (b_x^2 - b_y^2) + 2\sigma_s b_x b_y\right]$.
+
+**Step 3: the angle.** Write $\nabla_h b = \sqrt{G}\,(\cos\alpha, \sin\alpha)$, so that $b_x^2 - b_y^2 = G\cos 2\alpha$ and $2 b_x b_y = G \sin 2\alpha$. Write the strain as $\sigma_n = |\sigma|\cos 2\psi$, $\sigma_s = |\sigma|\sin 2\psi$. Then
+
+$$
+\sigma_n (b_x^2 - b_y^2) + 2\sigma_s b_x b_y = |\sigma|\, G \cos 2(\alpha - \psi).
+$$
+
+In a frame rotated by $\psi$ the strain matrix is $\tfrac{1}{2}|\sigma|\,\mathrm{diag}(1, -1)$, so $\psi$ is the **extensional** axis and $\psi + 90°$ the **compressional** axis. With $\theta$ the angle between $\nabla_h b$ and the compressional axis, $\alpha - \psi = \theta + 90°$ and $\cos 2(\alpha - \psi) = -\cos 2\theta$. Collecting the terms:
+
+$$
+F = -\tfrac{1}{2}\,\delta\, G + \tfrac{1}{2}\,|\sigma|\, G\cos 2\theta, \qquad 2F = -\delta\, G + |\sigma|\, G\cos 2\theta .
+$$
+
+The sign of the strain term is plus because $\theta$ is measured from the compressional axis. Measured from the extensional axis, it would be minus. Since $\cos 2\theta$ does not change with the sign of $b$ or of the axis, $\theta$ is folded to $[0°, 90°]$.
+
+**Step 4: on the grid.** The identity is algebraic, so it holds exactly for the chain-rule $F$ when $\delta$, $\sigma_n$ and $\sigma_s$ are formed from the same Jacobian as $F$ (`strain_from_jacobian`). With the flux-form $\delta$ and $\sigma$ of the derived stores, the two terms sum to 4.29 rather than 4.21 on the front of §2.5. The discretely consistent $2F$ is not of this quadratic form, but it has an exact split of its own. In `_frontogenesis_discrete`,
+
+$$
+F = -\tfrac{1}{2}\sum_{\pm}\sum_{k} g_k \sum_{j} J^{\pm}_{jk}\, \hat g_j(\mathbf{x} \pm \mathbf{e}_k),
+$$
+
+where $J^{\pm}$ is the **one-sided velocity gradient** (the velocity differences to the $\pm$ neighbours along each axis, over the face spacing), $g_k$ the centred gradient and $\hat g$ the fourth-order gradient *at the neighbours*. $F$ is linear in $J^{\pm}$, so splitting each $J^{\pm}$ as in Step 2 splits $F$ exactly into a convergence, a strain and a rotation part. The rotation part no longer vanishes, because $\hat g$ is taken at the neighbours rather than at the centre; it is a grid remainder, zero for a linear $b$. On the front of §2.5 the split reproduces the stored $2F$ to float32 precision, the parts sum to it to $10^{-15}$ of its r.m.s., and it gives +1.08 + 2.39 − 0.003 = +3.46 (`slides_2F.discrete_parts`). The same sum with the centre gradient $g_k(\mathbf{x})$ in place of $\hat g(\mathbf{x}\pm\mathbf{e}_k)$ is the chain-rule $F$, since the mean of the two one-sided velocity gradients is the centred one (asserted on that band to 7e-12 of the r.m.s.). **The two gridded forms therefore differ in one thing only: where the buoyancy gradient is read.** Across a front one or two cells wide the neighbours sit on the shoulders of the gradient peak and read less than the centre, which is why the discrete form is the smaller (0.82 on this front).

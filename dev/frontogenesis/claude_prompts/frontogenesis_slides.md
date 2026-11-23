@@ -177,11 +177,430 @@ at least a portion of this in the main Report.
 If you have any additional questions, put them in the "Q&A/2F" section below.
 Use Opus 5.5. Log your work.
 
-5. Back to the `slides/2F_method.png` figure.  Please make a few more edits:
+5. I have answered your questions.  Please read them and proceed to make the edits.
+Then back to the `slides/2F_method.png` figure.  Please make more edits:
+    - Reduce the font size for the panel titles and axes lables by about 20%.  I wish for the figures to be more prominent
+
+    If you have any additional questions, put them in the "Q&A/2F" section below.
+    Use Opus 5.5. Log your work.
+
+6. Ok, now make edits to `slides/2F_split.png` figure:
+    - Remove the title
+    - Remove the footnote
+    - Increase the fonts throughout; make them similar to the current font size for `slides/2F_method.png`
+    - I wish for the values to reflect the actual approach to 2F used when comparing the gridded G.
+    We wish to show the results for the stored discrete form
+    (aka `two_F`), not the continuum form.  This may mean redesigning the figure.  
+    Let us discuss in the "Q&A/New split" section below before you make edits to the figure.
+    Use Opus 5.5. Log your work.
+
+7. I have answered your questions.  Please read them and proceed to make the edits to `slides/2F_split.png`.
+Use Opus 5.5. Log your work.
+
+8. Let us make an additional method figure for the 2F calculation that describes the calculation actually
+performed to make the comparison, as opposed to the current one which is more pedagogical and oriented
+towards the continuum approach.  That is, I wish to show the equations and a figure (or two) that 
+describe the discretely consistent form of the 2F calculation.
+You may wish to examine the `tracked/matched_parcels_track_81.md` file for additional information.
+You will add this as an additional method to the `py/slides_2F.py` module.
+Before making this figure, discuss it with me in the "Q&A/Discrete 2F" section below.
+Use Opus 5.5. Log your work.
+
+9. Ok, I have answered your questions in "Q&A/Discrete 2F".  Please read them and proceed 
+to make the edits to the new figure.  Call it `slides/2F_discrete.png`.
+If you have any additional questions, put them in the "Q&A/Discrete 2F" section below.
+Use Opus 5.5. Log your work.
+
+10. That is a fine start.  Here are edits to make:
+    - Use $\nabla b$ in place of $g$ throughout the figure
+    - Panel (x) is extraneous.  Remove it.  Maybe instead show the evaluation of 2F at each parcel
+    - It is unclear with $e_k$ refers to, or even what $k$ is.  Clarify
+    - Instead of providing the $G$ equation at the start of the calculation, show the $F$ equation:
+    $F = -\left(u_x\, b_x^2 + (u_y + v_x)\, b_x b_y + v_y\, b_y^2\right)$
+
+    If you have any concerns, suggestions or additional questions, put them in the "Q&A/Discrete 2F" section below.
+    Use Opus 5.5. Log your work.
+
+### Comparing dG/dt and 2F
+
+1. Ok, we are ready to make the next figure.  It will be called `slides/2F_vs_dGdt.png` and
+be modeled after the top panel in Figure 1 of the `tracked/matched_parcels_track_81.md` file.
+However, we want formatting best for a Google Slide and other edits.
+Note that we will then make a gallery of such figures, one for each of the 10 fronts
+tracked in the scene.
+Before making this figure, discuss it with me in the "Q&A/Comparing" section below.
+Use Opus 5.5. Log your work.
+
+2. I have answered your questions in "Q&A/Comparing".  Please read them and proceed to make 
+a first draft of the figure.  Call it `slides/2F_vs_dGdt.png`.  The gallery figure will have
+a different name.
+If you have any additional questions, put them in the "Q&A/Comparing" section below.
+Use Opus 5.5. Log your work.
+
+3. Ok, now make a gallery of the other 9 fronts.  Call it `slides/2F_vs_dGdt_gallery.png`.
+It too will be a Google slide.  Label each as for the GIF we created, with our focus front number 0.
+Match the colors in the GIF if you can.
+If you have any questions, put them in the "Q&A/Gallery" section below.
+Use Opus 5.5. Log your work.
 
 ## Q&A
 
-### 2F
+### Gallery
+
+*Opus 5.5, 2026-11-23, Comparing prompt 3: after the first draft of
+`slides/2F_vs_dGdt_gallery.png`.*
+
+**Design choices I made (say if you want any changed):**
+- **Layout:** a 3 × 3 grid of fronts 1–9 on one 10 × 4.45 in slide, 9 pt text, one shared
+  legend at the top, dates on the bottom row only.
+- **Front identity:** each panel's tag "k: label L" sits on that front's colour in
+  `tracking_top10.gif`, and the panel's left and bottom axes are drawn in the same colour.
+  The curves keep the blue (`2F`) and purple (`DG/Dt`) of `2F_vs_dGdt.png`, so the two slides
+  read the same way.
+- **Scales:** each front has its own y-scale (front 7 spans ±0.6, front 1 up to +61).
+- **Numbers:** "means 2F / DG/Dt; r" in each panel's upper right. The dashed anchor line is
+  kept (CMP-Q7).
+
+**What the gallery shows (for the talk; no action needed):**
+- 2F and DG/Dt rise and fall together on all nine (r 0.80–0.97), except **front 5 (r 0.58)**.
+  There DG/Dt starts strongly negative (−8) in the first hours while 2F is near zero.
+- **Front 1 (label 84)** is the strongest front, and from 3 July on DG/Dt runs systematically
+  above 2F (track means +18.8 against +11.2). It is the largest gap of the ten.
+- **Front 3** is the only one where DG/Dt is mostly below 2F (means +0.22 against +0.98).
+
+**GAL-Q1 — Front 0 in the gallery?** The prompt asked for the other nine, so front 0 is not
+included. A 10th panel (a 2 × 5 grid) would put all ten on one slide, at the cost of smaller
+panels. Keep nine?
+
+**GAL-Q2 — A common scale as well?** For a "how big are they" view, I could add a small strip or
+a second slide with all ten on one shared scale (front 1 would dominate). Probably not needed.
+
+### Comparing
+
+*Opus 5.5, 2026-11-23, Comparing prompt 1. Discussion only; nothing drawn. The model is the top
+panel of Figure 1 in `tracked/matched_parcels_track_81.md`
+(`tracked/figs/matched_parcels_track_81_series.png`, drawn by `py/matched_parcels.py`).*
+
+**The data are already there for all ten fronts, without opening a store.**
+`data/m4_strength.json` → `series` has, for each of the 10 tracks and each of the 71 hours:
+the label, `npix`, the time, `two_F`, `r_store` (the stored semi-Lagrangian `DG/Dt`),
+`r_matched` and a `split_merge` flag. `data/m4_quality.json` → `flow.rows` separates `split` and
+`merge` link by link. A gallery is therefore a fast, JSON-only script.
+
+Front 0 (label 81) at pair 36 gives `2F` = +3.46 and stored = +4.20, exactly the band means of
+`2F_method.png` and `dGdt_method.png`.
+
+| track | anchor label | median px | mean `2F` / stored / matched [10⁻¹⁹ s⁻⁵] | range | corr. (`2F`, stored) | split/merge links |
+|---|---|---|---|---|---|---|
+| 0 | 81 | 178 | +2.79 / +3.01 / +0.97 | −13.8 … +16.7 | 0.95 | 9 |
+| 1 | 84 | 141 | +11.2 / +18.8 / +10.8 | −6.3 … +60.9 | 0.91 | 14 |
+| 2 | 202 | 238 | +3.18 / +3.82 / +1.61 | −1.0 … +8.3 | 0.92 | 14 |
+| 3 | 100 | 227 | +0.98 / +0.22 / −0.82 | −4.7 … +4.2 | 0.90 | 10 |
+| 4 | 187 | 286 | +0.60 / +1.09 / +0.51 | −0.8 … +2.4 | 0.85 | 16 |
+| 5 | 5 | 212 | +1.07 / −0.07 / −0.11 | −10.2 … +5.1 | 0.58 | 15 |
+| 6 | 96 | 151 | +1.01 / +1.79 / +0.73 | −6.1 … +9.0 | 0.80 | 4 |
+| 7 | 133 | 113 | +0.15 / +0.06 / −0.07 | −0.5 … +0.6 | 0.81 | 7 |
+| 8 | 161 | 145 | +1.41 / +1.67 / +0.51 | −4.0 … +7.3 | 0.97 | 12 |
+| 9 | 218 | 115 | +0.31 / +0.60 / +0.35 | −0.9 … +2.0 | 0.88 | 1 |
+
+**Proposed design (`slides/2F_vs_dGdt.png`, front 0):**
+- **Size and text:** 10 × 4.45 in at 300 dpi, no title or footnote. One panel only (the pixel
+  counts are dropped), so the text can be larger than on the six-panel slides: 13 pt axis labels
+  and 11 pt ticks and legend.
+- **Time axis:** UTC time instead of the pair index. Ticks every 12 h (2 Jul 00:00 … 4 Jul
+  24:00), each rate plotted at its midpoint time (hh:30).
+- **Curves:** `2F` (blue, solid) and the stored `DG/Dt` (purple, solid, not dotted). `DG/Dt`
+  is the semi-Lagrangian rate of the slides.
+- **Zero line**, a **vertical line at the anchor hour**, and **▲ split / ▼ merge** markers
+  along the bottom.
+- **Units:** 10⁻¹⁹ s⁻⁵ on the y-axis.
+
+**CMP-Q1 — Which rates?** The title says "2F vs dG/dt".
+- (a) `2F` and the stored `DG/Dt` only. **Recommended**: it is the comparison the method slides
+  build up to.
+- (b) All three, with the matched rate in grey. It is the second measurement of the same rate,
+  and it sits below the stored one at every hour on front 0, but it needs its own explanation on
+  the slide.
+
+>A. Use (a), only the two rates
+
+**CMP-Q2 — A summary box?** I suggest a small box in a corner with the track means (`2F` +2.79,
+`DG/Dt` +3.01) and the correlation of the hourly values (0.95). The project rule applies: no
+ratio is shown, and none is called an efficiency. **OK?** Or nothing?
+
+>A. Ok, a small summary box is fine.
+
+**CMP-Q3 — Link to the method slides.** On front 0, mark pair 36 (12:30 on 3 July) with a dot
+on each curve, labelled "the slides' hour" or similar, so the audience sees where +3.46 and +4.20
+came from. For the other nine fronts there is no such hour. **Want it?**
+
+>A. Yes, add that.
+
+**CMP-Q4 — Splits and merges.** Keep the ▲/▼ markers as in Figure 1, use grey shading of
+split/merge hours as in report Figure 11, or drop them? They explain jumps in the curves, but
+on fronts 1, 2, 4 and 5 there are 14–16 such links in 70. My suggestion: small markers along
+the bottom.
+
+>A. Let's not include those markers for now.  They tend to be distracting.
+
+**CMP-Q5 — The gallery.**
+- *Files:* one figure per front, `slides/2F_vs_dGdt_front{0..9}.png`, front 0 being
+  `slides/2F_vs_dGdt.png`. Optionally also an overview slide with all ten as a 2 × 5 grid of
+  small panels.
+- *Y scales:* the ranges differ by a factor of 100 (front 7 ±0.6, front 1 up to +61), so each
+  front gets **its own y-scale**. A shared scale would flatten eight of the ten. **OK?**
+- *Identification:* a short tag in a corner, "front 0: label 81 at 11:30, 3 July; median 178
+  px". A thumbnail map of where each front lies would need a store read; skip it, or add it?
+
+>A. We aren't ready to show the gallery yet.  Focus on our first front, the one we have focused
+on all along.
+
+**CMP-Q6 — Code.** A new `py/slides_2F_vs_dGdt.py` that reads only the two JSON files
+(`m4_strength.json`, `m4_quality.json`) and reuses `SLIDE_SIZE` / `METHOD_DPI`, rather than
+extending `matched_parcels.py`, whose figure is a report figure. `--track k` draws one front and
+`--all` the gallery. **OK?**
+
+>A. Yes, that is fine.
+
+#### Round 2 (Opus 5.5, 2026-11-23, Comparing prompt 2): after the first draft
+
+**CMP-Q7 — Label 81 or 83?** The anchor line reads "anchor: label 81" (11:30, 3 July), but the
+method slides call the same front "label 83", its label one hour later at pair 36. On one slide
+deck the audience may wonder whether these are different fronts. Options:
+- (a) Drop the anchor line. It is a tracking detail, and the slides' hour already ties the
+  figure to the method slides.
+- (b) Keep it, relabelled "tracked from here (label 81)".
+- (c) Keep it as is.
+
+My suggestion is (a).
+
+>A. 81 is fine; leave it
+
+**CMP-Q8 — The y-axis label.** It is now "band mean [10⁻¹⁹ s⁻⁵]". "Mean over the front's
+parcels" may read better on a slide, since "band" is jargon from the tracked doc. **Change it?**
+
+>A. Yes, change it to "Mean over the front's parcels"
+
+**CMP-Q9 — Rate or integral?** The figure shows hourly rates. A second panel or a companion
+figure could show the integrated change of `G` (`2F` +6.76 against the stored rate +7.31 ×
+10⁻¹⁴ s⁻⁴ over the 68 hours, tracked doc §4 item 3). That is the "does the front sharpen as
+predicted" view, with the caveats of that section. For later, or not at all?
+
+>A. I think the current one is fine.
+
+## Discrete 2F
+
+*Opus 5.5, 2026-11-23, 2F prompt 8. Discussion only; nothing drawn. The numbers come from a
+scratch script that uses the operator's own arithmetic (`_frontogenesis_discrete`, as in
+`slides_2F.discrete_parts`), at pair 36 for the close-up parcel (j 126, i 653) used by all the
+slides. The notation follows `tracked/matched_parcels_track_81.md` §1.3, Form 2. Units are
+10⁻¹⁹ s⁻⁵.*
+
+**What the calculation is, in one sentence.** The gridded `G = |L b|²` changes because, for
+each axis `k`, the velocity *differences* to the two neighbours carry the buoyancy gradient
+*at those neighbours* across the cell:
+
+`C_k = ½ [ (u(x+e_k) − u(x)) · g⁽⁴⁾(x+e_k) / h_k⁺  +  (u(x) − u(x−e_k)) · g⁽⁴⁾(x−e_k) / h_k⁻ ]`,
+`2F_disc = −2 (g_i C_i + g_j C_j)`.
+
+**What makes it a good slide.** I checked that the chain-rule form is **the same sum with the
+centre gradient `g(x)` in place of the neighbour gradients `g⁽⁴⁾(x ± e_k)`**. At the parcel the
+substitution gives 94.06, equal to the stored `two_F_chain` (94.06) to 10⁻¹³. *The two forms
+differ in one thing only: where the gradient is read.* Across a narrow front the neighbours
+sit on the shoulders of the gradient peak, so they read a weaker gradient, and the discrete
+form is smaller.
+
+The four neighbour terms at the parcel (`−g_k (Δu · g⁽⁴⁾)/h`, summing to `2F`):
+
+| neighbour (geographic) | across or along the front | `\|g⁽⁴⁾\|` / `\|g(x)\|` | discrete term | same with `g(x)` (chain) |
+|---|---|---|---|---|
+| model `i+1` (south) | across | 0.75 | +21.8 | +32.2 |
+| model `i−1` (north) | across | 0.78 | +40.7 | +51.6 |
+| model `j+1` (east) | along | 1.06 | +4.3 | +4.0 |
+| model `j−1` (west) | along | 0.97 | +6.0 | +6.2 |
+| **sum** | | | **+72.8 = stored `two_F`** | **+94.1 = stored `two_F_chain`** |
+
+- Almost all of `2F` here comes from the **cross-front** pair, and that is where the
+  neighbours read only 0.75–0.78 of the centre's gradient. `G` itself falls to 0.59 and 0.52
+  of its peak one cell away across the front, against 0.84 and 0.97 along it: the front is
+  about two cells wide.
+- The along-front pair barely matters, and there the two forms agree.
+- On this face the model axes are rotated 90° from geographic: `i` points south and `j` east.
+  The stencil therefore happens to line up with north and east, which makes it easy to draw.
+
+**Proposed figure: `slides/2F_discrete.png`** (slide format: 10 × 4.45 in, 300 dpi, 10.5 / 9 pt,
+no title or footnote). A new `fig_discrete()` in `py/slides_2F.py`, drawn in the same run.
+- **(a) The equations**, as a text panel. `G = |L b|²` → `D(L_k b)/Dt = −[L_k, u·∇] b` →
+  `C_k` as above → `2F = −2 Σ_k g_k C_k`. Underneath, one line: "chain rule: the same with
+  `g(x)` in place of `g⁽⁴⁾(x ± e_k)`".
+- **(b) The stencil at the parcel**, at true scale like `2F_method.png` (b). `b_mid` shading and
+  contours, the centre cell and its four neighbours. At each neighbour: the velocity difference
+  `Δu` (purple arrow, from the centre to that neighbour) and the neighbour gradient `g⁽⁴⁾` (red
+  arrow, scaled against the centre's `g`, which is drawn in bold).
+- **(c) The four terms** as paired bars: discrete (solid) against centre-gradient = chain
+  (outline), with the totals +72.8 and +94.1 as two summary bars.
+
+**DF-Q1 — One figure or two?**
+- (a) The three panels above as **one figure**, (a) | (b) | (c) in one row, using the full
+  slide height. **Recommended**: it is one idea.
+- (b) As (a), plus a second figure `slides/2F_discrete_vs_chain.png` that generalises the
+  parcel to the front:
+  - (d) the cross-front profile of `G` at the parcel, with the centre and the two neighbours
+    marked;
+  - (e) per-parcel discrete against chain over the band (correlation 0.95, ratio of means
+    0.82; on the ridge 0.81);
+  - (f) the window map of the ratio.
+
+  This is useful, but it repeats the numbers already in `2F_split.png` and the report.
+
+>A. Go with (a)
+
+**DF-Q2 — Neighbour labels.** I suggest labelling the neighbours geographically (N, S, E, W),
+with a small note that the stencil runs along the model grid, which on this face is north/east
+aligned. Should the model `i`/`j` instead appear only in the equations? **OK?**
+
+>A. It is fine to lable N,S,E,W.  Do not add the note.
+
+**DF-Q3 — How much of the operator to show.** I would leave two details out of the equations
+and describe them in words beside panel (b):
+- the fourth-order neighbour gradient: `g⁽⁴⁾ = [4g − ½(g(+1) + g(−1))]/3` along its own axis,
+  which is the node derivative of the cubic interpolant used by the semi-Lagrangian step;
+- the one-sided spacings `h_k^±`.
+
+Do you want them in the equations instead?
+
+>A. Do leave those out.  Do not add the note.
+
+**DF-Q4 — Which parcel?** The shared close-up parcel. It is a good example: discrete/chain is
+0.77 there, a bit below the band's 0.82, and the cross-front axis is clean. **OK?**
+
+>A. Yes, that is ok.
+
+**DF-Q5 — Report and tracked doc.** The finding that "chain = the same sum with the centre
+gradient" is a one-line addition to `tracked/matched_parcels_track_81.md` §1.3 and to report
+Appendix D. It is simple, exact and explains the 0.82. Should I add it (asserted band-wide in
+the script and JSON-backed) when I make the figure?
+
+>A. Yes, add that.
+
+#### Round 2 (Opus 5.5, 2026-11-23, 2F prompt 10): after the edits
+
+**DF-Q6 — "Panel (x)".** I read it as **(c)**, the bar chart of the four neighbour terms, since
+your suggestion was to show `2F` at each parcel instead. (c) is now `2F` (stored) at every parcel
+of the band, with the mean (+3.46), the scale of the `DG/Dt` slide, and the parcel of (b) marked.
+The bar-chart numbers are still in `data/slides_2F_36.json` (`discrete.neighbours`) and in
+`tracked/matched_parcels_track_81.md` §1.3. If you meant a different panel, say which.
+
+**Two remarks, no action needed:**
+- `F` in (a) is written in `x, y` (east, north), as you gave it. The code evaluates the stencil
+  along the model axes, which on this face are rotated 90° (`i` points south). Because the
+  stencil is symmetric (± along each axis) and `F` does not depend on the axes, writing
+  `k = x, y` in (a) is exact, not an approximation.
+- Without the bar chart, the figure no longer shows that the chain rule is "the same sum with
+  `∇b(x)`". That point now rests on the last line of (a). If it should be seen on the slide, a
+  small inset in (b) with the two sums (+72.8 against +94.1) would do it. Do you want one?
+
+## New split
+
+*Opus 5.5, 2026-11-23, 2F prompt 6. Discussion only; `2F_split.png` is not touched. The numbers
+are from a scratch script (`slides_2F.compute` plus the pipeline's own
+`_frontogenesis_discrete` arithmetic), at pair 36: label 83, its 1,143 parcels, 12:30. Units
+are 10⁻¹⁹ s⁻⁵.*
+
+**The problem.** The current figure splits the *continuum* `2F`: +1.29 + 2.92 = +4.21. The
+number compared with the gridded `DG/Dt` is the *stored discrete* `two_F`, +3.46. In Round 3 I
+wrote that the discrete form "has no unique split of its own". That remains true, but it has
+a **natural, exact** one, and it can be computed.
+
+**The exact split of the stored `two_F`.** The discrete `F` (operators.py,
+`_frontogenesis_discrete`) is the commutator form
+
+`F = −½ Σ_sides Σ_k g_k Σ_j J^side_jk ĝ_j(x ± e_k)`.
+
+- `J^side` is the **one-sided velocity gradient** on each side: the velocity differences to
+  the `+` or `−` neighbours, divided by the spacing.
+- `ĝ` is the 4th-order gradient taken *at those neighbours*.
+
+`F` is linear in `J^side`. So split each one-sided `J` exactly as in Round 3, Step 2, into
+squeeze (`δ`), strain (`σn`, `σs`) and rotation (`ζ`), and `F` splits exactly into three terms:
+
+`two_F = divergence + strain + rotation remainder`
+
+The rotation no longer drops out exactly, because `ĝ` is taken at the neighbours, not at the
+centre. What is left is a pure grid effect, which vanishes for a linear `b`. Checks:
+- the recomputed total equals the stored `two_F` to 1.4 × 10⁻¹⁵ of its r.m.s.;
+- the three parts sum to the total to 1 × 10⁻¹⁵.
+
+| pair 36 (mean; r.m.s.) | divergence | strain | rotation remainder | **stored `two_F`** | continuum: conv. + strain = total |
+|---|---|---|---|---|---|
+| band (1,143) | **+1.08** (9.3) | **+2.39** (10.4) | −0.003 (2.4) | **+3.46** (16.2) | +1.29 + 2.92 = +4.21 |
+| ridge (307) | +1.68 | +3.23 | +0.09 | +5.01 | +1.93 + 4.25 = +6.18 |
+| flanks (836) | +0.86 | +2.08 | −0.04 | +2.90 | +1.05 + 2.43 = +3.48 |
+| window (59) | +14.9 | +18.8 | +0.8 | +34.5 | +16.2 + 20.5 = +36.7 |
+| the close-up parcel | +53.5 | +16.8 | +2.5 | +72.8 | +67.2 + 26.9 = +94.1 |
+
+- **The story does not change.** Strain carries **69 %** of the stored `two_F` (2.39 / 3.46),
+  the same share as in the continuum form. The discrete terms correlate cell by cell with
+  their continuum counterparts at 0.97 (divergence) and 0.96 (strain).
+- **Both terms shrink on the grid**, by 0.84× (divergence) and 0.82× (strain). That is where
+  the 0.82 between the discrete and continuum totals comes from: neither term alone causes it.
+- **The rotation remainder** averages to zero on the band (−0.003) but is not negligible cell by
+  cell: its r.m.s. is 2.4, about 15 % of the total's r.m.s. On the figure, (a) + (b) therefore
+  equals (c) only up to this term, about ±2–3 per cell on a colour scale of ±40.
+
+**NS-Q1 — Which split?**
+- (a) **The exact discrete split above**: divergence + strain = stored `two_F`, with the
+  rotation remainder quoted as a number in (c) ("rotation remainder: mean −0.00, r.m.s. 2.4").
+  This keeps three panels per row. The equation then holds on the means to 0.003 and per cell
+  to within the remainder. **Recommended.**
+- (b) As (a), but with the rotation remainder as its own fourth panel, so the equation holds
+  exactly per cell. On a 10-inch slide that means four narrower columns, and the fourth panel
+  is almost blank.
+- (c) Keep the continuum split and add a fourth "grid correction" panel (stored − continuum,
+  −0.75), so the figure sums to +3.46. It is exact, but it does not say how much of the
+  correction belongs to divergence and how much to strain, and (a) now does.
+
+>A. Let us do (a), but do not add the note abou the rotation remainder.
+
+**NS-Q2 — Titles and formulas.** In the discrete form the strain term is no longer exactly
+`|σ| G cos 2θ`, since `θ` is defined at the centre. I would title the panels with words, as in
+"(a) Convergence", "(b) Strain", "(c) 2F (stored, discrete)", and keep the continuum formulas
+for the report and `2F_method.png`. **OK?**
+
+>A. Yes, that is sensible.
+
+**NS-Q3 — Layout and colour scales.** I propose the slide format of `2F_method.png`:
+- 10 × 4.45 in, 300 dpi, no title or footnote;
+- 10.5 pt titles and 9 pt elsewhere, with "+" and "=" between the columns;
+- top row: every parcel; bottom row: the window;
+- one colour bar per row.
+
+On the scales: I suggest the scales of the `DG/Dt` slide (±`rate_limit` for the band,
+±`window_rate_limit` for the window), as in `2F_method.png` (c) and (f). Panel (c) then is
+exactly `2F_method.png` (c), and the three slides compare by eye. The current figure uses its
+own percentile scale. **OK?**
+
+>A. Yes, this is ok.
+
+**NS-Q4 — The report.** §2.5 point 3 and Appendix D, Step 4 say the split is of the continuum
+`F` only. Should I add the exact discrete split there (one table row and two sentences, with
+the numbers JSON-backed and checked like the rest)? I recommend **yes**, so that the report
+and the slide quote the same +1.08 + 2.39 = +3.46.
+
+>A. Yes, that is fine
+
+**NS-Q5 — `dGdt_split.png`.** It shares the old drawing code (`slides_dGdt.fig_split`) and has
+the old style (title, footnote, small fonts). Should it get the same slide-format restyle, in
+a later prompt? Its numbers are not affected; the semi-Lagrangian split is already of the
+measured quantity. If not, I will give `2F_split.png` its own drawing function and leave
+`dGdt_split.png` byte-identical.
+
+>A. You can leave dGdt_split.png as is.
+
+Prompt 7 (being drafted) asks for a method figure for the calculation actually performed. The
+one-sided velocity differences and neighbour gradients above are exactly that calculation, so
+the two figures can share code.
+
 
 *Opus 5.5, 2026-11-19, 2F prompt 1. Nothing has been drawn yet. The method is from
 `operators.frontogenesis` and `tracked/matched_parcels_track_81.md` §1.1. The numbers are band
@@ -430,10 +849,14 @@ The table shows the intuition directly.
 
 Steps 1–3 would go in an appendix. **OK?**
 
+>A. Yes, that is ok.  Please update `report/frontogenesis_report.md` accordingly
+
 **2F-Q9 — A schematic?** Step 4 is the part a picture carries best: a circle of parcels across
 two isopycnals under (i) convergence, (ii) strain with `θ = 0°`, and (iii) strain with
 `θ = 90°`, after a short time. It would be a purely graphical panel (no data), usable both in
 the report and as a slide before `2F_method.png`. **Do you want it, and if so, as its own prompt?**
+
+>A. No thanks.  I generated a new doc named `report/frontogenesis_intuition.md` and have all I need there.
 
 ### dG/dt
 
@@ -1379,3 +1802,228 @@ New numbers at pair 36, from `slides_2F.compute` (Jacobian-consistent set):
 - **Ridge and flanks:** +1.93 + 4.25 on the ridge, +1.05 + 2.43 on the flanks.
 
 New questions: 2F-Q8 (what goes in the report) and 2F-Q9 (a schematic of the pure flows).
+
+### 2026-11-23 — Figures / 2F, prompt 5 (Opus 5.5)
+
+**Done.** Answers read: 2F-Q8 (put the split in the report), 2F-Q9 (no schematic; JXP has
+`report/frontogenesis_intuition.md`).
+
+**Report** (`report/frontogenesis_report.md`), as proposed in 2F-Q8:
+- **New §2.5, "What sharpens a front: convergence and strain".** It covers the isopycnal
+  spacing, the boxed rate form `(1/G) DG/Dt = −δ + |σ| cos 2θ`, the two pure flows, the band
+  table for label 83 at 12:30 on 3 July (the §9.4 front), the close-up parcel, and three points
+  of reading (ageostrophic convergence; vorticity through θ; continuum vs discrete).
+- **New Appendix D** with Steps 1–4 of the derivation.
+- **Glossary:** rows for δ, ζ, σn, σs, |σ|, θ and f.
+- **Appendix B and the data table** name the new source.
+- The front-matter Status line (18 November) is untouched.
+
+**Provenance:**
+- `py/slides_2F.py` gains `decomposition()`, which writes a `decomposition` block to
+  `data/slides_2F_36.json`: parcel and G-weighted band rates, fractions, ridge/flank, and the
+  split error (asserted < 1e-10; it is 1.2e-15).
+- `report/check_frontogenesis_report.py` gains `split_checks()`: 25 numbers required verbatim.
+  The checker passes (251 body numbers), a mutated number is caught, and `tests/test_report.py`
+  passes (7).
+- The report avoids the word "efficiency" (the checker forbids it un-negated). The strain is
+  described as delivering 0.29 of its θ = 0 rate.
+
+**`slides/2F_method.png`** (still 10 × 4.45 in, 300 dpi):
+- **Text:** about 20 % smaller. Panel titles 13 → 10.5 pt (`FS_2F`); ticks, colour bars, quiver
+  key, top box and legend 11 → 9 pt (`FS_2F_LEGEND`). The legend was not named in the prompt;
+  it was reduced too, to free room.
+- **Panels:** enlarged from 1.40 to 1.56 in tall; (b) is about a third wider. The axes are
+  anchored left, and each colour bar is placed beside its panel after the aspect is applied
+  (draw, then `get_position`).
+- **Unchanged:** `dGdt_method.png`, `dGdt_split.png` and `2F_split.png` are byte-identical (md5).
+
+### 2026-11-23 — Figures / 2F, prompt 6 (Opus 5.5)
+
+**Discussion only, as asked; no figure or code changed.** The questions are NS-Q1 to Q5,
+under "Q&A / New split".
+
+Finding: the stored discrete `two_F` has a natural, exact split. Its commutator form is linear
+in the one-sided velocity gradients, so splitting each into squeeze, strain and rotation
+splits `F` exactly. The rotation leaves a grid remainder, because the gradients are taken at
+the neighbours.
+- The recomputed total matches the stored `two_F` to 1.4 × 10⁻¹⁵ of the r.m.s.; the parts sum
+  to 1 × 10⁻¹⁵.
+- **Band:** +1.08 (divergence) + 2.39 (strain) − 0.003 (remainder, r.m.s. 2.4) = **+3.46**.
+  The strain share is 69 %, as in the continuum form. Both terms shrink by about 0.82–0.84×;
+  the correlations with the continuum terms are 0.97 and 0.96.
+- Ridge +1.68 + 3.23; flanks +0.86 + 2.08; window +14.9 + 18.8 (+0.8) = +34.5; the close-up
+  parcel +53.5 + 16.8 (+2.5) = +72.8.
+
+The scratch script is not in `py/`. If NS-Q1 (a) is accepted, the split goes into
+`slides_2F.py` (JSON-backed).
+
+### 2026-11-23 — Figures / 2F, prompt 7 (Opus 5.5)
+
+**Done.** Answers read: NS-Q1 (a) without the remainder note; NS-Q2, Q3 and Q4 yes; NS-Q5:
+leave `dGdt_split.png` as is.
+
+**`slides/2F_split.png`** is redrawn in the slide format of `2F_method.png`:
+- 10 × 4.45 in, 300 dpi; no title or footnote; 10.5 pt titles, 9 pt elsewhere.
+- Top row, every parcel: (a) Convergence + (b) Strain = (c) 2F (stored, discrete),
+  **+1.08 + 2.39 = +3.46**.
+- Bottom row, the window: (d) + (e) = (f), +14.9 + 18.8 = +34.5. The rotation remainder (+0.8
+  in the window, −0.003 on the band) is not drawn.
+- The colour scales are those of the dG/dt slide, so (c) and (f) are `2F_method.png` (c) and
+  (f). Window box in the top row; one colour bar per row; "+" and "=" between the panels.
+
+**Code (`py/slides_2F.py`):**
+- New `discrete_parts()`: the exact split of `_frontogenesis_discrete`. Each one-sided velocity
+  gradient is split into squeeze, strain and rotation, with the same arithmetic as the operator
+  (model basis).
+- `compute()` carries the parts. `check()` asserts that the total equals the stored `two_F`
+  (2.1e-7 of the r.m.s., float32 storage) and that the parts sum to it (9.5e-16).
+- `fig_2F_split()` is rewritten as its own slide-format function. It no longer uses
+  `slides_dGdt.fig_split`; unused imports were dropped.
+- `decomposition` in `data/slides_2F_36.json` gains a `discrete` block and discrete
+  ridge/flank means.
+- `dGdt_method.png` and `dGdt_split.png` are byte-identical. `2F_method.png` changed only by
+  JXP's on-disk legend edit ("relative flow").
+
+**Report:**
+- §2.5 table: a row for the stored discrete 2F, +1.08 + 2.39 = +3.46.
+- §2.5 point 3 is retitled "The split holds for the discrete 2F as well", with the discrete
+  numbers: remainder −0.003 (r.m.s. 2.4); 69 % strain; 0.84/0.82 shrink; correlations
+  0.97/0.96; ridge/flank.
+- Appendix D, Step 4 now gives the one-sided Jacobian form and the exact split.
+- The checker has 8 more numbers (32 in total from `split_checks`) and passes;
+  `tests/test_report.py` passes (7).
+
+Prompt 8 (a method figure for the discrete calculation) can build on `discrete_parts`.
+
+### 2026-11-23 — Figures / 2F, prompt 8 (Opus 5.5)
+
+**Discussion only, as asked; nothing drawn and no code changed.** The questions are DF-Q1 to
+Q5, under "Q&A / Discrete 2F".
+
+I read `tracked/matched_parcels_track_81.md` §1.3 (Form 2) and `_frontogenesis_discrete`.
+Scratch computation at the close-up parcel (pair 36, j 126, i 653):
+- The four neighbour terms (model `i±1` = south/north, across the front; `j±1` = east/west,
+  along it) are +21.8, +40.7, +4.3 and +6.0, which sum to the stored `two_F`, +72.8.
+- **Finding:** the same sum with the centre gradient in place of the 4th-order neighbour
+  gradients gives +94.1, equal to the stored `two_F_chain` to 10⁻¹³. The two forms differ only
+  in where the gradient is read. Across the front the neighbours read 0.75–0.78 of the centre's
+  gradient, so the discrete form is 0.77 of the chain form at this parcel.
+- On this face the model `i` axis points south and `j` east (CS = 0, SN = −1).
+
+Proposed figure: `slides/2F_discrete.png`, with (a) the equations, (b) the stencil at the parcel
+with the `Δu` and `g⁽⁴⁾` arrows, and (c) paired bars, discrete against centre-gradient (chain).
+
+### 2026-11-23 — Figures / 2F, prompt 9 (Opus 5.5)
+
+**Done.** Answers read: DF-Q1 (a), one figure; DF-Q2, N/S/E/W labels with no note; DF-Q3,
+the g⁽⁴⁾ and h± details left out, with no note; DF-Q4, the shared parcel; DF-Q5, add the
+finding.
+
+**`slides/2F_discrete.png`** (slide format, 10 × 4.45 in, 300 dpi, 10.5 / 9 pt, no title):
+- **(a) The calculation:** `G = |L b|²`; `D(L_k b)/Dt = −[L_k, u·∇] b ≡ −C_k`; `C_k` from the
+  one-sided `Δu` and the gradient at the neighbours; boxed `2F = −2 Σ_k g_k(x) C_k`; a
+  one-line gloss; "chain rule: the same, with g(x) in place of g(x ± e_k)".
+- **(b) The stencil at the parcel** (j 126, i 653):
+  - `b_mid` shading and contours; the centre cell and its four neighbours outlined and
+    labelled N/S/E/W;
+  - the centre gradient (red, bold); the gradient at each neighbour (light red, length ∝ |g|);
+  - the velocity difference to each neighbour (purple; the longest is 5.1 cm s⁻¹).
+- **(c) The four neighbour terms**, discrete (solid) against centre-gradient (hatched).
+  N +40.7 / +51.6, S +21.8 / +32.2, E +4.3 / +4.0, W +6.0 / +6.2; sums **+72.8 = `two_F`** and
+  **+94.1 = `two_F_chain`**. Across the front the neighbours read 0.78 (N) and 0.75 (S) of the
+  centre's gradient.
+
+**Code (`py/slides_2F.py`):**
+- `discrete_parts()` also returns the four neighbour terms, the centre-gradient terms and their
+  sum, and the model-basis gradients.
+- `compute()` carries them and CS/SN.
+- `check()` asserts, **band-wide**, that the centre-gradient sum equals the recomputed
+  chain-rule 2F (7.5e-12 of the r.m.s.).
+- New `_compass()` and `fig_discrete()`; the numbers are in `data/slides_2F_36.json` under
+  `discrete`.
+- The other four figures are byte-identical.
+
+**Docs (DF-Q5):**
+- `tracked/matched_parcels_track_81.md` §1.3, Form 2: the finding, the parcel's four terms
+  both ways, and a pointer to the figure.
+- Report Appendix D, Step 4: the finding and why the discrete form is smaller ("where the
+  buoyancy gradient is read").
+- The report checker passes.
+
+### 2026-11-23 — Figures / 2F, prompt 10 (Opus 5.5)
+
+**Done.** `slides/2F_discrete.png` was edited.
+- **`∇b` in place of `g`** throughout: in the equations and in the legend ("∇b at the centre",
+  "∇b at a neighbour").
+- **The first equation is now the continuum `F`:**
+  `F = −(u_x b_x² + (u_y + v_x) b_x b_y + v_y b_y²)`. "On the grid (L_k: the centred difference
+  over two cells)" leads into the commutator.
+- **`k`, `e_k` and `h` are defined:** "k = x (E–W) or y (N–S); e_k: one cell along k;
+  x ± e_k: the neighbours in (b); h: the cell spacing".
+- **"Panel (x)" read as (c):** the bar chart is replaced by `2F` (stored) at every parcel, with
+  mean +3.46, the dG/dt slide's band scale, and the parcel of (b) marked (added to the legend).
+  The neighbour-term numbers stay in the JSON.
+- `fig_discrete(d, p, lims, out_png)` now takes the colour limits. Layout adjusted so the text
+  of (a) clears (b) and the colour bar of (c) is not clipped.
+- The other four figures are byte-identical.
+- In Q&A / Discrete 2F, Round 2: DF-Q6 (my reading of "(x)") and an optional inset showing
+  +72.8 against +94.1.
+
+### 2026-11-23 — Figures / Comparing dG/dt and 2F, prompt 1 (Opus 5.5)
+
+**Discussion only, as asked; nothing drawn.** The questions are CMP-Q1 to Q6, under
+"Q&A / Comparing".
+- **Model:** Figure 1 (top) of `tracked/matched_parcels_track_81.md`, drawn by
+  `py/matched_parcels.py`.
+- **Data:** for all 10 tracks the hourly `two_F`, `r_store`, `r_matched`, label, `npix`, time and
+  `split_merge` are in `data/m4_strength.json` → `series`; separate split/merge flags are in
+  `data/m4_quality.json` → `flow.rows`. No store is needed.
+- **Check:** front 0 at pair 36 gives +3.46 / +4.20, the band means of the method slides.
+- **Per-front summary** (means, ranges, correlations, split/merge counts): the table in the Q&A.
+  The ranges differ by a factor of about 100 between fronts.
+
+### 2026-11-23 — Figures / Comparing dG/dt and 2F, prompt 2 (Opus 5.5)
+
+**Done: first draft of `slides/2F_vs_dGdt.png`.** Answers read: CMP-Q1 (a), the two rates only;
+Q2 a small summary box; Q3 mark pair 36; Q4 no split/merge markers; Q5 front 0 only, no gallery
+yet; Q6 a new script.
+
+- **New `py/slides_2F_vs_dGdt.py`** (frontogenesis env, a few seconds). It reads only
+  `data/m4_strength.json`; `--track k` (default 0); the summary goes to
+  `data/slides_2F_vs_dGdt_0.json`.
+- **The figure:**
+  - 10 × 4.45 in at 300 dpi, one panel, no title; 13 pt axis labels, 11 pt ticks, legend and box.
+  - `2F` (blue) and the stored semi-Lagrangian `DG/Dt` (purple), at each pair's midpoint time,
+    on a UTC axis with ticks every 12 h; zero line; dashed anchor line (label 81, 11:30 3 Jul).
+  - **Pair 36 marked** with dots and a note: 12:30 3 Jul, 2F +3.46, DG/Dt +4.20. The script
+    **asserts** these equal the band means of `slides_2F_36.json` and `slides_dGdt_36.json`, and
+    the label (83).
+  - **Box:** 69 hours, track means 2F +2.79 and DG/Dt +3.01, hourly correlation 0.95. No ratio.
+- **Also in the JSON:** sign agreement 0.96; fractions positive 0.81 (2F) and 0.83 (DG/Dt).
+- The box was moved from the lower right (it covered the trough on 4 Jul) to the upper right.
+- **New questions:** CMP-Q7 (anchor line label 81 vs the slides' label 83), Q8 (y-axis wording),
+  Q9 (an integrated-G companion).
+
+### 2026-11-23 — Figures / Comparing dG/dt and 2F, prompt 3 (Opus 5.5)
+
+**Done.** `slides/2F_vs_dGdt_gallery.png`, fronts 1–9. Answers read: CMP-Q7, keep "label 81";
+CMP-Q8, the y-axis becomes "mean over the front's parcels"; CMP-Q9, no companion.
+
+**Gallery:**
+- `--gallery` in `py/slides_2F_vs_dGdt.py`, a new `fig_gallery()`. It reads only
+  `m4_strength.json` and `m4_tracks.json`.
+- 3 × 3 panels on a 10 × 4.45 in slide at 300 dpi, 9 pt.
+- Each panel is tagged "k: label L" on its colour from `tracking_top10.gif`
+  (`slides_tracking.TOP_COLOURS`), with its left and bottom axes in that colour; the tags are
+  asserted against `m4_tracks.json`.
+- `2F` is blue and `DG/Dt` purple; each panel has its own y-scale, a zero line, the anchor line,
+  and "means 2F / DG/Dt; r" upper right.
+- One shared legend at the top and a shared y label.
+- Per-front numbers are in `data/slides_2F_vs_dGdt_0.json` under `gallery`. Hourly correlations
+  are 0.80–0.97, except front 5 (0.58).
+
+**`slides/2F_vs_dGdt.png`:** y-axis relabelled (CMP-Q8), with a wider left margin for the
+two-line label.
+
+**New questions** in Q&A / Gallery: GAL-Q1 (add front 0 as a tenth panel?) and GAL-Q2 (a
+common-scale view?).

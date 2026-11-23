@@ -59,6 +59,14 @@ report with marked notes on three points; nothing in its verdict changes. See th
 the estimate, and a worked example on pair 36 that embeds and reads `slides/dGdt_method.png`
 panel by panel. Nothing else in the document changed. No question. See the log entry.
 
+**Status — 2F, task 1 (2026-11-23, Fable 5.2): done.**
+`tracked/matched_parcels_track_81.md` has a new §1.3, "How `2F` is calculated: the continuum
+expression and its two forms on the grid": the continuum derivation, the chain-rule form
+(`two_F_chain`), the discretely consistent form (`two_F`, the one used in every comparison),
+how they differ, both on this track's parcels (new numbers), and the pair-36 example with
+`slides/2F_method.png`. One correction to the task's wording: the discrete form is not the
+approximate one. No question. See the log entry.
+
 ---
 
 ## Tasks
@@ -116,8 +124,19 @@ at the end of Section 1.1
 If you have any questions, please put them in the "Q&A/Semi-Lagrangian dG/dt" section below.
 Use Fable 5.2.  Log your work in the Logs section below.
 
+### 2F 
+
+1. I also wish to include additional information on how 2F was calculated for the comparison
+provided in the `tracked/matched_parcels_track_81.md` file.
+In particular, I see now there is the continuum (early exact) form and the discrete form
+(approximate).  Please modify the `tracked/matched_parcels_track_81.md` file to include additional 
+information on how 2F was calculated.  Have this be a new section 1.3 in the file.
+If you have any questions, please put them in the "Q&A/2F" section below.
+Use Fable 5.2.  Log your work in the Logs section below.
 
 ## Q&A
+
+### 2F
 
 ### Semi-Lagrangian dG/dt
 
@@ -836,3 +855,64 @@ suite was not re-run. Nothing committed.
 
 **Note.** `slides/` is untracked in git; the embedded figure needs it committed (or the link
 breaks for another reader). TA-Q4 is still open.
+
+### 2026-11-23 — Track analysis, 2F task 1: how `2F` is calculated — the continuum expression, the chain-rule form and the discretely consistent form (Fable 5.2)
+
+**Asked.** More on how `2F` was calculated for the comparison in
+`tracked/matched_parcels_track_81.md`, in particular the continuum form and the discrete
+form, as a new §1.3.
+
+**On the task's wording** ("the continuum (nearly exact) form and the discrete form
+(approximate)"). That is not quite the situation, and §1.3 opens with a table saying so. The
+continuum expression is exact for smooth fields but cannot be evaluated exactly on a grid.
+There are two gridded forms. The chain-rule form (`two_F_chain`) transcribes the formula. The
+discretely consistent form (`two_F`) is the rate of change of the *gridded* `G = |L b|²`
+under advection, which is what the stored `DG/Dt` measures. Every `2F` in this document and
+in the report is the second.
+
+**Changed.** `py/matched_parcels.py` only: `parcel_link` reads `two_F_chain` at the seed cells
+(`CHAIN_VAR`, `CHAIN_SCALARS`); new `chain_summary` (in `track_summary` as `two_F_chain`);
+new `two_F_detail` and `_slide_2F_example`, called in `write_markdown` between §1.2 and §2;
+one sentence at the end of §1.1's `2F` paragraph points to §1.3. Regenerated with
+`matched_parcels.py --label 81 --anchor-step 35`. Outside §1.3 only that sentence and the
+generation date changed. Written from `operators.frontogenesis`, `_frontogenesis_discrete`
+and `jacobian`, not from memory.
+
+**What §1.3 holds.**
+- The continuum derivation: `D_h b/Dt = 0` → `D_h(∂_k b)/Dt = −∂_k u·∇b` →
+  `D_hG/Dt = −2 ∇bᵀ(∇u)∇b = 2F`, and `2F = −δG + |σ|G cos 2θ`.
+- Form 1, chain-rule: `L` for `∇b`, `operators.jacobian` for `∇u`, products at the cell; why
+  it over-predicts the rate of the gridded `G` on a narrow front.
+- Form 2, discrete: the derivation with the stencil's commutator, the exact commutator for
+  the two-cell stencil, and the four steps as coded (model-axis gradient, centred velocity,
+  fourth-order neighbour gradient, the two one-sided terms per axis).
+- How they differ: equal for linear `b`; factor `1 + (2/3)(Δx/ℓ)²` at a tanh front (discrete
+  over chain 0.86 at `ℓ = 2Δx`, 0.96 at `4Δx`); the discrete null (0.758 with the chain-rule
+  form, 0.981 [0.970, 0.994] with the discrete form; report §4 — a synthetic test of the
+  operators); what the discrete form gives up.
+
+**Numbers for label 81** (new; band means on the same parcels, 69 steps, 10⁻¹⁹ s⁻⁵; the ratio
+of the two forms compares two predictions and is not an efficiency).
+
+| | chain-rule | discrete |
+|---|---|---|
+| mean | +3.87 | +2.79 |
+| r.m.s. of hourly means | 6.41 | 5.63 |
+| ridge / flank mean | +5.21 / +3.37 | +3.82 / +2.41 |
+| integral, 10⁻¹⁴ s⁻⁴ | +9.40 | +6.76 |
+| stored `DG/Dt`: corr, r.m.s. diff, mean diff | 0.942, 1.96, −0.85 | 0.947, 1.61, +0.23 |
+| matched rate: corr, r.m.s. diff, mean diff | 0.924, 3.51, −2.90 | 0.938, 2.49, −1.82 |
+
+The two forms' hourly means correlate at 0.997; the discrete form is 0.88 of the chain-rule
+form in r.m.s. and 0.72 in the mean; per parcel within a step, correlation 0.95 and r.m.s.
+ratio 0.86 (medians). The discrete form is closer to both measured rates on every row. The
+matched rate is below both forms.
+
+**Worked example** (from `data/slides_2F_36.json`, shown only when such a file matches a pair
+of the track): pair 36, the parcel at j 126, i 653 — convergence +67.2, strain +26.9,
+chain-rule +94.1, discrete +72.8; band: chain-rule +4.21, discrete +3.46 (0.82); stored
+`DG/Dt` +4.20, matched +2.38. `slides/2F_method.png` is embedded.
+
+**Checks.** The run's assertion against `matched_link` passed at every step; `two_F_chain`
+is finite on every parcel that enters `2F`. Tests: 4 passed; the full suite was not re-run.
+Nothing committed. TA-Q4 is still open.
