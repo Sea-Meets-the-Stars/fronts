@@ -162,6 +162,22 @@ The figures can be named `slides/2F_method.png` and `slides/2F_split.png`.
 If you have any additional questions, put them in the "Q&A/2F" section below.
 Use Opus 5.5. Log your work.
 
+3. Let us make a few more edits to the `slides/2F_method.png` figure:
+    - Remove the title
+    - Remove the footnote
+    - Remove the text giving G and 2F values at the center of the figure
+    - Increase the fonts throughout
+
+    If you have any additional questions, put them in the "Q&A/2F" section below.
+    Use Opus 5.5. Log your work.
+
+4. I am still trying to inuit the decomposition of 2F into a divergence and a strain term.
+Please provide a further derivation in the Q&A/2F section below.  I will then ask to include
+at least a portion of this in the main Report.
+If you have any additional questions, put them in the "Q&A/2F" section below.
+Use Opus 5.5. Log your work.
+
+5. Back to the `slides/2F_method.png` figure.  Please make a few more edits:
 
 ## Q&A
 
@@ -268,6 +284,156 @@ and strain +26.9 (sum 94.1, stored discrete 72.8). Over the band it is the other
 - (a) Keep the shared parcel, and say in the talk that this cell is convergence-led while the
   front overall is strain-led. **Recommended**: the two slides then show the same water.
 - (b) Pick a strain-dominated ridge parcel for the 2F slide only (`--parcel j,i`).
+
+>A. This is fine.  I wish to maintain our focus on this region.
+
+#### Round 3 (Opus 5.5, 2026-11-23, 2F prompt 4): deriving the divergence + strain split
+
+*The conventions are those of the code (`operators.frontogenesis`, `strain_from_jacobian`,
+`strain_alignment`). The numbers are recomputed at pair 36 (label 83, 1,143 parcels, 12:30), on
+the Jacobian-consistent set that `slides_2F.py` uses, and they reproduce `2F_split.png`. They come
+from a throwaway session script built on `slides_2F.compute`; nothing new is drawn.*
+
+**Step 0: what `G` measures.** `G = |∇b|²`. If two neighbouring isopycnals differ by `Δb` and
+lie a distance `L` apart, then `|∇b| ≈ Δb/L` and `G ≈ Δb²/L²`. Since `b` is conserved by each
+parcel (adiabatic), `Δb` is fixed, so **everything that changes `G` following the water is a
+change in the spacing `L`**:
+
+`(1/G) DG/Dt = −2 (1/L) DL/Dt`.
+
+Sharpening a front means bringing isopycnals closer together. The question is only *which
+part of the flow* does that.
+
+**Step 1: the exact equation.** Take the horizontal gradient of `Db/Dt = 0`. For each
+component, `D(b_x)/Dt = −(u_x b_x + v_x b_y)` and `D(b_y)/Dt = −(u_y b_x + v_y b_y)`. That is,
+
+`D(∇b)/Dt = −(∇u)ᵀ ∇b`,  with  `∇u = [[u_x, u_y], [v_x, v_y]]`.
+
+The gradient is rearranged only by the *velocity differences* across it; a uniform current
+moves a front without changing it (hence the relative-velocity quivers on the slide). Then
+
+`DG/Dt = 2 ∇b · D(∇b)/Dt = −2 (u_x b_x² + (u_y + v_x) b_x b_y + v_y b_y²) ≡ 2F`.
+
+This is the `form='chain'` `F`.
+
+**Step 2: split the velocity gradient into three motions.** Any 2 × 2 velocity-gradient tensor
+can be written exactly as
+
+```
+∇u =  ½δ [[1, 0], [0, 1]]   +   ½ [[σn, σs], [σs, −σn]]   +   ½ζ [[0, −1], [1, 0]]
+      (isotropic squeeze)       (pure strain, area-preserving)  (solid rotation)
+```
+
+with `δ = u_x + v_y` (divergence), `σn = u_x − v_y` (normal strain), `σs = v_x + u_y` (shear
+strain) and `ζ = v_x − u_y` (vorticity). Multiplying out gives `u_x, u_y, v_x, v_y` back, so
+the split is an identity and loses nothing. Inserting it into `F = −(∇b)ᵀ(∇u)(∇b)`:
+- **The rotation drops out.** For any vector `g`, `gᵀ [[0, −1], [1, 0]] g = 0`. Rotation turns
+  `∇b` without changing its length, so it cannot change `G`. It does change the direction of
+  `∇b`, and so the angle `θ` below; that is how vorticity acts on fronts, indirectly.
+- **Divergence gives `−½δ G`**, whatever the direction of `∇b`.
+- **Strain gives `−½[σn(b_x² − b_y²) + 2σs b_x b_y]`**, which depends on the direction.
+
+**Step 3: write the strain term as an angle.** Write `∇b = √G (cos α, sin α)`, so that
+`b_x² − b_y² = G cos 2α` and `2 b_x b_y = G sin 2α`. Write the strain as
+`σn = |σ| cos 2ψ`, `σs = |σ| sin 2ψ`, with `|σ| = √(σn² + σs²)`. Then
+
+`σn(b_x² − b_y²) + 2σs b_x b_y = |σ| G cos 2(α − ψ)`.
+
+`ψ` is the **extensional axis**: in a frame rotated by `ψ`, the strain matrix is
+`½|σ| diag(1, −1)`, which stretches along `ψ` and squeezes along `ψ + 90°` (the **compressional
+axis**). Let `θ` be the angle between `∇b` and the compressional axis, so `α − ψ = θ + 90°` and
+`cos 2(α − ψ) = −cos 2θ`. Putting the pieces together:
+
+`2F = −δ G + |σ| G cos 2θ`,  or, as a rate,  **`(1/G) DG/Dt = −δ + |σ| cos 2θ`**.
+
+The second form is the most intuitive. **Each term is a growth rate of `G` in s⁻¹**, and
+`1/rate` is an e-folding time.
+
+**Step 4: what each term does to the spacing `L`.** Take the two pure flows separately, each in
+its natural frame.
+- **Pure divergence**, `u = (δ/2)x`, `v = (δ/2)y`. Every length scales at the rate `δ/2`, in
+  every direction, so `DL/Dt = (δ/2) L` and `(1/G) DG/Dt = −δ`. **Convergence (`δ < 0`) packs
+  isopycnals closer whatever the front's orientation.** A ring of parcels shrinks uniformly.
+- **Pure strain**, `u' = +(|σ|/2)x'` along the extensional axis and `v' = −(|σ|/2)y'` along the
+  compressional axis. Area is conserved, so a circle of parcels becomes an ellipse. From Step 1,
+  `D(b_x')/Dt = −(|σ|/2) b_x'` and `D(b_y')/Dt = +(|σ|/2) b_y'`: the gradient component along
+  the compressional axis grows and the one along the extensional axis decays. With `∇b` at
+  angle `θ` from the compressional axis,
+  `(1/G) DG/Dt = |σ|(cos²θ − sin²θ) = |σ| cos 2θ`.
+  - `θ = 0°`: the isopycnals lie along the stretching direction and are squeezed together. The
+    largest rate is `+|σ|`; this is the classic deformation-field front.
+  - `θ = 45°`: compression and stretching cancel, so there is no change.
+  - `θ = 90°`: the isopycnals are pulled apart (frontolysis), at the rate `−|σ|`.
+
+  The same strain field can therefore sharpen or weaken a front. **What decides is the
+  orientation of the front, not the strength of the strain.**
+
+A useful comparison: the divergence term is like squeezing a sponge evenly from all sides; the
+strain term is like stretching dough, which thins it in one direction only.
+
+**Step 5: the numbers at pair 36.** Here `f = 6.80 × 10⁻⁵ s⁻¹` at 27.8°N.
+
+*The close-up parcel (j 126, i 653).*
+- Inputs: `δ = −2.18 × 10⁻⁵`, `|σ| = 1.48 × 10⁻⁵ s⁻¹`, `θ = 27°`, `cos 2θ = 0.59`.
+- Rates: convergence `+2.18 × 10⁻⁵` and strain `+0.87 × 10⁻⁵`, total `3.05 × 10⁻⁵ s⁻¹ = 0.45 f`.
+- **`G` would e-fold in 9.1 h.** Multiplying by `G = 3.08 × 10⁻¹³` gives the +67.2 and +26.9
+  quoted earlier (×10⁻¹⁹ s⁻⁵).
+
+*The band (1,143 parcels), weighted by `G`.* This is the weighting that makes the band means of
+`2F` add up: `⟨2F⟩ = ⟨G⟩ × (G-weighted rate)`.
+
+| | G-weighted mean rate [10⁻⁵ s⁻¹] | G-weighted mean of the magnitude | contribution to `⟨2F⟩` [10⁻¹⁹ s⁻⁵] |
+|---|---|---|---|
+| convergence `−δ` | +0.22 | `\|δ\|` 1.06 | +1.29 |
+| strain `\|σ\| cos 2θ` | +0.51 | `\|σ\|` 1.77 | +2.92 |
+| total | +0.73 (0.11 f, e-folding 38 h) | | +4.21 |
+
+The table shows the intuition directly.
+- **Divergence is large but nearly cancels.** `|δ|` is about 60 % of `|σ|`, but only 59 % of the
+  parcels converge, so the convergence and divergence parcels mostly offset each other. The net
+  rate is a fifth of the typical `|δ|`.
+- **Strain has a steady sign.** `θ` is mostly below 45°: 72 % of the parcels, median 29°,
+  `⟨cos 2θ⟩ = 0.33`. Strain is used at about 30 % of its maximum efficiency, and the sign
+  rarely flips.
+- **The result is that strain carries 69 % of the band's `2F`, even though the parcel shown is
+  convergence-led** (2F-Q7). The split holds on the ridge (+1.93 + 4.25) and on the flanks
+  (+1.05 + 2.43).
+
+**Step 6: three points worth stating in the report.**
+1. **Why strain sets the sign and convergence varies.** At a front, the large-scale (mesoscale)
+   strain is slowly varying and coherent along the front. The convergence is mostly the
+   *ageostrophic secondary circulation* of the front itself: the cross-front overturning that
+   keeps the front near thermal-wind balance (Hoskins & Bretherton 1972; Hoskins 1982). It
+   converges on one side of the front and diverges on the other, which fits the 59/41 split and
+   the cancellation in the table.
+   - In the semi-geostrophic picture, strain starts the sharpening and the convergence it
+     induces speeds it up (the feedback that can collapse a front in finite time).
+   - At the surface, `δ = −∂w/∂z`, so convergence comes with downwelling.
+2. **Vorticity acts through `θ`.** `ζ` does not appear in `2F`, but it rotates `∇b`, while
+   strain turns `∇b` toward the compressional axis. Their balance sets the typical `θ`
+   (Lapeyre, Klein & Hua 1999, for passive tracers). A front sitting at θ ≈ 29°, rather than at
+   0°, is the sign of that competition.
+3. **The split applies to the continuum `2F`, not the stored discrete one.** The identity in
+   Step 2 is exact for `F = −(∇b)ᵀ(∇u)(∇b)` (checked to 1 × 10⁻¹⁵ of the r.m.s. with the
+   Jacobian-consistent `δ, σn, σs`). The stored discrete `2F` (+3.46) is a commutator of the
+   stencil and has no unique split of its own; it is 0.82 × the continuum value here. With the
+   flux-form `δ`, `σ` of the derived store, the two terms sum to 4.29 rather than 4.21. The report
+   should therefore state the split for the continuum form and the comparison with `DG/Dt` for
+   the discrete form.
+
+**2F-Q8 — What goes in the report?** My suggestion is a short subsection containing:
+- Step 0 (spacing);
+- the boxed result of Step 3, `(1/G) DG/Dt = −δ + |σ| cos 2θ`;
+- Step 4 (the two pure flows), in prose;
+- the band table of Step 5;
+- the three points of Step 6.
+
+Steps 1–3 would go in an appendix. **OK?**
+
+**2F-Q9 — A schematic?** Step 4 is the part a picture carries best: a circle of parcels across
+two isopycnals under (i) convergence, (ii) strain with `θ = 0°`, and (iii) strain with
+`θ = 90°`, after a short time. It would be a purely graphical panel (no data), usable both in
+the report and as a slide before `2F_method.png`. **Do you want it, and if so, as its own prompt?**
 
 ### dG/dt
 
@@ -1160,3 +1326,56 @@ The plan is `py/slides_twoF.py` (frontogenesis env), reusing the geometry and pa
 - Visual check: four passes. They fixed (a)'s longitudes colliding with (d)'s title, and the
   contour labels clipped at the edge or touching the centre cell.
 
+
+### 2026-11-23 — Figures / 2F, prompt 3 (Opus 5.5)
+
+**Done.** `slides/2F_method.png` is redrawn in the slide format of `dGdt_method.png` (DG prompt 4):
+10 × 4.45 in at 300 dpi (3000 × 1335 px), for a 16:9 Google Slide under the slide's own title.
+- **Removed:** the title, the footnote, and the `G`, `δ`, `|σ|`, θ and `2F` numbers under (b);
+  those numbers are still in `data/slides_2F_36.json` (`method.parcel`). The (b) legend and the
+  "DG/Dt on the same parcels" notes in (c) and (f) are also gone (the comparison is deferred, 2F-Q5).
+- **Fonts:** panel titles 13 pt; ticks, colour bars, quiver key and the shared legend 11 pt
+  (2–3× the old size at the slide's width).
+- **Kept:** the "2F is an instant" box (2F-Q1), shortened to one line across the top:
+  `b_mid = ½[b(12:00) + b(13:00)]`, likewise `u_mid` → `2F = −δG + |σ|G cos 2θ` at 12:30.
+- **Layout:** one shared legend at the bottom; ticks removed except the latitudes on (a);
+  short titles: (a) Label 83, G at 12:30; (b) One parcel at 12:30; (c) 2F, every parcel;
+  (d) G, relative flow; (e) Alignment cos 2θ; (f) 2F, window. Contour labels in (b) are
+  placed away from the parcel (`_edge_labels`, as on the dG/dt slide).
+- **Quivers:** (b) and (d) now share one scale (10 cm s⁻¹ = 0.22 in; the maximum relative
+  speed is about 10 cm s⁻¹ in both), with one key between (b) and (c). Before, each had its own key.
+- **Reuse:** `slides_dGdt.py` gained `slide_front()` (panel a) and `slide_legend_handles()`,
+  used by both slides. `dGdt_method.png`, `dGdt_split.png` and `2F_split.png` regenerate
+  **byte-identical** (md5). All assertions in `slides_2F.check` pass.
+- Note: matplotlib's quiver keys and arrows are sized in inches from the figure's own dpi, so the
+  figure is created at 300 dpi.
+- 2F-Q7 (the close-up parcel is convergence-led) is still open; the shared parcel is kept.
+
+### 2026-11-23 — Figures / 2F, prompt 4 (Opus 5.5)
+
+**Discussion only, as asked; no code or figure changed.** The derivation of
+`2F = −δG + |σ|G cos 2θ` is in Q&A/2F, Round 3. Its steps:
+- Step 0: `G ∝ 1/L²`, isopycnal spacing.
+- Step 1: `D∇b/Dt = −(∇u)ᵀ∇b`.
+- Step 2: split `∇u` into squeeze + strain + rotation; the rotation drops out.
+- Step 3: write the strain term as an angle. The rate form is
+  `(1/G) DG/Dt = −δ + |σ| cos 2θ`.
+- Step 4: the two pure flows in their own frames.
+- Step 5: the parcel and band numbers.
+- Step 6: the ageostrophic convergence, the effect of vorticity through θ, and continuum vs
+  discrete.
+
+The conventions match `operators.strain_from_jacobian` / `strain_alignment`: ψ is the
+extensional axis and θ is measured from the compressional axis.
+
+New numbers at pair 36, from `slides_2F.compute` (Jacobian-consistent set):
+- **The close-up parcel:** rates of +2.18 (convergence) + 0.87 (strain) = 3.05 × 10⁻⁵ s⁻¹
+  = 0.45 f, an e-folding time of 9.1 h.
+- **The band, G-weighted:** −δ +0.22, |σ| cos 2θ +0.51 (×10⁻⁵ s⁻¹), total 0.11 f, an e-folding
+  time of 38 h.
+- **Divergence against strain:** G-weighted |δ| is 1.06 against |σ| 1.77. Only 59 % of the
+  parcels converge, so the convergence mostly cancels. Strain runs at about 30 % of its maximum
+  efficiency (⟨cos 2θ⟩ = 0.33).
+- **Ridge and flanks:** +1.93 + 4.25 on the ridge, +1.05 + 2.43 on the flanks.
+
+New questions: 2F-Q8 (what goes in the report) and 2F-Q9 (a schematic of the pure flows).

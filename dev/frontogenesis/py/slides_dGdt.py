@@ -329,6 +329,32 @@ def _edge_labels(ax, cs, centre, fs, keep=(0.66, 0.80)):
     ax.clabel(cs, manual=pos, inline=True, fontsize=fs, fmt='%.1f')
 
 
+def slide_front(a, d, win, small):
+    """Panel (a) of the slide-sized method figures (DG prompt 4; shared with ``slides_2F``):
+    midpoint ``G``, the front pixels, the lassoed band and the window; latitude ticks only.
+    Returns the mappable for the caller's colour bar."""
+    skel = d['skel']
+    cj, ci = _crop(d)
+    lg = _log(d['Gmid'])
+    vG = np.nanpercentile(lg[cj, ci], [2, 99.5])
+    m = _cells(a, d, lg, cj, ci, cmap=CMAP_G, vmin=vG[0], vmax=vG[1])
+    a.scatter(d['X'][skel], d['Y'][skel], s=0.6, marker='s', c=COL_SKEL, lw=0, zorder=4)
+    _lasso(a, d, cj, ci, lw=1.0)
+    _box(a, d, win[0], win[1], WIN, COL_WIN, lw=1.8)
+    _geo(a, d, cj, ci, nbins=2)
+    a.tick_params(labelsize=small)
+    a.set_xticks([])                      # longitude would collide with (d)'s title
+    return m
+
+
+def slide_legend_handles():
+    """The legend entries common to the slide-sized method figures."""
+    return [Line2D([], [], color=COL_SKEL, marker='s', ls='', ms=5, label='front pixels'),
+            Line2D([], [], color=COL_BAND, ls=':', lw=1.8, label='parcels (front + 1 cell)'),
+            Line2D([], [], color=COL_WIN, lw=2.0, label='window (d–f)'),
+            Line2D([], [], color=COL_CLOSE, lw=1.4, ls='--', label='close-up (b)')]
+
+
 def fig_method(d, win, p, out_png, fs=FS_DG):
     """The method on one 16:9 slide under its own title (DG prompt 4): no suptitle or
     footnote, ``SLIDE_SIZE`` inches at ``METHOD_DPI``, axes placed in inches."""
@@ -366,15 +392,7 @@ def fig_method(d, win, p, out_png, fs=FS_DG):
         f = axes_in(6.45, r2, 2.05, hh - 0.05)
 
         # (a) the front: midpoint G, the band, the window
-        lg = _log(d['Gmid'])
-        vG = np.nanpercentile(lg[cj, ci], [2, 99.5])
-        m = _cells(a, d, lg, cj, ci, cmap=CMAP_G, vmin=vG[0], vmax=vG[1])
-        a.scatter(d['X'][skel], d['Y'][skel], s=0.6, marker='s', c=COL_SKEL, lw=0, zorder=4)
-        _lasso(a, d, cj, ci, lw=1.0)
-        _box(a, d, win[0], win[1], WIN, COL_WIN, lw=1.8)
-        _geo(a, d, cj, ci, nbins=2)
-        a.tick_params(labelsize=small)
-        a.set_xticks([])                      # longitude would collide with (d)'s title
+        m = slide_front(a, d, win, small)
         title(a, f'(a) Label {d["label"]}, $G$ at {d["time_mid"][11:16]}')
         cbar(m, 2.82, r1 + 0.1, hh - 0.2, r'$\log_{10} G$')
 
@@ -455,10 +473,7 @@ def fig_method(d, win, p, out_png, fs=FS_DG):
                va='bottom', fontsize=small, bbox=dict(fc='w', ec='0.5', lw=0.6, alpha=0.9, pad=2),
                zorder=10)
 
-        handles = [Line2D([], [], color=COL_SKEL, marker='s', ls='', ms=5, label='front pixels'),
-                   Line2D([], [], color=COL_BAND, ls=':', lw=1.8, label='parcels (front + 1 cell)'),
-                   Line2D([], [], color=COL_WIN, lw=2.0, label='window (d–f)'),
-                   Line2D([], [], color=COL_CLOSE, lw=1.4, ls='--', label='close-up (b)'),
+        handles = slide_legend_handles() + [
                    Line2D([], [], color='k', marker='o', mfc='w', ls='', ms=6,
                           label=f'$x$: arrival cell, {t1}'),
                    Line2D([], [], color=COL_DEP, marker='o', mec='k', ls='', ms=6,
